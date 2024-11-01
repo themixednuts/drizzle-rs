@@ -3,7 +3,7 @@ pub mod expressions;
 pub mod traits;
 
 pub trait ToSQL {
-    fn to_sql(self) -> String;
+    fn to_sql(&self) -> String;
 }
 
 pub enum SQLChunk {

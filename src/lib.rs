@@ -15,10 +15,10 @@ mod tests {
     #[test]
     fn create_table() {
         static_sqlite_table!("users_table", {
-            id: integer("id", SQLiteInteger {}).not_null(),
+            id: integer("id", SQLiteInteger {}).primary().not_null(),
             name: text("name", SQLiteText {}),
         });
 
-        println!("{:?}", USERS_TABLE.name.to_sql());
+        println!("{}", USERS_TABLE.name.to_sql());
     }
 }

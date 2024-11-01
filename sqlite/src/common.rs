@@ -3,7 +3,7 @@ pub type Real = f64;
 pub type Text = String;
 pub type Blob = Vec<u8>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Any {
     Integer(Integer),
     Real(Real),
@@ -17,7 +17,7 @@ impl Default for Any {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Number {
     Int(Integer),
     Real(Real),

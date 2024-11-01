@@ -20,4 +20,4 @@ impl<C: Column> Column for Box<C> {
     }
 }
 
-pub trait SQLiteMode: Default + Sync + Send + Copy + Clone {}
+pub trait SQLiteMode: Default + Sync + Send + Copy + Clone + Eq + PartialEq {}

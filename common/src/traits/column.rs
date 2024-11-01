@@ -1,20 +1,20 @@
-pub trait PrimaryKey: Clone + Copy + Default + Sync + Send {
+pub trait PrimaryKey: Clone + Copy + Default + Sync + Send + Eq {
     const IS_PRIMARY: bool;
 }
 
-pub trait NotNull: Clone + Copy + Default + Sync + Send {
+pub trait NotNull: Clone + Copy + Default + Sync + Send + Eq {
     const IS_NOT_NULL: bool;
 }
 
-pub trait Unique: Clone + Copy + Default + Sync + Send {
+pub trait Unique: Clone + Copy + Default + Sync + Send + Eq {
     const IS_UNIQUE: bool;
 }
 
-pub trait DefaultValue: Clone + Copy + Default + Sync + Send {
+pub trait DefaultValue: Clone + Copy + Default + Sync + Send + Eq {
     const HAS_DEFAULT: bool;
 }
 
-pub trait DefaultFn: Clone + Copy + Default + Sync + Send {
+pub trait DefaultFn: Clone + Copy + Default + Sync + Send + Eq {
     const HAS_DEFAULT_FN: bool;
 }
 

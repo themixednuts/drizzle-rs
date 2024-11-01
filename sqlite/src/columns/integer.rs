@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use common::{
     builders::column::ColumnBaseBuilder,
-    traits::{ColumnBuilder, Comparable, DefaultFn, DefaultValue, NotNull, PrimaryKey, Unique},
+    traits::{Comparable, DefaultFn, DefaultValue, NotNull, PrimaryKey, Unique},
     ToSQL,
 };
 
@@ -39,7 +39,7 @@ impl Autoincrement for NotAutoIncremented {
 // }
 
 pub type SQLiteIntegerColumnBuilder<
-    DataMode: SQLiteIntegerMode,
+    DataMode,
     TPrimary = NotPrimary,
     TNotNull = Nullable,
     TUnique = NotUnique,
@@ -99,7 +99,7 @@ impl<
         Fun: Fn() -> Result<Integer, std::fmt::Error> + Clone + Send + Sync,
     > ToSQL for SQLiteIntegerColumn<M, P, N, U, A, D, F, Fun>
 {
-    fn to_sql(self) -> String {
+    fn to_sql(&self) -> String {
         let name = format!(r#""{}""#, self.name);
         let mut sql = vec![name.as_str(), "INTEGER"];
 
@@ -111,7 +111,10 @@ impl<
             sql.push("AUTOINCREMENT");
         }
 
+        println!("Checking NOT NULL");
         if N::IS_NOT_NULL {
+            println!("IS NOT NULL");
+
             sql.push("NOT NULL");
         }
 
@@ -136,28 +139,28 @@ pub fn integer<Mode: SQLiteIntegerMode>(
 pub trait SQLiteIntegerMode: SQLiteMode {}
 
 pub trait IntegerMode: SQLiteIntegerMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteInteger {}
 impl SQLiteMode for SQLiteInteger {}
 impl IntegerMode for SQLiteInteger {}
 impl SQLiteIntegerMode for SQLiteInteger {}
 
 pub trait TimeStampMode: SQLiteMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteTimeStamp {}
 impl SQLiteMode for SQLiteTimeStamp {}
 impl TimeStampMode for SQLiteTimeStamp {}
 impl SQLiteIntegerMode for SQLiteTimeStamp {}
 
 pub trait TimeStampMS: SQLiteMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteTimeStampMS {}
 impl SQLiteMode for SQLiteTimeStampMS {}
 impl TimeStampMS for SQLiteTimeStampMS {}
 impl SQLiteIntegerMode for SQLiteTimeStampMS {}
 
 pub trait Boolean: SQLiteMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteBoolean {}
 impl SQLiteMode for SQLiteBoolean {}
 impl Boolean for SQLiteBoolean {}

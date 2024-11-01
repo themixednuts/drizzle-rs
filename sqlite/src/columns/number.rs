@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use common::{
     builders::column::ColumnBaseBuilder,
     traits::{Comparable, DefaultFn, DefaultValue, NotNull, PrimaryKey, Unique},
+    ToSQL,
 };
 
 use crate::{common::Number, traits::column::SQLiteMode};
@@ -36,7 +37,7 @@ pub type SQLiteNumberColumnBuilder<
 pub trait SQLiteNumberMode: SQLiteMode {}
 
 pub trait NumberMode: SQLiteNumberMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteNumber {}
 impl SQLiteMode for SQLiteNumber {}
 impl NumberMode for SQLiteNumber {}
@@ -72,6 +73,25 @@ pub type SQLiteNumberColumn<
     TDefaultFn,
     TFunc,
 >;
+
+impl<M: SQLiteNumberMode, P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn> ToSQL
+    for SQLiteNumberColumn<M, P, N, U, D, F>
+{
+    fn to_sql(&self) -> String {
+        let name = format!(r#""{}""#, self.name);
+        let mut sql = vec![name.as_str(), "NUMBER"];
+
+        if P::IS_PRIMARY && !U::IS_UNIQUE {
+            sql.push("PRIMARY KEY");
+        }
+
+        if N::IS_NOT_NULL {
+            sql.push("NOT NULL");
+        }
+
+        sql.join(" ").to_string()
+    }
+}
 
 impl<M: SQLiteNumberMode, P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn>
     From<SQLiteNumberColumnBuilder<M, P, N, U, D, F>> for SQLiteNumberColumn<M, P, N, U, D, F>

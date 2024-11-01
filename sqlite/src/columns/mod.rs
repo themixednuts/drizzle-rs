@@ -1,4 +1,4 @@
-use std::{fmt::Display, marker::PhantomData};
+use std::{fmt::Display, marker::PhantomData, ops::Deref};
 
 use common::{
     builders::column::ColumnBaseBuilder,
@@ -19,82 +19,82 @@ pub mod number;
 pub mod real;
 pub mod text;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NotSet;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NoDefaultFn;
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IsPrimary;
 
 impl PrimaryKey for IsPrimary {
     const IS_PRIMARY: bool = true;
 }
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NotPrimary;
 
 impl PrimaryKey for NotPrimary {
     const IS_PRIMARY: bool = false;
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NotNullable;
 
 impl NotNull for NotNullable {
     const IS_NOT_NULL: bool = true;
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Nullable;
 
 impl NotNull for Nullable {
     const IS_NOT_NULL: bool = false;
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IsUnique;
 
 impl Unique for IsUnique {
     const IS_UNIQUE: bool = true;
 }
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NotUnique;
 
 impl Unique for NotUnique {
     const IS_UNIQUE: bool = false;
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DefaultSet;
 
 impl DefaultValue for DefaultSet {
     const HAS_DEFAULT: bool = true;
 }
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DefaultNotSet;
 
 impl DefaultValue for DefaultNotSet {
     const HAS_DEFAULT: bool = false;
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DefaultFnSet;
 
 impl DefaultFn for DefaultFnSet {
     const HAS_DEFAULT_FN: bool = true;
 }
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DefaultFnNotSet;
 
 impl DefaultFn for DefaultFnNotSet {
     const HAS_DEFAULT_FN: bool = false;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct SQLiteColumnBuilder<
-    DataType: Default + Clone + Sync + Send,
-    ColumnType: Default + Clone + Sync + Send,
+    DataType: Default + Clone + Sync + Send + PartialEq,
+    ColumnType: Default + Clone + Sync + Send + PartialEq,
     DataMode: SQLiteMode,
     TPrimary: PrimaryKey = NotPrimary,
     TNotNull: NotNull = Nullable,
@@ -130,8 +130,8 @@ pub struct SQLiteColumnBuilder<
 }
 
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + PartialEq,
+        ColumnType: Default + Clone + Sync + Send + PartialEq,
         DataMode: SQLiteMode,
         P: PrimaryKey,
         N: NotNull,
@@ -160,8 +160,8 @@ type SQLiteColumnBuilderPrimarySet<DataType, ColumnType, DataMode, N, U, A, D, F
     SQLiteColumnBuilder<DataType, ColumnType, DataMode, IsPrimary, N, U, A, D, F, Fun>;
 
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + Eq,
+        ColumnType: Default + Clone + Sync + Send + Eq,
         DataMode: SQLiteMode,
         N: NotNull,
         U: Unique,
@@ -192,8 +192,8 @@ type SQLiteColumnBuilderNotNullSet<DataType, ColumnType, DataMode, P, U, A, D, F
     SQLiteColumnBuilder<DataType, ColumnType, DataMode, P, NotNullable, U, A, D, F, Fun>;
 
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + Eq,
+        ColumnType: Default + Clone + Sync + Send + Eq,
         DataMode: SQLiteMode,
         P: PrimaryKey,
         U: Unique,
@@ -224,8 +224,8 @@ type SQLiteColumnBuilderDefaultSet<DataType, ColumnType, DataMode, P, N, U, A> =
     SQLiteColumnBuilder<DataType, ColumnType, DataMode, P, N, U, A, DefaultSet, DefaultFnNotSet>;
 
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + Eq,
+        ColumnType: Default + Clone + Sync + Send + Eq,
         DataMode: SQLiteMode,
         P: PrimaryKey,
         N: NotNull,
@@ -266,8 +266,8 @@ type SQLiteColumnBuilderDefaultFnSet<DataType, ColumnType, DataMode, P, N, U, A,
     SQLiteColumnBuilder<DataType, ColumnType, DataMode, P, N, U, A, DefaultNotSet, DefaultFnSet, F>;
 
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + Eq,
+        ColumnType: Default + Clone + Sync + Send + Eq,
         DataMode: SQLiteMode,
         P: PrimaryKey,
         N: NotNull,
@@ -298,8 +298,8 @@ type SQLiteColumnBuilderUniqueSet<DataType, ColumnType, DataMode, N, A, D, F, Fu
     SQLiteColumnBuilder<DataType, ColumnType, DataMode, NotPrimary, N, IsUnique, A, D, F, Fun>;
 
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + Eq,
+        ColumnType: Default + Clone + Sync + Send + Eq,
         DataMode: SQLiteMode,
         N: NotNull,
         A: Autoincrement,
@@ -353,10 +353,10 @@ impl<
 //         write!(f, "{}", self.clone().to_sql())
 //     }
 // }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct SQLiteColumn<
-    DataType: Default + Clone + Sync + Send,
-    ColumnType: Default + Clone + Sync + Send,
+    DataType: Default + Clone + Sync + Send + PartialEq,
+    ColumnType: Default + Clone + Sync + Send + PartialEq,
     DataMode: SQLiteMode,
     TPrimary: PrimaryKey = NotPrimary,
     TNotNull: NotNull = Nullable,
@@ -394,9 +394,28 @@ pub struct SQLiteColumn<
     // uniqueName: Option<String>,
 }
 
+// impl<
+//         DataType: Default + Clone + Sync + Send,
+//         ColumnType: Default + Clone + Sync + Send,
+//         DataMode: SQLiteMode,
+//         P: PrimaryKey,
+//         N: NotNull,
+//         U: Unique,
+//         A: Autoincrement,
+//         D: DefaultValue,
+//         F: DefaultFn,
+//     > Deref for SQLiteColumn<DataType, ColumnType, DataMode, P, N, U, A, D, F>
+// {
+//     type Target;
+
+//     fn deref(&self) -> &Self::Target {
+//         todo!()
+//     }
+// }
+
 impl<
-        DataType: Default + Clone + Sync + Send,
-        ColumnType: Default + Clone + Sync + Send,
+        DataType: Default + Clone + Sync + Send + Eq,
+        ColumnType: Default + Clone + Sync + Send + Eq,
         DataMode: SQLiteMode,
         P: PrimaryKey,
         N: NotNull,

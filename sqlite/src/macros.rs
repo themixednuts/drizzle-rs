@@ -258,12 +258,12 @@ macro_rules! sqlite_table {
 
 #[macro_export]
 macro_rules! function_args {
-    ($type:ident ( $($params:tt)* ) $( .$func:ident $( ( $($args:expr),* ) )+ )* ) => {
-        $type( $( $params )* ) $( .$func $( ( $($args),* ) )+ ) *.into()
+    ($type:ident ( $($params:tt)* ) $( .$func:ident $( ( $($args:expr),* ) )* )* ) => {
+        $type( $( $params )* ) $( .$func $( ( $($args),* ) )* ) *.into()
     };
-    ($type:ident ( $($params:tt)* ) $( .$func:ident $( ( $($args:expr),* ) )? )* ) => {
-        $type( $( $params )* ) $( .$func $( ( $($args),* ) )? ) *
-    };
+    // ($type:ident ( $($params:tt)* ) $( .$func:ident $( ( $($args:expr),* ) )? )* ) => {
+    //     $type( $( $params )* ) $( .$func $( ( $($args),* ) )? ) *
+    // };
 }
 
 #[macro_export]

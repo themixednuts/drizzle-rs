@@ -37,21 +37,21 @@ pub type SQLiteTextColumnBuilder<
 pub trait SQLiteTextMode: SQLiteMode {}
 
 pub trait StringMode: SQLiteTextMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteText {}
 impl SQLiteMode for SQLiteText {}
 impl StringMode for SQLiteText {}
 impl SQLiteTextMode for SQLiteText {}
 
 pub trait TextEnumMode: SQLiteTextMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteTextEnum(&'static [&'static str]);
 impl SQLiteMode for SQLiteTextEnum {}
 impl TextEnumMode for SQLiteTextEnum {}
 impl SQLiteTextMode for SQLiteTextEnum {}
 
 pub trait JSONMode: SQLiteTextMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteJSON {}
 impl SQLiteMode for SQLiteJSON {}
 impl JSONMode for SQLiteJSON {}
@@ -108,9 +108,9 @@ impl<M: SQLiteTextMode, P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F
 impl<M: SQLiteTextMode, P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn> ToSQL
     for SQLiteTextColumn<M, P, N, U, D, F>
 {
-    fn to_sql(self) -> String {
+    fn to_sql(&self) -> String {
         let name = format!(r#""{}""#, self.name);
-        let mut sql = vec![name.as_str(), "INTEGER"];
+        let mut sql = vec![name.as_str(), "TEXT"];
 
         if P::IS_PRIMARY && !U::IS_UNIQUE {
             sql.push("PRIMARY KEY");

@@ -1,5 +1,5 @@
 #[allow(unused)]
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ColumnBaseBuilder<DataType: Default, ColumnType: Default, DataMode: Default> {
     pub name: &'static str,
     pub mode: DataMode,

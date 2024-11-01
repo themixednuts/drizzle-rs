@@ -1,16 +1,19 @@
+use std::marker::PhantomData;
+
 use common::{
     builders::column::ColumnBaseBuilder,
     traits::{Comparable, DefaultFn, DefaultValue, NotNull, PrimaryKey, Unique},
+    ToSQL,
 };
 
 use crate::{common::Any, traits::column::SQLiteMode};
 
 use super::{
     integer::NotAutoIncremented, DefaultFnNotSet, DefaultNotSet, NotPrimary, NotUnique, Nullable,
-    SQLiteColumnBuilder,
+    SQLiteColumn, SQLiteColumnBuilder,
 };
 
-pub type SQLiteAnyColumn<
+pub type SQLiteAnyColumnBuilder<
     TPrimary = NotPrimary,
     TNotNull = Nullable,
     TUnique = NotUnique,
@@ -30,8 +33,8 @@ pub type SQLiteAnyColumn<
     TFunc,
 >;
 
-pub fn any(name: &'static str) -> SQLiteAnyColumn {
-    SQLiteAnyColumn {
+pub fn any(name: &'static str) -> SQLiteAnyColumnBuilder {
+    SQLiteAnyColumnBuilder {
         base: ColumnBaseBuilder {
             name,
             ..Default::default()
@@ -43,11 +46,65 @@ pub fn any(name: &'static str) -> SQLiteAnyColumn {
 pub trait SQLiteAnyMode {}
 
 pub trait TSQLiteAny: SQLiteMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteAny {}
 impl SQLiteMode for SQLiteAny {}
 impl TSQLiteAny for SQLiteAny {}
 impl SQLiteAnyMode for SQLiteAny {}
+
+pub type SQLiteAnyColumn<
+    TPrimary = NotPrimary,
+    TNotNull = Nullable,
+    TUnique = NotUnique,
+    TDefault = DefaultNotSet,
+    TDefaultFn = DefaultFnNotSet,
+    TFunc = fn() -> Result<Any, std::fmt::Error>,
+> = SQLiteColumn<
+    Any,
+    Any,
+    SQLiteAny,
+    TPrimary,
+    TNotNull,
+    TUnique,
+    NotAutoIncremented,
+    TDefault,
+    TDefaultFn,
+    TFunc,
+>;
+
+impl<P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn>
+    From<SQLiteAnyColumnBuilder<P, N, U, D, F>> for SQLiteAnyColumn<P, N, U, D, F>
+{
+    fn from(value: SQLiteAnyColumnBuilder<P, N, U, D, F>) -> Self {
+        Self {
+            name: value.base.name,
+            data_type: value.base.data_type,
+            column_type: value.base.column_type,
+            unique_name: value.unique_name,
+            default: value.default,
+            default_fn: value.default_fn,
+            _marker: PhantomData,
+        }
+    }
+}
+impl<P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn> ToSQL
+    for SQLiteAnyColumn<P, N, U, D, F>
+{
+    fn to_sql(&self) -> String {
+        let name = format!(r#""{}""#, self.name);
+        let mut sql = vec![name.as_str(), "ANY"];
+
+        if P::IS_PRIMARY && !U::IS_UNIQUE {
+            sql.push("PRIMARY KEY");
+        }
+
+        if N::IS_NOT_NULL {
+            sql.push("NOT NULL");
+        }
+
+        sql.join(" ").to_string()
+    }
+}
 
 impl<P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn> Comparable<f64>
     for SQLiteAnyColumn<P, N, U, D, F>

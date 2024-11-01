@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use common::{
     builders::column::ColumnBaseBuilder,
     traits::{Comparable, DefaultFn, DefaultValue, NotNull, PrimaryKey, Unique},
+    ToSQL,
 };
 
 use crate::{common::Real, traits::column::SQLiteMode};
@@ -36,7 +37,7 @@ pub type SQLiteRealColumnBuilder<
 pub trait SQLiteRealMode: SQLiteMode {}
 
 pub trait RealMode: SQLiteRealMode {}
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SQLiteReal {}
 impl SQLiteMode for SQLiteReal {}
 impl RealMode for SQLiteReal {}
@@ -86,6 +87,24 @@ impl<M: SQLiteRealMode, P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F
             default_fn: value.default_fn,
             _marker: PhantomData,
         }
+    }
+}
+impl<M: SQLiteRealMode, P: PrimaryKey, N: NotNull, U: Unique, D: DefaultValue, F: DefaultFn> ToSQL
+    for SQLiteRealColumn<M, P, N, U, D, F>
+{
+    fn to_sql(&self) -> String {
+        let name = format!(r#""{}""#, self.name);
+        let mut sql = vec![name.as_str(), "REAL"];
+
+        if P::IS_PRIMARY && !U::IS_UNIQUE {
+            sql.push("PRIMARY KEY");
+        }
+
+        if N::IS_NOT_NULL {
+            sql.push("NOT NULL");
+        }
+
+        sql.join(" ").to_string()
     }
 }
 
