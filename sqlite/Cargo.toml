@@ -1,0 +1,11 @@
+[package]
+name = "sqlite"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+
+[dependencies]
+paste = { workspace = true }
+common = { workspace = true }
+const_format = { workspace = true }

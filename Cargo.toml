@@ -1,0 +1,29 @@
+[package]
+name = "drizzle-rs"
+version = "0.1.0"
+
+[workspace]
+resolver = "2"
+members = ["common", "sqlite"]
+
+[workspace.package]
+authors = ["Mixed Nuts"]
+edition = "2021"
+keywords = ["drizzle", "rizzle", "orm", "database", "sqlite"]
+
+[workspace.dev-dependencies]
+rusqlite = "0.32.1"
+
+[workspace.dependencies]
+paste = "1.0.15"
+common = { path = "./common" }
+sqlite = { path = "./sqlite" }
+const_format = { version = "0.2.33" }
+
+[features]
+sqlite = []
+serde = []
+
+[dependencies]
+sqlite = { path = "sqlite" }
+common = { path = "common" }
