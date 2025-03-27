@@ -1,0 +1,19 @@
+[package]
+name = "procmacros"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = { version = "1.0.37" }
+proc-macro2 = { version = "1.0.89" }
+syn = { version = "2.0.87", features = ["full"] }
+
+[features]
+default = []
+serde = []
+sqlite = []

@@ -1,0 +1,116 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# API Guidelines
+- These rules are to give examples of how to build and consume the api from a user standpoint.
+
+# Schema
+```rust
+		use uuid::Uuid;
+		use serde::{Deserialize, Serialize};
+		use drizze_rs::prelude::*;
+
+		#[allow(dead_code)]
+		#[derive(SQLiteTable)]
+		#[table(strict, without_rowid)]
+		pub struct Users {
+			#[integer(primary_key, default_fn = Uuid::new_v4 )]
+			id: Uuid,
+			#[text]
+			email: String
+			#[text(default = "Hello!")]
+			description: Option<String>,
+			#[blob]
+			data: UserData,
+		}
+
+		#[derive(Serialize, Deserialize, Debug)]
+		pub struct UserData {
+			age: i64,
+			name: String,
+		}
+
+		#[allow(dead_code)]
+		#[derive(SQLiteTable)]
+		pub struct Followers {
+			#[integer(primary_key, references = Users::id )]
+			follower_id: Uuid,
+			#[integer(primary_key, references = Users::id )]
+			followee_id: Uuid,
+		}
+
+		#[allow(dead_code)]
+		#[derive(SQLiteTable)]
+		pub struct Profile {
+			#[integer(primary_key, default_fn = Uuid::new_v4 )]
+			id: Uuid,
+			#[integer(references = Users::id )]
+			users_id: Uuid,
+			#[integer]
+			likes: i64,
+		}
+
+		#[derive(SQLiteSchema)]
+		pub struct UsersFollowersSchema<Users, Followers>;
+
+		#[derive(SQLiteSchema)]
+		pub struct ProfilesSchema<Profiles>;		
+
+		fn main(){
+			let schema = UsersFollowersSchema::new();
+			let extended_schema = schema.extend::<ProfilesSchema>();
+
+			// OR
+
+			let schema = UsersFollowersSchema::with::<ProfilesSchema>()
+		}
+
+```
+
+# QueryBuilder
+- API examples for QueryBuilder, using the examples above for Schema
+
+```rust
+  fn main(){
+		let schema = UsersFollowersSchema::new();
+		let qb = QueryBuilder::new(schema);
+
+		let uid = Uuid::new_v4();
+
+		// SELECT * FROM USERS WHERE 'Users.id' = ?
+		let sql = qb.from::<Users>().select().where(eq(Users::id, uid)).to_sql();
+
+		// compile time Error because wrong type for comparison with Users::id
+		let sql2 = qb.from::<Users>().select().where(eq(Users::id, 64)).to_sql();
+	}
+```
+
+# Drizzle
+- API examples for using the drizzle! macro to use a connection with schema that auto calls and returns the sql/data/rows. Again, we use the examples above along with this.
+
+```rust
+	fn main(){
+		let conn = rusqlite::Connection::open_in_memory()?;
+		let schema = UsersFollowersSchema::with::<ProfilesSchema>()
+		let db = drizzle!(conn, schema);
+
+		// OR 
+		let db = drizzle!(rustqlite::Connection::open_in_memory, schema);
+		
+		// OR
+		let db = drizzle!(conn, [UsersFollowersSchema, ProfilesSchema]);
+
+
+
+		let uid = Uuid::new_v4();
+
+		// Returns Result<SelectUsers>.
+		// SelectUsers is built from the `SQLiteTable` macro along with `InsertUsers` because the types are different and depends on if columns have defaults, and/or not null etc.
+		let result = db.from::<Users>().select().where(eq(Users::id, uid)).all()?;
+	}
+```
+
+

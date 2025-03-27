@@ -1,24 +1,44 @@
-extern crate common;
-// #[cfg(feature = "sqlite")]
-extern crate sqlite;
-
 pub mod prelude {
-    pub use common::*;
-    // #[cfg(feature = "sqlite")]
-    pub use sqlite::prelude::*;
+    pub use procmacros::*;
+    pub use querybuilder::core::*;
+    pub use querybuilder::sqlite::prelude::*;
+    pub use querybuilder::*;
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::*;
+
+    use super::prelude::*;
+    use uuid::Uuid;
+
+    #[allow(dead_code)]
+    #[derive(SQLiteTable)]
+    #[table(strict)]
+    pub struct Users {
+        #[text(primary_key)]
+        id: String,
+        #[text]
+        name: String,
+        #[text]
+        email: Option<String>,
+        #[integer]
+        is_active: i64,
+    }
 
     #[test]
-    fn create_table() {
-        static_sqlite_table!("users_table", {
-            id: integer("id", SQLiteInteger {}).primary().not_null(),
-            name: text("name", SQLiteText {}),
-        });
+    fn test_table_name() {
+        let sql = Users::id;
+        println!("{}", sql);
 
-        println!("{}", USERS_TABLE.name.to_sql());
+        let placeholder = placeholder!("id");
+        println!("{}", placeholder);
+    }
+
+    #[allow(dead_code)]
+    #[derive(SQLiteTable)]
+    #[table(strict)]
+    struct Follow {
+        #[integer(primary_key)]
+        id: i64,
     }
 }

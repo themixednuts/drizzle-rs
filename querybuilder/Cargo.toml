@@ -1,0 +1,17 @@
+[package]
+name = "querybuilder"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite = { workspace = true, optional = true }
+paste = { workspace = true }
+const_format = { workspace = true }
+
+[features]
+sqlite = []

@@ -1,29 +1,46 @@
 [package]
 name = "drizzle-rs"
-version = "0.1.0"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [workspace]
-resolver = "2"
-members = ["common", "sqlite"]
+resolver = "3"
+members = ["querybuilder", "drivers", "procmacros"]
 
 [workspace.package]
+version = "0.1.0"
+edition = "2024"
 authors = ["Mixed Nuts"]
-edition = "2021"
 keywords = ["drizzle", "rizzle", "orm", "database", "sqlite"]
-
-[workspace.dev-dependencies]
-rusqlite = "0.32.1"
+description = "A type-safe SQL query builder for Rust"
+license = "MIT"
+repository = "https://github.com/yourusername/drizzle-rs"
 
 [workspace.dependencies]
 paste = "1.0.15"
-common = { path = "./common" }
-sqlite = { path = "./sqlite" }
-const_format = { version = "0.2.33" }
+const_format = "0.2.33"
+rusqlite = { version = "0.34.0", features = ["bundled"] }
+querybuilder = { path = "./querybuilder" }
+drivers = { path = "./drivers" }
+procmacros = { path = "./procmacros" }
+uuid = { version = "1.16.0", features = ["v4"] }
 
 [features]
-sqlite = []
+default = ["sqlite"]
+sqlite = ["querybuilder/sqlite", "procmacros/sqlite"]
+# postgres = ["querybuilder/postgres"]
 serde = []
 
 [dependencies]
-sqlite = { path = "sqlite" }
-common = { path = "common" }
+querybuilder = { workspace = true, features = [] }
+drivers = { workspace = true }
+paste = { workspace = true }
+const_format = { workspace = true }
+rusqlite = { workspace = true }
+procmacros = { workspace = true }
+uuid = { workspace = true }

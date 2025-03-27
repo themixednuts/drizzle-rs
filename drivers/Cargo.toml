@@ -1,0 +1,18 @@
+[package]
+name = "drivers"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+[dependencies]
+querybuilder = { workspace = true }
+rusqlite = { workspace = true, optional = true }
+paste = { workspace = true }
+const_format = { workspace = true }
+
+[features]
+rusqlite = ["dep:rusqlite"]
