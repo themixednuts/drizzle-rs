@@ -22,7 +22,6 @@ pub(crate) struct FieldAttributes {
     pub(crate) default_fn: Option<ExprClosure>,
     pub(crate) autoincrement: Option<Ident>,
     pub(crate) unique: Option<Ident>,
-    pub(crate) references: Option<LitStr>,
     pub(crate) references_path: Option<ExprPath>,
     pub(crate) column_type: Option<String>,
 }
@@ -69,16 +68,16 @@ impl<'a> TryFrom<&'a Vec<Attribute>> for FieldAttributes {
                                         let flag_str = flag_ident.to_string();
 
                                         match flag_str.as_str() {
-                                            "primary_key" => {
+                                            "primary_key" | "primary" => {
                                                 attrs.primary_key = Some(flag_ident.clone());
                                             }
                                             "not_null" => {
                                                 attrs.not_null = Some(flag_ident.clone());
                                             }
                                             "autoincrement" => {
-																								if type_name_str != "integer" {
-																									return Err(syn::Error::new_spanned(flag_ident, "autoincrement can be only used with the '#[integer] attribute"))
-																								}
+    											if type_name_str != "integer" {
+    												return Err(syn::Error::new_spanned(flag_ident, "autoincrement can be only used with the '#[integer] attribute"))
+    											}
 																							
                                                 attrs.autoincrement = Some(flag_ident.clone());
                                             }
@@ -115,20 +114,10 @@ impl<'a> TryFrom<&'a Vec<Attribute>> for FieldAttributes {
                                                     }
                                                 }
                                                 "references" => {
-                                                    // Handle string literal references ("Table.column")
-                                                    if let Expr::Lit(lit_expr) = &*assign_expr.right
+                                                    // Only handle path-based references (Table::column)
+                                                    if let Expr::Path(path_expr) = &*assign_expr.right
                                                     {
-                                                        if let Lit::Str(lit_str) = &lit_expr.lit {
-                                                            attrs.references =
-                                                                Some(lit_str.clone());
-                                                        }
-                                                    }
-                                                    // Handle path-based references (Table::column)
-                                                    else if let Expr::Path(path_expr) =
-                                                        &*assign_expr.right
-                                                    {
-                                                        attrs.references_path =
-                                                            Some(path_expr.clone());
+                                                        attrs.references_path = Some(path_expr.clone());
                                                     }
                                                 }
                                                 _ => {}
@@ -172,24 +161,6 @@ pub(crate) fn get_option_inner_type(ty: &Type) -> Option<&Type> {
                     }
                 }
             }
-        }
-    }
-    None
-}
-
-// Helper function to check if a type is an enum
-pub(crate) fn is_enum_type(ty: &Type) -> bool {
-    // This would normally check against known enum types
-    // For now we'll return false, as we need context beyond this module
-    // Real implementation would access compiler information about the type
-    false
-}
-
-// Helper function to extract the path ident from a type
-pub(crate) fn get_type_path_ident(ty: &Type) -> Option<String> {
-    if let Type::Path(TypePath { path, .. }) = ty {
-        if let Some(segment) = path.segments.last() {
-            return Some(segment.ident.to_string());
         }
     }
     None

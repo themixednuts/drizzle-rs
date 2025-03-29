@@ -1,22 +1,59 @@
-mod attribute;
-
 use super::field::{FieldAttributes, TableField};
-use attribute::TableAttributes;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{DeriveInput, Ident, Type};
+use syn::{DeriveInput, Ident};
 
-pub(crate) fn table_macro(input: DeriveInput) -> syn::Result<TokenStream> {
+/// Implementation of the SQLiteTable attribute macro
+pub(crate) fn table_attr_macro(
+    input: syn::DeriveInput,
+    attrs: TokenStream,
+) -> syn::Result<TokenStream> {
+    // Parse the attribute tokens to extract the parameters
+    let mut name_attr: Option<String> = None;
+    let mut strict_attr = false;
+    let mut without_rowid_attr = false;
+
+    // Parse attribute tokens manually
+    if !attrs.is_empty() {
+        // Convert to string and parse manually
+        let attr_str = attrs.to_string();
+
+        // Simple parsing of name="value"
+        if attr_str.contains("name") {
+            // Very naive parsing just for this example
+            if let Some(start) = attr_str.find("name") {
+                if let Some(eq_pos) = attr_str[start..].find('=') {
+                    let start_pos = start + eq_pos + 1;
+                    if let Some(quote_pos) = attr_str[start_pos..].find('"') {
+                        let value_start = start_pos + quote_pos + 1;
+                        if let Some(end_quote_pos) = attr_str[value_start..].find('"') {
+                            let value = &attr_str[value_start..(value_start + end_quote_pos)];
+                            name_attr = Some(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check for strict flag
+        if attr_str.contains("strict") {
+            strict_attr = true;
+        }
+
+        // Check for without_rowid flag
+        if attr_str.contains("without_rowid") {
+            without_rowid_attr = true;
+        }
+    }
+
     let struct_name = &input.ident;
-    let table_attributes = TableAttributes::try_from(&input.attrs)?;
 
-    let table_name = table_attributes
-        .name
-        .unwrap_or_else(|| struct_name.to_string().to_lowercase());
+    // Use our extracted attribute values instead of the TableAttributes
+    let table_name = name_attr.unwrap_or_else(|| struct_name.to_string().to_lowercase());
+    let strict = strict_attr;
+    let without_rowid = without_rowid_attr;
 
-    let strict = table_attributes.strict;
-    let without_rowid = table_attributes.without_rowid;
-
+    // Continue with the existing implementation
     let fields = if let syn::Data::Struct(ref data) = input.data {
         data.fields
             .iter()
@@ -36,9 +73,9 @@ pub(crate) fn table_macro(input: DeriveInput) -> syn::Result<TokenStream> {
             })
             .collect::<syn::Result<Vec<_>>>()?
     } else {
-            return Err(syn::Error::new_spanned(
-                &input,
-            "SQLiteTable can only be derived for structs.",
+        return Err(syn::Error::new_spanned(
+            &input,
+            "SQLiteTable can only be applied to structs.",
         ));
     };
 
@@ -60,160 +97,174 @@ pub(crate) fn table_macro(input: DeriveInput) -> syn::Result<TokenStream> {
         }
     }
 
-    // Generate field definitions
-    let field_definitions = generate_field_accessors(struct_name, &table_name, strict, without_rowid, &fields, &primary_key_fields);
+    // Generate the SQL column definitions and field types
+    let column_defs = fields
+        .iter()
+        .map(|field| {
+            let ident = field.ident;
+            let field_name = format_ident!("{}", ident);
 
-    // Generate relationship methods
-    // let relationship_methods = generate_relationship_methods(struct_name, &fields);
+            // Get the original field type
+            let original_field_type = &field.field.ty;
 
-    Ok(quote! {
-        #field_definitions
-        // #table_impl
-        // #relationship_methods
-    })
-}
+            let column_name = match &field.attrs.name {
+                Some(name) => name.clone(),
+                None => field_name.to_string(),
+            };
 
-fn generate_field_accessors(struct_name: &Ident,
-	table_name: &str,
-	strict: bool,
-	without_rowid: bool,
-	 fields: &[TableField],
-	 primary_key_fields: &[&TableField],
-	) -> TokenStream {
-    let (field_defs, field_sqls): (Vec<_>, Vec<_>) = fields.iter().map(|field| {
-        let field_name = field.ident;
-        let field_type = &field.field.ty;
+            let is_primary = field.attrs.primary_key.is_some();
+            let is_autoincrement = field.attrs.autoincrement.is_some();
+            let is_unique = field.attrs.unique.is_some();
+            let is_nullable = super::field::is_option_type(&field.field.ty);
 
-        // Get column type and validation check based on field attributes
-        let ( data_type, validation_check) = match field.attrs.column_type.as_deref() {
-            Some("integer") => {
-                let type_check = generate_integer_validation_check(field_type);
-                (
-                    quote! { crate::prelude::Integer },
-                    type_check,
-                )
+            // Determine if the field type is an enum that implements SQLiteEnum
+            // This requires analyzing the inner type (for Option<T> we need to check T)
+            let inner_type = if is_nullable {
+                super::field::get_option_inner_type(&field.field.ty).unwrap_or(&field.field.ty)
+            } else {
+                &field.field.ty
+            };
+
+            // Get column type, checking if it's an enum type
+            let column_type = match field.attrs.column_type.as_deref() {
+                Some("integer") => "INTEGER",
+                Some("real") => "REAL",
+                Some("text") => "TEXT",
+                Some("blob") => "BLOB",
+                Some("number") => "NUMERIC",
+                _ => "TEXT",
+            };
+
+            // Create column definition
+            let mut sql = format!("{} {}", column_name, column_type);
+
+            // Add column constraints
+            if is_primary && primary_key_fields.len() <= 1 {
+                sql.push_str(" PRIMARY KEY");
+                if is_autoincrement {
+                    sql.push_str(" AUTOINCREMENT");
+                }
             }
-            Some("text") => {
-                let type_check = generate_text_validation_check(field_type);
-                (
-                    quote! { crate::prelude::Text },
-                    type_check,
-                )
+
+            if !is_nullable {
+                sql.push_str(" NOT NULL");
             }
-            Some("blob") => {
-                let type_check = generate_blob_validation_check(field_type);
-                (
-                    quote! { crate::prelude::Blob },
-                    type_check,
-                )
+
+            if is_unique {
+                sql.push_str(" UNIQUE");
             }
-            Some("real") => {
-                let type_check = generate_real_validation_check(field_type);
-                (
-                    quote! { crate::prelude::Real },
-                    type_check,
-                )
+
+            // Add default value
+            if let Some(default) = &field.attrs.default_value {
+                // For simple cases, format the default value
+                if let syn::Expr::Lit(expr_lit) = default {
+                    match &expr_lit.lit {
+                        syn::Lit::Int(i) => sql.push_str(&format!(" DEFAULT {}", i)),
+                        syn::Lit::Float(f) => sql.push_str(&format!(" DEFAULT {}", f)),
+                        syn::Lit::Bool(b) => {
+                            sql.push_str(&format!(" DEFAULT {}", if b.value { 1 } else { 0 }))
+                        }
+                        syn::Lit::Str(s) => sql.push_str(&format!(" DEFAULT '{}'", s.value())),
+                        _ => {}
+                    }
+                }
             }
-            _ => {
-                let type_check = generate_text_validation_check(field_type);
-                (
-                    quote! { crate::prelude::Text },
-                    type_check,
-                )
-            }
-        };
-      
 
-        let column_name = match &field.attrs.name {
-            Some(name) => name.clone(),
-            None => field_name.to_string(),
-        };
+            let default_fn = if let Some(default) = &field.attrs.default_fn {
+                quote! {
+                    Some(#default)
+                }
+            } else {
+                quote! { None }
+            };
 
-				let is_primary = field.attrs.primary_key.is_some();
-				let is_autoincrement = field.attrs.autoincrement.is_some();
-				let is_unique = field.attrs.unique.is_some();
-				let is_nullable = super::field::is_option_type(&field.field.ty);
+            // Generate the column constant
+            let col_const_name = field_name.clone();
+            let column_const = quote! {
+                #[allow(non_upper_case_globals, dead_code)]
+                // Assuming SQLiteColumn is in querybuilder::sqlite::query_builder
+                pub const #col_const_name: ::drizzle_rs::SQLiteColumn<'a, #original_field_type, Self> =
+                    ::drizzle_rs::SQLiteColumn::new(
+                        #column_name,
+                        #sql,
+                        #default_fn
+                    );
+            };
 
-				// Create column definition
-				let mut sql = format!(
-				    "{} {}",
-				    column_name,
-				    match field.attrs.column_type.as_deref() {
-				        Some("integer") => "INTEGER",
-				        Some("real") => "REAL",
-				        Some("text") => "TEXT",
-				        Some("blob") => "BLOB",
-				        Some("number") => "NUMERIC",
-				        _ => "TEXT", // Default to TEXT
-				    }
-				);
+            // Return the column definition, field definition, and SQL
+            (
+                column_const,
+                quote! {
+                    // Assuming SQLiteColumn is in querybuilder::sqlite::query_builder
+                    pub #field_name: ::drizzle_rs::SQLiteColumn<'a, #original_field_type, Self>
+                },
+                sql,                          // SQL for CREATE TABLE
+                field_name,                   // Field name as an ident
+                original_field_type.clone(),  // Original field type
+                column_name,                  // Column name as string
+            )
+        })
+        .collect::<Vec<_>>();
 
-				// Add column constraints
-				if is_primary && primary_key_fields.len() <= 1 {
-				    sql.push_str(" PRIMARY KEY");
-				    if is_autoincrement {
-				        sql.push_str(" AUTOINCREMENT");
-				    }
-				}
+    // Extract components from column_defs
+    let column_consts: Vec<_> = column_defs
+        .iter()
+        .map(|(const_def, _, _, _, _, _)| const_def.clone())
+        .collect();
+    let field_defs: Vec<_> = column_defs
+        .iter()
+        .map(|(_, field_def, _, _, _, _)| field_def.clone())
+        .collect();
+    let field_sqls: Vec<_> = column_defs.iter().map(|(_, _, sql, _, _, _)| sql).collect();
+    let field_names: Vec<_> = column_defs
+        .iter()
+        .map(|(_, _, _, name, _, _)| name)
+        .collect();
+    let field_types: Vec<_> = column_defs.iter().map(|(_, _, _, _, ty, _)| ty).collect();
+    let column_names: Vec<_> = column_defs
+        .iter()
+        .map(|(_, _, _, _, _, col_name)| col_name)
+        .collect();
 
-				if !is_nullable {
-				    sql.push_str(" NOT NULL");
-				}
+    // Pair column names and SQL for TableColumns
+    let column_name_sql_pairs = column_names.iter().zip(field_sqls.iter()).map(|(cn, fs)| {
+        quote! { (#cn, #fs) }
+    });
 
-				if is_unique {
-				    sql.push_str(" UNIQUE");
-				}
-
-				// Add default value
-				if let Some(default) = &field.attrs.default_value {
-				    // For simple cases, format the default value
-				    if let syn::Expr::Lit(expr_lit) = default {
-				        match &expr_lit.lit {
-				            syn::Lit::Int(i) => sql.push_str(&format!(" DEFAULT {}", i)),
-				            syn::Lit::Float(f) => sql.push_str(&format!(" DEFAULT {}", f)),
-				            syn::Lit::Bool(b) => {
-				                sql.push_str(&format!(" DEFAULT {}", if b.value { 1 } else { 0 }))
-				            }
-				            syn::Lit::Str(s) => sql.push_str(&format!(" DEFAULT '{}'", s.value())),
-				            _ => {}
-				        }
-				    } 
-			  }
-
-				let default_fn = if let Some(default) = &field.attrs.default_fn {
-					quote! {
-						Some(#default)
-					}
-				} else {
-					quote! { None }
-				};
-
-        (
-            quote! {
-			#[allow(non_upper_case_globals, non_snake_case, dead_code)]
-            pub const #field_name: crate::prelude::SQLiteColumn<#data_type, #struct_name, fn() -> #field_type, #field_type> = 
-                crate::prelude::SQLiteColumn::new(
-                    #column_name,
-                    #sql,
-                    #default_fn
-                );
-            },
-            sql
-        )
-    }).unzip();
+    // Define from_row fields before using them
+    let from_row_fields = fields.iter().map(|field| {
+        let field_name = &field.ident;
+        let column_name: String = field
+            .attrs
+            .name
+            .clone()
+            .unwrap_or_else(|| field.ident.to_string());
+        quote! {
+            #field_name: row.get(#column_name)?
+        }
+    });
 
     // Build the CREATE TABLE SQL string
     let mut create_table_sql = format!("CREATE TABLE {} (", table_name);
-    
+
     // Add field definitions
-    create_table_sql.push_str(&field_sqls.join(", "));
+    if !field_sqls.is_empty() {
+        create_table_sql.push_str(&field_sqls[0]);
+        for sql in &field_sqls[1..] {
+            create_table_sql.push_str(", ");
+            create_table_sql.push_str(sql);
+        }
+    }
 
     // Add composite primary key if needed
     if primary_key_fields.len() > 1 {
         let primary_key_cols: Vec<_> = primary_key_fields
             .iter()
             .map(|field| {
-                field.attrs.name.as_ref()
+                field
+                    .attrs
+                    .name
+                    .as_ref()
                     .unwrap_or(&field.ident.to_string())
                     .clone()
             })
@@ -235,18 +286,87 @@ fn generate_field_accessors(struct_name: &Ident,
 
     create_table_sql.push(';');
 
-    quote! {
-        #[allow(dead_code)]
-        impl #struct_name {
-            #(#field_defs)*
+    // Generate model types for Select, Insert, and Update
+    let select_model_name = format_ident!("Select{}", struct_name);
+    let insert_model_name = format_ident!("Insert{}", struct_name);
+    let update_model_name = format_ident!("Update{}", struct_name);
+
+    // Generate initialization code for Default implementation
+    let init_fields = field_names.iter().map(|field_name| {
+        quote! {
+            #field_name: Self::#field_name
+        }
+    });
+
+    // === MOVE IMPL GENERATION HERE (BEFORE `expanded`) ===
+    // Generate implementation for SQLSchema
+    let sql_schema_impl = quote! {
+        impl<'a> ::drizzle_rs::SQLSchema<'a, ::drizzle_rs::SQLiteTableType> for #struct_name<'a> {
+            const NAME: &'a str = #table_name;
+            const TYPE: ::drizzle_rs::SQLiteTableType = ::drizzle_rs::SQLiteTableType::Table;
+            const SQL: &'a str = #create_table_sql;
+            const ALIAS: Option<&'a str> = None;
+        }
+    };
+
+    // Generate the struct with transformed field types and implementations
+    let expanded = quote! {
+        #[derive(Clone, Debug)]
+        pub struct #struct_name<'a> {
+            #(#field_defs),*
         }
 
-		impl crate::prelude::SQLiteTableSchema for #struct_name {
-	        const NAME: &'static str = #table_name;
-	        const TYPE: crate::prelude::SQLiteTableType = crate::prelude::SQLiteTableType::Table;
-            const SQL: &'static str = #create_table_sql;
-	    }
-	}
+        impl<'a> #struct_name<'a> {
+            // Column constants
+            #(#column_consts)*
+
+            // SQL constant for creating the table
+            pub const SQL: &'static str = #create_table_sql;
+
+            // Helper method to get a qualified column name for SELECT queries
+            pub fn column(&self, name: &str) -> String {
+                format!("{}:{}", stringify!(#struct_name), name)
+            }
+
+            // Create a new QueryBuilder for this table
+            pub fn query() -> ::drizzle_rs::QueryBuilder<'a, #struct_name<'a>> {
+                ::drizzle_rs::QueryBuilder::new()
+            }
+        }
+
+        // Interpolate the generated impls
+        #sql_schema_impl
+
+        // Implement Default for initialization
+        impl<'a> Default for #struct_name<'a> {
+            fn default() -> Self {
+                Self {
+                    #(#init_fields),*
+                }
+            }
+        }
+
+        // Generate model for SELECT queries
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct #select_model_name {
+            #(pub #field_names: #field_types),*
+        }
+
+        // Generate model for INSERT queries
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct #insert_model_name {
+            #(pub #field_names: #field_types),*
+        }
+
+        // Generate model for UPDATE queries
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct #update_model_name {
+            #(pub #field_names: #field_types),*
+        }
+
+    };
+
+    Ok(expanded)
 }
 
 fn generate_relationship_methods(struct_name: &Ident, fields: &[TableField]) -> TokenStream {
@@ -269,291 +389,14 @@ fn generate_relationship_methods(struct_name: &Ident, fields: &[TableField]) -> 
                         )))
                 }
             })
-        }
-        // Handle string-based references
-        else if let Some(ref reference) = field.attrs.references {
-            let ref_val = reference.value();
-            if let Some((table, column)) = ref_val.split_once('.') {
-                Some(quote! {
-                    pub fn #field_ident(&self) -> impl crate::prelude::query_builder::ForeignKey {
-                        crate::query_builder::SQLChunk::new()
-                            .add(crate::sqlite::prelude::query_builder::SQL::Raw(format!(
-                                "{}.{} REFERENCES {}.{}",
-                                self.name(),
-                                stringify!(#field_ident),
-                                #table,
-                                #column
-                            )))
-                    }
-                })
-            } else {
-                None
-            }
         } else {
             None
         }
     });
 
     quote! {
-        impl #struct_name {
+        impl<'a> #struct_name<'a> {
             #(#methods)*
-        }
-    }
-}
-
-// Helper function to check if a type is an enum
-fn is_enum_type(ty: &Type) -> bool {
-    if let Type::Path(type_path) = ty {
-        if let Some(last_segment) = type_path.path.segments.last() {
-            // Just check if the type name exists and is potentially an enum
-            // We can't check the definition since we don't have access to the enum definition
-            return true;
-        }
-    }
-    false
-}
-
-/// Generates a compile-time check to ensure that a type can be stored as INTEGER
-///
-/// SQLite INTEGER columns can store:
-/// - Signed integers: i8, i16, i32, i64, isize
-/// - Unsigned integers: u8, u16, u32, u64, usize
-/// - Boolean: bool (stored as 0/1)
-/// - Enum types with Display and FromStr implementations
-///
-/// This function generates code that will fail to compile if the field type
-/// is not one of the supported types for INTEGER columns.
-fn generate_integer_validation_check(ty: &syn::Type) -> TokenStream {
-    let is_option = super::field::is_option_type(ty);
-    let inner_ty = if is_option {
-        super::field::get_option_inner_type(ty).unwrap_or(ty)
-    } else {
-        ty
-    };
-
-    let is_enum = is_enum_type(inner_ty);
-
-    // If it's an enum, we need to ensure it implements Display and FromStr
-    if is_enum {
-        return quote! {
-            {
-                trait __SQLiteEnumCompatible {
-                    fn __validate_enum_compatibility() {}
-                }
-
-                // Enums should implement Display and FromStr
-                impl<T> __SQLiteEnumCompatible for T
-                where
-                    T: ::std::fmt::Display + ::std::str::FromStr + 'static
-                {
-                    fn __validate_enum_compatibility() {}
-                }
-
-                // This will fail to compile if T doesn't satisfy constraints
-                <#inner_ty as __SQLiteEnumCompatible>::__validate_enum_compatibility();
-            }
-        };
-    }
-
-    quote! {
-        {
-            trait __SQLiteIntegerCompatible {
-                fn __validate_integer_compatibility() {}
-            }
-
-            // Add back the primitive implementations and validation check:
-            // Integer types
-            impl __SQLiteIntegerCompatible for i8 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for i16 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for i32 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for i64 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for isize { fn __validate_integer_compatibility() {} }
-
-            // Unsigned integer types (SQLite has no unsigned, but these can be converted)
-            impl __SQLiteIntegerCompatible for u8 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for u16 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for u32 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for u64 { fn __validate_integer_compatibility() {} }
-            impl __SQLiteIntegerCompatible for usize { fn __validate_integer_compatibility() {} }
-
-            // Boolean is stored as 0/1 in SQLite INTEGER columns
-            impl __SQLiteIntegerCompatible for bool { fn __validate_integer_compatibility() {} }
-
-            // This will fail to compile if T isn't compatible with INTEGER
-            <#inner_ty as __SQLiteIntegerCompatible>::__validate_integer_compatibility();
-        }
-    }
-}
-
-/// Generates a compile-time check to ensure that a type can be stored as REAL
-///
-/// SQLite REAL columns can store:
-/// - f32, f64 (floating point numbers)
-///
-/// This function generates code that will fail to compile if the field type
-/// is not one of the supported types for REAL columns.
-fn generate_real_validation_check(ty: &syn::Type) -> TokenStream {
-    let is_option = super::field::is_option_type(ty);
-    let inner_ty = if is_option {
-        super::field::get_option_inner_type(ty).unwrap_or(ty)
-    } else {
-        ty
-    };
-
-    quote! {
-        {
-            trait __SQLiteRealCompatible {
-                fn __validate_real_compatibility() {}
-            }
-
-            // Add back the primitive implementations and validation check:
-            // Floating point types
-            impl __SQLiteRealCompatible for f32 { fn __validate_real_compatibility() {} }
-            impl __SQLiteRealCompatible for f64 { fn __validate_real_compatibility() {} }
-
-            // This will fail to compile if T isn't compatible with REAL
-            <#inner_ty as __SQLiteRealCompatible>::__validate_real_compatibility();
-        }
-    }
-}
-
-/// Generates a compile-time check to ensure that a type can be serialized to TEXT
-/// and deserialized from TEXT
-///
-/// SQLite TEXT columns can store:
-/// - String: Directly supported
-/// - Any type implementing std::fmt::Display and std::str::FromStr
-/// - Enum types with Display and FromStr implementations
-///
-/// This function generates code that will fail to compile if the field type
-/// doesn't implement the required traits.
-fn generate_text_validation_check(ty: &syn::Type) -> TokenStream {
-    let is_option = super::field::is_option_type(ty);
-    let inner_ty = if is_option {
-        super::field::get_option_inner_type(ty).unwrap_or(ty)
-    } else {
-        ty
-    };
-
-    let is_enum = is_enum_type(inner_ty);
-
-    // If it's an enum, provide specific validation logic
-    if is_enum {
-        return quote! {
-            {
-                trait __SQLiteEnumCompatible {
-                    fn __validate_enum_compatibility() {}
-                }
-
-                // Enums should implement Display and FromStr
-                impl<T> __SQLiteEnumCompatible for T
-                where
-                    T: ::std::fmt::Display + ::std::str::FromStr + 'static
-                {
-                    fn __validate_enum_compatibility() {}
-                }
-
-                // This will fail to compile if T doesn't satisfy constraints
-                <#inner_ty as __SQLiteEnumCompatible>::__validate_enum_compatibility();
-            }
-        };
-    }
-
-    // For non-enum types, check for Display + FromStr
-    quote! {
-        {
-            trait __SQLiteTextCompatible {
-                fn __validate_text_compatibility() {}
-            }
-
-            // Type implements Display for conversion to TEXT and FromStr for parsing back
-            impl<T> __SQLiteTextCompatible for T
-            where
-                T: ::std::fmt::Display + ::std::str::FromStr + 'static
-            {
-                fn __validate_text_compatibility() {}
-            }
-
-            // This will fail to compile if T doesn't implement Display + FromStr
-            <#inner_ty as __SQLiteTextCompatible>::__validate_text_compatibility();
-        }
-    }
-}
-
-/// Generates a compile-time check to ensure that a type can be serialized to BLOB
-/// and deserialized from BLOB
-///
-/// SQLite BLOB columns can store:
-/// - Vec<u8>: Directly supported
-/// - Any type implementing AsRef<[u8]> and TryFrom<&[u8]>
-///
-/// This function generates code that will fail to compile if the field type
-/// doesn't implement the required traits.
-fn generate_blob_validation_check(ty: &syn::Type) -> TokenStream {
-    let is_option = super::field::is_option_type(ty);
-    let inner_ty = if is_option {
-        super::field::get_option_inner_type(ty).unwrap_or(ty)
-    } else {
-        ty
-    };
-
-    // Check for Vec<u8> first as a special case
-    let is_vec_u8 = match inner_ty {
-        syn::Type::Path(type_path) => {
-            if let Some(segment) = type_path.path.segments.last() {
-                if segment.ident == "Vec" {
-                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(syn::GenericArgument::Type(syn::Type::Path(elem_path))) =
-                            args.args.first()
-                        {
-                            if let Some(elem_segment) = elem_path.path.segments.last() {
-                                if elem_segment.ident == "u8" {
-                                    true
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        }
-        _ => false,
-    };
-
-    if is_vec_u8 {
-        // If it's Vec<u8>, we can just return empty validation
-        return quote! {};
-    }
-
-    // Generate trait checks for types that can be serialized to BLOB
-    quote! {
-        {
-            trait __SQLiteBlobCompatible {
-                fn __validate_blob_compatibility() {}
-            }
-
-            // Handle all types in a single impl with type-level conditionals
-            impl<T> __SQLiteBlobCompatible for T
-            where
-                T: 'static,
-                T: AsRef<[u8]> + for<'a> TryFrom<&'a [u8]> + 'static,
-            {
-                fn __validate_blob_compatibility() {}
-            }
-
-            // This will fail to compile if T doesn't implement AsRef<[u8]> + TryFrom<&[u8]>
-            <#inner_ty as __SQLiteBlobCompatible>::__validate_blob_compatibility();
         }
     }
 }

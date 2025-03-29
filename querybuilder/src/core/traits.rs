@@ -99,3 +99,10 @@ impl<T, F: Fn() -> T> DefaultFnSet<T, F> {
         DefaultFnSet(f, PhantomData)
     }
 }
+
+pub trait SQLSchema<'a, T> {
+    const NAME: &'a str;
+    const TYPE: T;
+    const SQL: &'a str;
+    const ALIAS: Option<&'a str>;
+}

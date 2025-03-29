@@ -13,18 +13,20 @@ alwaysApply: true
 		use serde::{Deserialize, Serialize};
 		use drizze_rs::prelude::*;
 
-		#[allow(dead_code)]
-		#[derive(SQLiteTable)]
-		#[table(strict, without_rowid)]
+		#[SQLiteTable(strict, without_rowid)]
 		pub struct Users {
-			#[integer(primary_key, default_fn = Uuid::new_v4 )]
+			#[integer(primary, default_fn = Uuid::new_v4 )]
 			id: Uuid,
 			#[text]
 			email: String
 			#[text(default = "Hello!")]
 			description: Option<String>,
+			#[text]
+			text_data: UserData,
 			#[blob]
-			data: UserData,
+			blob_data: UserData,
+			#[text]
+			role: Roles,
 		}
 
 		#[derive(Serialize, Deserialize, Debug)]
@@ -33,41 +35,30 @@ alwaysApply: true
 			name: String,
 		}
 
-		#[allow(dead_code)]
-		#[derive(SQLiteTable)]
+		#[derive(SQLiteEnum, Debug, Default)]
+		pub enum Roles {
+			User,
+			Maintainer,
+			Admin,
+		}
+
+    #[SQLiteTable]
 		pub struct Followers {
-			#[integer(primary_key, references = Users::id )]
+			#[integer(primary, references = Users::id )]
 			follower_id: Uuid,
-			#[integer(primary_key, references = Users::id )]
+			#[integer(primary, references = Users::id )]
 			followee_id: Uuid,
 		}
 
-		#[allow(dead_code)]
-		#[derive(SQLiteTable)]
+		#[SQLiteTable]
 		pub struct Profile {
-			#[integer(primary_key, default_fn = Uuid::new_v4 )]
+			#[integer(primary, default_fn = Uuid::new_v4 )]
 			id: Uuid,
 			#[integer(references = Users::id )]
 			users_id: Uuid,
 			#[integer]
 			likes: i64,
 		}
-
-		#[derive(SQLiteSchema)]
-		pub struct UsersFollowersSchema<Users, Followers>;
-
-		#[derive(SQLiteSchema)]
-		pub struct ProfilesSchema<Profiles>;		
-
-		fn main(){
-			let schema = UsersFollowersSchema::new();
-			let extended_schema = schema.extend::<ProfilesSchema>();
-
-			// OR
-
-			let schema = UsersFollowersSchema::with::<ProfilesSchema>()
-		}
-
 ```
 
 # QueryBuilder
@@ -75,8 +66,7 @@ alwaysApply: true
 
 ```rust
   fn main(){
-		let schema = UsersFollowersSchema::new();
-		let qb = QueryBuilder::new(schema);
+		let qb = schema!([Users, Followers]);
 
 		let uid = Uuid::new_v4();
 
@@ -94,16 +84,9 @@ alwaysApply: true
 ```rust
 	fn main(){
 		let conn = rusqlite::Connection::open_in_memory()?;
-		let schema = UsersFollowersSchema::with::<ProfilesSchema>()
-		let db = drizzle!(conn, schema);
-
-		// OR 
-		let db = drizzle!(rustqlite::Connection::open_in_memory, schema);
-		
+		let db = drizzle!(rustqlite::Connection::open_in_memory, [Users, Followers]);
 		// OR
-		let db = drizzle!(conn, [UsersFollowersSchema, ProfilesSchema]);
-
-
+		let db = drizzle!(conn, [Users, Followers, Profiles]);
 
 		let uid = Uuid::new_v4();
 

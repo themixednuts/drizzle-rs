@@ -1,90 +1,77 @@
 pub mod common;
-pub mod traits;
+pub mod query_builder;
 
-use crate::{SQL, ToSQL};
-use common::{SQLiteTableSchema, SQLiteValue};
-use std::fmt::{self, Display};
-use std::marker::PhantomData;
+pub use self::common::SQLiteTableType;
+pub use self::query_builder::SQLiteQueryBuilder;
+pub use drivers::SQLiteValue;
 
-// Re-export common types through prelude
-pub mod prelude {
-    // Re-export SQLite-specific traits and types
-    pub use super::traits::{column::*, table::*};
+// Re-export the SQLiteColumn type for convenience
+pub use self::common::IntoSQLiteValue;
+pub use self::query_builder::{
+    Columns, DeleteBuilder, InsertBuilder, JoinType, QueryBuilder, SelectBuilder, SortDirection,
+    UpdateBuilder, alias,
+};
 
-    // Re-export the SQLiteColumn type
-    pub use super::SQLiteColumn;
-
-    // Re-export SQLite-specific condition functions
-    pub use super::common::*;
-
-    // Re-export type aliases from common
-    pub use super::common::{Blob, Integer, Real, Text};
-
-    // Re-export core traits needed for SQLite functionality
-    pub use crate::core::traits::*;
-    pub use crate::core::{IntoValue, SQL, ToSQL};
+/// A column in a SQLite table
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SQLiteColumn<'a, T: IntoSQLiteValue<'a>, Tbl: Clone> {
+    pub name: &'a str,
+    pub sql: &'a str,
+    pub default_fn: Option<fn() -> T>,
+    pub _phantom: std::marker::PhantomData<Tbl>,
 }
 
-// SQLite-specific column type with compile-time type information
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SQLiteColumn<T, Tbl: SQLiteTableSchema + ?Sized, F, R>
-where
-    F: Fn() -> R,
-    Option<T>: TryFrom<R>,
-    <Option<T> as TryFrom<R>>::Error: std::fmt::Debug,
-{
-    name: &'static str,
-    table: PhantomData<Tbl>,
-    sql: &'static str,
-    _t: PhantomData<T>,
-    default_fn: Option<F>,
-}
-
-impl<T, Tbl: SQLiteTableSchema + ?Sized, F, R> SQLiteColumn<T, Tbl, F, R>
-where
-    F: Fn() -> R,
-    Option<T>: TryFrom<R>,
-    <Option<T> as TryFrom<R>>::Error: std::fmt::Debug,
-{
-    pub const fn new(name: &'static str, sql: &'static str, default_fn: Option<F>) -> Self {
+impl<'a, T: IntoSQLiteValue<'a>, Tbl: Clone> SQLiteColumn<'a, T, Tbl> {
+    /// Create a new column definition
+    pub const fn new(name: &'a str, sql: &'a str, default_fn: Option<fn() -> T>) -> Self {
         Self {
             name,
-            table: PhantomData,
-            _t: PhantomData,
-            default_fn,
             sql,
+            default_fn,
+            _phantom: std::marker::PhantomData,
         }
     }
 
-    // pub const fn name(&self) -> &'static str {
-    //     self.name
-    // }
-
-    // pub const fn sql(&self) -> &'static str {
-    //     self.sql
-    // }
-}
-
-impl<T, Tbl: SQLiteTableSchema + ?Sized, F, R> Display for SQLiteColumn<T, Tbl, F, R>
-where
-    F: Fn() -> R,
-    Option<T>: TryFrom<R>,
-    <Option<T> as TryFrom<R>>::Error: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
+    /// Alias a column
+    ///
+    /// # Arguments
+    /// * `alias` - The alias to use for the column
+    ///
+    /// # Returns
+    /// A SQL expression representing "column AS alias"
+    pub fn as_(&self, alias: &str) -> crate::SQL<'a, SQLiteValue<'a>> {
+        use crate::core::ToSQL;
+        use std::borrow::Cow;
+        let sql = self.to_sql();
+        crate::SQL(Cow::Owned(format!("{} AS {}", sql.0, alias)), sql.1)
     }
 }
 
-impl<'a, T, Tbl: SQLiteTableSchema + ?Sized, F, R> ToSQL<'a, SQLiteValue<'a>>
-    for SQLiteColumn<T, Tbl, F, R>
-where
-    T: Into<SQLiteValue<'a>>,
-    F: Fn() -> R,
-    Option<T>: TryFrom<R>,
-    <Option<T> as TryFrom<R>>::Error: std::fmt::Debug,
+impl<'a, T: IntoSQLiteValue<'a>, Tbl: Clone> crate::core::ToSQL<'a, SQLiteValue<'a>>
+    for SQLiteColumn<'a, T, Tbl>
 {
-    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-        SQL::new(self.sql, vec![])
+    fn to_sql(&self) -> crate::SQL<'a, SQLiteValue<'a>> {
+        use std::borrow::Cow;
+        crate::SQL(Cow::Owned(self.name.to_string()), Vec::new())
     }
+}
+
+// Create a type helper trait to get the type of a column
+pub trait ColumnType<T> {
+    type OutputType;
+}
+
+impl<'a, T: IntoSQLiteValue<'a>, Tbl: Clone> ColumnType<T> for SQLiteColumn<'a, T, Tbl> {
+    type OutputType = T;
+}
+
+/// Module containing types that are exported as part of the prelude
+pub mod prelude {
+    pub use super::ColumnType;
+    pub use super::SQLiteColumn;
+    pub use super::common::{IntoSQLiteValue, SQLiteEnum, SQLiteEnumRepr, SQLiteTableType};
+    pub use super::query_builder::{
+        Columns, DeleteBuilder, InsertBuilder, JoinType, QueryBuilder, SelectBuilder,
+        SortDirection, UpdateBuilder, alias,
+    };
 }

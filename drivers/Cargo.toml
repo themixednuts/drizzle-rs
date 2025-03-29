@@ -9,10 +9,27 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
-querybuilder = { workspace = true }
+thiserror = { workspace = true } # Inherit from workspace
+
+# Optional Driver Dependencies
 rusqlite = { workspace = true, optional = true }
-paste = { workspace = true }
-const_format = { workspace = true }
+libsql = { workspace = true, optional = true }
+libsql-rusqlite = { workspace = true, optional = true }
+
+# Optional Utility Dependencies (needed for From impls gated by features)
+uuid = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }      # Needed for serde_json
+serde_json = { workspace = true, optional = true }
 
 [features]
+# Driver features
 rusqlite = ["dep:rusqlite"]
+libsql = ["dep:libsql"]
+libsql-rusqlite = ["dep:libsql-rusqlite"]
+
+# Feature flags needed for cfg checks within this crate
+# Also activate the corresponding optional dependency
+uuid = ["dep:uuid"]
+serde_json = ["dep:serde_json", "dep:serde"]
+
+[dev-dependencies]
