@@ -12,9 +12,13 @@ proc-macro = true
 quote = { version = "1.0.37" }
 proc-macro2 = { version = "1.0.89" }
 syn = { version = "2.0.87", features = ["full"] }
+rand = { version = "0.8.5" }
 
 [features]
 serde = []
 sqlite = []
 postgres = []
 mysql = []
+rusqlite = ["sqlite"]
+libsql = ["sqlite"]
+libsql-rusqlite = ["sqlite"]

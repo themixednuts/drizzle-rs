@@ -1,117 +1,99 @@
-// Remove incorrect doc include
-// #![doc = include_str!("../README.md")]
+pub use procmacros;
+mod drizzle;
+pub use drizzle::*;
+pub use procmacros::{drizzle, qb};
 
-//! # Drizzle-rs
-//! A type-safe SQL query builder and ORM library for Rust,
-//! inspired by Drizzle ORM (TypeScript).
+// Core components (dialect-agnostic)
+pub mod core {
+    // Core traits and types from core crate
+    pub use drizzle_core::traits::*;
+    pub use drizzle_core::{SQL, ToSQL};
+    // Explicitly re-export IsInSchema
+    pub use drizzle_core::traits::IsInSchema;
 
-// Core Driver Traits & Error
-pub use drivers::{Connection, DbRow, DriverError, PreparedStatement, Transaction};
+    // Core expression functions & macros
+    pub use drizzle_core::expressions::conditions::*;
+    pub use drizzle_core::{SQLSchemaType, and, columns, or}; // Keep macros accessible
 
-// Core Drizzle struct
-pub mod core;
-pub use core::Drizzle;
+    // Core error types
+    pub use drizzle_core::error::{DrizzleError, Result};
 
-// Core Proc Macros
-pub use procmacros::{FromRow, SQLiteEnum, SQLiteTable, drizzle, schema};
+    // Core Drizzle struct (if defined in src/core.rs or similar)
+    // pub use crate::core::Drizzle; // Example if you have a src/core.rs
+}
 
-// SQLite specific types (like SQLiteValue)
-#[cfg(feature = "rusqlite")]
-pub mod sqlite;
+// SQLite specific components
+#[cfg(feature = "sqlite")]
+pub mod sqlite {
+    // SQLite specific types, columns, etc. from sqlite crate
+    pub use sqlite::SQLiteColumn;
+    pub use sqlite::SQLiteTransactionType;
+    pub use sqlite::builder;
+    pub use sqlite::common::{SQLiteEnum, SQLiteEnumRepr};
+    pub use sqlite::conditions;
+    pub use sqlite::values::SQLiteValue;
 
-// Feature-gated driver Connection implementations
-// Example for Rusqlite:
-#[cfg(feature = "libsql")]
-pub use drivers::libsql::LibsqlConnection; // Assuming struct name
-#[cfg(feature = "libsql-rusqlite")]
-pub use drivers::libsql_rusqlite::LibsqlRusqliteConnection;
-#[cfg(feature = "rusqlite")]
-pub use drivers::rusqlite::RusqliteConnection; // Assuming struct name
+    // Proc macros related to SQLite (if desired here, they are also in prelude)
+    // pub use procmacros::{SQLiteEnum, SQLiteTable};
 
-/// A comprehensive prelude that brings all commonly used items into scope.
-/// Users can import everything needed with a single `use drizzle_rs::prelude::*;` statement.
-pub mod prelude {
-    // Core Drizzle struct
-    pub use crate::core::Drizzle;
+    // Re-export rusqlite specific functionality when the feature is enabled
+    #[cfg(feature = "rusqlite")]
+    pub use ::rusqlite;
 
-    // Core Driver traits & Error
-    pub use drivers::{Connection, DbRow, DriverError, PreparedStatement, Transaction};
-
-    // SQLite Value Type
-    pub use drivers::SQLiteValue;
-
-    // Core Proc Macros
-    pub use procmacros::{FromRow, SQLiteEnum, SQLiteTable, drizzle, schema};
-
-    // Feature-gated driver connection structs
+    // Re-export libsql specific functionality when the feature is enabled
     #[cfg(feature = "libsql")]
-    pub use drivers::libsql::LibsqlConnection; // Assuming struct name
+    pub use ::libsql;
+
+    // Re-export libsql-rusqlite specific functionality when the feature is enabled
     #[cfg(feature = "libsql-rusqlite")]
-    pub use drivers::libsql_rusqlite::LibsqlRusqliteConnection;
-    #[cfg(feature = "rusqlite")]
-    pub use drivers::rusqlite::RusqliteConnection; // Assuming struct name
+    pub use ::libsql_rusqlite;
+}
 
-    // --- Query Builder Exports ---
+// Placeholder for future dialects
+#[cfg(feature = "postgres")]
+pub mod postgres {
+    // pub use querybuilder::postgres::...;
+}
 
-    // Core traits and types
-    pub use querybuilder::core::schema_traits::*;
-    pub use querybuilder::core::traits::*;
-    pub use querybuilder::core::{IntoValue, SQL, SQLParam, ToSQL};
+#[cfg(feature = "mysql")]
+pub mod mysql {
+    // pub use querybuilder::mysql::...;
+}
 
-    // Common expression functions
-    pub use querybuilder::core::expressions::conditions::*;
+/// A comprehensive prelude that brings commonly used items into scope.
+pub mod prelude {
+    // Core components (traits, types, expressions)
+    pub use crate::core::*; // Includes core traits, SQL, SQLParam, conditions::*, core macros
 
-    // Common macros
-    pub use querybuilder::{and, columns, or};
+    // Export QueryBuilder types from core crate
+    pub use drizzle_core::expressions::alias;
 
-    // SQLite specific query builder components (assuming only sqlite for now)
-    #[cfg(feature = "rusqlite")]
-    pub use querybuilder::sqlite::common::SQLiteTableType;
-    #[cfg(feature = "rusqlite")]
-    pub use querybuilder::sqlite::query_builder::{
-        Columns, DeleteBuilder, InsertBuilder, JoinType, QueryBuilder, SQLiteQueryBuilder, Select,
-        SortDirection, UpdateBuilder, alias,
-    };
+    // Update to use the appropriate crates
+    #[cfg(feature = "sqlite")]
+    pub use sqlite::builder::QueryBuilder;
 
-    // Re-export uuid types if feature enabled
+    // Proc Macros (essential for schema definition)
+    pub use procmacros::{drizzle, qb};
+
+    // Dialect-specific components (gated)
+    #[cfg(feature = "sqlite")]
+    pub use crate::sqlite::*; // Includes SQLiteColumn, SQLiteValue, etc.
+
+    #[cfg(feature = "sqlite")]
+    pub use procmacros::{SQLiteEnum, SQLiteTable}; // SQLite specific macros
+
+    // #[cfg(feature = "postgres")]
+    // pub use crate::postgres::*;
+    // #[cfg(feature = "postgres")] pub use procmacros::{PostgresEnum, PostgresTable};
+
+    // #[cfg(feature = "mysql")]
+    // pub use crate::mysql::*;
+    // #[cfg(feature = "mysql")] pub use procmacros::{MySQLEnum, MySQLTable};
+
+    // Utility features
     #[cfg(feature = "uuid")]
     pub use uuid::Uuid;
 
-    // Re-export serde types if feature enabled (optional, maybe not needed in prelude)
-    // #[cfg(feature = "serde_json")]
-    // pub use serde::{Serialize, Deserialize};
-    // #[cfg(feature = "serde_json")]
-    // pub use serde_json::Value as JsonValue;
-}
-
-// Conditionally export SQLite-related items from querybuilder
-// These are useful shortcuts but depend on the sqlite feature of querybuilder
-#[cfg(feature = "rusqlite")]
-pub mod sqlite_specifics {
-    pub use querybuilder::sqlite::SQLiteColumn;
-    pub use querybuilder::sqlite::common::{IntoSQLiteValue, SQLiteEnum, SQLiteTableType};
-    pub use querybuilder::sqlite::query_builder::{
-        Columns, DeleteBuilder, InsertBuilder, QueryBuilder, SelectBuilder, SortDirection,
-        UpdateBuilder, alias,
-    };
-    // pub use querybuilder::sqlite::SQLiteDialect; // Comment out - likely defined elsewhere or not exported
-    pub use querybuilder::sqlite::SQLiteQueryBuilder;
-}
-
-// Example of how the Drizzle struct might be used directly
-// (This might be internal or part of a higher-level API)
-pub struct DrizzleInstance<Conn: Connection> {
-    connection: Conn,
-    // Potentially store schema information here if needed at runtime
-}
-
-impl<Conn: Connection> DrizzleInstance<Conn> {
-    pub fn new(connection: Conn) -> Self {
-        Self { connection }
-    }
-
-    // Example method - actual query execution would likely use the query builder
-    pub fn execute(&self, sql: &str, params: &[Conn::Value]) -> Result<usize, DriverError> {
-        self.connection.run_statement(sql, params)
-    }
+    // Add Drizzle struct to prelude
+    pub use crate::Drizzle;
 }

@@ -1,72 +1,90 @@
+use crate::schema;
 use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{
-    Expr, ExprArray, Path, Result, Type, TypeArray, TypePath,
-    parse::{Parse, ParseStream},
-    punctuated::Punctuated,
-    token::Comma,
-};
+use quote::{ToTokens, quote};
+use syn::{Expr, ExprArray};
+use syn::{Token, parse::Parse};
 
-/// DrizzleInput holds the arguments passed to the drizzle! macro
-struct DrizzleInput {
-    /// The connection reference
+/// Input for the `drizzle!` macro
+pub(crate) struct DrizzleInput {
+    /// Connection reference
     conn: Expr,
-    /// The schema tables (array of types)
+    /// Optional array of schema tables
     tables: Option<ExprArray>,
 }
 
 impl Parse for DrizzleInput {
-    fn parse(input: ParseStream) -> Result<Self> {
-        // Parse the connection argument
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let conn = input.parse()?;
 
-        // Check if there's a comma and potentially tables
-        if input.peek(Comma) {
-            // Consume the comma
-            input.parse::<Comma>()?;
-
-            // Expect the table array
-            let tables_expr: ExprArray = input.parse()?;
-            Ok(DrizzleInput {
-                conn,
-                tables: Some(tables_expr),
-            })
+        // Optional comma-separated schema tables
+        let tables = if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            Some(input.parse()?)
         } else {
-            // No comma, so no tables provided
-            Ok(DrizzleInput { conn, tables: None })
-        }
+            None
+        };
+
+        Ok(DrizzleInput { conn, tables })
     }
 }
 
-/// Implementation of the drizzle! macro
-pub fn drizzle_macro(input: TokenStream) -> Result<TokenStream> {
-    let DrizzleInput { conn, tables } = syn::parse2(input)?;
+/// Implementation of the `drizzle!` macro
+pub fn drizzle_impl(input: DrizzleInput) -> syn::Result<TokenStream> {
+    // Extract the connection and tables
+    let conn = input.conn;
 
-    // Handle the table array
-    let drizzle_impl = if let Some(tables) = tables {
-        // Extract table names from the array
-        let elems = &tables.elems;
+    // Generate output based on input tables
+    let output = match &input.tables {
+        Some(tables) => {
+            // Extract the types from the array for schema name generation
+            let types = tables
+                .elems
+                .iter()
+                .filter_map(|expr| {
+                    if let syn::Expr::Path(path) = expr {
+                        let type_path = syn::TypePath {
+                            qself: None,
+                            path: path.path.clone(),
+                        };
+                        Some(syn::Type::Path(type_path))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
 
-        quote! {
-            {
-                use ::drizzle_rs::Drizzle;
+            // Generate the schema name
+            let schema_name = schema::get_schema_name(&types);
+            let schema_ident = quote::format_ident!("{}", schema_name);
+            let schema_impl = schema::generate_schema(tables.to_token_stream())
+                .map_err(|err| syn::Error::new(err.span(), err.to_string()))?;
 
-                // Create a query builder with the schema info
-                let query_builder = schema!([#elems]);
+            quote! {
+                {
+                    // Generate the schema
+                    #schema_impl;
 
-                // Create a Drizzle instance with schema
-                Drizzle::with_schema(#conn, query_builder)
+                    // Create query builder and Drizzle instance with explicit type annotation
+                    let query_builder = drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>();
+
+                    drizzle_rs::Drizzle::new(#conn, query_builder)
+                }
             }
         }
-    } else {
-        // No tables provided - just create the base Drizzle without schema
-        quote! {
-            {
-                use ::drizzle_rs::Drizzle;
-                Drizzle::new(#conn)
+        None => {
+            // No tables specified, use empty schema
+            quote! {
+                {
+                    // Generate an empty schema
+                    drizzle_rs::procmacros::schema!();
+
+                    let schema = drizzle_rs::sqlite::builder::QueryBuilder::new::<EmptySchema>();
+
+                    drizzle_rs::Drizzle::new(#conn, schema)
+                }
             }
         }
     };
 
-    Ok(drizzle_impl)
+    Ok(output)
 }

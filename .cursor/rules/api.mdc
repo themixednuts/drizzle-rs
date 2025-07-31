@@ -37,6 +37,7 @@ alwaysApply: true
 
 		#[derive(SQLiteEnum, Debug, Default)]
 		pub enum Roles {
+			#[default]
 			User,
 			Maintainer,
 			Admin,
@@ -71,10 +72,13 @@ alwaysApply: true
 		let uid = Uuid::new_v4();
 
 		// SELECT * FROM USERS WHERE 'Users.id' = ?
-		let sql = qb.from::<Users>().select().where(eq(Users::id, uid)).to_sql();
+		let sql = qb.select(columns!()).from::<Users>().r#where(eq(Users::id, uid)).to_sql();
+
+		// SELECT Users.id, Users.email FROM USERS WHERE 'Users.id' = ?
+		let sql = qb.select(columns!(Users::id, Users::email)).from::<Users>().r#where(eq(Users::id, uid)).to_sql();
 
 		// compile time Error because wrong type for comparison with Users::id
-		let sql2 = qb.from::<Users>().select().where(eq(Users::id, 64)).to_sql();
+		let sql2 = qb.select(columns!()).from::<Users>().r#where(eq(Users::id, 64)).to_sql();
 	}
 ```
 
@@ -92,7 +96,7 @@ alwaysApply: true
 
 		// Returns Result<SelectUsers>.
 		// SelectUsers is built from the `SQLiteTable` macro along with `InsertUsers` because the types are different and depends on if columns have defaults, and/or not null etc.
-		let result = db.from::<Users>().select().where(eq(Users::id, uid)).all()?;
+		let result = db.select(columns!()).from::<Users>().where(eq(Users::id, uid)).all()?;
 	}
 ```
 

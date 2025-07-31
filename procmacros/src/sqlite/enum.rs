@@ -49,9 +49,9 @@ pub fn generate_integer_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<
     });
 
     Ok(quote! {
-        // Implement SQLiteEnum trait for this enum
-        impl crate::prelude::SQLiteEnum for #name {
-            const ENUM_REPR: crate::prelude::SQLiteEnumRepr = crate::prelude::SQLiteEnumRepr::Integer;
+        // Use absolute paths when generating
+        impl ::drizzle_rs::sqlite::SQLiteEnum for #name {
+            const ENUM_REPR: ::drizzle_rs::sqlite::SQLiteEnumRepr = ::drizzle_rs::sqlite::SQLiteEnumRepr::Integer;
 
             fn to_integer(&self) -> i64 {
                 match self {
@@ -78,14 +78,14 @@ pub fn generate_integer_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<
             }
         }
 
-        // Implement FromStr for the enum
+        // Implement FromStr for the enum with String as the error type
         impl std::str::FromStr for #name {
             type Err = String;
 
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
+            fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
                 match s {
                     #(#from_str_variants)*
-                    _ => Err(format!("Unknown variant: {}", s)),
+                    _ => std::result::Result::Err(format!("Unknown variant: {}", s)),
                 }
             }
         }
@@ -131,9 +131,9 @@ pub fn generate_text_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<Tok
     });
 
     Ok(quote! {
-        // Implement SQLiteEnum trait for this enum
-        impl crate::prelude::SQLiteEnum for #name {
-            const ENUM_REPR: crate::prelude::SQLiteEnumRepr = crate::prelude::SQLiteEnumRepr::Text;
+        // Use absolute paths when generating
+        impl ::drizzle_rs::sqlite::SQLiteEnum for #name {
+            const ENUM_REPR: ::drizzle_rs::sqlite::SQLiteEnumRepr = ::drizzle_rs::sqlite::SQLiteEnumRepr::Text;
 
             fn to_integer(&self) -> i64 {
                 match self {
@@ -160,14 +160,14 @@ pub fn generate_text_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<Tok
             }
         }
 
-        // Implement FromStr for the enum
+        // Implement FromStr for the enum with String as the error type
         impl std::str::FromStr for #name {
             type Err = String;
 
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
+            fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
                 match s {
                     #(#from_str_variants)*
-                    _ => Err(format!("Unknown variant: {}", s)),
+                    _ => std::result::Result::Err(format!("Unknown variant: {}", s)),
                 }
             }
         }

@@ -10,7 +10,7 @@ repository.workspace = true
 
 [workspace]
 resolver = "3"
-members = ["querybuilder", "drivers", "procmacros"]
+members = ["procmacros", "core", "sqlite", "postgres", "mysql"]
 
 [workspace.package]
 version = "0.1.0"
@@ -22,72 +22,78 @@ license = "MIT"
 repository = "https://github.com/yourusername/drizzle-rs"
 
 [workspace.dependencies]
-paste = "1.0.15"
-rusqlite = { version = "0.34.0", features = ["bundled"] }
-querybuilder = { path = "./querybuilder" }
-drivers = { path = "./drivers" }
+drizzle-rs = { path = "." }
+drizzle_core = { path = "./core" }
+sqlite = { path = "./sqlite" }
+postgres = { path = "./postgres" }
+mysql = { path = "./mysql" }
 procmacros = { path = "./procmacros" }
-uuid = { version = "1.16.0", features = ["v4"] }
+paste = "1.0.15"
+uuid = { version = "1.16.0", features = ["v4", "serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 anyhow = "1.0.75"
 thiserror = "1.0.49"
+rusqlite = { version = "0.34.0", features = ["bundled", "uuid"] }
 libsql = { version = "0.9" }
 libsql-rusqlite = { version = "0.33.0", features = ["bundled"] }
-drizzle-rs = { path = ".", version = "0.1.0" }
 
 # Add dev-dependencies for tests
 [dev-dependencies]
-drizzle-rs = { path = ".", features = ["rusqlite"] }
+drizzle-rs = { path = ".", features = ["rusqlite", "uuid", "serde"] }
+anyhow = "1.0.75"
 
 [features]
-# Driver features: Enabling a driver enables:
-# 1. The driver implementation in the `drivers` crate
-# 2. The corresponding dialect in `querybuilder` and `procmacros` (e.g., `sqlite`)
-# 3. The driver-specific features in `querybuilder` (for type conversions)
-# 4. The actual driver dependency (`dep:...`)
 rusqlite = [
-	"dep:rusqlite",
-	"drivers/rusqlite",
-	"querybuilder/sqlite",
-	"procmacros/sqlite",
-	"querybuilder/rusqlite",
+    "dep:rusqlite",
+    "sqlite/rusqlite",
+    "sqlite",
+    "procmacros/rusqlite",
+    "drizzle_core/rusqlite",
 ]
-libsql = [
-	"dep:libsql",
-	"drivers/libsql",
-	"querybuilder/sqlite",
-	"procmacros/sqlite",
-	"querybuilder/libsql",
-]
+libsql = ["dep:libsql", "sqlite/libsql", "sqlite", "procmacros/libsql"]
 libsql-rusqlite = [
-	"dep:libsql-rusqlite",
-	"drivers/libsql-rusqlite",
-	"querybuilder/sqlite",
-	"procmacros/sqlite",
-	"querybuilder/libsql-rusqlite",
+    "dep:libsql-rusqlite",
+    "sqlite/libsql-rusqlite",
+    "sqlite",
+    "procmacros/libsql-rusqlite",
 ]
-# sqlx = ["drivers/sqlx", "querybuilder/postgres", "querybuilder/mysql", "querybuilder/sqlite"] # Example for future sqlx
+serde = [
+    "dep:serde_json",
+    "dep:serde",
+    "sqlite/serde",
+    "postgres/serde",
+    "mysql/serde",
+    "procmacros/serde",
+    "drizzle_core/serde",
+    "rusqlite/serde_json",
+]
+uuid = [
+    "dep:uuid",
+    "sqlite/uuid",
+    "postgres/uuid",
+    "mysql/uuid",
+    "drizzle_core/uuid",
+    "rusqlite/uuid",
+]
 
-# Utility features
-serde_json = ["querybuilder/serde_json", "dep:serde_json"]
-uuid = ["querybuilder/uuid", "dep:uuid"]
-
-# Remove dialect-specific features from the top level, they are activated via drivers
-# sqlite = [] # Removed
-# postgres = [] # Removed
-# mysql = [] # Removed
+# Add dialect-specific features back for gating re-exports
+sqlite = ["procmacros/sqlite", "dep:sqlite"]
+postgres = ["procmacros/postgres", "dep:postgres"]
+mysql = ["procmacros/mysql", "dep:mysql"]
 
 [dependencies]
-querybuilder = { workspace = true }
-drivers = { workspace = true }
 procmacros = { workspace = true }
 paste = { workspace = true }
+drizzle_core = { workspace = true }
 
 # Optional dependencies activated by features
+sqlite = { workspace = true, optional = true }
+postgres = { workspace = true, optional = true }
+mysql = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
 libsql-rusqlite = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
-serde = { workspace = true }
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }

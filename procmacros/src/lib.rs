@@ -1,25 +1,61 @@
-#![recursion_limit = "128"]
-
 extern crate proc_macro;
 
 mod drizzle;
+mod qb;
 mod schema;
+
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+use drizzle::DrizzleInput;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DataEnum, DeriveInput, Fields, parse_macro_input};
+use syn::parse_macro_input;
 
 /// Process the drizzle! proc macro
 /// This macro creates a Drizzle instance from a connection and schema
 #[proc_macro]
 pub fn drizzle(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input2 = proc_macro2::TokenStream::from(input);
+    let input = parse_macro_input!(input as DrizzleInput);
 
-    match drizzle::drizzle_macro(input2) {
-        Ok(s) => proc_macro::TokenStream::from(s),
-        Err(e) => proc_macro::TokenStream::from(e.to_compile_error()),
+    match drizzle::drizzle_impl(input) {
+        Ok(output) => output.into(),
+        Err(err) => err.into_compile_error().into(),
+    }
+}
+
+/// Creates a schema-bound query builder factory.
+///
+/// Takes a list of table types (structs marked with `#[SQLiteTable]`)
+/// and returns an instance of `SQLiteQueryBuilder` bound to a unique
+/// schema marker type. This ensures that only tables included in the
+/// macro invocation can be used with the resulting query builder.
+///
+/// # Example
+///
+/// ```rust
+/// use drizzle_rs::prelude::*;
+/// use drizzle_rs::qb; // Import the qb macro
+/// use procmacros::SQLiteTable;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users { /* ... fields ... */ }
+/// #[SQLiteTable(name = "posts")]
+/// struct Posts { /* ... fields ... */ }
+///
+/// let qb = qb!([Users, Posts]);
+///
+/// // This works:
+/// let user_query = qb.from::<Users>().select_all();
+///
+/// // This will fail to compile (if Category is not in qb!):
+/// // let category_query = qb.from::<Category>().select_all();
+/// ```
+#[proc_macro]
+pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    match qb::qb_impl(input) {
+        Ok(qb) => qb.into(),
+        Err(err) => err.into_compile_error().into(),
     }
 }
 
@@ -79,6 +115,7 @@ pub fn drizzle(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// }
 /// // Stored as INTEGER values: 1, 0, -1
 /// ```
+#[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteEnum)]
 pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
     use quote::quote;
@@ -126,62 +163,18 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
     impl_block.into()
 }
 
-/// Derives the FromRow trait for structs, enabling automatic
-/// conversion from database rows to Rust types.
+/// This attribute macro helps define SQLite tables in Rust.
+///
+/// It can be applied to structs to generate the necessary code for working with SQLite tables.
+///
+/// # Arguments
+///
+/// * `name` - The table name to use in the database (optional, defaults to the struct name)
+/// * `strict` - Enables SQLite STRICT mode for this table
+/// * `without_rowid` - Creates the table without a rowid column
 ///
 /// # Example
 ///
-/// ```
-/// #[derive(FromRow)]
-/// struct User {
-///     id: i64,
-///     name: String,
-///     email: Option<String>,
-/// }
-/// ```
-#[proc_macro_derive(FromRow)]
-pub fn derive_from_row(input: TokenStream) -> TokenStream {
-    // Parse the input tokens into a syntax tree
-    let input = parse_macro_input!(input as DeriveInput);
-
-    // Extract the struct name
-    let struct_name = &input.ident;
-
-    // Only works on structs with named fields
-    let fields = match input.data {
-        Data::Struct(ref data) => match data.fields {
-            Fields::Named(ref fields) => &fields.named,
-            _ => panic!("FromRow derive only works on structs with named fields"),
-        },
-        _ => panic!("FromRow derive only works on structs"),
-    };
-
-    // Generate field assignments
-    let field_assignments = fields.iter().enumerate().map(|(i, field)| {
-        let field_name = &field.ident;
-        quote! {
-            #field_name: row.get(#i)?,
-        }
-    });
-
-    // Generate the FromRow implementation
-    let expanded = quote! {
-        impl drizzle_rs::connection::FromRow for #struct_name {
-            fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
-                Ok(Self {
-                    #(#field_assignments)*
-                })
-            }
-        }
-    };
-
-    // Return the generated code
-    TokenStream::from(expanded)
-}
-
-/// Attribute macro for declaring SQLite tables
-///
-/// Example:
 /// ```
 /// #[SQLiteTable(name = "users", strict)]
 /// struct User { ... }
@@ -190,47 +183,11 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let attr = proc_macro2::TokenStream::from(attr);
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let attr_result = syn::parse_macro_input!(attr as crate::sqlite::table::TableAttributes);
 
-    match crate::sqlite::table::table_attr_macro(input, attr) {
+    match crate::sqlite::table::table_attr_macro(input, attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
-    }
-}
-
-/// Creates a schema-bound query builder factory.
-///
-/// Takes a list of table types (structs marked with `#[SQLiteTable]`)
-/// and returns an instance of `SQLiteQueryBuilder` bound to a unique
-/// schema marker type. This ensures that only tables included in the
-/// macro invocation can be used with the resulting query builder.
-///
-/// # Example
-///
-/// ```rust
-/// use drizzle_rs::prelude::*;
-/// use drizzle_rs::schema; // Assuming schema macro is exported
-/// use procmacros::SQLiteTable;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct Users { /* ... fields ... */ }
-/// #[SQLiteTable(name = "posts")]
-/// struct Posts { /* ... fields ... */ }
-///
-/// let qb = schema!([Users, Posts]);
-///
-/// // This works:
-/// let user_query = qb.from::<Users>().select_all();
-///
-/// // This will fail to compile (if Category is not in schema!):
-/// // let category_query = qb.from::<Category>().select_all();
-/// ```
-#[proc_macro]
-pub fn schema(input: TokenStream) -> TokenStream {
-    let input2 = proc_macro2::TokenStream::from(input);
-    match schema::schema_macro_impl(input2) {
-        Ok(ts) => ts.into(),
-        Err(e) => e.to_compile_error().into(),
     }
 }

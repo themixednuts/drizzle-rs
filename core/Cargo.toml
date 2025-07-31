@@ -1,0 +1,22 @@
+[package]
+name = "drizzle_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+thiserror = { workspace = true }
+rusqlite = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde_json", "dep:serde"]
+uuid = ["dep:uuid"]
+sqlite = []
+rusqlite = ["dep:rusqlite"]
