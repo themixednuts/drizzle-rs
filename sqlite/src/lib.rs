@@ -32,7 +32,7 @@ pub mod prelude {
 pub use self::values::SQLiteValue;
 
 // Import core types
-use drizzle_core::{SQL, ToSQL, traits::SQLTable};
+use drizzle_core::{SQL, SQLColumn, SQLSchema, ToSQL, traits::SQLTable};
 
 /// SQLite transaction types
 #[derive(Debug, Clone, Copy)]
@@ -45,57 +45,6 @@ pub enum SQLiteTransactionType {
     Exclusive,
 }
 
-// Define a simple Schema marker type to use with IsInSchema
-#[derive(Clone, Debug)]
-pub struct Schema;
-
-/// A column in a SQLite table
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SQLiteColumn<'a, T, Tbl>
-where
-    T: TryInto<SQLiteValue<'a>> + Clone + std::fmt::Debug,
-    Tbl: SQLTable<'a>,
-{
-    pub(crate) name: &'a str,
-    pub(crate) sql: &'a str,
-    pub(crate) _table: std::marker::PhantomData<Tbl>,
-    pub(crate) _type: std::marker::PhantomData<T>,
-}
-
-impl<'a, T, Tbl> SQLiteColumn<'a, T, Tbl>
-where
-    T: TryInto<SQLiteValue<'a>> + Clone + std::fmt::Debug,
-    Tbl: SQLTable<'a>,
-{
-    /// Create a new SQLite column definition.
-    pub const fn new(name: &'a str, sql: &'a str) -> Self {
-        Self {
-            name,
-            sql,
-            _table: std::marker::PhantomData,
-            _type: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'a, T, Tbl> ToSQL<'a, SQLiteValue<'a>> for SQLiteColumn<'a, T, Tbl>
-where
-    T: TryInto<SQLiteValue<'a>> + Clone + std::fmt::Debug,
-    Tbl: SQLTable<'a>,
-{
-    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-        SQL::raw(self.name)
-    }
-}
-
-// Add this implementation to track the column's value type
-impl<'a, T, Tbl> SQLiteColumn<'a, T, Tbl>
-where
-    T: TryInto<SQLiteValue<'a>> + Clone + std::fmt::Debug,
-    Tbl: SQLTable<'a>,
-{
-    /// Gets the type of this column, useful for type checking in expressions
-    pub fn column_type(&self) -> std::marker::PhantomData<T> {
-        self._type
-    }
+pub trait SQLiteColumn<'a>: SQLColumn<'a, SQLiteValue<'a>> {
+    const AUTOINCREMENT: bool = false;
 }

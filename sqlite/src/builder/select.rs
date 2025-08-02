@@ -72,10 +72,10 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// Specifies the table to select FROM and transitions state
     pub fn from<T>(self) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
-        T: SQLTable<'a> + IsInSchema<S>,
+        T: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<S>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::from(SQL::raw(T::NAME))),
+            sql: self.sql.append(helpers::from(SQL::raw(T::Schema::NAME))),
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,
@@ -87,20 +87,20 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
 // Post-FROM State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
+impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T>
+where
+    T: SQLTable<'a, SQLiteValue<'a>>,
+{
     /// Adds a JOIN clause to the query
-    pub fn join<U: IsInSchema<S> + SQLTable<'a>>(
+    pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
         self,
         join_type: Join,
         on_condition: SQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, T>
-    where
-        T: IsInSchema<S> + SQLTable<'a>,
-    {
+    ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self
                 .sql
-                .append(helpers::join(join_type, U::NAME, on_condition)),
+                .append(helpers::join(join_type, U::Schema::NAME, on_condition)),
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,

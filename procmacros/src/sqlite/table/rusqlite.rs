@@ -78,7 +78,7 @@ fn generate_field_from_row(info: &FieldInfo, field_type: TokenStream) -> Result<
             "JSON fields require the 'serde' feature to be enabled",
         ));
     } else if info.is_uuid {
-        if let Some(SQLiteType::Text) = info.column_type {
+        if let SQLiteType::Text = info.column_type {
             if field_type.to_string().contains("Option") {
                 Ok(quote! {
                     #name: Some(uuid::Uuid::parse_str(&row.get::<_, String>(#column_name)?).map_err(|_| rusqlite::types::FromSqlError::InvalidType)?),
@@ -107,7 +107,7 @@ pub fn generate_rusqlite_from_to_sql(infos: &[&FieldInfo]) -> Result<Vec<TokenSt
             let name = info.base_type;
 
             let to_sql_impl = match info.column_type {
-                    Some(SQLiteType::Blob) => {
+                    SQLiteType::Blob => {
                         quote! {
                             impl rusqlite::types::ToSql for #name {
                                 fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
@@ -118,7 +118,7 @@ pub fn generate_rusqlite_from_to_sql(infos: &[&FieldInfo]) -> Result<Vec<TokenSt
                             }
                         }
                     },
-                    Some(SQLiteType::Text) => {
+                    SQLiteType::Text => {
                         quote! {
                             impl rusqlite::types::ToSql for #name {
                                 fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {

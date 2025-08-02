@@ -1,7 +1,7 @@
 // Contents of querybuilder/src/sqlite/insert.rs moved here
 // querybuilder/src/sqlite/builder/insert.rs
 use crate::values::SQLiteValue;
-use drizzle_core::SQL;
+use drizzle_core::{IsInSchema, SQL, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -57,13 +57,17 @@ pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 // Initial State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> InsertBuilder<'a, S, InsertInitial, T> {
+impl<'a, S, T> InsertBuilder<'a, S, InsertInitial, T>
+where
+    T: SQLTable<'a, SQLiteValue<'a>>,
+    T::Insert: ToSQL<'a, SQLiteValue<'a>>,
+{
     /// Sets values to insert and transitions to ValuesSet state
     pub fn values(
         self,
-        values: Vec<Vec<SQL<'a, SQLiteValue<'a>>>>,
+        values: impl IntoIterator<Item = T::Insert>,
     ) -> InsertBuilder<'a, S, InsertValuesSet, T> {
-        let values_sql = crate::helpers::values(values);
+        let values_sql = crate::helpers::values::<'a, T, SQLiteValue>(values);
         InsertBuilder {
             sql: self.sql.append(values_sql),
             _schema: PhantomData,

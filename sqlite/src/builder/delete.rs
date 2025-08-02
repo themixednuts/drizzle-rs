@@ -1,5 +1,4 @@
 use crate::values::SQLiteValue;
-use drizzle_core::IsInSchema;
 use drizzle_core::{SQL, error::Result};
 use std::fmt::Debug;
 use std::marker::PhantomData;

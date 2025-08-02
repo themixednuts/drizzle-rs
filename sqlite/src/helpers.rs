@@ -1,5 +1,5 @@
 use crate::values::SQLiteValue;
-use drizzle_core::{Join, SQL, SortDirection, ToSQL};
+use drizzle_core::{Join, SQL, SQLTable, SortDirection, ToSQL, traits::SQLParam};
 
 /// Helper function to create a SELECT statement with the given columns
 pub(crate) fn select<'a, const N: usize>(
@@ -120,14 +120,20 @@ pub(crate) fn insert_into<'a>(table: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a,
 }
 
 /// Helper function to create VALUES clause for INSERT
-pub(crate) fn values<'a>(rows: Vec<Vec<SQL<'a, SQLiteValue<'a>>>>) -> SQL<'a, SQLiteValue<'a>> {
+pub(crate) fn values<'a, Table, V>(
+    rows: impl IntoIterator<Item = <Table as SQLTable<'a, V>>::Insert>,
+) -> SQL<'a, SQLiteValue<'a>>
+where
+    Table: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+    <Table as SQLTable<'a, V>>::Insert: ToSQL<'a, V>,
+{
     let sql = SQL::raw("VALUES ");
 
     let value_rows: Vec<SQL<'a, SQLiteValue<'a>>> = rows
         .into_iter()
         .map(|row| {
             let mut row_sql = SQL::raw("(");
-            row_sql = row_sql.append(SQL::join(&row, ", "));
             row_sql = row_sql.append_raw(")");
             row_sql
         })

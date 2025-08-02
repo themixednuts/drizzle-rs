@@ -100,9 +100,9 @@ where
 
     pub fn insert<T>(&self) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, T>
     where
-        T: IsInSchema<Schema> + SQLTable<'a>,
+        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let table_name = T::NAME;
+        let table_name = T::Schema::NAME;
         let sql = crate::helpers::insert_into(SQL::raw(table_name));
 
         insert::InsertBuilder {
@@ -115,9 +115,9 @@ where
 
     pub fn update<T>(&self) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, T>
     where
-        T: IsInSchema<Schema> + SQLTable<'a>,
+        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let table_name = T::NAME;
+        let table_name = T::Schema::NAME;
         let sql = crate::helpers::update(SQL::raw(table_name));
 
         update::UpdateBuilder {
@@ -130,9 +130,9 @@ where
 
     pub fn delete<T>(&self) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, T>
     where
-        T: IsInSchema<Schema> + SQLTable<'a>,
+        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let table_name = T::NAME;
+        let table_name = T::Schema::NAME;
         let sql = crate::helpers::delete_from(SQL::raw(table_name));
 
         delete::DeleteBuilder {
@@ -176,7 +176,7 @@ pub mod rusqlite_impl {
         State: ExecutableState,
     {
         /// Executes the query and returns the number of affected rows
-        pub fn execute(&self, conn: &mut Connection) -> Result<usize> {
+        pub fn execute(&self, conn: &Connection) -> Result<usize> {
             let sql = self.sql.sql();
 
             // Get parameters and handle potential errors from IntoParams
@@ -193,7 +193,7 @@ pub mod rusqlite_impl {
         }
 
         /// Runs the query and returns all matching rows
-        pub fn all<T>(&self, conn: &mut Connection) -> Result<Vec<T>>
+        pub fn all<T>(&self, conn: &Connection) -> Result<Vec<T>>
         where
             T: for<'r> TryFrom<&'r Row<'r>>,
             for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<rusqlite::Error>,
@@ -221,7 +221,7 @@ pub mod rusqlite_impl {
             Ok(results)
         }
 
-        pub fn get<T>(&self, conn: &mut Connection) -> Result<T>
+        pub fn get<T>(&self, conn: &Connection) -> Result<T>
         where
             T: for<'r> TryFrom<&'r Row<'r>>,
             for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<rusqlite::Error>,

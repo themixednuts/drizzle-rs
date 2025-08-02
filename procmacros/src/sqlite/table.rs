@@ -1,14 +1,32 @@
+// Add to your proc-macro's Cargo.toml:
+// heck = "0.4"
+
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite;
 
-use super::field::FieldInfo;
-use super::field::SQLiteType;
-use proc_macro2::TokenStream;
+use super::field::{FieldInfo, SQLiteType};
+use heck::ToUpperCamelCase;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use rusqlite::generate_rusqlite_from_to_sql;
-use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{Ident, Meta, Result, Type};
+use syn::{Data, DeriveInput, Meta, Result, parse::Parse, parse_macro_input};
+
+// A context struct to hold all the necessary information for generation.
+// This avoids passing many arguments to every function.
+struct MacroContext<'a> {
+    struct_ident: &'a Ident,
+    table_name: String,
+    create_table_sql: String,
+    field_infos: &'a [FieldInfo<'a>],
+    select_model_ident: Ident,
+    insert_model_ident: Ident,
+    update_model_ident: Ident,
+}
+
+// ============================================================================
+// 1. Attribute Parsing
+// ============================================================================
 
 #[derive(Default)]
 pub(crate) struct TableAttributes {
@@ -18,147 +36,281 @@ pub(crate) struct TableAttributes {
 }
 
 impl Parse for TableAttributes {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         let mut attrs = TableAttributes::default();
+        let metas = input.parse_terminated(Meta::parse, syn::Token![,])?;
 
-        // If the input is empty, return the default attributes
-        if input.is_empty() {
-            return Ok(attrs);
-        }
-
-        // Parse a comma-separated list of attributes
-        let punctuated = input.parse_terminated(syn::Meta::parse, syn::Token![,])?;
-
-        // Process each attribute
-        for meta in punctuated {
+        for meta in metas {
             match meta {
-                // Handle name="value" attribute
-                syn::Meta::NameValue(name_value) if name_value.path.is_ident("name") => {
-                    if let syn::Expr::Lit(expr_lit) = name_value.value {
-                        if let syn::Lit::Str(lit_str) = expr_lit.lit {
-                            attrs.name = Some(lit_str.value());
+                Meta::NameValue(nv) if nv.path.is_ident("name") => {
+                    if let syn::Expr::Lit(lit) = nv.clone().value {
+                        if let syn::Lit::Str(str_lit) = lit.lit {
+                            attrs.name = Some(str_lit.value());
+                            continue;
                         }
                     }
+                    return Err(syn::Error::new(
+                        nv.span(),
+                        "Expected a string literal for 'name'",
+                    ));
                 }
-                // Handle "strict" flag
-                syn::Meta::Path(path) if path.is_ident("strict") => {
-                    attrs.strict = true;
+                Meta::Path(path) if path.is_ident("strict") => attrs.strict = true,
+                Meta::Path(path) if path.is_ident("without_rowid") => attrs.without_rowid = true,
+                _ => {
+                    return Err(syn::Error::new(
+                        meta.span(),
+                        "Unrecognized table attribute. Supported attributes are: name, strict, without_rowid",
+                    ));
                 }
-                // Handle "without_rowid" flag
-                syn::Meta::Path(path) if path.is_ident("without_rowid") => {
-                    attrs.without_rowid = true;
-                }
-                // Ignore unrecognized attributes
-                _ => return Err(syn::Error::new(meta.span(), "unrecognized attribute")),
             }
         }
-
         Ok(attrs)
     }
 }
 
-/// Generate SQLite dialect-specific column constants for a table
-pub(crate) fn generate_sqlite_column_consts(
-    field_info: &[(
-        &Ident, // field name
-        &Type,  // field type (original, e.g., Option<T>)
-        String, // column name
-        String, // base SQL definition (from core)
-        bool,   // is_autoincrement
-        bool,   // is_primary
-    )],
-) -> Result<TokenStream> {
-    // Add validation logic here
-    for (field_name, _field_type, _column_name, _sql, is_autoincrement, is_primary) in
-        field_info.iter()
-    {
-        if *is_autoincrement && !is_primary {
-            return Err(syn::Error::new_spanned(
-                field_name, // Span the error on the field name
-                "drizzle: 'autoincrement' can only be assigned to a field that is also 'primary key'.",
-            ));
-        }
+// ============================================================================
+// 2. Generation Logic (Broken into smaller functions)
+// ============================================================================
+
+/// Generates the `CREATE TABLE` SQL string.
+fn generate_create_table_sql(
+    table_name: &str,
+    field_infos: &[FieldInfo],
+    is_composite_pk: bool,
+    strict: bool,
+    without_rowid: bool,
+) -> String {
+    let column_defs: Vec<_> = field_infos
+        .iter()
+        .map(|info| {
+            // Add AUTOINCREMENT only for single-column integer primary keys
+            if info.is_autoincrement && info.is_primary && !is_composite_pk {
+                format!("{} AUTOINCREMENT", info.sql_definition)
+            } else {
+                info.sql_definition.clone()
+            }
+        })
+        .collect();
+
+    let mut create_sql = format!(
+        "CREATE TABLE \"{}\" ({})",
+        table_name,
+        column_defs.join(", ")
+    );
+
+    if is_composite_pk {
+        let pk_cols = field_infos
+            .iter()
+            .filter(|info| info.is_primary)
+            .map(|info| format!("\"{}\"", info.column_name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        create_sql.push_str(&format!(", PRIMARY KEY ({})", pk_cols));
     }
 
-    let column_consts = field_info.iter().map(
-        |(field_name, field_type, column_name, sql_base, is_autoincrement, is_primary)| {
-            // Add AUTOINCREMENT to SQL definition if needed
-            // Note: This assumes single-column PKs for AUTOINCREMENT as multi-col PK logic is in core
-            let final_sql = if *is_autoincrement && *is_primary {
-                format!("{} AUTOINCREMENT", sql_base)
-            } else {
-                sql_base.clone()
-            };
+    create_sql.push(')');
+    if without_rowid {
+        create_sql.push_str(" WITHOUT ROWID");
+    }
+    if strict {
+        create_sql.push_str(" STRICT");
+    }
+    create_sql.push(';');
+    create_sql
+}
 
+/// Generates the `impl` block on the table struct for individual column access.
+/// E.g., `impl User { pub const id: UserId = UserId; }`
+fn generate_column_accessors(
+    struct_ident: &Ident,
+    field_infos: &[FieldInfo],
+    column_zst_idents: &[Ident],
+) -> Result<TokenStream> {
+    let const_defs = field_infos
+        .iter()
+        .zip(column_zst_idents.iter())
+        .map(|(info, zst_ident)| {
+            let const_name = info.ident; // The original field name, e.g., `id`
             quote! {
-                #[allow(non_upper_case_globals, dead_code)]
-                // Use the original field_type here for the SQLiteColumn generic
-                pub const #field_name: ::drizzle_rs::sqlite::SQLiteColumn<'a, #field_type, Self> =
-                    ::drizzle_rs::sqlite::SQLiteColumn::new(
-                        #column_name,
-                        #final_sql, // Use the potentially modified SQL
-                    );
+                pub const #const_name: #zst_ident = #zst_ident;
             }
-        },
+        });
+
+    Ok(quote! {
+        #[allow(non_upper_case_globals)]
+        impl #struct_ident {
+            #(#const_defs)*
+        }
+    })
+}
+
+/// Generates the column ZSTs and their `SQLColumn` implementations.
+fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStream, Vec<Ident>)> {
+    let mut all_column_code = TokenStream::new();
+    let mut column_zst_idents = Vec::new();
+    let struct_ident = &ctx.struct_ident;
+
+    for info in ctx.field_infos {
+        let field_pascal_case = info.ident.to_string().to_upper_camel_case();
+        let zst_ident = format_ident!("{}{}", ctx.struct_ident, field_pascal_case);
+        column_zst_idents.push(zst_ident.clone());
+
+        let (value_type, rust_type) = (&info.base_type, &info.field_type);
+        let (is_primary, is_not_null, is_unique) =
+            (info.is_primary, !info.is_nullable, info.is_unique);
+
+        let default_const = info
+            .default_value
+            .as_ref()
+            .map_or_else(|| quote! { None }, |val| quote! { Some(#val) });
+
+        let default_fn_body = info.default_fn.as_ref().map_or_else(
+            || quote! { None::<fn() -> Self::Type> },
+            |func| quote! { Some(|| #func) },
+        );
+
+        let sql = &info.sql_definition;
+
+        let name = &info.column_name;
+        let col_type = &info.column_type.to_sql_type();
+
+        let column_code = quote! {
+            #[allow(non_camel_case_types)]
+            #[derive(Debug, Clone, Copy, Default)]
+            pub struct #zst_ident;
+
+            impl <'a> ::drizzle_rs::core::SQLSchema<'a, &'a str> for #zst_ident {
+                const NAME: &'a str = #name;
+                const TYPE: &'a str = #col_type;
+                const SQL: &'a str = #sql;
+            }
+
+            impl<'a> ::drizzle_rs::core::SQLColumn<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident {
+                type Table = #struct_ident;
+                type Type = #rust_type;
+                type Schema = Self;
+
+                const PRIMARY_KEY: bool = #is_primary;
+                const NOT_NULL: bool = #is_not_null;
+                const UNIQUE: bool = #is_unique;
+                const DEFAULT: Option<Self::Type> = #default_const;
+
+                fn default_fn() -> Option<impl Fn() -> Self::Type> {
+                    #default_fn_body
+                }
+            }
+
+            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident {
+                fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                    unimplemented!()
+                }
+            }
+        };
+        all_column_code.extend(column_code);
+    }
+    Ok((all_column_code, column_zst_idents))
+}
+
+/// Generates the `SQLSchema` and `SQLTable` implementations.
+fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Result<TokenStream> {
+    let struct_ident = ctx.struct_ident;
+    let table_name = &ctx.table_name;
+    let create_table_sql = &ctx.create_table_sql;
+    let (select_model, insert_model, update_model) = (
+        &ctx.select_model_ident,
+        &ctx.insert_model_ident,
+        &ctx.update_model_ident,
     );
 
     Ok(quote! {
-        #(#column_consts)*
+        impl<'a> ::drizzle_rs::core::SQLSchema<'a, ::drizzle_rs::core::SQLSchemaType> for #struct_ident {
+            const NAME: &'a str = #table_name;
+            const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Table;
+            const SQL: &'a str = #create_table_sql;
+        }
+
+        impl<'a> ::drizzle_rs::core::SQLTable<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
+            type Schema = Self;
+            type Select = #select_model;
+            type Insert = #insert_model;
+            type Update = #update_model;
+
+            type Columns = (#(#column_zst_idents,)*);
+            const COLUMNS: Self::Columns = (#(#column_zst_idents,)*);
+        }
     })
 }
 
-// --- IntoParams Generation --- //
+/// Generates the `Select`, `Insert`, `Update` model structs and their impls.
+fn generate_model_definitions(ctx: &MacroContext) -> Result<TokenStream> {
+    let (select_model, insert_model, update_model) = (
+        &ctx.select_model_ident,
+        &ctx.insert_model_ident,
+        &ctx.update_model_ident,
+    );
 
-/// Generates the `impl IntoParams<SQLiteValue>` for the Insert model.
-pub(crate) fn generate_sqlite_into_params_impl(
-    insert_model_name: &Ident,
-    field_info: &[FieldInfo<'_>],
-) -> Result<TokenStream> {
-    let param_pushes = field_info
-        .iter()
-        .map(|info| {
-            let field_ident = info.ident;
-            if !cfg!(feature = "serde") && info.is_json {
-                return Err(syn::Error::new(
-                    field_ident.span(),
-                    "JSON field requires the 'serde' feature to be enabled",
-                ));
-            }
+    let mut select_fields = Vec::new();
+    let mut insert_fields = Vec::new();
+    let mut update_fields = Vec::new();
+    let mut insert_default_fields = Vec::new();
 
-            if info.is_json {
-                // JSON fields now have From implementations, so we can use the standard approach
-                Ok(quote! {
-                    params.push(::drizzle_rs::sqlite::SQLiteValue::from(self.#field_ident.clone()));
-                })
-            } else if info.is_enum {
-                // For enum fields, we assume the type implements the SQLiteEnum trait
-                Ok(quote! {
-                    // Directly use the SQLiteEnum trait implementation for conversion
-                    params.push(::drizzle_rs::sqlite::SQLiteValue::from(self.#field_ident.clone()));
-                })
+    for info in ctx.field_infos {
+        let name = info.ident;
+        let (select_type, insert_type, update_type) = (
+            info.get_select_type(),
+            info.get_insert_type(),
+            info.get_update_type(),
+        );
+        select_fields.push(quote! { pub #name: #select_type });
+        insert_fields.push(quote! { pub #name: #insert_type });
+        update_fields.push(quote! { pub #name: #update_type });
+
+        // Logic for Insert model's `Default` impl
+        let default_value = if let Some(f) = &info.default_fn {
+            let base_type = info.base_type;
+            let needs_option = quote!(#insert_type).to_string().starts_with("Option <");
+            if needs_option {
+                quote! { #name: Some(#f()) }
             } else {
-                // Standard handling for non-JSON, non-enum fields
-                Ok(quote! {
-                    // Assumes the field type implements From/Into SQLiteValue
-                    params.push(::drizzle_rs::sqlite::SQLiteValue::from(self.#field_ident.clone())); // Clone needed for Option<T> fields in InsertModel
-                })
+                quote! { #name: #f() }
             }
-        })
-        .collect::<syn::Result<Vec<_>>>()?;
+        } else {
+            quote! { #name: ::std::default::Default::default() }
+        };
+        insert_default_fields.push(default_value);
+    }
 
-    // The entire impl is generated only if the sqlite feature is on (implicitly via this module)
     Ok(quote! {
-        // impl<'a> ::drizzle_rs::core::IntoParams<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model_name {
-        //     fn into_params(self) -> ::std::result::Result<Vec<::drizzle_rs::sqlite::SQLiteValue<'a>>, ::drizzle_rs::core::DrizzleError> {
-        //         let mut params = Vec::new();
-        //         #(#param_pushes)*
-        //         Ok(params)
-        //     }
-        // }
+        // Select Model
+        #[derive(Debug, Clone, PartialEq, Default)]
+        pub struct #select_model { #(#select_fields,)* }
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model {
+            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> { unimplemented!() }
+        }
+
+        // Insert Model
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct #insert_model { #(#insert_fields,)* }
+        impl Default for #insert_model {
+            fn default() -> Self { Self { #(#insert_default_fields,)* } }
+        }
+        impl #insert_model {
+            pub fn new() -> Self { Self::default() }
+        }
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model {
+            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> { unimplemented!() }
+        }
+
+        // Update Model
+        #[derive(Debug, Clone, PartialEq, Default)]
+        pub struct #update_model { #(#update_fields,)* }
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #update_model {
+            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> { unimplemented!() }
+        }
     })
 }
 
-/// Generate TryFrom<SQLiteValue> implementations for JSON fields
+/// Generates `FromSql` and `ToSql` impls for JSON fields.
 fn generate_json_impls(field_infos: &[FieldInfo<'_>]) -> Result<TokenStream> {
     // Create a filter for JSON fields
     let json_fields: Vec<_> = field_infos.iter().filter(|info| info.is_json).collect();
@@ -174,7 +326,7 @@ fn generate_json_impls(field_infos: &[FieldInfo<'_>]) -> Result<TokenStream> {
                 return Err(syn::Error::new_spanned(info.ident, "serde feature is required for JSON fields"))
             }
             let struct_name = info.base_type;
-            let column_type_str = info.column_type_str().unwrap_or_else(|| "text".to_string());
+            let column_type_str = info.column_type.to_sql_type();
 
             // Different implementation based on the column type (TEXT vs BLOB)
             let impl_block = if column_type_str == "blob" {
@@ -224,275 +376,85 @@ fn generate_json_impls(field_infos: &[FieldInfo<'_>]) -> Result<TokenStream> {
     Ok(json_types_impl)
 }
 
-/// Implementation of the SQLiteTable attribute macro
-pub(crate) fn table_attr_macro(
-    input: syn::DeriveInput,
-    attrs: TableAttributes,
-) -> Result<TokenStream> {
-    let struct_name = &input.ident;
+// ============================================================================
+// 3. Main Macro Entry Point
+// ============================================================================
 
-    // Use our extracted attribute values
-    let table_name = attrs.name.unwrap_or_else(|| struct_name.to_string());
-    let strict = attrs.strict;
-    let without_rowid = attrs.without_rowid;
+pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<TokenStream> {
+    // -------------------
+    // 1. Setup Phase
+    // -------------------
+    let struct_ident = &input.ident;
+    let table_name = attrs.name.unwrap_or_else(|| struct_ident.to_string());
 
-    // Extract fields directly using FieldInfo::from_field
-    let fields_data = if let syn::Data::Struct(ref data) = input.data {
+    let fields = if let Data::Struct(data) = &input.data {
         &data.fields
     } else {
-        return Err(syn::Error::new_spanned(
-            &input,
-            "SQLiteTable can only be applied to structs.",
+        return Err(syn::Error::new(
+            input.span(),
+            "Table macro can only be applied to structs.",
         ));
     };
 
-    // Collect fields with primary key to determine composite primary keys
-    let primary_key_count = fields_data
+    let primary_key_count = fields
         .iter()
-        .filter(|field| {
-            field.attrs.iter().any(|attr| {
-                if let Some(ident) = attr.path().get_ident() {
-                    if SQLiteType::all_attribute_names().contains(&ident.to_string().as_str()) {
-                        if let Ok(meta) = attr.parse_args_with(
-                            syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
-                        ) {
-                            return meta.iter().any(|nested_meta| {
-                                if let Meta::Path(path) = nested_meta {
-                                    if let Some(ident) = path.get_ident() {
-                                        return ident.to_string() == "primary_key"
-                                            || ident.to_string() == "primary";
-                                    }
-                                }
-                                false
-                            });
-                        }
-                    }
-                }
-                false
-            })
-        })
+        .filter(|f| FieldInfo::from_field(f, false).is_ok_and(|f| f.is_primary))
         .count();
-
     let is_composite_pk = primary_key_count > 1;
 
-    // Parse field information
-    let field_infos: Vec<FieldInfo> = fields_data
+    let field_infos: Vec<FieldInfo> = fields
         .iter()
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
-        .collect::<syn::Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
-    // Generate column constants - Always call the function
-    let column_consts = {
-        let sqlite_field_info: Vec<_> = field_infos
-            .iter()
-            .map(|info| {
-                (
-                    info.ident,
-                    info.field_type,
-                    info.column_name.clone(),
-                    info.sql_definition.clone(),
-                    info.is_autoincrement,
-                    info.is_primary,
-                )
-            })
-            .collect();
+    let create_table_sql = generate_create_table_sql(
+        &table_name,
+        &field_infos,
+        is_composite_pk,
+        attrs.strict,
+        attrs.without_rowid,
+    );
 
-        // Call the dialect function (now returns Result)
-        generate_sqlite_column_consts(&sqlite_field_info)? // Updated to use the local function directly
+    let context = MacroContext {
+        struct_ident,
+        table_name,
+        create_table_sql,
+        field_infos: &field_infos,
+        select_model_ident: format_ident!("Select{}", struct_ident),
+        insert_model_ident: format_ident!("Insert{}", struct_ident),
+        update_model_ident: format_ident!("Update{}", struct_ident),
     };
 
-    // Generate types for models
-    let select_model_name = format_ident!("Select{}", struct_name);
-    let insert_model_name = format_ident!("Insert{}", struct_name);
-    let update_model_name = format_ident!("Update{}", struct_name);
-
-    // Select model fields - use FieldInfo's get_select_type method
-    let (select_model_fields_defs, insert_model_fields_defs, update_model_fields_defs): (
-        Vec<TokenStream>,
-        Vec<TokenStream>,
-        Vec<TokenStream>,
-    ) = field_infos
-        .iter()
-        .map(|info| {
-            let name = info.ident;
-            let select_type = info.get_select_type();
-            let insert_type = info.get_insert_type();
-            let update_type = info.get_update_type();
-            (
-                quote! { pub #name: #select_type },
-                quote! { pub #name: #insert_type },
-                quote! { pub #name: #update_type },
-            )
-        })
-        .collect();
-
-    // Generate CREATE TABLE SQL
-    let mut create_table_sql = format!("CREATE TABLE '{}' (", table_name);
-    if !field_infos.is_empty() {
-        create_table_sql.push_str(&field_infos[0].sql_definition);
-        for info in &field_infos[1..] {
-            create_table_sql.push_str(", ");
-            create_table_sql.push_str(&info.sql_definition);
-        }
-    }
-
-    // Add composite primary key if needed
-    if is_composite_pk {
-        let primary_key_cols: Vec<_> = field_infos
-            .iter()
-            .filter(|info| info.is_primary)
-            .map(|info| info.column_name.clone())
-            .collect();
-
-        create_table_sql.push_str(&format!(", PRIMARY KEY ({})", primary_key_cols.join(", ")));
-    }
-
-    create_table_sql.push(')');
-    if strict {
-        create_table_sql.push_str(" STRICT");
-    }
-    if without_rowid {
-        create_table_sql.push_str(" WITHOUT ROWID");
-    }
-    create_table_sql.push(';');
-
-    // Generate implementation for SQLSchema
-    let sql_schema_impl = quote! {
-        // Add <'a> back to impl block and use 'a for consts
-        impl<'a> ::drizzle_rs::core::SQLSchema<'a> for #struct_name {
-            const NAME: &'a str = #table_name;
-            const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Table;
-            const SQL: &'a str = #create_table_sql;
-        }
-    };
-
-    // Generate implementation for SQLTable
-    let sql_table_impl = quote! {
-        // Add <'a> back to impl block.
-        impl<'a> ::drizzle_rs::core::SQLTable<'a> for #struct_name {
-            type Select = #select_model_name;
-            type Insert = #insert_model_name;
-            type Update = #update_model_name;
-        }
-    };
-
-    // Generate default implementation for Insert model
-    let insert_model_default_fields = field_infos.iter().map(|info| {
-        let name = info.ident;
-        let base_type = info.base_type;
-
-        // Special handling for default_fn
-        if let Some(default_fn) = &info.default_fn {
-            let is_required = info
-                .get_insert_type()
-                .to_string()
-                .starts_with(&quote!(#base_type).to_string());
-
-            if is_required {
-                quote! { #name: #default_fn() }
-            } else {
-                quote! { #name: Some(#default_fn()) }
-            }
-        } else {
-            let is_required = info
-                .get_insert_type()
-                .to_string()
-                .starts_with(&quote!(#base_type).to_string());
-
-            if is_required {
-                // Required fields use default of base type
-                quote! { #name: ::std::default::Default::default() }
-            } else {
-                // Optional fields default to None
-                quote! { #name: None }
-            }
-        }
-    });
-
-    // Add Default implementation for the Insert model
-    let insert_model_default_impl = quote! {
-        impl Default for #insert_model_name {
-            fn default() -> Self {
-                Self {
-                    #(#insert_model_default_fields),*
-                }
-            }
-        }
-
-        // Add builder methods for all fields
-        impl #insert_model_name {
-            /// Creates a new empty insert model
-            pub fn new() -> Self {
-                Self::default()
-            }
-
-        }
-    };
-
-    // Final assembly of generated code
-    let mut expanded = quote! {
-        #[derive(Default, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub struct #struct_name {
-            // Empty struct, used for associated items
-        }
-
-        impl<'a> #struct_name {
-            // Column constants
-            #column_consts
-        }
-
-        // SQLSchema and SQLTable implementations
-        #sql_schema_impl
-        #sql_table_impl
-
-        // Generate model for SELECT queries
-        #[derive(Debug, Clone, PartialEq, Default)]
-        pub struct #select_model_name {
-            #(#select_model_fields_defs),*
-        }
-
-        // Generate model for INSERT queries
-        #[derive(Debug, Clone, PartialEq)]
-        pub struct #insert_model_name {
-            #(#insert_model_fields_defs),*
-        }
-
-        // Generate model for UPDATE queries
-        #[derive(Debug, Clone, PartialEq, Default)]
-        pub struct #update_model_name {
-            #(#update_model_fields_defs),*
-        }
-
-        // Add the insert model implementations (Default, builder)
-        #insert_model_default_impl
-    };
-
-    // Generate JSON field implementations
+    // -------------------
+    // 2. Generation Phase
+    // -------------------
+    let (column_definitions, column_zst_idents) = generate_column_definitions(&context)?;
+    let column_accessors =
+        generate_column_accessors(struct_ident, &field_infos, &column_zst_idents)?;
+    let table_impls = generate_table_impls(&context, &column_zst_idents)?;
+    let model_definitions = generate_model_definitions(&context)?;
     let json_impls = generate_json_impls(&field_infos)?;
-    expanded.extend(json_impls);
 
-    // Add SQLite specific implementations if feature is enabled
-    #[cfg(feature = "sqlite")]
-    {
-        // --- Generate IntoParams impl --- //
-        // let sqlite_into_params =
-        //     generate_sqlite_into_params_impl(&insert_model_name, &field_infos)?;
-        // expanded.extend(sqlite_into_params);
-    }
+    // #[cfg(feature = "rusqlite")]
+    // let rusqlite_impls = rusqlite::generate_rusqlite_impls(...) else { quote!() };
 
-    // Add rusqlite implementations if feature is enabled
-    #[cfg(feature = "rusqlite")]
-    {
-        // Pass field_info directly to rusqlite::generate_rusqlite_impls
-        let rusqlite_impls = rusqlite::generate_rusqlite_impls(
-            &select_model_name,
-            &insert_model_name,
-            &update_model_name,
-            &field_infos,
-        )?;
+    // -------------------
+    // 3. Assembly Phase
+    // -------------------
+    Ok(quote! {
+        // The main, user-facing struct is now a ZST.
+        // It acts as a namespace for the table's schema.
+        #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct #struct_ident;
+        #column_accessors
 
-        expanded.extend(rusqlite_impls);
-    }
+        // All generated code is scoped under a module to avoid polluting the global namespace.
+        // Or you can output it directly as done here.
 
-    Ok(expanded)
+        #column_definitions
+        #table_impls
+        #model_definitions
+        #json_impls
+        // #rusqlite_impls
+    })
 }

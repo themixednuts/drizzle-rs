@@ -19,7 +19,7 @@ authors = ["Mixed Nuts"]
 keywords = ["drizzle", "rizzle", "orm", "database", "sqlite"]
 description = "A type-safe SQL query builder for Rust"
 license = "MIT"
-repository = "https://github.com/yourusername/drizzle-rs"
+repository = "https://github.com/themixednuts/drizzle-rs"
 
 [workspace.dependencies]
 drizzle-rs = { path = "." }
@@ -45,36 +45,36 @@ anyhow = "1.0.75"
 
 [features]
 rusqlite = [
-    "dep:rusqlite",
-    "sqlite/rusqlite",
-    "sqlite",
-    "procmacros/rusqlite",
-    "drizzle_core/rusqlite",
+  "dep:rusqlite",
+  "sqlite/rusqlite",
+  "sqlite",
+  "procmacros/rusqlite",
+  "drizzle_core/rusqlite",
 ]
 libsql = ["dep:libsql", "sqlite/libsql", "sqlite", "procmacros/libsql"]
 libsql-rusqlite = [
-    "dep:libsql-rusqlite",
-    "sqlite/libsql-rusqlite",
-    "sqlite",
-    "procmacros/libsql-rusqlite",
+  "dep:libsql-rusqlite",
+  "sqlite/libsql-rusqlite",
+  "sqlite",
+  "procmacros/libsql-rusqlite",
 ]
 serde = [
-    "dep:serde_json",
-    "dep:serde",
-    "sqlite/serde",
-    "postgres/serde",
-    "mysql/serde",
-    "procmacros/serde",
-    "drizzle_core/serde",
-    "rusqlite/serde_json",
+  "dep:serde_json",
+  "dep:serde",
+  "sqlite/serde",
+  "postgres/serde",
+  "mysql/serde",
+  "procmacros/serde",
+  "drizzle_core/serde",
+  "rusqlite/serde_json",
 ]
 uuid = [
-    "dep:uuid",
-    "sqlite/uuid",
-    "postgres/uuid",
-    "mysql/uuid",
-    "drizzle_core/uuid",
-    "rusqlite/uuid",
+  "dep:uuid",
+  "sqlite/uuid",
+  "postgres/uuid",
+  "mysql/uuid",
+  "drizzle_core/uuid",
+  "rusqlite/uuid",
 ]
 
 # Add dialect-specific features back for gating re-exports

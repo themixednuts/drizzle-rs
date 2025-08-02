@@ -2,19 +2,20 @@ pub mod error;
 pub mod expressions;
 pub mod traits;
 
+use std::{borrow::Cow, fmt, fmt::Display};
 use traits::SQLParam;
 // Re-export key traits from traits module
 pub use traits::{IsInSchema, SQLColumn, SQLSchema, SQLTable};
+
+#[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 // TODO: Figure out the best way to incorp dialect in our types?
-pub mod dialect {
-    /// Represents a SQL dialect
-    pub enum Dialect {
-        SQLite,
-        PostgreSQL,
-        MySQL,
-    }
+/// Represents a SQL dialect
+pub enum Dialect {
+    SQLite,
+    PostgreSQL,
+    MySQL,
 }
 
 /// The type of SQLite database object
@@ -29,7 +30,6 @@ pub enum SQLSchemaType {
     /// A trigger
     Trigger,
 }
-use std::{borrow::Cow, fmt, fmt::Display};
 
 // Re-export common macros
 #[macro_export]

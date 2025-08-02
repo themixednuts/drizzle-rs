@@ -8,19 +8,21 @@ use syn::{
 };
 
 /// Enum representing supported SQLite column types
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SQLiteType {
     Integer,
     Text,
     Blob,
     Real,
     Numeric,
+    #[default]
+    Any,
 }
 
 impl SQLiteType {
     /// Returns all supported attribute names
     pub(crate) fn all_attribute_names() -> &'static [&'static str] {
-        &["integer", "text", "blob", "real", "number"]
+        &["integer", "text", "blob", "real", "numeric", "any"]
     }
 
     /// Convert from attribute name to enum variant
@@ -31,6 +33,7 @@ impl SQLiteType {
             "blob" => Some(SQLiteType::Blob),
             "real" => Some(SQLiteType::Real),
             "number" | "numeric" => Some(SQLiteType::Numeric),
+            "any" => Some(Default::default()),
             _ => None,
         }
     }
@@ -43,6 +46,7 @@ impl SQLiteType {
             SQLiteType::Blob => "BLOB",
             SQLiteType::Real => "REAL",
             SQLiteType::Numeric => "NUMERIC",
+            SQLiteType::Any => "ANY",
         }
     }
 
@@ -96,7 +100,7 @@ pub(crate) struct FieldInfo<'a> {
     pub(crate) is_json: bool,
     pub(crate) is_enum: bool,
     pub(crate) is_uuid: bool,
-    pub(crate) column_type: Option<SQLiteType>,
+    pub(crate) column_type: SQLiteType,
 
     // Attribute values
     pub(crate) default_value: Option<Expr>,
@@ -188,7 +192,7 @@ impl<'a> FieldInfo<'a> {
 
         // Initialize collections for parsed attributes
         let mut flags = HashSet::new();
-        let mut column_type = None;
+        let mut column_type = Default::default();
         let mut default_value = None;
         let mut default_fn = None;
         let mut references_path = None;
@@ -204,7 +208,7 @@ impl<'a> FieldInfo<'a> {
                 // Check if this is a column type attribute
                 if let Some(sqlite_type) = SQLiteType::from_attribute_name(&type_name) {
                     // Set the column type
-                    column_type = Some(sqlite_type.clone());
+                    column_type = sqlite_type.clone();
 
                     // Handle the case of an empty attribute (e.g., #[text])
                     if let Meta::Path(_) = attr.meta {
@@ -272,12 +276,6 @@ impl<'a> FieldInfo<'a> {
         let is_enum = flags.contains("enum");
         let has_default = default_value.is_some() || default_fn.is_some();
 
-        // Determine SQL type based on attribute
-        let column_type_str = column_type
-            .as_ref()
-            .map(|t| t.to_sql_type())
-            .unwrap_or("ANY"); // Default to TEXT if unspecified
-
         // Determine base type (T from Option<T> or T)
         let base_type: &Type = if is_nullable {
             get_option_inner_type(field_type).unwrap_or(field_type)
@@ -286,7 +284,7 @@ impl<'a> FieldInfo<'a> {
         };
 
         // Create column definition
-        let mut sql = format!("{} {}", column_name, column_type_str);
+        let mut sql = format!("{} {}", column_name, column_type.to_sql_type());
 
         // Add generic column constraints
         if is_primary && !is_part_of_composite_pk {
@@ -385,17 +383,6 @@ impl<'a> FieldInfo<'a> {
             quote!(::std::option::Option<#base_type>)
         })
     }
-
-    /// Returns the column type as a string for compatibility with existing code
-    pub(crate) fn column_type_str(&self) -> Option<String> {
-        self.column_type.as_ref().map(|ct| match ct {
-            SQLiteType::Integer => "integer".to_string(),
-            SQLiteType::Text => "text".to_string(),
-            SQLiteType::Blob => "blob".to_string(),
-            SQLiteType::Real => "real".to_string(),
-            SQLiteType::Numeric => "numeric".to_string(),
-        })
-    }
 }
 
 #[derive(Clone)]
@@ -418,16 +405,17 @@ pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
 
 // Helper function to get the inner type of Option<T>
 pub(crate) fn get_option_inner_type<'a>(ty: &'a syn::Type) -> Option<&'a syn::Type> {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            if segment.ident == "Option" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                        return Some(inner_type);
-                    }
-                }
-            }
-        }
+    let syn::Type::Path(type_path) = ty else {
+        return None;
+    };
+
+    let segment = type_path.path.segments.last()?;
+
+    if segment.ident == "Option"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner_type)) = args.args.first()
+    {
+        return Some(inner_type);
     }
     None
 }

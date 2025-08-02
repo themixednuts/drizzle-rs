@@ -11,7 +11,7 @@ mod tests {
 
     // Define a struct that will be serialized to JSON
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
-    pub struct UserProfile {
+    pub struct UsersProfile {
         age: i64,
         name: String,
         interests: Vec<String>,
@@ -25,7 +25,7 @@ mod tests {
         #[text]
         email: String,
         #[blob(json)]
-        profile: UserProfile,
+        profile: UsersProfile,
     }
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
@@ -55,13 +55,14 @@ mod tests {
         age: i64,
     }
 
+    // TODO implement trait, figure out best way to generate deserialization, whether by row or column name
     impl<'a> TryFrom<Row<'a>> for TestSelectPartial {
         type Error = rusqlite::Error;
 
         fn try_from(row: Row<'a>) -> std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                age: row.get("age")?,
+                id: row.get(0)?,
+                age: row.get(1)?,
             })
         }
     }
@@ -70,8 +71,8 @@ mod tests {
 
         fn try_from(row: &Row<'a>) -> std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                age: row.get("age")?,
+                id: row.get(0)?,
+                age: row.get(1)?,
             })
         }
     }
@@ -85,7 +86,7 @@ mod tests {
         conn.execute(User::SQL, []).unwrap();
 
         // Create test data
-        let user_profile = UserProfile {
+        let user_profile = UsersProfile {
             age: 30,
             name: "John Doe".to_string(),
             interests: vec!["Coding".to_string(), "Reading".to_string()],
@@ -100,14 +101,12 @@ mod tests {
         .unwrap();
 
         // Create a Drizzle instance
-        let mut db = drizzle!(conn, [User]);
+        let db = drizzle!(conn, [User]);
+        let _: <User as SQLTable<'_, drizzle_rs::sqlite::SQLiteValue<'_>>>::Insert;
 
         // Use Drizzle SQL api to query the data
-        let mut stmt = db
-            .select(columns![
-                User::id,
-                json_extract(User::profile, "age").as_("age")
-            ])
+        let stmt = db
+            .select(columns![User::id, json_extract(User::profile, "age")])
             .from::<User>()
             .r#where(eq(User::id, id));
 
@@ -121,8 +120,8 @@ mod tests {
         println!("{:?}", user);
 
         // Verify JSON deserialization through the ORM
-        // assert_eq!(user.id, id);
-        // assert_eq!(user.email, "john@example.com");
+        assert_eq!(user.id, id);
+        // assert_eq!(user, "john@example.com");
         // assert_eq!(user.profile.name, "John Doe");
         // assert_eq!(user.profile.age, 30);
         // assert_eq!(

@@ -97,3 +97,65 @@ pub mod prelude {
     // Add Drizzle struct to prelude
     pub use crate::Drizzle;
 }
+
+#[cfg(test)]
+mod tests {
+    use drizzle_core::{ToSQL, columns};
+    use drizzle_rs::core::{SQLColumn, SQLTable};
+    use procmacros::{SQLiteTable, drizzle, qb};
+    extern crate self as drizzle_rs;
+
+    #[cfg(feature = "rusqlite")]
+    use rusqlite;
+
+    #[SQLiteTable(name = "Users")]
+    struct User {
+        #[integer(primary)]
+        id: i32,
+        #[text]
+        name: String,
+        #[text]
+        email: Option<String>,
+    }
+
+    #[SQLiteTable(name = "Posts")]
+    struct Post {
+        #[integer(primary)]
+        id: i32,
+        #[text]
+        title: String,
+    }
+
+    #[SQLiteTable(name = "Comments")]
+    struct Comment {
+        #[integer(primary)]
+        id: i32,
+        #[text]
+        content: String,
+    }
+
+    #[test]
+    fn test_schema_macro() {
+        // Create a schema with the User table using schema! macro
+        let builder = qb!([User, Post]);
+
+        let query = builder.select(columns!(User::id)).from::<User>();
+        assert_eq!(query.to_sql().sql(), "SELECT * FROM Users");
+    }
+
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn test_insert() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE Users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)",
+            [],
+        )
+        .unwrap();
+
+        let id = User::id;
+
+        let db = drizzle!(conn, [User, Post]);
+        db.insert::<User>();
+    }
+}
