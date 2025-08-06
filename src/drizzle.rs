@@ -1,4 +1,4 @@
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::{IsInSchema, SQLParam, SQLTable};
 use drizzle_core::{SQL, ToSQL};
 use std::marker::PhantomData;
 
@@ -6,8 +6,11 @@ use std::marker::PhantomData;
 use sqlite::{
     SQLiteValue,
     builder::{
-        ExecutableState, delete, delete::DeleteBuilder, insert, insert::InsertBuilder, select,
-        select::SelectBuilder, update, update::UpdateBuilder,
+        self, QueryBuilder,
+        delete::{self, DeleteBuilder},
+        insert::{self, InsertBuilder},
+        select::{self, SelectBuilder},
+        update::{self, UpdateBuilder},
     },
 };
 
@@ -21,20 +24,18 @@ pub struct DrizzleInitial;
 impl DrizzleState for DrizzleInitial {}
 
 /// Drizzle instance that provides access to the database and query builder.
-#[derive(Debug, Clone)]
-pub struct Drizzle<'a, Conn: 'a, Schema> {
+#[derive(Debug, Clone, Default)]
+pub struct Drizzle<Conn, Schema = ()> {
     conn: Conn,
-    #[cfg(feature = "sqlite")]
-    builder: sqlite::builder::QueryBuilder<'a, Schema, sqlite::builder::BuilderInit>,
+    _schema: PhantomData<Schema>,
 }
 
-impl<'a, Conn: 'a, Schema> Drizzle<'a, Conn, Schema> {
-    #[cfg(feature = "sqlite")]
-    pub fn new(
-        conn: Conn,
-        builder: sqlite::builder::QueryBuilder<'a, Schema, sqlite::builder::BuilderInit>,
-    ) -> Drizzle<'a, Conn, Schema> {
-        Drizzle { conn, builder }
+impl<Conn> Drizzle<Conn> {
+    pub fn new<S>(conn: Conn) -> Drizzle<Conn, S> {
+        Drizzle {
+            conn,
+            _schema: PhantomData,
+        }
     }
 }
 
@@ -42,19 +43,18 @@ impl<'a, Conn: 'a, Schema> Drizzle<'a, Conn, Schema> {
 // DrizzleBuilder - Builder with Type State Pattern
 //------------------------------------------------------------------------------
 
-#[cfg(feature = "sqlite")]
 #[derive(Debug)]
 pub struct DrizzleBuilder<'a, Conn: 'a, Schema, Builder, State> {
-    drizzle: &'a Drizzle<'a, Conn, Schema>,
+    drizzle: &'a Drizzle<Conn, Schema>,
     builder: Builder,
-    _state: PhantomData<State>,
+    _state: PhantomData<(Schema, State)>,
 }
 
 //------------------------------------------------------------------------------
 // Drizzle Query Building Methods
 //------------------------------------------------------------------------------
 
-impl<'a, Conn, Schema> Drizzle<'a, Conn, Schema> {
+impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// Gets a mutable reference to the underlying connection
     pub fn get_conn(&mut self) -> &mut Conn {
         &mut self.conn
@@ -62,27 +62,34 @@ impl<'a, Conn, Schema> Drizzle<'a, Conn, Schema> {
 
     /// Creates a SELECT query builder.
     #[cfg(feature = "sqlite")]
-    pub fn select<const N: usize>(
+    pub fn select<'a, T>(
         &'a self,
-        columns: [SQL<'a, SQLiteValue<'a>>; N],
+        columns: T,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectInitial>,
         select::SelectInitial,
-    > {
-        let select_builder = self.builder.select(columns);
+    >
+    where
+        T: IntoIterator,
+        T::Item: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        use sqlite::builder::QueryBuilder;
+
+        let builder = QueryBuilder::new::<Schema>().select(columns);
+
         DrizzleBuilder {
             drizzle: self,
-            builder: select_builder,
+            builder,
             _state: PhantomData,
         }
     }
 
     /// Creates an INSERT query builder.
     #[cfg(feature = "sqlite")]
-    pub fn insert<T>(
+    pub fn insert<'a, T>(
         &'a self,
     ) -> DrizzleBuilder<
         'a,
@@ -92,19 +99,21 @@ impl<'a, Conn, Schema> Drizzle<'a, Conn, Schema> {
         insert::InsertInitial,
     >
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>> + 'a,
     {
-        let insert_builder = self.builder.insert::<T>();
+        use sqlite::builder::QueryBuilder;
+
+        let builder = QueryBuilder::new::<Schema>().insert::<T>();
         DrizzleBuilder {
             drizzle: self,
-            builder: insert_builder,
+            builder,
             _state: PhantomData,
         }
     }
 
     /// Creates an UPDATE query builder.
     #[cfg(feature = "sqlite")]
-    pub fn update<T>(
+    pub fn update<'a, T>(
         &'a self,
     ) -> DrizzleBuilder<
         'a,
@@ -116,17 +125,17 @@ impl<'a, Conn, Schema> Drizzle<'a, Conn, Schema> {
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let update_builder = self.builder.update::<T>();
+        let builder = QueryBuilder::new::<Schema>().update::<T>();
         DrizzleBuilder {
             drizzle: self,
-            builder: update_builder,
+            builder,
             _state: PhantomData,
         }
     }
 
     /// Creates a DELETE query builder.
     #[cfg(feature = "sqlite")]
-    pub fn delete<T>(
+    pub fn delete<'a, T>(
         &'a self,
     ) -> DrizzleBuilder<
         'a,
@@ -138,10 +147,10 @@ impl<'a, Conn, Schema> Drizzle<'a, Conn, Schema> {
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let delete_builder = self.builder.delete::<T>();
+        let builder = QueryBuilder::new::<Schema>().delete::<T>();
         DrizzleBuilder {
             drizzle: self,
-            builder: delete_builder,
+            builder,
             _state: PhantomData,
         }
     }
@@ -224,20 +233,43 @@ where
         }
     }
 
-    pub fn order_by(
+    pub fn order_by<TSQL, TIter>(
         self,
-        expressions: Vec<(
-            drizzle_core::SQL<'a, SQLiteValue<'a>>,
-            drizzle_core::SortDirection,
-        )>,
+        expressions: TIter,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
         select::SelectOrderSet,
-    > {
+    >
+    where
+        TSQL: ToSQL<'a, SQLiteValue<'a>>,
+        TIter: IntoIterator<Item = (TSQL, drizzle_core::OrderBy)>,
+    {
         let builder = self.builder.order_by(expressions);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+
+    pub fn join<U>(
+        self,
+        join_type: drizzle_core::Join,
+        on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
+        select::SelectJoinSet,
+    >
+    where
+        U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+    {
+        let builder = self.builder.join::<U>(join_type, on_condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -247,12 +279,86 @@ where
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, C, S, T>
+impl<'a, Conn, Schema, T>
     DrizzleBuilder<
         'a,
-        C,
-        S,
-        SelectBuilder<'a, S, select::SelectWhereSet, T>,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
+        select::SelectJoinSet,
+    >
+where
+    T: SQLTable<'a, SQLiteValue<'a>>,
+{
+    pub fn r#where(
+        self,
+        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectWhereSet, T>,
+        select::SelectWhereSet,
+    > {
+        let builder = self.builder.r#where(condition);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+    pub fn order_by<TSQL, TIter>(
+        self,
+        expressions: TIter,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
+        select::SelectOrderSet,
+    >
+    where
+        TSQL: ToSQL<'a, SQLiteValue<'a>>,
+        TIter: IntoIterator<Item = (TSQL, drizzle_core::OrderBy)>,
+    {
+        let builder = self.builder.order_by(expressions);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+
+    pub fn join<U>(
+        self,
+        join_type: drizzle_core::Join,
+        on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
+        select::SelectJoinSet,
+    >
+    where
+        U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+    {
+        let builder = self.builder.join::<U>(join_type, on_condition);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl<'a, Conn, Schema, T>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectWhereSet, T>,
         select::SelectWhereSet,
     >
 where
@@ -263,9 +369,9 @@ where
         limit: usize,
     ) -> DrizzleBuilder<
         'a,
-        C,
-        S,
-        SelectBuilder<'a, S, select::SelectLimitSet, T>,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
         select::SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -276,20 +382,85 @@ where
         }
     }
 
-    pub fn order_by(
+    pub fn order_by<TI>(
         self,
-        expressions: Vec<(
-            drizzle_core::SQL<'a, SQLiteValue<'a>>,
-            drizzle_core::SortDirection,
-        )>,
+        expressions: TI,
     ) -> DrizzleBuilder<
         'a,
-        C,
-        S,
-        SelectBuilder<'a, S, select::SelectOrderSet, T>,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
         select::SelectOrderSet,
-    > {
+    >
+    where
+        TI: IntoIterator<
+            Item = (
+                drizzle_core::SQL<'a, SQLiteValue<'a>>,
+                drizzle_core::OrderBy,
+            ),
+        >,
+    {
         let builder = self.builder.order_by(expressions);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl<'a, Conn, Schema, T>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
+        select::SelectLimitSet,
+    >
+where
+    T: SQLTable<'a, SQLiteValue<'a>>,
+{
+    pub fn offset(
+        self,
+        offset: usize,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectOffsetSet, T>,
+        select::SelectOffsetSet,
+    > {
+        let builder = self.builder.offset(offset);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl<'a, Conn, Schema, T>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
+        select::SelectOrderSet,
+    >
+where
+    T: SQLTable<'a, SQLiteValue<'a>>,
+{
+    pub fn limit(
+        self,
+        limit: usize,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
+        select::SelectLimitSet,
+    > {
+        let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -302,23 +473,29 @@ where
 // INSERT Builder Implementation
 //------------------------------------------------------------------------------
 
-#[cfg(feature = "sqlite")]
-impl<'a, C, S, T>
-    DrizzleBuilder<'a, C, S, InsertBuilder<'a, S, insert::InsertInitial, T>, insert::InsertInitial>
-where
-    T: SQLTable<'a, SQLiteValue<'a>>,
-    T::Insert: ToSQL<'a, SQLiteValue<'a>>,
+impl<'a, Conn, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
+        insert::InsertInitial,
+    >
 {
+    #[cfg(feature = "sqlite")]
     pub fn values(
         self,
-        values: impl IntoIterator<Item = T::Insert>,
+        values: impl IntoIterator<Item = Table::Insert>,
     ) -> DrizzleBuilder<
         'a,
-        C,
-        S,
-        InsertBuilder<'a, S, insert::InsertValuesSet, T>,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertValuesSet, Table>,
         insert::InsertValuesSet,
-    > {
+    >
+    where
+        Table: SQLTable<'a, SQLiteValue<'a>>,
+    {
         let builder = self.builder.values(values);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -326,9 +503,93 @@ where
             _state: PhantomData,
         }
     }
+}
 
-    pub fn on_conflict(self, resolution: insert::ConflictResolution) -> Self {
-        let builder = self.builder.on_conflict(resolution);
+//------------------------------------------------------------------------------
+// INSERT ValuesSet State Implementation
+//------------------------------------------------------------------------------
+
+#[cfg(feature = "sqlite")]
+impl<'a, Conn, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertValuesSet, Table>,
+        insert::InsertValuesSet,
+    >
+where
+    Table: SQLTable<'a, SQLiteValue<'a>>,
+{
+    /// Adds conflict resolution clause
+    pub fn on_conflict<TI>(
+        self,
+        conflict: insert::Conflict<'a, TI>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertOnConflictSet, Table>,
+        insert::InsertOnConflictSet,
+    >
+    where
+        TI: IntoIterator,
+        TI::Item: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let builder = self.builder.on_conflict(conflict);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+
+    /// Adds RETURNING clause
+    pub fn returning(
+        self,
+        columns: Vec<drizzle_core::SQL<'a, SQLiteValue<'a>>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertReturningSet, Table>,
+        insert::InsertReturningSet,
+    > {
+        let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            _state: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// INSERT OnConflict State Implementation
+//------------------------------------------------------------------------------
+
+#[cfg(feature = "sqlite")]
+impl<'a, Conn, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertOnConflictSet, Table>,
+        insert::InsertOnConflictSet,
+    >
+{
+    /// Adds RETURNING clause after ON CONFLICT
+    pub fn returning(
+        self,
+        columns: Vec<drizzle_core::SQL<'a, SQLiteValue<'a>>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertReturningSet, Table>,
+        insert::InsertReturningSet,
+    > {
+        let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -342,20 +603,28 @@ where
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, C, S, T>
-    DrizzleBuilder<'a, C, S, UpdateBuilder<'a, S, update::UpdateInitial, T>, update::UpdateInitial>
+impl<'a, Conn, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
+        update::UpdateInitial,
+    >
+where
+    Table: SQLTable<'a, SQLiteValue<'a>>,
 {
     pub fn set(
         self,
-        updates: Vec<(String, drizzle_core::SQL<'a, SQLiteValue<'a>>)>,
+        values: Table::Update,
     ) -> DrizzleBuilder<
         'a,
-        C,
-        S,
-        UpdateBuilder<'a, S, update::UpdateSetClauseSet, T>,
+        Conn,
+        Schema,
+        UpdateBuilder<'a, Schema, update::UpdateSetClauseSet, Table>,
         update::UpdateSetClauseSet,
     > {
-        let builder = self.builder.set(updates);
+        let builder = self.builder.set(values);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -365,12 +634,12 @@ impl<'a, C, S, T>
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, C, S, T>
+impl<'a, Conn, Schema, Table>
     DrizzleBuilder<
         'a,
-        C,
-        S,
-        UpdateBuilder<'a, S, update::UpdateSetClauseSet, T>,
+        Conn,
+        Schema,
+        UpdateBuilder<'a, Schema, update::UpdateSetClauseSet, Table>,
         update::UpdateSetClauseSet,
     >
 {
@@ -379,9 +648,9 @@ impl<'a, C, S, T>
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        C,
-        S,
-        UpdateBuilder<'a, S, update::UpdateWhereSet, T>,
+        Conn,
+        Schema,
+        UpdateBuilder<'a, Schema, update::UpdateWhereSet, Table>,
         update::UpdateWhereSet,
     > {
         let builder = self.builder.r#where(condition);
@@ -445,20 +714,22 @@ where
 impl<'a, S, State, T>
     DrizzleBuilder<'a, ::rusqlite::Connection, S, SelectBuilder<'a, S, State, T>, State>
 where
-    State: ExecutableState,
+    State: builder::ExecutableState,
 {
     pub fn all<R>(&self) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error: Into<::rusqlite::Error>,
+        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
     {
         self.builder.all(&self.drizzle.conn)
     }
 
     pub fn get<R>(&self) -> drizzle_core::error::Result<R>
     where
-        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error: Into<::rusqlite::Error>,
+        R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
+        for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
     {
         self.builder.get(&self.drizzle.conn)
     }
@@ -489,6 +760,22 @@ impl<'a, S, T>
         S,
         InsertBuilder<'a, S, insert::InsertReturningSet, T>,
         insert::InsertReturningSet,
+    >
+{
+    pub fn execute(&self) -> drizzle_core::error::Result<usize> {
+        self.builder.execute(&self.drizzle.conn)
+    }
+}
+
+// Add execution methods for INSERT - OnConflictSet state
+#[cfg(feature = "rusqlite")]
+impl<'a, S, T>
+    DrizzleBuilder<
+        'a,
+        ::rusqlite::Connection,
+        S,
+        InsertBuilder<'a, S, insert::InsertOnConflictSet, T>,
+        insert::InsertOnConflictSet,
     >
 {
     pub fn execute(&self) -> drizzle_core::error::Result<usize> {

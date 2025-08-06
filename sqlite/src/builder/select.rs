@@ -1,7 +1,7 @@
 use crate::helpers;
 use crate::values::SQLiteValue;
 use drizzle_core::traits::{IsInSchema, SQLSchema, SQLTable};
-use drizzle_core::{Join, SQL, SortDirection};
+use drizzle_core::{Join, OrderBy, SQL, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -18,6 +18,13 @@ use serde::de::DeserializeOwned;
 /// Marker for the initial state of SelectBuilder.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectInitial;
+
+impl SelectInitial {
+    /// Creates a new SelectInitial marker
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
 /// Marker for the state after FROM clause
 #[derive(Debug, Clone, Copy, Default)]
@@ -47,6 +54,43 @@ pub struct SelectLimitSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectOffsetSet;
 
+// Const constructors for all marker types
+impl SelectFromSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectJoinSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectWhereSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectGroupSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectOrderSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectLimitSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectOffsetSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
 // Mark states that can execute queries as implementing the ExecutableState trait
 impl ExecutableState for SelectFromSet {}
 impl ExecutableState for SelectWhereSet {}
@@ -75,7 +119,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
         T: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<S>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::from(SQL::raw(T::Schema::NAME))),
+            sql: self.sql.append(helpers::from::<T, SQLiteValue>()),
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,
@@ -98,9 +142,7 @@ where
         on_condition: SQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: self
-                .sql
-                .append(helpers::join(join_type, U::Schema::NAME, on_condition)),
+            sql: self.sql.append(helpers::join::<U>(join_type, on_condition)),
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,
@@ -154,10 +196,14 @@ where
     }
 
     /// Sorts the query results
-    pub fn order_by(
+    pub fn order_by<TSQL, TIter>(
         self,
-        expressions: Vec<(SQL<'a, SQLiteValue<'a>>, SortDirection)>,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T> {
+        expressions: TIter,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    where
+        TSQL: ToSQL<'a, SQLiteValue<'a>>,
+        TIter: IntoIterator<Item = (TSQL, OrderBy)>,
+    {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
             _schema: PhantomData,
@@ -184,6 +230,35 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
             _table: PhantomData,
         }
     }
+    /// Sorts the query results
+    pub fn order_by<TSQL, TIter>(
+        self,
+        expressions: TIter,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    where
+        TSQL: ToSQL<'a, SQLiteValue<'a>>,
+        TIter: IntoIterator<Item = (TSQL, OrderBy)>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(helpers::order_by(expressions)),
+            _schema: PhantomData,
+            _state: PhantomData,
+            _table: PhantomData,
+        }
+    }
+    /// Adds a JOIN clause to the query
+    pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
+        self,
+        join_type: Join,
+        on_condition: SQL<'a, SQLiteValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::join::<U>(join_type, on_condition)),
+            _schema: PhantomData,
+            _state: PhantomData,
+            _table: PhantomData,
+        }
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -205,10 +280,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     }
 
     /// Adds an ORDER BY clause after a WHERE
-    pub fn order_by(
-        self,
-        expressions: Vec<(SQL<'a, SQLiteValue<'a>>, SortDirection)>,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T> {
+    pub fn order_by<TI>(self, expressions: TI) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    where
+        TI: IntoIterator<Item = (SQL<'a, SQLiteValue<'a>>, OrderBy)>,
+    {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
             _schema: PhantomData,
@@ -249,7 +324,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     /// Adds an ORDER BY clause after GROUP BY
     pub fn order_by(
         self,
-        expressions: Vec<(SQL<'a, SQLiteValue<'a>>, SortDirection)>,
+        expressions: Vec<(SQL<'a, SQLiteValue<'a>>, OrderBy)>,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),

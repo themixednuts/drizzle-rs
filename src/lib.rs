@@ -26,11 +26,11 @@ pub mod core {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     // SQLite specific types, columns, etc. from sqlite crate
-    pub use sqlite::SQLiteColumn;
     pub use sqlite::SQLiteTransactionType;
     pub use sqlite::builder;
     pub use sqlite::common::{SQLiteEnum, SQLiteEnumRepr};
     pub use sqlite::conditions;
+    pub use sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
     pub use sqlite::values::SQLiteValue;
 
     // Proc macros related to SQLite (if desired here, they are also in prelude)
@@ -100,10 +100,9 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use drizzle_core::{ToSQL, columns};
-    use drizzle_rs::core::{SQLColumn, SQLTable};
-    use procmacros::{SQLiteTable, drizzle, qb};
     extern crate self as drizzle_rs;
+    use drizzle_rs::prelude::*;
+    use procmacros::{SQLiteTable, drizzle, qb};
 
     #[cfg(feature = "rusqlite")]
     use rusqlite;
@@ -140,7 +139,7 @@ mod tests {
         let builder = qb!([User, Post]);
 
         let query = builder.select(columns!(User::id)).from::<User>();
-        assert_eq!(query.to_sql().sql(), "SELECT * FROM Users");
+        assert_eq!(query.to_sql().sql(), "SELECT id FROM Users");
     }
 
     #[cfg(feature = "rusqlite")]
@@ -153,9 +152,9 @@ mod tests {
         )
         .unwrap();
 
-        let id = User::id;
-
-        let db = drizzle!(conn, [User, Post]);
-        db.insert::<User>();
+        let drizzle = drizzle!(conn, [User, Post]);
+        let query = drizzle.select(columns!()).from::<User>();
+        let sql = query.to_sql();
+        assert!(sql.sql().contains("FROM Users"));
     }
 }

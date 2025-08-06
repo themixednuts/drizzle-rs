@@ -1,4 +1,5 @@
 use crate::values::SQLiteValue;
+use drizzle_core::SQLTable;
 use drizzle_core::{SQL, error::Result};
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -45,15 +46,18 @@ pub type UpdateBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 // Initial State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> UpdateBuilder<'a, S, UpdateInitial, T> {
+impl<'a, Schema, Table> UpdateBuilder<'a, Schema, UpdateInitial, Table>
+where
+    Table: SQLTable<'a, SQLiteValue<'a>>,
+{
     /// Sets the values to update and transitions to the SetClauseSet state
     pub fn set(
         self,
-        values: Vec<(String, SQL<'a, SQLiteValue<'a>>)>,
-    ) -> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
-        let set_sql = crate::helpers::set(values.clone());
+        values: Table::Update,
+    ) -> UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table> {
+        let sql = crate::helpers::set::<'a, Table, SQLiteValue<'a>>(values);
         UpdateBuilder {
-            sql: self.sql.append(set_sql),
+            sql: self.sql.append(sql),
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,

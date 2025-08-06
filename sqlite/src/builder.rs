@@ -1,6 +1,6 @@
 // Re-export common enums and traits from core
 pub use drizzle_core::{
-    Join, SQL, SortDirection, ToSQL,
+    Join, OrderBy, SQL, ToSQL,
     traits::{IsInSchema, SQLSchema, SQLTable},
 };
 
@@ -16,7 +16,9 @@ pub mod update;
 
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
-pub use insert::{InsertInitial, InsertReturningSet, InsertValuesSet};
+pub use insert::{
+    Conflict, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+};
 pub use select::{
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
     SelectOrderSet, SelectWhereSet,
@@ -38,13 +40,31 @@ pub struct JoinClause<'a> {
     pub condition: SQL<'a, SQLiteValue<'a>>,
 }
 
+impl<'a> JoinClause<'a> {
+    /// Creates a new JOIN clause
+    pub fn new(join_type: String, table: String, condition: SQL<'a, SQLiteValue<'a>>) -> Self {
+        Self {
+            join_type,
+            table,
+            condition,
+        }
+    }
+}
+
 /// Represents an ORDER BY clause in a query
 #[derive(Debug, Clone)]
 pub struct OrderByClause<'a> {
     /// The expression to order by
     pub expr: SQL<'a, SQLiteValue<'a>>,
     /// The direction to sort (ASC or DESC)
-    pub direction: SortDirection,
+    pub direction: OrderBy,
+}
+
+impl<'a> OrderByClause<'a> {
+    /// Creates a new ORDER BY clause
+    pub const fn new(expr: SQL<'a, SQLiteValue<'a>>, direction: OrderBy) -> Self {
+        Self { expr, direction }
+    }
 }
 
 pub trait BuilderState {}
@@ -71,12 +91,12 @@ pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
 
 impl<'a> QueryBuilder<'a> {
     /// Creates a new query builder for the given schema
-    pub fn new<S>() -> QueryBuilder<'a, S, BuilderInit> {
+    pub const fn new<S>() -> QueryBuilder<'a, S, BuilderInit> {
         QueryBuilder {
-            sql: SQL::default(),
-            _schema: PhantomData::<S>,
-            _state: PhantomData::<BuilderInit>,
-            _table: PhantomData::<()>,
+            sql: SQL::empty(),
+            _schema: PhantomData,
+            _state: PhantomData,
+            _table: PhantomData,
         }
     }
 }
@@ -85,16 +105,17 @@ impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
 where
     State: BuilderState,
 {
-    pub fn select<const N: usize>(
-        &self,
-        columns: [impl ToSQL<'a, SQLiteValue<'a>>; N],
-    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial> {
+    pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        T: IntoIterator,
+        T::Item: ToSQL<'a, SQLiteValue<'a>>,
+    {
         let sql = crate::helpers::select(columns);
         select::SelectBuilder {
             sql,
             _schema: PhantomData,
             _state: PhantomData,
-            _table: PhantomData::<()>,
+            _table: PhantomData,
         }
     }
 
@@ -102,8 +123,7 @@ where
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let table_name = T::Schema::NAME;
-        let sql = crate::helpers::insert_into(SQL::raw(table_name));
+        let sql = crate::helpers::insert::<T>();
 
         insert::InsertBuilder {
             sql,
@@ -117,8 +137,7 @@ where
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let table_name = T::Schema::NAME;
-        let sql = crate::helpers::update(SQL::raw(table_name));
+        let sql = crate::helpers::update::<T, SQLiteValue>();
 
         update::UpdateBuilder {
             sql,
@@ -132,8 +151,7 @@ where
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let table_name = T::Schema::NAME;
-        let sql = crate::helpers::delete_from(SQL::raw(table_name));
+        let sql = crate::helpers::delete::<T, SQLiteValue>();
 
         delete::DeleteBuilder {
             sql,
@@ -149,13 +167,6 @@ impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         self.sql.clone()
     }
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn test_select_builder() {}
 }
 
 // Marker trait to indicate a query builder state is executable
@@ -196,7 +207,7 @@ pub mod rusqlite_impl {
         pub fn all<T>(&self, conn: &Connection) -> Result<Vec<T>>
         where
             T: for<'r> TryFrom<&'r Row<'r>>,
-            for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<rusqlite::Error>,
+            for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
         {
             let sql = self.sql.sql();
 
@@ -209,13 +220,13 @@ pub mod rusqlite_impl {
 
             let rows = stmt
                 .query_map(params_from_iter(params), |row| {
-                    Ok(T::try_from(row).map_err(|e| e.into())?)
+                    Ok(T::try_from(row).map_err(Into::into))
                 })
                 .map_err(|e| DrizzleError::Other(e.to_string()))?;
 
             let mut results = Vec::new();
-            for row_result in rows {
-                results.push(row_result.map_err(|e| DrizzleError::Other(e.to_string()))?);
+            for row in rows {
+                results.push(row.map_err(|e| DrizzleError::Other(e.to_string()))??);
             }
 
             Ok(results)
@@ -224,7 +235,7 @@ pub mod rusqlite_impl {
         pub fn get<T>(&self, conn: &Connection) -> Result<T>
         where
             T: for<'r> TryFrom<&'r Row<'r>>,
-            for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<rusqlite::Error>,
+            for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
         {
             let sql = self.sql.sql();
 
@@ -236,9 +247,9 @@ pub mod rusqlite_impl {
                 .map_err(|e| DrizzleError::Other(e.to_string()))?;
 
             stmt.query_row(params_from_iter(params), |row| {
-                Ok(T::try_from(row).map_err(|e| e.into())?)
+                Ok(T::try_from(row).map_err(Into::into))
             })
-            .map_err(|e| DrizzleError::Other(e.to_string()))
+            .map_err(|e| DrizzleError::Other(e.to_string()))?
         }
     }
 }
@@ -247,4 +258,39 @@ pub mod rusqlite_impl {
 #[cfg(feature = "libsql")]
 pub mod libsql_impl {
     // Will implement similarly to rusqlite_impl when needed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_builder_new() {
+        let qb = QueryBuilder::new::<()>();
+        let sql = qb.to_sql();
+        assert_eq!(sql.sql(), "");
+        assert_eq!(sql.params().len(), 0);
+    }
+
+    #[test]
+    fn test_builder_state_trait() {
+        // Test that different states implement BuilderState
+        fn assert_builder_state<T: BuilderState>() {}
+
+        assert_builder_state::<BuilderInit>();
+        // assert_builder_state::<SelectInitial>();
+        // assert_builder_state::<InsertInitial>();
+        // assert_builder_state::<UpdateInitial>();
+        // assert_builder_state::<DeleteInitial>();
+    }
+
+    #[test]
+    fn test_join_clause_creation() {
+        let condition = SQL::raw("users.id = posts.user_id");
+        let join = JoinClause::new("INNER JOIN".to_string(), "posts".to_string(), condition);
+
+        assert_eq!(join.join_type, "INNER JOIN");
+        assert_eq!(join.table, "posts");
+        assert_eq!(join.condition.sql(), "users.id = posts.user_id");
+    }
 }

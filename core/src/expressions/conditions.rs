@@ -2,11 +2,7 @@ use crate::{SQL, SQLChunk, SQLParam, ToSQL};
 use std::borrow::Cow;
 
 /// Format a SQL comparison with the given operator
-fn internal_format_sql_comparison<'a, V, L, R>(
-    left: L,
-    operator: &'static str,
-    right: R,
-) -> SQL<'a, V>
+fn internal_format_sql_comparison<'a, V, L, R>(left: L, operator: &'a str, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
     L: ToSQL<'a, V>,
@@ -28,7 +24,9 @@ where
     // Add right expression chunks
     chunks.extend(right_sql.chunks);
 
-    SQL { chunks }
+    SQL {
+        chunks: chunks.into(),
+    }
 }
 
 pub fn eq<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
@@ -359,7 +357,7 @@ where
 
     left_sql
         .append_raw("IN(")
-        .append(SQL::join(&value_sqls, ",")) // Join values with comma
+        .append(SQL::join(value_sqls, ",")) // Join values with comma
         .append_raw(")")
 }
 
@@ -382,7 +380,7 @@ where
 
     left_sql
         .append_raw("NOT IN(")
-        .append(SQL::join(&value_sqls, ",")) // Join values with comma
+        .append(SQL::join(value_sqls, ",")) // Join values with comma
         .append_raw(")")
 }
 
@@ -401,7 +399,7 @@ where
     }
 
     SQL::raw("(")
-        .append(SQL::join(&conditions, "AND"))
+        .append(SQL::join(conditions, "AND"))
         .append_raw(")")
 }
 
@@ -418,7 +416,7 @@ where
     }
 
     SQL::raw("(")
-        .append(SQL::join(&conditions, "OR"))
+        .append(SQL::join(conditions, "OR"))
         .append_raw(")")
 }
 

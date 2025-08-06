@@ -14,6 +14,7 @@ proc-macro2 = { version = "1.0.89" }
 syn = { version = "2.0.87", features = ["full"] }
 rand = { version = "0.8.5" }
 heck = { version = "0.5.0" }
+paste = { workspace = true }
 
 [features]
 serde = []

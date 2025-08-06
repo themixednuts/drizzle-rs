@@ -21,6 +21,7 @@ pub mod values;
 pub mod prelude {
     pub use crate::SQLiteTransactionType;
     pub use crate::common::Number;
+    pub use crate::traits::SQLiteColumn;
     pub use crate::values::SQLiteValue;
 
     // Re-export rusqlite trait implementations when the feature is enabled
@@ -31,9 +32,6 @@ pub mod prelude {
 // Re-export types from common and values
 pub use self::values::SQLiteValue;
 
-// Import core types
-use drizzle_core::{SQL, SQLColumn, SQLSchema, ToSQL, traits::SQLTable};
-
 /// SQLite transaction types
 #[derive(Debug, Clone, Copy)]
 pub enum SQLiteTransactionType {
@@ -43,8 +41,4 @@ pub enum SQLiteTransactionType {
     Immediate,
     /// An exclusive transaction acquires an EXCLUSIVE lock immediately
     Exclusive,
-}
-
-pub trait SQLiteColumn<'a>: SQLColumn<'a, SQLiteValue<'a>> {
-    const AUTOINCREMENT: bool = false;
 }

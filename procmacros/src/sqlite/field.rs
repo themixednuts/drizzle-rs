@@ -317,10 +317,10 @@ impl<'a> FieldInfo<'a> {
             Some(quote!(::std::option::Option<#base_type>))
         };
 
-        let insert_type = if is_primary && !is_nullable && !has_default {
-            Some(quote!(#base_type))
-        } else {
+        let insert_type = if is_nullable || has_default {
             Some(quote!(::std::option::Option<#base_type>))
+        } else {
+            Some(quote!(#base_type))
         };
 
         let update_type = Some(quote!(::std::option::Option<#base_type>));
@@ -368,10 +368,10 @@ impl<'a> FieldInfo<'a> {
     pub(crate) fn get_insert_type(&self) -> TokenStream {
         self.insert_type.clone().unwrap_or_else(|| {
             let base_type = self.base_type;
-            if self.is_primary && !self.is_nullable && !self.has_default {
-                quote!(#base_type)
-            } else {
+            if self.is_nullable || self.has_default {
                 quote!(::std::option::Option<#base_type>)
+            } else {
+                quote!(#base_type)
             }
         })
     }

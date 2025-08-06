@@ -1,7 +1,9 @@
 pub mod error;
 pub mod expressions;
+pub mod helpers;
 pub mod traits;
 
+use smallvec::{SmallVec, smallvec};
 use std::{borrow::Cow, fmt, fmt::Display};
 use traits::SQLParam;
 // Re-export key traits from traits module
@@ -85,16 +87,16 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 
 /// Sort direction for ORDER BY clauses
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SortDirection {
+pub enum OrderBy {
     Asc,
     Desc,
 }
 
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for SortDirection {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for OrderBy {
     fn to_sql(&self) -> SQL<'a, V> {
         let sql_str = match self {
-            SortDirection::Asc => "ASC",
-            SortDirection::Desc => "DESC",
+            OrderBy::Asc => "ASC",
+            OrderBy::Desc => "DESC",
         };
         SQL::raw(sql_str)
     }
@@ -115,16 +117,16 @@ pub enum PlaceholderStyle {
 
 /// A SQL parameter placeholder.
 #[derive(Default, Debug, Clone)]
-pub struct Placeholder {
+pub struct Placeholder<'a> {
     /// The name of the parameter.
-    pub name: Option<&'static str>,
+    pub name: Option<&'a str>,
     /// The style of the placeholder.
     pub style: PlaceholderStyle,
 }
 
-impl Placeholder {
+impl<'a> Placeholder<'a> {
     /// Creates a new placeholder with the given name and style.
-    pub fn with_style(name: &'static str, style: PlaceholderStyle) -> Self {
+    pub const fn with_style(name: &'a str, style: PlaceholderStyle) -> Self {
         Placeholder {
             name: Some(name),
             style,
@@ -132,26 +134,30 @@ impl Placeholder {
     }
 
     /// Creates a new colon-style placeholder.
-    pub fn colon(name: &'static str) -> Self {
+    pub const fn colon(name: &'a str) -> Self {
         Self::with_style(name, PlaceholderStyle::Colon)
     }
 
     /// Creates a new at-sign-style placeholder.
-    pub fn at(name: &'static str) -> Self {
+    pub const fn at(name: &'a str) -> Self {
         Self::with_style(name, PlaceholderStyle::AtSign)
     }
 
     /// Creates a new dollar-style placeholder.
-    pub fn dollar(name: &'static str) -> Self {
+    pub const fn dollar(name: &'a str) -> Self {
         Self::with_style(name, PlaceholderStyle::Dollar)
     }
 
-    pub fn positional() -> Self {
-        Self::default()
+    /// Creates a positional placeholder ('?').
+    pub const fn positional() -> Self {
+        Placeholder {
+            name: None,
+            style: PlaceholderStyle::Positional,
+        }
     }
 }
 
-impl fmt::Display for Placeholder {
+impl<'a> fmt::Display for Placeholder<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.style {
             PlaceholderStyle::Colon => write!(f, ":{}", self.name.unwrap_or_default()),
@@ -168,40 +174,105 @@ pub enum SQLChunk<'a, V: SQLParam + 'a> {
     Text(Cow<'a, str>),
     Param {
         value: Cow<'a, V>,
-        placeholder: Cow<'a, Placeholder>,
+        placeholder: Cow<'a, Placeholder<'a>>,
     },
-    SQL(SQL<'a, V>),
+    SQL(Box<SQL<'a, V>>),
+}
+
+impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
+    /// Creates a text chunk from a borrowed string - zero allocation
+    pub const fn text(text: &'a str) -> Self {
+        Self::Text(Cow::Borrowed(text))
+    }
+
+    /// Creates a parameter chunk with borrowed value and placeholder
+    pub const fn param(value: &'a V, placeholder: &'a Placeholder) -> Self {
+        Self::Param {
+            value: Cow::Borrowed(value),
+            placeholder: Cow::Borrowed(placeholder),
+        }
+    }
+
+    /// Creates a nested SQL chunk
+    pub fn sql(sql: SQL<'a, V>) -> Self {
+        Self::SQL(Box::new(sql))
+    }
 }
 
 /// A SQL statement or fragment with parameters.
 ///
 /// This type is used to build SQL statements with proper parameter handling.
 /// It keeps track of both the SQL text and the parameters to be bound.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SQL<'a, V: SQLParam + 'a> {
     /// The chunks that make up this SQL statement or fragment.
-    pub chunks: Vec<SQLChunk<'a, V>>,
+    pub chunks: SmallVec<[SQLChunk<'a, V>; 3]>,
 }
 
 impl<'a, V: SQLParam + 'a> SQL<'a, V> {
+    /// Const placeholder instances for zero-copy usage
+    const POSITIONAL_PLACEHOLDER: Placeholder<'a> = Placeholder::positional();
+
+    pub const fn new<'b>(sql: &'b str) -> SQL<'a, V> {
+        unimplemented!()
+    }
+
+    /// Creates a new empty SQL fragment.
+    pub const fn empty<'b>() -> SQL<'b, V> {
+        SQL {
+            chunks: SmallVec::new_const(),
+        }
+    }
+
+    /// Helper to create const SQL with a single text chunk
+    const fn single_text_chunk(text: &'a str) -> Self {
+        // Create a SmallVec with the single chunk and pad with empty chunks
+        let chunks = SmallVec::from_const([
+            SQLChunk::Text(Cow::Borrowed(text)),
+            SQLChunk::Text(Cow::Borrowed("")), // These will be ignored in sql() generation
+            SQLChunk::Text(Cow::Borrowed("")),
+        ]);
+        Self { chunks }
+    }
+
+    /// Creates a wildcard SELECT fragment: "*"
+    pub const fn wildcard() -> Self {
+        Self::single_text_chunk("*")
+    }
+
+    /// Creates a NULL SQL fragment
+    pub const fn null() -> Self {
+        Self::single_text_chunk("NULL")
+    }
+
+    /// Creates a TRUE SQL fragment
+    pub const fn r#true() -> Self {
+        Self::single_text_chunk("TRUE")
+    }
+
+    /// Creates a FALSE SQL fragment
+    pub const fn r#false() -> Self {
+        Self::single_text_chunk("FALSE")
+    }
+
     /// Creates a new SQL fragment from a raw string.
     ///
     /// The string is treated as literal SQL text, not a parameter.
     pub fn raw<T: Into<Cow<'a, str>>>(sql: T) -> Self {
         Self {
-            chunks: vec![SQLChunk::Text(sql.into())],
+            chunks: smallvec![SQLChunk::Text(sql.into())],
         }
     }
 
     /// Creates a new SQL fragment representing a parameter.
     ///
     /// A default positional placeholder ('?') is used, and the provided value
-    /// is stored for later binding.
+    /// is stored for later binding. Accepts both owned and borrowed values.
     pub fn parameter(param: impl Into<Cow<'a, V>>) -> Self {
         Self {
-            chunks: vec![SQLChunk::Param {
+            chunks: smallvec![SQLChunk::Param {
                 value: param.into(),
-                placeholder: Cow::Owned(Placeholder::positional()),
+                placeholder: Cow::Borrowed(&Self::POSITIONAL_PLACEHOLDER),
             }],
         }
     }
@@ -216,76 +287,122 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
 
     /// Appends another SQL fragment to this one.
     ///
-    /// Both the SQL text and parameters are merged.
+    /// Both the SQL text and parameters are merged. Flattens nested SQL chunks.
     pub fn append(mut self, other: impl Into<SQL<'a, V>>) -> Self {
-        self.chunks.extend(other.into().chunks);
+        let other_sql = other.into();
+
+        // Flatten nested SQL chunks to avoid deep nesting
+        for chunk in other_sql.chunks {
+            match chunk {
+                SQLChunk::SQL(nested_sql) => {
+                    self.chunks.extend(nested_sql.chunks);
+                }
+                chunk => self.chunks.push(chunk),
+            }
+        }
+        self
+    }
+
+    /// Pre-allocates capacity for additional chunks.
+    pub fn with_capacity(mut self, additional: usize) -> Self {
+        self.chunks.reserve(additional);
         self
     }
 
     /// Joins multiple SQL fragments with a separator.
     ///
     /// The separator is inserted between each fragment, but not before the first or after the last.
-    pub fn join(sqls: &[impl ToSQL<'a, V>], separator: &'a str) -> SQL<'a, V> {
-        if sqls.is_empty() {
-            return Self::raw("");
+    pub fn join<T>(sqls: T, separator: &'a str) -> SQL<'a, V>
+    where
+        T: IntoIterator,
+        T::Item: ToSQL<'a, V>,
+    {
+        let mut chunks = SmallVec::new();
+        let mut first = true;
+
+        for sql in sqls {
+            if !first {
+                chunks.push(SQLChunk::Text(Cow::Borrowed(separator)));
+            }
+            first = false;
+
+            // Flatten nested SQL chunks to avoid deep nesting
+            let sql_chunks = sql.to_sql().chunks;
+            chunks.extend(sql_chunks);
         }
 
-        let mut iter = sqls.into_iter();
-        let first = match iter.next() {
-            Some(sql) => sql,
-            None => return Self::raw(""),
-        };
-
-        let mut result = first.to_sql();
-        for sql in iter {
-            result = result.append_raw(separator);
-            result = result.append(sql.to_sql());
-        }
-
-        result.clone()
+        SQL { chunks }
     }
-
     /// Returns the SQL string represented by this SQL fragment, using placeholders for parameters.
     pub fn sql(&self) -> String {
-        let mut result = String::with_capacity(self.chunks.len() * 16); // Estimate capacity
+        if self.chunks.is_empty() {
+            return String::new();
+        }
+        if self.chunks.len() == 1 {
+            return match &self.chunks[0] {
+                SQLChunk::Text(text) => text.to_string(),
+                SQLChunk::Param { placeholder, .. } => placeholder.to_string(),
+                SQLChunk::SQL(sql) => sql.sql(),
+            };
+        }
+
+        // Better capacity estimation based on chunk content
+        let estimated_size = self
+            .chunks
+            .iter()
+            .map(|chunk| match chunk {
+                SQLChunk::Text(text) => text.len(),
+                SQLChunk::Param { .. } => 1, // "?" placeholder
+                SQLChunk::SQL(sql) => sql.chunks.len() * 8, // Rough estimate
+            })
+            .sum::<usize>()
+            + self.chunks.len(); // +1 space per chunk
+
+        let mut result = String::with_capacity(estimated_size);
+
         for (index, chunk) in self.chunks.iter().enumerate() {
             match chunk {
-                SQLChunk::Text(text) => result.push_str(text),
+                SQLChunk::Text(text) => {
+                    if !text.is_empty() {
+                        result.push_str(text);
+                    } else {
+                        continue; // Skip empty padding chunks
+                    }
+                }
                 SQLChunk::Param { placeholder, .. } => result.push_str(&placeholder.to_string()),
                 SQLChunk::SQL(sql) => result.push_str(&sql.sql()),
             }
+
             // Add space separator between chunks, except for the last one
             if index < self.chunks.len() - 1 {
-                // Check if current or next chunk is Text("(") or Text(")") to avoid extra space
-                let next_chunk_is_paren = if index + 1 < self.chunks.len() {
-                    matches!(
-                        self.chunks.get(index + 1),
-                        Some(SQLChunk::Text(Cow::Borrowed(")") | Cow::Borrowed("(")))
-                    )
-                } else {
-                    false
-                };
-                let current_chunk_is_paren = matches!(
+                // Check if current or next chunk needs spacing
+                let current_needs_space = !matches!(
                     chunk,
-                    SQLChunk::Text(Cow::Borrowed("(") | Cow::Borrowed(")"))
+                    SQLChunk::Text(text) if text.ends_with('(') || text.ends_with(',') || text.ends_with(' ')
+                );
+                let next_needs_space = !matches!(
+                    self.chunks.get(index + 1),
+                    Some(SQLChunk::Text(text)) if text.starts_with(')') || text.starts_with(',') || text.starts_with(' ')
                 );
 
-                if !current_chunk_is_paren && !next_chunk_is_paren {
+                if current_needs_space && next_needs_space {
                     result.push(' ');
                 }
             }
         }
 
-        result // No trim needed if spaces are handled correctly
+        result
     }
 
     /// Returns the parameter values from this SQL fragment in the correct order.
     pub fn params(&self) -> Vec<V> {
-        let mut params_vec = Vec::new();
+        // Pre-allocate based on rough estimate
+        let mut params_vec = Vec::with_capacity(self.chunks.len().min(8));
+
         for chunk in &self.chunks {
             match chunk {
                 SQLChunk::Param { value, .. } => {
-                    params_vec.push(value.clone().into_owned());
+                    params_vec.push(value.as_ref().clone());
                 }
                 SQLChunk::SQL(sql) => {
                     params_vec.extend(sql.params());
@@ -296,8 +413,115 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
         params_vec
     }
 
+    /// Returns references to parameter values - zero-copy when possible.
+    pub fn param_refs(&self) -> Vec<&V> {
+        let mut param_refs = Vec::with_capacity(self.chunks.len().min(8));
+
+        for chunk in &self.chunks {
+            match chunk {
+                SQLChunk::Param { value, .. } => {
+                    param_refs.push(value.as_ref());
+                }
+                SQLChunk::SQL(sql) => {
+                    param_refs.extend(sql.param_refs());
+                }
+                SQLChunk::Text(_) => { /* Ignore text chunks */ }
+            }
+        }
+        param_refs
+    }
+
     pub fn as_(self, alias: &str) -> SQL<'a, V> {
         self.append_raw(format!("AS {}", alias))
+    }
+
+    /// Creates a comma-separated list of column names: "col1, col2, col3"
+    pub fn columns(names: &[&'a str]) -> Self {
+        if names.is_empty() {
+            return Self::raw("*");
+        }
+        if names.len() == 1 {
+            return Self::raw(names[0]);
+        }
+
+        // Direct chunk building: name, ", ", name, ", ", name
+        let mut chunks = SmallVec::with_capacity(names.len() * 2 - 1);
+        for (i, name) in names.iter().enumerate() {
+            if i > 0 {
+                chunks.push(SQLChunk::Text(Cow::Borrowed(", ")));
+            }
+            chunks.push(SQLChunk::Text(Cow::Borrowed(name)));
+        }
+        SQL { chunks }
+    }
+
+    /// Creates a comma-separated list of parameter placeholders with values: "?, ?, ?"
+    /// Accepts both owned Vec and borrowed slices for zero-copy when possible.
+    pub fn parameters<I>(values: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<Cow<'a, V>>,
+    {
+        let values: Vec<_> = values.into_iter().collect();
+        if values.is_empty() {
+            return Self::empty();
+        }
+        if values.len() == 1 {
+            return Self::parameter(values.into_iter().next().unwrap());
+        }
+
+        // Direct chunk building: param, ", ", param, ", ", param
+        let mut chunks = SmallVec::with_capacity(values.len() * 2 - 1);
+        for (i, value) in values.into_iter().enumerate() {
+            if i > 0 {
+                chunks.push(SQLChunk::Text(Cow::Borrowed(", ")));
+            }
+            chunks.push(SQLChunk::Param {
+                value: value.into(),
+                placeholder: Cow::Borrowed(&Self::POSITIONAL_PLACEHOLDER),
+            });
+        }
+        SQL { chunks }
+    }
+
+    /// Creates a comma-separated list of column assignments: "col1 = ?, col2 = ?"
+    /// Accepts both owned and borrowed iterators for zero-copy when possible.
+    pub fn assignments<I, T>(pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a str, T)>,
+        T: Into<Cow<'a, V>>,
+    {
+        let pairs: Vec<_> = pairs.into_iter().collect();
+        if pairs.is_empty() {
+            return Self::empty();
+        }
+        if pairs.len() == 1 {
+            let (col, val) = pairs.into_iter().next().unwrap();
+            return Self::raw(col)
+                .append_raw(" = ")
+                .append(Self::parameter(val.into()));
+        }
+
+        // Direct chunk building: col, " = ", param, ", ", col, " = ", param
+        let mut chunks = SmallVec::with_capacity(pairs.len() * 4 - 1);
+        for (i, (col, val)) in pairs.into_iter().enumerate() {
+            if i > 0 {
+                chunks.push(SQLChunk::Text(Cow::Borrowed(", ")));
+            }
+            chunks.push(SQLChunk::Text(Cow::Borrowed(col)));
+            chunks.push(SQLChunk::Text(Cow::Borrowed(" = ")));
+            chunks.push(SQLChunk::Param {
+                value: val.into(),
+                placeholder: Cow::Borrowed(&Self::POSITIONAL_PLACEHOLDER),
+            });
+        }
+        SQL { chunks }
+    }
+}
+
+impl<'a, V: SQLParam + 'a> Default for SQL<'a, V> {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -428,15 +652,15 @@ where
 pub mod placeholders {
     use super::{Placeholder, PlaceholderStyle};
 
-    pub fn colon(name: &'static str) -> Placeholder {
+    pub const fn colon<'a>(name: &'a str) -> Placeholder<'a> {
         Placeholder::with_style(name, PlaceholderStyle::Colon)
     }
 
-    pub fn at(name: &'static str) -> Placeholder {
+    pub const fn at<'a>(name: &'a str) -> Placeholder<'a> {
         Placeholder::with_style(name, PlaceholderStyle::AtSign)
     }
 
-    pub fn dollar(name: &'static str) -> Placeholder {
+    pub const fn dollar<'a>(name: &'a str) -> Placeholder<'a> {
         Placeholder::with_style(name, PlaceholderStyle::Dollar)
     }
 }
@@ -448,5 +672,44 @@ macro_rules! columns {
     };
     ($($column:expr),+ $(,)?) => {
         [$($column.to_sql()),+]
+    };
+}
+
+#[macro_export]
+macro_rules! sql {
+    // String template pattern: sql!("SELECT {} FROM {}", col, table)
+    ($template:literal, $($arg:expr),+ $(,)?) => {
+        {
+            let template_str = $template;
+            let mut parts = template_str.split("{}");
+            let args = vec![$($arg.to_sql()),+];
+
+            let mut result = $crate::SQL::raw(parts.next().unwrap_or(""));
+            for (i, part) in parts.enumerate() {
+                if i < args.len() {
+                    result = result.append(args[i].clone());
+                }
+                if !part.is_empty() {
+                    result = result.append_raw(part);
+                }
+            }
+            result
+        }
+    };
+
+    // Tuple array pattern: sql!([(col1, OrderBy::Asc), (col2, OrderBy::Desc)])
+    ($(($first:expr, $sec:expr)),*) => {
+        {
+            [$(($first.to_sql(), $sec)),*]
+        }
+    };
+
+    // Array pattern: sql!([col1, col2, col3]) -> [col1.to_sql(), col2.to_sql(), col3.to_sql()]
+    ([$($item:expr),+ $(,)?]) => {
+        [$($item.to_sql()),+]
+    };
+    // Single value pattern: sql!("hello") -> SQL::parameter("hello")
+    ($value:literal) => {
+       $value.to_sql()
     };
 }

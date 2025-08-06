@@ -1,15 +1,12 @@
 // Contents of querybuilder/src/sqlite/insert.rs moved here
 // querybuilder/src/sqlite/builder/insert.rs
 use crate::values::SQLiteValue;
-use drizzle_core::{IsInSchema, SQL, SQLTable, ToSQL};
+use drizzle_core::{SQL, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
-
-#[cfg(feature = "serde")]
-use serde::de::DeserializeOwned;
 
 //------------------------------------------------------------------------------
 // Type State Markers
@@ -27,24 +24,68 @@ pub struct InsertValuesSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertReturningSet;
 
-/// Conflict resolution strategies for SQLite
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConflictResolution {
-    /// Do nothing on conflict (INSERT OR IGNORE)
-    Ignore,
-    /// Replace existing row on conflict (INSERT OR REPLACE)
-    Replace,
-    /// Abort transaction on conflict (INSERT OR ABORT)
-    Abort,
-    /// Fail with error on conflict (INSERT OR FAIL)
-    Fail,
-    /// Roll back transaction on conflict (INSERT OR ROLLBACK)
-    Rollback,
+/// Marker for the state after ON CONFLICT is set.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InsertOnConflictSet;
+
+// Const constructors for insert marker types
+impl InsertInitial {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl InsertValuesSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl InsertReturningSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl InsertOnConflictSet {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+/// Conflict resolution strategies
+#[derive(Debug, Clone)]
+pub enum Conflict<
+    'a,
+    T: IntoIterator<Item: ToSQL<'a, SQLiteValue<'a>>> = Vec<SQL<'a, SQLiteValue<'a>>>,
+> {
+    /// Do nothing on conflict - ON CONFLICT DO NOTHING
+    Ignore {
+        /// Optional target columns to specify which constraint triggers the conflict
+        target: Option<T>,
+    },
+    /// Update on conflict - ON CONFLICT DO UPDATE
+    Update {
+        /// Target columns that trigger the conflict
+        target: T,
+        /// SET clause for what to update
+        set: SQL<'a, SQLiteValue<'a>>,
+        /// Optional WHERE clause for the conflict target (partial indexes)
+        /// This goes after the target: ON CONFLICT (col) WHERE condition
+        target_where: Option<SQL<'a, SQLiteValue<'a>>>,
+        /// Optional WHERE clause for the update (conditional updates)
+        /// This goes after the SET: DO UPDATE SET col = val WHERE condition
+        set_where: Option<SQL<'a, SQLiteValue<'a>>>,
+    },
+}
+
+impl<'a> Default for Conflict<'a> {
+    fn default() -> Self {
+        Self::Ignore { target: None }
+    }
 }
 
 // Mark states that can execute insert queries
 impl ExecutableState for InsertValuesSet {}
 impl ExecutableState for InsertReturningSet {}
+impl ExecutableState for InsertOnConflictSet {}
 
 //------------------------------------------------------------------------------
 // InsertBuilder Definition
@@ -57,46 +98,19 @@ pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 // Initial State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> InsertBuilder<'a, S, InsertInitial, T>
+impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
-    T::Insert: ToSQL<'a, SQLiteValue<'a>>,
+    Table: SQLTable<'a, SQLiteValue<'a>>,
+    Table::Insert: ToSQL<'a, SQLiteValue<'a>>,
 {
     /// Sets values to insert and transitions to ValuesSet state
     pub fn values(
         self,
-        values: impl IntoIterator<Item = T::Insert>,
-    ) -> InsertBuilder<'a, S, InsertValuesSet, T> {
-        let values_sql = crate::helpers::values::<'a, T, SQLiteValue>(values);
+        values: impl IntoIterator<Item = Table::Insert>,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table> {
+        let values_sql = crate::helpers::values::<'a, Table, SQLiteValue>(values);
         InsertBuilder {
             sql: self.sql.append(values_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
-        }
-    }
-
-    /// Sets conflict resolution strategy
-    pub fn on_conflict(self, resolution: ConflictResolution) -> Self {
-        // We'll handle conflict resolution by modifying the SQL directly
-        let conflict_sql = match resolution {
-            ConflictResolution::Ignore => "OR IGNORE",
-            ConflictResolution::Replace => "OR REPLACE",
-            ConflictResolution::Abort => "OR ABORT",
-            ConflictResolution::Fail => "OR FAIL",
-            ConflictResolution::Rollback => "OR ROLLBACK",
-        };
-
-        // Replace "INSERT INTO" with "INSERT [resolution] INTO"
-        let current_sql = self.sql.clone();
-        let modified_sql = SQL::raw(
-            current_sql
-                .sql()
-                .replace("INSERT INTO", &format!("INSERT {} INTO", conflict_sql)),
-        );
-
-        InsertBuilder {
-            sql: modified_sql,
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,
@@ -109,27 +123,59 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
-    /// Sets conflict resolution strategy
-    pub fn on_conflict(self, resolution: ConflictResolution) -> Self {
-        // We'll handle conflict resolution by modifying the SQL directly
-        let conflict_sql = match resolution {
-            ConflictResolution::Ignore => "OR IGNORE",
-            ConflictResolution::Replace => "OR REPLACE",
-            ConflictResolution::Abort => "OR ABORT",
-            ConflictResolution::Fail => "OR FAIL",
-            ConflictResolution::Rollback => "OR ROLLBACK",
+    /// Adds conflict resolution clause
+    pub fn on_conflict<TI>(
+        self,
+        conflict: Conflict<'a, TI>,
+    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
+    where
+        TI: IntoIterator,
+        TI::Item: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let conflict_sql = match conflict {
+            Conflict::Ignore { target } => {
+                if let Some(target_iter) = target {
+                    let target_sqls: Vec<SQL<'a, SQLiteValue<'a>>> =
+                        target_iter.into_iter().map(|item| item.to_sql()).collect();
+                    let cols = SQL::join(target_sqls, ", ");
+                    SQL::raw("ON CONFLICT (")
+                        .append(cols)
+                        .append_raw(") DO NOTHING")
+                } else {
+                    SQL::raw("ON CONFLICT DO NOTHING")
+                }
+            }
+            Conflict::Update {
+                target,
+                set,
+                target_where,
+                set_where,
+            } => {
+                let target_sqls: Vec<SQL<'a, SQLiteValue<'a>>> =
+                    target.into_iter().map(|item| item.to_sql()).collect();
+                let target_cols = SQL::join(target_sqls, ", ");
+                let mut sql = SQL::raw("ON CONFLICT (")
+                    .append(target_cols)
+                    .append_raw(")");
+
+                // Add target WHERE clause (for partial indexes)
+                if let Some(target_where) = target_where {
+                    sql = sql.append_raw(" WHERE ").append(target_where);
+                }
+
+                sql = sql.append_raw(" DO UPDATE SET ").append(set);
+
+                // Add set WHERE clause (for conditional updates)
+                if let Some(set_where) = set_where {
+                    sql = sql.append_raw(" WHERE ").append(set_where);
+                }
+
+                sql
+            }
         };
 
-        // Replace "INSERT INTO" with "INSERT [resolution] INTO"
-        let current_sql = self.sql.clone();
-        let modified_sql = SQL::raw(
-            current_sql
-                .sql()
-                .replace("INSERT INTO", &format!("INSERT {} INTO", conflict_sql)),
-        );
-
         InsertBuilder {
-            sql: modified_sql,
+            sql: self.sql.append(conflict_sql),
             _schema: PhantomData,
             _state: PhantomData,
             _table: PhantomData,
@@ -137,6 +183,26 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     }
 
     /// Adds a RETURNING clause and transitions to ReturningSet state
+    pub fn returning(
+        self,
+        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+    ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
+        let returning_sql = crate::helpers::returning(columns);
+        InsertBuilder {
+            sql: self.sql.append(returning_sql),
+            _schema: PhantomData,
+            _state: PhantomData,
+            _table: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Post-ON CONFLICT Implementation
+//------------------------------------------------------------------------------
+
+impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+    /// Adds a RETURNING clause after ON CONFLICT
     pub fn returning(
         self,
         columns: Vec<SQL<'a, SQLiteValue<'a>>>,

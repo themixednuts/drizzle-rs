@@ -64,10 +64,10 @@ pub fn drizzle_impl(input: DrizzleInput) -> syn::Result<TokenStream> {
                     // Generate the schema
                     #schema_impl;
 
-                    // Create query builder and Drizzle instance with explicit type annotation
-                    let query_builder = drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>();
+                    // // Create query builder and Drizzle instance with explicit type annotation
+                    // let query_builder = ::drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>();
 
-                    drizzle_rs::Drizzle::new(#conn, query_builder)
+                    ::drizzle_rs::Drizzle::new::<#schema_ident>(#conn)
                 }
             }
         }
@@ -76,11 +76,11 @@ pub fn drizzle_impl(input: DrizzleInput) -> syn::Result<TokenStream> {
             quote! {
                 {
                     // Generate an empty schema
-                    drizzle_rs::procmacros::schema!();
+                    ::drizzle_rs::procmacros::schema!();
 
-                    let schema = drizzle_rs::sqlite::builder::QueryBuilder::new::<EmptySchema>();
+                    // let schema = ::drizzle_rs::sqlite::builder::QueryBuilder::new::<EmptySchema>();
 
-                    drizzle_rs::Drizzle::new(#conn, schema)
+                    ::drizzle_rs::Drizzle::new::<EmptySchema>(#conn)
                 }
             }
         }

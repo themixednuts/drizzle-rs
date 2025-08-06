@@ -117,7 +117,7 @@ pub fn coalesce<'a, V: SQLParam + 'a, E: ToSQL<'a, V>, D: ToSQL<'a, V>>(
 // Helper function to create SQL aggregate function expressions
 fn create_aggregate_function<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(
     expr: E,
-    function_name: &'static str,
+    function_name: &'a str,
 ) -> SQL<'a, V> {
     SQL::raw(function_name)
         .append_raw("(")

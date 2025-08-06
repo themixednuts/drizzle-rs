@@ -287,3 +287,16 @@ where
         }
     }
 }
+
+// --- Cow integration for SQL struct ---
+impl<'a> From<SQLiteValue<'a>> for Cow<'a, SQLiteValue<'a>> {
+    fn from(value: SQLiteValue<'a>) -> Self {
+        Cow::Owned(value)
+    }
+}
+
+impl<'a> From<&'a SQLiteValue<'a>> for Cow<'a, SQLiteValue<'a>> {
+    fn from(value: &'a SQLiteValue<'a>) -> Self {
+        Cow::Borrowed(value)
+    }
+}
