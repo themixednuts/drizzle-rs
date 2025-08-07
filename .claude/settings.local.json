@@ -3,7 +3,9 @@
     "allow": [
       "WebFetch(domain:docs.rs)",
       "Bash(cargo test)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(cargo check:*)",
+      "WebFetch(domain:sqlite.org)"
     ],
     "deny": []
   }

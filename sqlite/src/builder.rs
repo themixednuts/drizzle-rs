@@ -80,9 +80,9 @@ impl BuilderState for BuilderInit {}
 #[derive(Debug, Clone, Default)]
 pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
     pub(crate) sql: SQL<'a, SQLiteValue<'a>>,
-    _schema: PhantomData<Schema>,
-    _state: PhantomData<State>,
-    _table: PhantomData<Table>,
+    schema: PhantomData<Schema>,
+    state: PhantomData<State>,
+    table: PhantomData<Table>,
 }
 
 //------------------------------------------------------------------------------
@@ -94,9 +94,9 @@ impl<'a> QueryBuilder<'a> {
     pub const fn new<S>() -> QueryBuilder<'a, S, BuilderInit> {
         QueryBuilder {
             sql: SQL::empty(),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -107,15 +107,14 @@ where
 {
     pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
-        T: IntoIterator,
-        T::Item: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let sql = crate::helpers::select(columns);
         select::SelectBuilder {
             sql,
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -127,9 +126,9 @@ where
 
         insert::InsertBuilder {
             sql,
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -141,9 +140,9 @@ where
 
         update::UpdateBuilder {
             sql,
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -155,9 +154,9 @@ where
 
         delete::DeleteBuilder {
             sql,
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }

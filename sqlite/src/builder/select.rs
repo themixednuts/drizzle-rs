@@ -120,9 +120,9 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     {
         SelectBuilder {
             sql: self.sql.append(helpers::from::<T, SQLiteValue>()),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -143,9 +143,9 @@ where
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::join::<U>(join_type, on_condition)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -156,9 +156,9 @@ where
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::where_clause(condition)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -169,9 +169,9 @@ where
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::group_by(expressions)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -179,9 +179,9 @@ where
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -189,9 +189,9 @@ where
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -206,9 +206,9 @@ where
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -225,9 +225,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::where_clause(condition)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
     /// Sorts the query results
@@ -241,9 +241,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
     /// Adds a JOIN clause to the query
@@ -254,9 +254,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::join::<U>(join_type, on_condition)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -273,9 +273,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::group_by(expressions)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -286,9 +286,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -296,9 +296,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -315,9 +315,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::having(condition)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -328,9 +328,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     ) -> SelectBuilder<'a, S, SelectOrderSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -344,9 +344,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -360,9 +360,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }

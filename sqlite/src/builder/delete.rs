@@ -50,9 +50,9 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
         let where_sql = crate::helpers::where_clause(condition);
         DeleteBuilder {
             sql: self.sql.append(where_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -64,9 +64,9 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
             sql: self.sql.append(returning_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -84,9 +84,9 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
             sql: self.sql.append(returning_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }

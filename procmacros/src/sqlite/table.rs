@@ -8,20 +8,311 @@ use super::field::{FieldInfo, SQLiteType};
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
+#[cfg(feature = "rusqlite")]
 use rusqlite::generate_rusqlite_from_to_sql;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Meta, Result, parse::Parse, parse_macro_input};
+use syn::{Data, DeriveInput, Expr, Meta, Result, parse::Parse, parse_macro_input};
 
-// A context struct to hold all the necessary information for generation.
-// This avoids passing many arguments to every function.
+// Common SQLite documentation URLs for error messages and macro docs
+const SQLITE_CREATE_TABLE_URL: &str = "https://sqlite.org/lang_createtable.html";
+const SQLITE_AUTOINCREMENT_URL: &str = "https://sqlite.org/autoinc.html"; 
+const SQLITE_WITHOUT_ROWID_URL: &str = "https://sqlite.org/withoutrowid.html";
+const SQLITE_STRICT_TABLES_URL: &str = "https://sqlite.org/stricttables.html";
+const SQLITE_DATATYPE_URL: &str = "https://sqlite.org/datatype3.html";
+const SQLITE_JSON_URL: &str = "https://sqlite.org/json1.html";
+const SQLITE_CONSTRAINTS_URL: &str = "https://sqlite.org/lang_createtable.html#constraints";
+
+// Enhanced context struct to hold all the necessary information for generation.
+// This provides helper methods to reduce code duplication and improve maintainability.
 struct MacroContext<'a> {
     struct_ident: &'a Ident,
     table_name: String,
     create_table_sql: String,
     field_infos: &'a [FieldInfo<'a>],
     select_model_ident: Ident,
+    select_model_partial_ident: Ident,
     insert_model_ident: Ident,
     update_model_ident: Ident,
+    without_rowid: bool,
+    strict: bool,
+}
+
+impl<'a> MacroContext<'a> {
+    /// Checks if a field should be optional in the Insert model
+    fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
+        // Nullable fields are always optional
+        if field.is_nullable {
+            return true;
+        }
+        
+        // Fields with explicit defaults (SQL or runtime) are optional  
+        if field.has_default || field.default_fn.is_some() {
+            return true;
+        }
+        
+        // Primary key logic depends on table type and field type
+        if field.is_primary {
+            // WITHOUT ROWID tables: primary keys never auto-increment, need explicit default
+            if self.without_rowid {
+                return false;
+            }
+            
+            // Regular tables: only INTEGER primary keys can auto-increment
+            use crate::sqlite::field::SQLiteType;
+            match field.column_type {
+                SQLiteType::Integer => true,  // INTEGER PRIMARY KEY can auto-increment
+                _ => false,  // TEXT, BLOB, etc. primary keys cannot auto-increment
+            }
+        } else {
+            false  // Non-primary, non-nullable, no-default fields are required
+        }
+    }
+
+    /// Checks if a field should be optional in the Update model (all fields are optional)
+    fn is_field_optional_in_update(&self, _field: &FieldInfo) -> bool {
+        true
+    }
+
+    /// Checks if a field should generate a convenience method
+    fn should_generate_convenience_method(&self, field: &FieldInfo) -> bool {
+        !field.is_autoincrement || !field.is_primary
+    }
+
+    /// Gets the appropriate field type for a specific model
+    fn get_field_type_for_model(&self, field: &FieldInfo, model_type: ModelType) -> TokenStream {
+        let base_type = field.base_type;
+        match model_type {
+            ModelType::Select => field.get_select_type(),
+            ModelType::Insert => {
+                if self.is_field_optional_in_insert(field) {
+                    quote!(Option<#base_type>)
+                } else {
+                    quote!(#base_type)
+                }
+            },
+            ModelType::Update => quote!(Option<#base_type>),
+            ModelType::PartialSelect => quote!(Option<#base_type>),
+        }
+    }
+
+    /// Checks if a field should be skipped in insert ToSQL conversion (autoincrement primary keys)
+    fn should_skip_field_in_insert(&self, field: &FieldInfo) -> bool {
+        field.is_primary && field.is_autoincrement
+    }
+
+    /// Gets the default value expression for insert model
+    fn get_insert_default_value(&self, field: &FieldInfo) -> TokenStream {
+        let name = field.ident;
+        
+        // Handle runtime function defaults (default_fn)  
+        if let Some(f) = &field.default_fn {
+            if self.is_field_optional_in_insert(field) {
+                return quote! { #name: Some((|| #f())()) };
+            } else {
+                return quote! { #name: (|| #f())() };
+            }
+        }
+        
+        // Handle compile-time SQL defaults (default = literal)
+        if field.has_default {
+            if self.is_field_optional_in_insert(field) {
+                // SQL defaults handled at database level, insert None to let DB apply default
+                return quote! { #name: None };
+            } else {
+                // This shouldn't happen - fields with SQL defaults should be optional
+                return quote! { #name: ::std::default::Default::default() };
+            }
+        }
+        
+        // Handle fields without explicit defaults
+        if self.is_field_optional_in_insert(field) {
+            quote! { #name: None }
+        } else {
+            // Required field without default - this should cause a compile error
+            // For now, we'll use Default::default() but this may fail at runtime
+            quote! { #name: ::std::default::Default::default() }
+        }
+    }
+
+    /// Generates field conversion for insert ToSQL
+    fn get_insert_field_conversion(&self, field: &FieldInfo) -> TokenStream {
+        let name = field.ident;
+        
+        // Default conversion for all fields (UUIDs will use generic From<Uuid> -> SQLiteValue::Blob)
+        if self.is_field_optional_in_insert(field) {
+            quote! {
+                match &self.#name {
+                    Some(val) => val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
+                    None => ::drizzle_rs::sqlite::SQLiteValue::Null,
+                }
+            }
+        } else {
+            quote! {
+                self.#name.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null)
+            }
+        }
+    }
+
+    /// Generates field conversion for update ToSQL
+    fn get_update_field_conversion(&self, field: &FieldInfo) -> TokenStream {
+        let name = field.ident;
+        let column_name = &field.column_name;
+        
+        // Handle UUID fields with field-type-aware conversion
+        if field.is_uuid {
+            use crate::sqlite::field::SQLiteType;
+            let uuid_conversion = match field.column_type {
+                SQLiteType::Text => {
+                    // Store UUID as TEXT (string format)
+                    quote! { ::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Owned(val.to_string())) }
+                },
+                SQLiteType::Blob => {
+                    // Store UUID as BLOB (binary format) 
+                    quote! { ::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
+                },
+                _ => {
+                    // Fallback to generic conversion for other types
+                    quote! { val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null) }
+                }
+            };
+            
+            return quote! {
+                if let Some(val) = &self.#name {
+                    assignments.push((#column_name, #uuid_conversion));
+                }
+            };
+        }
+        
+        // Default conversion for non-UUID fields
+        quote! {
+            if let Some(val) = &self.#name {
+                assignments.push((#column_name, val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null)));
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ModelType {
+    Select,
+    Insert,
+    Update,
+    PartialSelect,
+}
+
+/// Helper struct for generating convenience methods in a DRY manner
+struct ConvenienceMethodGenerator;
+
+impl ConvenienceMethodGenerator {
+    /// Generates a convenience method for a field based on its type
+    fn generate_method(field: &FieldInfo, model_type: ModelType) -> TokenStream {
+        let field_name = field.ident;
+        let base_type = field.base_type;
+        let method_name = format_ident!("with_{}", field_name);
+
+        let (assignment, return_type) = match model_type {
+            ModelType::Insert => {
+                if field.is_nullable || field.has_default || field.is_primary {
+                    (quote! { self.#field_name = Some(value); }, quote!(Option<#base_type>))
+                } else {
+                    (quote! { self.#field_name = value; }, quote!(#base_type))
+                }
+            },
+            ModelType::Update => {
+                (quote! { self.#field_name = Some(value); }, quote!(Option<#base_type>))
+            },
+            _ => return quote!(), // Only generate for Insert and Update models
+        };
+
+        // Generate type-specific convenience methods using modern pattern matching
+        let type_string = base_type.to_token_stream().to_string();
+        match (field.is_uuid, type_string.as_str()) {
+            (true, _) => quote! {
+                pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
+                    let value = value.into();
+                    #assignment
+                    self
+                }
+            },
+            (_, s) if s.contains("String") => quote! {
+                pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
+                    let value = value.into();
+                    #assignment
+                    self
+                }
+            },
+            (_, s) if s.contains("Vec") && s.contains("u8") => quote! {
+                pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
+                    let value = value.into();
+                    #assignment
+                    self
+                }
+            },
+            _ => quote! {
+                pub fn #method_name(mut self, value: #base_type) -> Self {
+                    #assignment
+                    self
+                }
+            },
+        }
+    }
+}
+
+/// Helper struct for generating constructor parameters in a DRY manner
+struct ConstructorGenerator;
+
+impl ConstructorGenerator {
+    /// Generates constructor parameter and assignment for a field
+    fn generate_param_and_assignment(field: &FieldInfo) -> (TokenStream, TokenStream) {
+        let field_name = field.ident;
+        let base_type = field.base_type;
+
+        // Skip autoincrement primary keys in constructor
+        if field.is_primary && field.is_autoincrement {
+            return (quote!(), quote!());
+        }
+
+        let is_optional = field.is_nullable || field.has_default || field.is_primary;
+        let type_string = base_type.to_token_stream().to_string();
+
+        match (is_optional, field.is_uuid, type_string.as_str()) {
+            // Optional parameters
+            (true, true, _) => (
+                quote! { #field_name: Option<impl Into<::uuid::Uuid>> },
+                quote! { #field_name: #field_name.map(|v| v.into()) }
+            ),
+            (true, false, s) if s.contains("String") => (
+                quote! { #field_name: Option<impl Into<::std::string::String>> },
+                quote! { #field_name: #field_name.map(|v| v.into()) }
+            ),
+            (true, false, s) if s.contains("Vec") && s.contains("u8") => (
+                quote! { #field_name: Option<impl Into<::std::vec::Vec<u8>>> },
+                quote! { #field_name: #field_name.map(|v| v.into()) }
+            ),
+            (true, false, _) => (
+                quote! { #field_name: Option<#base_type> },
+                quote! { #field_name }
+            ),
+            
+            // Required parameters
+            (false, true, _) => (
+                quote! { #field_name: impl Into<::uuid::Uuid> },
+                quote! { #field_name: #field_name.into() }
+            ),
+            (false, false, s) if s.contains("String") => (
+                quote! { #field_name: impl Into<::std::string::String> },
+                quote! { #field_name: #field_name.into() }
+            ),
+            (false, false, s) if s.contains("Vec") && s.contains("u8") => (
+                quote! { #field_name: impl Into<::std::vec::Vec<u8>> },
+                quote! { #field_name: #field_name.into() }
+            ),
+            (false, false, _) => (
+                quote! { #field_name: #base_type },
+                quote! { #field_name }
+            ),
+        }
+    }
 }
 
 // ============================================================================
@@ -59,7 +350,12 @@ impl Parse for TableAttributes {
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "Unrecognized table attribute. Supported attributes are: name, strict, without_rowid",
+                        "Unrecognized table attribute.\n\
+                         Supported attributes:\n\
+                         - name: Custom table name (e.g., #[table(name = \"custom_name\")])\n\
+                         - strict: Enable STRICT mode (e.g., #[table(strict)])\n\
+                         - without_rowid: Use WITHOUT ROWID optimization (e.g., #[table(without_rowid)])\n\
+                         See: {SQLITE_CREATE_TABLE_URL}",
                     ));
                 }
             }
@@ -170,7 +466,7 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
 
         let default_fn_body = info.default_fn.as_ref().map_or_else(
             || quote! { None::<fn() -> Self::Type> },
-            |func| quote! { Some(|| #func) },
+            |func| quote! { Some(|| #func()) },
         );
 
         let sql = &info.sql_definition;
@@ -210,7 +506,7 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
 
             impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident {
                 fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                    SQL::raw(#name)
+                    ::drizzle_rs::core::SQL::raw(#name)
                 }
             }
 
@@ -239,7 +535,6 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
 
     // Generate SQLColumnInfo implementations for each column ZST
     let column_info_impls = column_zst_idents.iter().enumerate().map(|(i, ident)| {
-        // You'll need to pass column metadata to generate these properly
         quote! {
             impl ::drizzle_rs::core::SQLColumnInfo for #ident {
 
@@ -283,294 +578,186 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
             type Insert = #insert_model;
             type Update = #update_model;
             type Columns = (#(#column_zst_idents,)*);
+
             const COUNT: usize = #column_len;
             const COLUMNS: Self::Columns = (#(#column_zst_idents,)*);
         }
     })
 }
 
+/// Generates compile-time validation blocks for default literals
+fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
+    let validations: Vec<TokenStream> = field_infos
+        .iter()
+        .filter_map(|info| {
+            if let Some(Expr::Lit(expr_lit)) = &info.default_value {
+                let base_type = info.base_type;
+                let field_name = &info.ident.to_string();
+                Some(quote! {
+                    // Compile-time validation: ensure default literal is compatible with field type
+                    const _: () = {
+                        // This will cause a compile error if the literal type doesn't match the field type
+                        // For example: `let _: i32 = "string";` will fail at compile time
+                        //              `let _: String = 42;` will fail at compile time
+                        let _: #base_type = #expr_lit;
+                    };
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if validations.is_empty() {
+        quote!() // No validations needed
+    } else {
+        quote! {
+            // Default literal validations - these blocks ensure type compatibility at compile time
+            #(#validations)*
+        }
+    }
+}
+
 /// Generates the `Select`, `Insert`, `Update` model structs and their impls.
 fn generate_model_definitions(ctx: &MacroContext) -> Result<TokenStream> {
-    let (select_model, insert_model, update_model) = (
+    let select_model = generate_select_model(ctx)?;
+    let insert_model = generate_insert_model(ctx)?;
+    let update_model = generate_update_model(ctx)?;
+    let model_impls = generate_model_trait_impls(ctx)?;
+
+    Ok(quote! {
+        #select_model
+        #insert_model  
+        #update_model
+        #model_impls
+    })
+}
+
+/// Generates the Select model and its partial variant
+fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
+    let (select_model, select_model_partial) = (
         &ctx.select_model_ident,
-        &ctx.insert_model_ident,
-        &ctx.update_model_ident,
+        &ctx.select_model_partial_ident,
     );
 
     let mut select_fields = Vec::new();
-    let mut insert_fields = Vec::new();
-    let mut update_fields = Vec::new();
-    let mut insert_default_fields = Vec::new();
-    let mut insert_field_conversions = Vec::new();
-    let mut update_field_conversions = Vec::new();
+    let mut partial_select_fields = Vec::new();
     let mut select_column_names = Vec::new();
-    let mut insert_column_names = Vec::new();
-    let mut update_column_names = Vec::new();
-    let mut update_field_names = Vec::new();
-    let mut insert_convenience_methods = Vec::new();
-    let mut update_convenience_methods = Vec::new();
-    let mut constructor_params = Vec::new();
-    let mut constructor_assignments = Vec::new();
+    let mut select_field_names = Vec::new();
 
     for info in ctx.field_infos {
         let name = info.ident;
-        let (select_type, insert_type, update_type) = (
-            info.get_select_type(),
-            info.get_insert_type(),
-            info.get_update_type(),
-        );
+        let select_type = info.get_select_type();
         let base_type = info.base_type;
+        let column_name = &info.column_name;
 
         select_fields.push(quote! { pub #name: #select_type });
-        update_fields.push(quote! { pub #name: #update_type });
-
-        // Generate Insert model fields using original types
-        if info.is_nullable || info.has_default {
-            insert_fields.push(quote! { pub #name: Option<#base_type> });
-        } else {
-            insert_fields.push(quote! { pub #name: #base_type });
-        }
-
-        // Logic for Insert model's `Default` impl
-        let default_value = if let Some(f) = &info.default_fn {
-            if info.is_nullable || info.has_default {
-                quote! { #name: Some(#f()) }
-            } else {
-                quote! { #name: #f() }
-            }
-        } else {
-            quote! { #name: ::std::default::Default::default() }
-        };
-        insert_default_fields.push(default_value);
-
-        // Generate field conversion for Insert model ToSQL
-        let field_conversion = if info.is_primary && info.is_autoincrement {
-            // Skip auto-increment primary keys - they shouldn't be in insert
-            continue;
-        } else {
-            // Add column name for Insert model (non auto-increment fields)
-            let column_name = &info.column_name;
-            insert_column_names.push(quote! { #column_name });
-
-            if info.is_nullable || info.has_default {
-                quote! {
-                    match &self.#name {
-                        Some(val) => val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                        None => ::drizzle_rs::sqlite::SQLiteValue::Null,
-                    }
-                }
-            } else {
-                quote! {
-                    self.#name.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null)
-                }
-            }
-        };
-        insert_field_conversions.push(field_conversion);
-
-        // Generate field conversion for Update model ToSQL
-        // Update models typically have all fields as Option<T>, only include Some() values
-        let update_conversion = if info.is_primary {
-            // Skip primary key fields in updates
-            quote! {}
-        } else {
-            let column_name = &info.column_name;
-            update_column_names.push(quote! { #column_name });
-            update_field_names.push(name);
-            quote! {
-                if let Some(val) = &self.#name {
-                    assignments.push((#column_name, val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null)));
-                }
-            }
-        };
-        update_field_conversions.push(update_conversion);
-
-        // Add column name for Select model
-        let column_name = &info.column_name;
+        partial_select_fields.push(quote! { pub #name: Option<#base_type> });
         select_column_names.push(quote! { #column_name });
-
-        // Generate convenience methods for Update model (with_ methods only)
-        if !info.is_primary {
-            let update_method_name = format_ident!("with_{}", name);
-            
-            // For Update models, all fields are Option<T>, so we always set Some(value)
-            if info.is_uuid {
-                let update_convenience_methods_item = quote! {
-                    pub fn #update_method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
-                        self.#name = Some(value.into());
-                        self
-                    }
-                };
-                update_convenience_methods.push(update_convenience_methods_item);
-            } else if base_type.to_token_stream().to_string().contains("String") {
-                let update_convenience_methods_item = quote! {
-                    pub fn #update_method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
-                        self.#name = Some(value.into());
-                        self
-                    }
-                };
-                update_convenience_methods.push(update_convenience_methods_item);
-            } else if base_type.to_token_stream().to_string().contains("Vec")
-                && base_type.to_token_stream().to_string().contains("u8")
-            {
-                let update_convenience_methods_item = quote! {
-                    pub fn #update_method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
-                        self.#name = Some(value.into());
-                        self
-                    }
-                };
-                update_convenience_methods.push(update_convenience_methods_item);
-            } else {
-                let update_convenience_methods_item = quote! {
-                    pub fn #update_method_name(mut self, value: #base_type) -> Self {
-                        self.#name = Some(value);
-                        self
-                    }
-                };
-                update_convenience_methods.push(update_convenience_methods_item);
-            }
-        }
-
-        // Generate convenience methods for Insert model (with_ methods only)
-        let method_name = format_ident!("with_{}", name);
-
-        if info.is_nullable || info.has_default {
-            // For special types that need custom conversion
-            if info.is_uuid {
-                let convenience_methods = quote! {
-                    pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
-                        self.#name = Some(value.into());
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            } else if base_type.to_token_stream().to_string().contains("String") {
-                let convenience_methods = quote! {
-                    pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
-                        self.#name = Some(value.into());
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            } else if base_type.to_token_stream().to_string().contains("Vec")
-                && base_type.to_token_stream().to_string().contains("u8")
-            {
-                let convenience_methods = quote! {
-                    pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
-                        self.#name = Some(value.into());
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            } else {
-                let convenience_methods = quote! {
-                    pub fn #method_name(mut self, value: #base_type) -> Self {
-                        self.#name = Some(value);
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            }
-        } else {
-            // For non-optional fields
-            if info.is_uuid {
-                let convenience_methods = quote! {
-                    pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
-                        self.#name = value.into();
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            } else if base_type.to_token_stream().to_string().contains("String") {
-                let convenience_methods = quote! {
-                    pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
-                        self.#name = value.into();
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            } else if base_type.to_token_stream().to_string().contains("Vec")
-                && base_type.to_token_stream().to_string().contains("u8")
-            {
-                let convenience_methods = quote! {
-                    pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
-                        self.#name = value.into();
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            } else {
-                let convenience_methods = quote! {
-                    pub fn #method_name(mut self, value: #base_type) -> Self {
-                        self.#name = value;
-                        self
-                    }
-                };
-                insert_convenience_methods.push(convenience_methods);
-            }
-        }
-
-        // Generate constructor parameters and assignments (skip auto-increment primary keys)
-        if !(info.is_primary && info.is_autoincrement) {
-            if info.is_nullable || info.has_default {
-                // Optional parameter for nullable/default fields
-                if info.is_uuid {
-                    constructor_params.push(quote! { #name: Option<impl Into<::uuid::Uuid>> });
-                    constructor_assignments.push(quote! { #name: #name.map(|v| v.into()) });
-                } else if base_type.to_token_stream().to_string().contains("String") {
-                    constructor_params.push(quote! { #name: Option<impl Into<::std::string::String>> });
-                    constructor_assignments.push(quote! { #name: #name.map(|v| v.into()) });
-                } else if base_type.to_token_stream().to_string().contains("Vec")
-                    && base_type.to_token_stream().to_string().contains("u8")
-                {
-                    constructor_params.push(quote! { #name: Option<impl Into<::std::vec::Vec<u8>>> });
-                    constructor_assignments.push(quote! { #name: #name.map(|v| v.into()) });
-                } else {
-                    constructor_params.push(quote! { #name: Option<#base_type> });
-                    constructor_assignments.push(quote! { #name });
-                }
-            } else {
-                // Required parameter for non-nullable fields
-                if info.is_uuid {
-                    constructor_params.push(quote! { #name: impl Into<::uuid::Uuid> });
-                    constructor_assignments.push(quote! { #name: #name.into() });
-                } else if base_type.to_token_stream().to_string().contains("String") {
-                    constructor_params.push(quote! { #name: impl Into<::std::string::String> });
-                    constructor_assignments.push(quote! { #name: #name.into() });
-                } else if base_type.to_token_stream().to_string().contains("Vec")
-                    && base_type.to_token_stream().to_string().contains("u8")
-                {
-                    constructor_params.push(quote! { #name: impl Into<::std::vec::Vec<u8>> });
-                    constructor_assignments.push(quote! { #name: #name.into() });
-                } else {
-                    constructor_params.push(quote! { #name: #base_type });
-                    constructor_assignments.push(quote! { #name });
-                }
-            }
-        }
+        select_field_names.push(name);
     }
 
     Ok(quote! {
         // Select Model
         #[derive(Debug, Clone, PartialEq, Default)]
         pub struct #select_model { #(#select_fields,)* }
-        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model {
-            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
+        
+        // Partial Select Model - all fields are optional for selective querying
+        #[derive(Debug, Clone, PartialEq, Default)]
+        pub struct #select_model_partial { #(#partial_select_fields,)* }
 
-                // Generate column list for SELECT
-                const COLUMN_NAMES: &'static [&'static str] = &[#(#select_column_names,)*];
-                SQL::columns(COLUMN_NAMES)
+        // Implement SQLPartial trait for SelectModel
+        impl<'a> ::drizzle_rs::core::SQLPartial<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model {
+            type Partial = #select_model_partial;
+        }
+        
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial {
+            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                // Only include columns that are Some() for selective querying
+                let mut selected_columns = Vec::new();
+                #(
+                    if self.#select_field_names.is_some() {
+                        selected_columns.push(#select_column_names);
+                    }
+                )*
+                
+                if selected_columns.is_empty() {
+                    // If no fields selected, default to all columns
+                    const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
+                    ::drizzle_rs::core::SQL::columns(ALL_COLUMNS)
+                } else {
+                    ::drizzle_rs::core::SQL::columns(&selected_columns)
+                }
             }
         }
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model {
+            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                // Generate column list for SELECT
+                const COLUMN_NAMES: &'static [&'static str] = &[#(#select_column_names,)*];
+                ::drizzle_rs::core::SQL::columns(COLUMN_NAMES)
+            }
+        }
+    })
+}
 
+/// Generates the Insert model with convenience methods and constructor
+fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
+    let insert_model = &ctx.insert_model_ident;
+
+    let mut insert_fields = Vec::new();
+    let mut insert_default_fields = Vec::new();
+    let mut insert_field_conversions = Vec::new();
+    let mut insert_column_names = Vec::new();
+    let mut insert_convenience_methods = Vec::new();
+    let mut constructor_params = Vec::new();
+    let mut constructor_assignments = Vec::new();
+
+    for info in ctx.field_infos {
+        let name = info.ident;
+        let base_type = info.base_type;
+        let field_type = ctx.get_field_type_for_model(info, ModelType::Insert);
+
+        // Generate field definition
+        insert_fields.push(quote! { pub #name: #field_type });
+
+        // Generate default value
+        insert_default_fields.push(ctx.get_insert_default_value(info));
+
+        // Generate field conversion for ToSQL (skip autoincrement primary keys)
+        if !ctx.should_skip_field_in_insert(info) {
+            let column_name = &info.column_name;
+            insert_column_names.push(quote! { #column_name });
+            insert_field_conversions.push(ctx.get_insert_field_conversion(info));
+        }
+
+        // Generate convenience methods
+        if ctx.should_generate_convenience_method(info) {
+            insert_convenience_methods.push(
+                ConvenienceMethodGenerator::generate_method(info, ModelType::Insert)
+            );
+        }
+
+        // Generate constructor parameters
+        let (param, assignment) = ConstructorGenerator::generate_param_and_assignment(info);
+        if !param.is_empty() {
+            constructor_params.push(param);
+            constructor_assignments.push(assignment);
+        }
+    }
+
+    Ok(quote! {
         // Insert Model
         #[derive(Debug, Clone, PartialEq)]
         pub struct #insert_model {
             #(#insert_fields,)*
         }
+        
         impl Default for #insert_model {
-            fn default() -> Self { Self { #(#insert_default_fields,)* } }
+            fn default() -> Self { 
+                Self { #(#insert_default_fields,)* } 
+            }
         }
+        
         impl #insert_model {
             pub fn new(#(#constructor_params),*) -> Self {
                 Self {
@@ -582,87 +769,137 @@ fn generate_model_definitions(ctx: &MacroContext) -> Result<TokenStream> {
             // Convenience methods for setting fields
             #(#insert_convenience_methods)*
         }
+        
         impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
-                use ::drizzle_rs::sqlite::SQLiteValue;
-                use ::std::convert::TryInto;
-
                 let mut values = Vec::new();
-
-                // Generate field value extraction
                 #(values.push(#insert_field_conversions);)*
-
-                SQL::parameters(values)
+                ::drizzle_rs::core::SQL::parameters(values)
             }
         }
+    })
+}
 
+/// Generates the Update model with convenience methods
+fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
+    let update_model = &ctx.update_model_ident;
+
+    let mut update_fields = Vec::new();
+    let mut update_field_conversions = Vec::new();
+    let mut update_column_names = Vec::new();
+    let mut update_field_names = Vec::new();
+    let mut update_convenience_methods = Vec::new();
+
+    for info in ctx.field_infos {
+        let name = info.ident;
+        let update_type = info.get_update_type();
+        let column_name = &info.column_name;
+
+        // Generate field definition
+        update_fields.push(quote! { pub #name: #update_type });
+
+        // Generate field conversion for ToSQL
+        update_column_names.push(quote! { #column_name });
+        update_field_names.push(name);
+        update_field_conversions.push(ctx.get_update_field_conversion(info));
+
+        // Generate convenience methods
+        update_convenience_methods.push(
+            ConvenienceMethodGenerator::generate_method(info, ModelType::Update)
+        );
+    }
+
+    Ok(quote! {
         // Update Model
         #[derive(Debug, Clone, PartialEq, Default)]
-        pub struct #update_model { #(#update_fields,)* }
+        pub struct #update_model { 
+            #(#update_fields,)* 
+        }
+        
         impl #update_model {
             // Convenience methods for setting fields
             #(#update_convenience_methods)*
         }
+        
         impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #update_model {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
-                use ::drizzle_rs::sqlite::SQLiteValue;
-                use ::std::convert::TryInto;
-
                 let mut assignments = Vec::new();
-
-                // Generate field assignment pairs, only for Some() values
                 #(#update_field_conversions)*
-
-                SQL::assignments(assignments)
+                ::drizzle_rs::core::SQL::assignments(assignments)
             }
         }
+    })
+}
 
+/// Generates SQLModel trait implementations for all model types
+fn generate_model_trait_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let (select_model, select_model_partial, insert_model, update_model) = (
+        &ctx.select_model_ident,
+        &ctx.select_model_partial_ident,
+        &ctx.insert_model_ident,
+        &ctx.update_model_ident,
+    );
+
+    // Collect column information for each model type
+    let mut select_column_names = Vec::new();
+    let mut select_field_names = Vec::new();
+    let mut insert_column_names = Vec::new();
+    let mut insert_field_conversions = Vec::new();
+    let mut update_column_names = Vec::new();
+    let mut update_field_names = Vec::new();
+
+    for info in ctx.field_infos {
+        let name = info.ident;
+        let column_name = &info.column_name;
+
+        // Select model columns
+        select_column_names.push(quote! { #column_name });
+        select_field_names.push(name);
+
+        // Insert model columns (skip autoincrement primary keys)
+        if !ctx.should_skip_field_in_insert(info) {
+            insert_column_names.push(quote! { #column_name });
+            insert_field_conversions.push(ctx.get_insert_field_conversion(info));
+        }
+
+        // Update model columns
+        update_column_names.push(quote! { #column_name });
+        update_field_names.push(name);
+    }
+
+    Ok(quote! {
         // SQLModel implementations
         impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model {
             fn columns(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
                 const COLUMN_NAMES: &'static [&'static str] = &[#(#select_column_names,)*];
-                SQL::columns(COLUMN_NAMES)
+                ::drizzle_rs::core::SQL::columns(COLUMN_NAMES)
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
-                SQL::raw("*")
+                ::drizzle_rs::core::SQL::raw("*")
             }
         }
 
         impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model {
             fn columns(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
                 const COLUMN_NAMES: &'static [&'static str] = &[#(#insert_column_names,)*];
-                SQL::columns(COLUMN_NAMES)
+                ::drizzle_rs::core::SQL::columns(COLUMN_NAMES)
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
-                use ::drizzle_rs::sqlite::SQLiteValue;
-                use ::std::convert::TryInto;
-
                 let mut values = Vec::new();
                 #(values.push(#insert_field_conversions);)*
-                SQL::parameters(values)
+                ::drizzle_rs::core::SQL::parameters(values)
             }
         }
 
         impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #update_model {
             fn columns(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
                 const COLUMN_NAMES: &'static [&'static str] = &[#(#update_column_names,)*];
-                SQL::columns(COLUMN_NAMES)
+                ::drizzle_rs::core::SQL::columns(COLUMN_NAMES)
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::SQL;
-                use ::drizzle_rs::sqlite::SQLiteValue;
-                use ::std::convert::TryInto;
-
                 let mut values = Vec::new();
                 // For Update model, only include values that are Some()
                 #(
@@ -670,7 +907,31 @@ fn generate_model_definitions(ctx: &MacroContext) -> Result<TokenStream> {
                         values.push(val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null));
                     }
                 )*
-                SQL::parameters(values)
+                ::drizzle_rs::core::SQL::parameters(values)
+            }
+        }
+        
+        impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial {
+            fn columns(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                // Only include columns that are Some() for selective querying
+                let mut selected_columns = Vec::new();
+                #(
+                    if self.#select_field_names.is_some() {
+                        selected_columns.push(#select_column_names);
+                    }
+                )*
+                
+                if selected_columns.is_empty() {
+                    // If no fields selected, default to all columns
+                    const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
+                    ::drizzle_rs::core::SQL::columns(ALL_COLUMNS)
+                } else {
+                    ::drizzle_rs::core::SQL::columns(&selected_columns)
+                }
+            }
+
+            fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                ::drizzle_rs::core::SQL::raw("*")
             }
         }
     })
@@ -689,7 +950,12 @@ fn generate_json_impls(field_infos: &[FieldInfo<'_>]) -> Result<TokenStream> {
     let json_impls = json_fields.iter()
         .map(|info| {
             if info.is_json && !cfg!(feature = "serde") {
-                return Err(syn::Error::new_spanned(info.ident, "serde feature is required for JSON fields"))
+                return Err(syn::Error::new_spanned(
+                    info.ident, 
+                    format!("The 'serde' feature must be enabled to use JSON fields.\n\
+                     Add to Cargo.toml: drizzle-rs = {{ version = \"*\", features = [\"serde\"] }}\n\
+                     See: {SQLITE_JSON_URL}")
+                ))
             }
             let struct_name = info.base_type;
             let column_type_str = info.column_type.to_sql_type();
@@ -731,7 +997,11 @@ fn generate_json_impls(field_infos: &[FieldInfo<'_>]) -> Result<TokenStream> {
         })
         .collect::<Result<Vec<_>>>()?;
 
+    #[cfg(feature = "rusqlite")]
     let impls = generate_rusqlite_from_to_sql(&json_fields)?;
+    
+    #[cfg(not(feature = "rusqlite"))]
+    let impls = vec![];
 
     let json_types_impl = quote! {
         #(#json_impls)*
@@ -757,7 +1027,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     } else {
         return Err(syn::Error::new(
             input.span(),
-            "Table macro can only be applied to structs.",
+            "The #[SQLiteTable] attribute can only be applied to struct definitions.\n",
         ));
     };
 
@@ -767,7 +1037,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         .count();
     let is_composite_pk = primary_key_count > 1;
 
-    let field_infos: Vec<FieldInfo> = fields
+    let field_infos = fields
         .iter()
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
         .collect::<Result<Vec<_>>>()?;
@@ -786,8 +1056,11 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         create_table_sql,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
+        select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
+        without_rowid: attrs.without_rowid,
+        strict: attrs.strict,
     };
 
     // -------------------
@@ -811,10 +1084,16 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote!();
 
+    // Generate compile-time validation for default literals
+    let default_validations = generate_default_validations(&field_infos);
+
     // -------------------
     // 3. Assembly Phase
     // -------------------
     Ok(quote! {
+        // Compile-time validation for default literals
+        #default_validations
+
         // The main, user-facing struct is now a ZST.
         // It acts as a namespace for the table's schema.
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

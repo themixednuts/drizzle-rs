@@ -47,7 +47,7 @@ impl<Conn> Drizzle<Conn> {
 pub struct DrizzleBuilder<'a, Conn: 'a, Schema, Builder, State> {
     drizzle: &'a Drizzle<Conn, Schema>,
     builder: Builder,
-    _state: PhantomData<(Schema, State)>,
+    state: PhantomData<(Schema, State)>,
 }
 
 //------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ pub struct DrizzleBuilder<'a, Conn: 'a, Schema, Builder, State> {
 
 impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// Gets a mutable reference to the underlying connection
-    pub fn get_conn(&mut self) -> &mut Conn {
+    pub fn connection(&mut self) -> &mut Conn {
         &mut self.conn
     }
 
@@ -73,8 +73,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         select::SelectInitial,
     >
     where
-        T: IntoIterator,
-        T::Item: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
     {
         use sqlite::builder::QueryBuilder;
 
@@ -83,7 +82,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         DrizzleBuilder {
             drizzle: self,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -107,7 +106,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         DrizzleBuilder {
             drizzle: self,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -129,7 +128,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         DrizzleBuilder {
             drizzle: self,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -151,7 +150,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         DrizzleBuilder {
             drizzle: self,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -180,7 +179,7 @@ impl<'a, C, S>
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -211,7 +210,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -229,7 +228,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -251,7 +250,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -273,7 +272,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -304,7 +303,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
     pub fn order_by<TSQL, TIter>(
@@ -325,7 +324,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -347,7 +346,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -378,7 +377,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -404,7 +403,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -434,7 +433,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -464,7 +463,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -500,7 +499,7 @@ impl<'a, Conn, Schema, Table>
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -540,7 +539,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -559,7 +558,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -593,7 +592,7 @@ impl<'a, Conn, Schema, Table>
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -628,7 +627,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -657,7 +656,7 @@ impl<'a, Conn, Schema, Table>
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }
@@ -686,7 +685,7 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
-            _state: PhantomData,
+            state: PhantomData,
         }
     }
 }

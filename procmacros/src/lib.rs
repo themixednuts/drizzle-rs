@@ -3,9 +3,13 @@ extern crate proc_macro;
 mod drizzle;
 mod qb;
 mod schema;
+mod utils;
 
 #[cfg(feature = "sqlite")]
 mod sqlite;
+
+#[cfg(feature = "rusqlite")]
+mod rusqlite;
 
 use drizzle::DrizzleInput;
 use proc_macro::TokenStream;
@@ -187,6 +191,44 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_result = syn::parse_macro_input!(attr as crate::sqlite::table::TableAttributes);
 
     match crate::sqlite::table::table_attr_macro(input, attr_result) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Automatically implements `TryFrom<&Row<'_>>` for structs using field name-based column access.
+///
+/// This derive macro generates a `TryFrom` implementation that maps struct fields to rusqlite
+/// columns using the field names directly (e.g., `name: row.get("name")?`).
+///
+/// # Example
+///
+/// ```rust
+/// #[derive(FromRow, Debug)]
+/// struct User {
+///     id: i32,
+///     name: String,
+///     email: Option<String>,
+/// }
+///
+/// // Generated implementation:
+/// impl TryFrom<&Row<'_>> for User {
+///     type Error = rusqlite::Error;
+///     fn try_from(row: &Row<'_>) -> Result<Self, Self::Error> {
+///         Ok(Self {
+///             id: row.get("id")?,
+///             name: row.get("name")?,
+///             email: row.get("email")?,
+///         })
+///     }
+/// }
+/// ```
+#[cfg(feature = "rusqlite")]
+#[proc_macro_derive(FromRow)]
+pub fn from_row_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::rusqlite::from_row::generate_from_row_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

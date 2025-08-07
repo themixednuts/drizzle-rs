@@ -1,6 +1,6 @@
 use common::{
     Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
-    PostCategory, setup_db,
+    PostCategory, SelectPost, setup_db,
 };
 use drizzle_core::{Join, OrderBy, sql};
 use drizzle_rs::prelude::*;

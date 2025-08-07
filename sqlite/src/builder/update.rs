@@ -58,9 +58,9 @@ where
         let sql = crate::helpers::set::<'a, Table, SQLiteValue<'a>>(values);
         UpdateBuilder {
             sql: self.sql.append(sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -78,9 +78,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         let where_sql = crate::helpers::where_clause(condition);
         UpdateBuilder {
             sql: self.sql.append(where_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -92,9 +92,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
             sql: self.sql.append(returning_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -112,9 +112,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
             sql: self.sql.append(returning_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }

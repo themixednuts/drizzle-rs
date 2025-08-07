@@ -78,21 +78,10 @@ fn generate_field_from_row(info: &FieldInfo, field_type: TokenStream) -> Result<
             "JSON fields require the 'serde' feature to be enabled",
         ));
     } else if info.is_uuid {
-        if let SQLiteType::Text = info.column_type {
-            if field_type.to_string().contains("Option") {
-                Ok(quote! {
-                    #name: Some(uuid::Uuid::parse_str(&row.get::<_, String>(#column_name)?).map_err(|_| rusqlite::types::FromSqlError::InvalidType)?),
-                })
-            } else {
-                Ok(quote! {
-                    #name: uuid::Uuid::parse_str(&row.get::<_, String>(#column_name)?).map_err(|_| rusqlite::types::FromSqlError::InvalidType)?,
-                })
-            }
-        } else {
-            Ok(quote! {
-                #name: row.get(#column_name)?,
-            })
-        }
+        // Handle all UUIDs as BLOB - rusqlite handles this perfectly with built-in support
+        Ok(quote! {
+            #name: row.get(#column_name)?,
+        })
     } else {
         Ok(quote! {
             #name: row.get(#column_name)?,

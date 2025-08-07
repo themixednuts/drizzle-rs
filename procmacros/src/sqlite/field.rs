@@ -5,6 +5,7 @@ use syn::{
     Attribute, Error, Expr, ExprClosure, ExprPath, Field, Ident, Lit, LitStr, Meta, Result, Token,
     Type,
     parse::{Parse, ParseStream},
+    parse_quote,
 };
 
 /// Enum representing supported SQLite column types
@@ -61,14 +62,29 @@ impl SQLiteType {
         }
     }
 
-    /// Validate a flag for this column type, returning an error if invalid
+    /// Validate a flag for this column type, returning an error with SQLite docs link if invalid
     pub(crate) fn validate_flag(&self, flag: &str, attr: &Attribute) -> Result<()> {
         if !self.is_valid_flag(flag) {
             let error_msg = match flag {
-                "autoincrement" => "autoincrement can only be used with the '#[integer]' attribute",
-                "json" => "The 'json' flag can only be used with #[text] or #[blob] attributes",
-                "enum" => "The 'enum' flag can only be used with #[text] or #[integer] attributes",
-                "not_null" => "Use Option<T> to represent nullable fields",
+                "autoincrement" => {
+                    "AUTOINCREMENT can only be used with INTEGER PRIMARY KEY columns.\n\
+                     See: https://sqlite.org/autoinc.html\n\
+                     Use: #[integer(primary_key, autoincrement)]"
+                }
+                "json" => {
+                    "JSON serialization is only supported for TEXT or BLOB column types.\n\
+                     See: https://sqlite.org/json1.html\n\
+                     Use: #[text(json)] or #[blob(json)]"
+                }
+                "enum" => {
+                    "Enum serialization is supported for TEXT (string) or INTEGER (discriminant) columns.\n\
+                     Use: #[text(enum)] or #[integer(enum)]"
+                }
+                "not_null" => {
+                    "Use Option<T> in your struct field to represent nullable columns instead of 'not_null' attribute.\n\
+                     See: https://sqlite.org/lang_createtable.html#notnullconst\n\
+                     Example: pub field: Option<String> for nullable TEXT"
+                }
                 _ => return Ok(()),
             };
 
@@ -104,7 +120,7 @@ pub(crate) struct FieldInfo<'a> {
 
     // Attribute values
     pub(crate) default_value: Option<Expr>,
-    pub(crate) default_fn: Option<ExprClosure>,
+    pub(crate) default_fn: Option<Expr>,
     pub(crate) references_path: Option<ExprPath>,
     pub(crate) name: Option<String>,
 
@@ -157,7 +173,13 @@ impl<'a> FieldInfo<'a> {
                     // Handle flags like primary_key, not_null, etc.
                     if let Some(flag_ident) = path_expr.path.get_ident() {
                         let flag_str = flag_ident.to_string();
-                        flags.insert(flag_str);
+                        if flag_str == "default" {
+                            // Handle bare 'default' keyword - use Default::default()
+                            let default_path: syn::ExprPath = syn::parse_quote!(Default::default);
+                            default_fn = Some(syn::Expr::Path(default_path));
+                        } else {
+                            flags.insert(flag_str);
+                        }
                     }
                 }
                 Expr::Assign(assign_expr) => {
@@ -184,10 +206,13 @@ impl<'a> FieldInfo<'a> {
 
     /// Parse field information from a Field
     pub(crate) fn from_field(field: &'a Field, is_part_of_composite_pk: bool) -> Result<Self> {
-        let field_name = field
-            .ident
-            .as_ref()
-            .ok_or_else(|| Error::new_spanned(field, "Field must have a name"))?;
+        let field_name = field.ident.as_ref().ok_or_else(|| {
+            Error::new_spanned(
+                field,
+                "All struct fields must have names. Tuple structs are not supported.\n\
+                 Example: pub field_name: String (not pub String)",
+            )
+        })?;
         let field_type = &field.ty;
 
         // Initialize collections for parsed attributes
@@ -237,9 +262,7 @@ impl<'a> FieldInfo<'a> {
                         }
 
                         if let Some(val) = default_fn_val {
-                            if let Expr::Closure(closure) = val {
-                                default_fn = Some(closure);
-                            }
+                            default_fn = Some(val);
                         }
 
                         if let Some(val) = references_val {
@@ -248,13 +271,11 @@ impl<'a> FieldInfo<'a> {
                             }
                         }
 
-                        // Extract name from attribute if present
-                        if let Some(name_expr) = name_val {
-                            if let Expr::Lit(expr_lit) = name_expr {
-                                if let Lit::Str(lit_str) = expr_lit.lit {
-                                    attr_name = Some(lit_str.value());
-                                }
-                            }
+                        // Extract name from attribute if present using modern pattern matching
+                        if let Some(Expr::Lit(expr_lit)) = name_val
+                            && let Lit::Str(lit_str) = expr_lit.lit
+                        {
+                            attr_name = Some(lit_str.value());
                         }
 
                         // Merge the flags
@@ -299,15 +320,16 @@ impl<'a> FieldInfo<'a> {
             sql.push_str(" UNIQUE");
         }
 
-        // Add default value
+        // Add default value using modern pattern matching
         if let Some(Expr::Lit(expr_lit)) = &default_value {
-            match &expr_lit.lit {
-                Lit::Int(i) => sql.push_str(&format!(" DEFAULT {}", i)),
-                Lit::Float(f) => sql.push_str(&format!(" DEFAULT {}", f)),
-                Lit::Bool(b) => sql.push_str(&format!(" DEFAULT {}", b.value() as i64)),
-                Lit::Str(s) => sql.push_str(&format!(" DEFAULT '{}'", s.value())),
-                _ => {}
-            }
+            let default_sql = match &expr_lit.lit {
+                Lit::Int(i) => format!(" DEFAULT {}", i),
+                Lit::Float(f) => format!(" DEFAULT {}", f),
+                Lit::Bool(b) => format!(" DEFAULT {}", b.value() as i64),
+                Lit::Str(s) => format!(" DEFAULT '{}'", s.value()),
+                _ => String::new(),
+            };
+            sql.push_str(&default_sql);
         }
 
         // Create type representations for models
@@ -317,7 +339,7 @@ impl<'a> FieldInfo<'a> {
             Some(quote!(::std::option::Option<#base_type>))
         };
 
-        let insert_type = if is_nullable || has_default {
+        let insert_type = if is_nullable || has_default || is_primary {
             Some(quote!(::std::option::Option<#base_type>))
         } else {
             Some(quote!(#base_type))
@@ -325,6 +347,46 @@ impl<'a> FieldInfo<'a> {
 
         let update_type = Some(quote!(::std::option::Option<#base_type>));
         let is_uuid = base_type.to_token_stream().to_string().eq("Uuid");
+
+        // Add helpful warnings for common mistakes
+        if is_autoincrement && !matches!(column_type, SQLiteType::Integer) {
+            return Err(Error::new_spanned(
+                field,
+                "AUTOINCREMENT can only be used with INTEGER PRIMARY KEY.\n\
+                 See: https://sqlite.org/autoinc.html\n\
+                 Hint: Change column type to '#[integer(primary, autoincrement)]'",
+            ));
+        }
+
+        if is_autoincrement && !is_primary {
+            return Err(Error::new_spanned(
+                field,
+                "AUTOINCREMENT requires PRIMARY KEY constraint.\n\
+                 See: https://sqlite.org/autoinc.html\n\
+                 Hint: Add 'primary' flag: '#[integer(primary, autoincrement)]'",
+            ));
+        }
+
+        if default_value.is_some() && default_fn.is_some() {
+            return Err(Error::new_spanned(
+                field,
+                "Cannot specify both 'default' (compile-time literal) and 'default_fn' (runtime function).\n\
+                 Choose one: either 'default = literal' or 'default_fn = function'\n\
+                 Examples:\n  #[text(default = \"hello\")] for compile-time defaults\n  #[text(default_fn = String::new)] for runtime defaults",
+            ));
+        }
+
+        // Validate UUID fields can only use BLOB column type
+        if is_uuid && !matches!(column_type, SQLiteType::Blob) {
+            return Err(Error::new_spanned(
+                field,
+                "UUID fields must use BLOB column type for optimal performance and compatibility.\n\
+                 UUIDs are stored as 16-byte binary data in SQLite.\n\
+                 See: https://sqlite.org/datatype3.html#storage_classes_and_datatypes\n\
+                 Use: #[blob] instead of #[text] for UUID fields\n\
+                 Example: #[blob(primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid",
+            ));
+        }
 
         // Create the FieldInfo struct
         Ok(FieldInfo {
@@ -368,7 +430,9 @@ impl<'a> FieldInfo<'a> {
     pub(crate) fn get_insert_type(&self) -> TokenStream {
         self.insert_type.clone().unwrap_or_else(|| {
             let base_type = self.base_type;
-            if self.is_nullable || self.has_default {
+            // All primary keys should be optional in insert models to avoid unique constraint conflicts
+            // when default values (like 0) are used
+            if self.is_nullable || self.has_default || self.is_primary {
                 quote!(::std::option::Option<#base_type>)
             } else {
                 quote!(#base_type)

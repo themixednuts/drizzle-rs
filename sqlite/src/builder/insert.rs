@@ -111,9 +111,9 @@ where
         let values_sql = crate::helpers::values::<'a, Table, SQLiteValue>(values);
         InsertBuilder {
             sql: self.sql.append(values_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -176,9 +176,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 
         InsertBuilder {
             sql: self.sql.append(conflict_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 
@@ -190,9 +190,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
             sql: self.sql.append(returning_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }
@@ -210,9 +210,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
             sql: self.sql.append(returning_sql),
-            _schema: PhantomData,
-            _state: PhantomData,
-            _table: PhantomData,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
         }
     }
 }

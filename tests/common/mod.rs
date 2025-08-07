@@ -1,4 +1,3 @@
-use drizzle_rs::core::IsInSchema;
 use drizzle_rs::prelude::*;
 use rusqlite::Connection;
 
@@ -19,16 +18,6 @@ pub struct UserConfig {
     pub settings: std::collections::HashMap<String, String>,
 }
 
-// Define a test schema that includes all our tables
-pub struct TestSchema;
-
-// Implement IsInSchema for all our test types
-impl IsInSchema<TestSchema> for Simple {}
-impl IsInSchema<TestSchema> for Complex {}
-impl IsInSchema<TestSchema> for Post {}
-impl IsInSchema<TestSchema> for Category {}
-impl IsInSchema<TestSchema> for PostCategory {}
-
 pub fn setup_db() -> Connection {
     let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
     create_tables(&conn);
@@ -37,95 +26,23 @@ pub fn setup_db() -> Connection {
 
 fn create_tables(conn: &Connection) {
     // Simple table
-    conn.execute(
-        "CREATE TABLE simple (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL
-        )",
-        [],
-    )
-    .expect("Failed to create simple table");
+    conn.execute(Simple::SQL, [])
+        .expect("Failed to create simple table");
 
-    // Complex table with all field types and constraints
-    #[cfg(feature = "uuid")]
-    conn.execute(
-        "CREATE TABLE complex (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            age INTEGER,
-            score REAL,
-            active BOOLEAN DEFAULT 1,
-            description TEXT,
-            metadata TEXT,
-            config BLOB,
-            data_blob BLOB,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(name, email)
-        )",
-        [],
-    )
-    .expect("Failed to create complex table");
-
-    #[cfg(not(feature = "uuid"))]
-    conn.execute(
-        "CREATE TABLE complex (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            age INTEGER,
-            score REAL,
-            active BOOLEAN DEFAULT 1,
-            description TEXT,
-            metadata TEXT,
-            config BLOB,
-            data_blob BLOB,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(name, email)
-        )",
-        [],
-    )
-    .expect("Failed to create complex table");
+    conn.execute(Complex::SQL, [])
+        .expect("Failed to create complex table");
 
     // Posts table for joins
-    conn.execute(
-        "CREATE TABLE posts (
-            id INTEGER PRIMARY KEY,
-            title TEXT NOT NULL,
-            content TEXT,
-            author_id INTEGER,
-            published BOOLEAN DEFAULT 0,
-            tags TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (author_id) REFERENCES complex (id)
-        )",
-        [],
-    )
-    .expect("Failed to create posts table");
+    conn.execute(Post::SQL, [])
+        .expect("Failed to create posts table");
 
     // Categories for many-to-many testing
-    conn.execute(
-        "CREATE TABLE categories (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            description TEXT
-        )",
-        [],
-    )
-    .expect("Failed to create categories table");
+    conn.execute(Category::SQL, [])
+        .expect("Failed to create categories table");
 
     // Junction table
-    conn.execute(
-        "CREATE TABLE post_categories (
-            post_id INTEGER,
-            category_id INTEGER,
-            PRIMARY KEY (post_id, category_id),
-            FOREIGN KEY (post_id) REFERENCES posts (id),
-            FOREIGN KEY (category_id) REFERENCES categories (id)
-        )",
-        [],
-    )
-    .expect("Failed to create post_categories table");
+    conn.execute(PostCategory::SQL, [])
+        .expect("Failed to create post_categories table");
 }
 
 // Simple type for basic testing
@@ -142,9 +59,8 @@ pub struct Simple {
 pub struct Complex {
     // Use UUID as primary key (requires uuid feature)
     #[cfg(feature = "uuid")]
-    #[text(primary)]
-    pub id: uuid::Uuid,
-
+    #[text(primary, default_fn = Uuid::new_v4().into )]
+    pub id: String,
     #[text]
     pub name: String,
     #[text]

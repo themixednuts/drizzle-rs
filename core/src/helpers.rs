@@ -7,10 +7,9 @@ use crate::{
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
 where
     Value: SQLParam + 'a,
-    T: IntoIterator,
-    T::Item: ToSQL<'a, Value>,
+    T: ToSQL<'a, Value>,
 {
-    SQL::raw("SELECT").append(SQL::join(columns.into_iter().map(|v| v.to_sql()), ", "))
+    SQL::raw("SELECT").append(columns.to_sql())
 }
 
 /// Helper function to create a FROM clause using table generic

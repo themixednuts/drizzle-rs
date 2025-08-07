@@ -7,7 +7,7 @@ use smallvec::{SmallVec, smallvec};
 use std::{borrow::Cow, fmt, fmt::Display};
 use traits::SQLParam;
 // Re-export key traits from traits module
-pub use traits::{IsInSchema, SQLColumn, SQLSchema, SQLTable};
+pub use traits::{IsInSchema, SQLColumn, SQLComparable, SQLPartial, SQLSchema, SQLTable};
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -547,7 +547,7 @@ pub trait ToSQL<'a, V: SQLParam> {
 
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for () {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::raw("*")
+        SQL::from("*")
     }
 }
 
@@ -566,6 +566,36 @@ impl<'a, V: SQLParam + 'a> AsRef<SQL<'a, V>> for SQL<'a, V> {
 impl<'a, V: SQLParam + std::fmt::Display> Display for SQL<'a, V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.sql())
+    }
+}
+
+impl<'a, V, T> ToSQL<'a, V> for Vec<T>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+    }
+}
+
+impl<'a, V, T> ToSQL<'a, V> for &'a [T]
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+    }
+}
+
+impl<'a, V, T, const N: usize> ToSQL<'a, V> for [T; N]
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
     }
 }
 

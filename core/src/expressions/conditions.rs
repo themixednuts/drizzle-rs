@@ -1,4 +1,4 @@
-use crate::{SQL, SQLChunk, SQLParam, ToSQL};
+use crate::{SQL, SQLChunk, SQLComparable, SQLParam, ToSQL};
 use std::borrow::Cow;
 
 /// Format a SQL comparison with the given operator
@@ -32,7 +32,7 @@ where
 pub fn eq<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
+    L: SQLComparable<'a, V, R> + ToSQL<'a, V>,
     R: ToSQL<'a, V> + Into<V>,
 {
     internal_format_sql_comparison(left, "=", right)
@@ -41,7 +41,7 @@ where
 pub fn neq<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
+    L: SQLComparable<'a, V, R> + ToSQL<'a, V>,
     R: ToSQL<'a, V> + Into<V>,
 {
     internal_format_sql_comparison(left, "<>", right)
@@ -50,7 +50,7 @@ where
 pub fn gt<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
+    L: SQLComparable<'a, V, R> + ToSQL<'a, V>,
     R: ToSQL<'a, V> + Into<V>,
 {
     internal_format_sql_comparison(left, ">", right)
@@ -59,7 +59,7 @@ where
 pub fn gte<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
+    L: SQLComparable<'a, V, R> + ToSQL<'a, V>,
     R: ToSQL<'a, V> + Into<V>,
 {
     internal_format_sql_comparison(left, ">=", right)
@@ -68,7 +68,7 @@ where
 pub fn lt<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
+    L: SQLComparable<'a, V, R> + ToSQL<'a, V>,
     R: ToSQL<'a, V> + Into<V>,
 {
     internal_format_sql_comparison(left, "<", right)
@@ -77,7 +77,7 @@ where
 pub fn lte<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
+    L: SQLComparable<'a, V, R> + ToSQL<'a, V>,
     R: ToSQL<'a, V> + Into<V>,
 {
     internal_format_sql_comparison(left, "<=", right)
