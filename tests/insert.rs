@@ -1,4 +1,4 @@
-use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
+use common::{Complex, InsertComplex, InsertSimple, PartialSelectCategory, Simple, setup_db};
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;
 use rusqlite::Row;

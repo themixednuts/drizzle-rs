@@ -221,7 +221,10 @@ impl ConvenienceMethodGenerator {
             ModelType::Update => {
                 (quote! { self.#field_name = Some(value); }, quote!(Option<#base_type>))
             },
-            _ => return quote!(), // Only generate for Insert and Update models
+            ModelType::PartialSelect => {
+                (quote! { self.#field_name = Some(value); }, quote!(Option<#base_type>))
+            },
+            _ => return quote!(), // Only generate for Insert, Update, and PartialSelect models
         };
 
         // Generate type-specific convenience methods using modern pattern matching
@@ -644,6 +647,7 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
     let mut partial_select_fields = Vec::new();
     let mut select_column_names = Vec::new();
     let mut select_field_names = Vec::new();
+    let mut partial_convenience_methods = Vec::new();
 
     for info in ctx.field_infos {
         let name = info.ident;
@@ -655,6 +659,13 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         partial_select_fields.push(quote! { pub #name: Option<#base_type> });
         select_column_names.push(quote! { #column_name });
         select_field_names.push(name);
+
+        // Generate convenience methods for partial select
+        if ctx.should_generate_convenience_method(info) {
+            partial_convenience_methods.push(
+                ConvenienceMethodGenerator::generate_method(info, ModelType::PartialSelect)
+            );
+        }
     }
 
     Ok(quote! {
@@ -665,6 +676,11 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         // Partial Select Model - all fields are optional for selective querying
         #[derive(Debug, Clone, PartialEq, Default)]
         pub struct #select_model_partial { #(#partial_select_fields,)* }
+
+        impl #select_model_partial {
+            // Convenience methods for setting fields
+            #(#partial_convenience_methods)*
+        }
 
         // Implement SQLPartial trait for SelectModel
         impl<'a> ::drizzle_rs::core::SQLPartial<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model {
