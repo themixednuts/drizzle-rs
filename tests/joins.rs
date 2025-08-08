@@ -127,7 +127,7 @@ fn simple_inner_join() {
     let join_results: Vec<AuthorPostResult> = drizzle
         .select(columns![Complex::name, Post::title, Post::content])
         .from(complex)
-        .inner_join(post, eq(Complex::id, Post::author_id))
+        .inner_join(post, eq(complex.id, post.author_id))
         .order_by(sql![
             (Complex::name, OrderBy::Asc),
             (Post::title, OrderBy::Asc)

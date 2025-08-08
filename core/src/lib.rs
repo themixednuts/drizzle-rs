@@ -149,7 +149,7 @@ impl<'a> fmt::Display for Placeholder<'a> {
 }
 
 /// A SQL chunk represents a part of an SQL statement.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub enum SQLChunk<'a, V: SQLParam + 'a> {
     Text(Cow<'a, str>),
     Param {

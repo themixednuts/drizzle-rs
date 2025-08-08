@@ -139,7 +139,7 @@ mod tests {
         let builder = qb!([User, Post]);
 
         let query = builder.select(columns!(User::id)).from::<User>();
-        assert_eq!(query.to_sql().sql(), "SELECT id FROM Users");
+        assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);
     }
 
     #[cfg(feature = "rusqlite")]
@@ -155,6 +155,6 @@ mod tests {
         let (drizzle, (user, post)) = drizzle!(conn, [User, Post]);
         let query = drizzle.select(()).from(user);
         let sql = query.to_sql();
-        assert!(sql.sql().contains("FROM Users"));
+        assert!(sql.sql().contains(r#"FROM "Users""#));
     }
 }

@@ -1,7 +1,9 @@
 use std::any::Any;
 mod tuple;
 
-use crate::{SQLSchemaType, ToSQL};
+use smallvec::{SmallVec, smallvec};
+
+use crate::{SQL, SQLChunk, SQLSchemaType, ToSQL};
 
 /// A marker trait for types that can be used as SQL parameters.
 ///
@@ -43,7 +45,17 @@ pub trait SQLColumnInfo: Any {
     fn is_unique(&self) -> bool;
     fn name(&self) -> &str;
     fn r#type(&self) -> &str;
-    fn table(&self) -> Box<dyn SQLTableInfo>;
+    fn table(&self) -> &dyn SQLTableInfo;
+}
+
+pub trait AsColumnInfo: SQLColumnInfo {
+    fn as_column(&self) -> &dyn SQLColumnInfo;
+}
+
+impl<T: SQLColumnInfo> AsColumnInfo for T {
+    fn as_column(&self) -> &dyn SQLColumnInfo {
+        self
+    }
 }
 
 pub trait SQLColumn<'a, Value: SQLParam>:
@@ -126,6 +138,16 @@ impl<'a> std::fmt::Debug for dyn SQLTableInfo {
             .field("name", &self.name())
             .field("type", &self.r#type())
             .finish()
+    }
+}
+
+pub trait AsTableInfo: SQLTableInfo {
+    fn as_table(&self) -> &dyn SQLTableInfo;
+}
+
+impl<T: SQLTableInfo> AsTableInfo for T {
+    fn as_table(&self) -> &dyn SQLTableInfo {
+        self
     }
 }
 

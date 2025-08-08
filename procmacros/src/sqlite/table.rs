@@ -435,9 +435,23 @@ fn generate_column_accessors(
             }
         });
 
+    let fields = field_infos.iter()
+        .zip(column_zst_idents.iter())
+        .map(|(info, zst)| {
+        let name = info.ident;
+        quote! {
+            #name: #zst::new()
+        }
+    });
+
     Ok(quote! {
         #[allow(non_upper_case_globals)]
         impl #struct_ident {
+            const fn new() -> Self {
+                Self {
+                    #(#fields,)*
+                }
+            }
             #(#const_defs)*
         }
     })
@@ -503,6 +517,12 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             pub struct #zst_ident;
 
+            impl #zst_ident {
+                const fn new() -> #zst_ident {
+                    #zst_ident {}
+                }
+            }
+
             impl <'a> ::drizzle_rs::core::SQLSchema<'a, &'a str> for #zst_ident {
                 const NAME: &'a str = #name;
                 const TYPE: &'a str = #col_type;
@@ -525,8 +545,9 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
                 fn is_unique(&self) -> bool {
                     <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::UNIQUE
                 }
-                fn table(&self) -> Box<dyn SQLTableInfo> {
-                    Box::new(#struct_ident::default())
+                fn table(&self) -> &dyn SQLTableInfo {
+                    static TABLE: #struct_ident = #struct_ident::new();
+                    &TABLE
                 }
             }
 
@@ -554,12 +575,13 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
                 const AUTOINCREMENT: bool = #is_autoincrement;
             }
 
-            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident {
+            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident
+            {
                 fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                     use ::drizzle_rs::core::ToSQL;
-                    // Since this is a ZST (zero-sized type), we can safely transmute the lifetime
-                    let static_self: &'a dyn ::drizzle_rs::core::SQLColumnInfo = unsafe { ::std::mem::transmute(self as &dyn ::drizzle_rs::core::SQLColumnInfo) };
-                    static_self.to_sql()
+                    static INSTANCE: #zst_ident = #zst_ident::new();
+
+                    INSTANCE.as_column().to_sql()
                 }
             }
 
@@ -617,9 +639,8 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
         impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                 use ::drizzle_rs::core::ToSQL;
-                // Since this is a ZST (zero-sized type), we can safely transmute the lifetime
-                let static_self: &'a dyn ::drizzle_rs::core::SQLTableInfo = unsafe { ::std::mem::transmute(self as &dyn ::drizzle_rs::core::SQLTableInfo) };
-                static_self.to_sql()
+                static INSTANCE: #struct_ident = #struct_ident::new();
+                INSTANCE.as_table().to_sql()
             }
         }
     })
@@ -1143,17 +1164,12 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         // Compile-time validation for default literals
         #default_validations
 
-        // The main, user-facing struct is now a ZST.
-        // It acts as a namespace for the table's schema.
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct #struct_ident {
          #column_fields   
         }
+
         #column_accessors
-
-        // All generated code is scoped under a module to avoid polluting the global namespace.
-        // Or you can output it directly as done here.
-
         #column_definitions
         #table_impls
         #model_definitions

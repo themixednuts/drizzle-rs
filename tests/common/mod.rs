@@ -1,4 +1,3 @@
-use cfg_if::cfg_if;
 use drizzle_rs::prelude::*;
 use rusqlite::Connection;
 
@@ -55,83 +54,80 @@ pub struct Simple {
     pub name: String,
 }
 
-cfg_if!(
-    if #[cfg(feature = "uuid")] {
-        #[SQLiteTable(name = "complex")]
-        pub struct Complex {
-            #[blob(primary, default_fn = Uuid::new_v4)]
-            pub id: Uuid,
-            #[text]
-            pub name: String,
-            #[text]
-            pub email: Option<String>,
-            #[integer]
-            pub age: Option<i32>,
-            #[real]
-            pub score: Option<f64>,
-            #[boolean]
-            pub active: bool,
+#[cfg(feature = "uuid")]
+#[SQLiteTable(name = "complex")]
+pub struct Complex {
+    #[blob(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,
+    #[text]
+    pub name: String,
+    #[text]
+    pub email: Option<String>,
+    #[integer]
+    pub age: Option<i32>,
+    #[real]
+    pub score: Option<f64>,
+    #[boolean]
+    pub active: bool,
 
-            // Text field for regular text storage
-            #[text]
-            pub description: Option<String>,
+    // Text field for regular text storage
+    #[text]
+    pub description: Option<String>,
 
-            // JSON stored as text (serde feature)
-            #[cfg(feature = "serde")]
-            #[text(json)]
-            pub metadata: Option<UserMetadata>,
+    // JSON stored as text (serde feature)
+    #[cfg(feature = "serde")]
+    #[text(json)]
+    pub metadata: Option<UserMetadata>,
 
-            // JSON stored as blob (serde feature)
-            #[cfg(feature = "serde")]
-            #[blob(json)]
-            pub config: Option<UserConfig>,
+    // JSON stored as blob (serde feature)
+    #[cfg(feature = "serde")]
+    #[blob(json)]
+    pub config: Option<UserConfig>,
 
-            // Raw blob storage
-            #[blob]
-            pub data_blob: Option<Vec<u8>>,
+    // Raw blob storage
+    #[blob]
+    pub data_blob: Option<Vec<u8>>,
 
-            #[text]
-            pub created_at: Option<String>,
-        }
-    } else  {
-        #[SQLiteTable(name = "complex")]
-        pub struct Complex {
-            #[blob(primary, default_fn = Uuid::new_v4().into )]
-            pub id: String,
-            #[text]
-            pub name: String,
-            #[text]
-            pub email: Option<String>,
-            #[integer]
-            pub age: Option<i32>,
-            #[real]
-            pub score: Option<f64>,
-            #[boolean]
-            pub active: bool,
+    #[text]
+    pub created_at: Option<String>,
+}
+#[cfg(not(feature = "uuid"))]
+#[SQLiteTable(name = "complex")]
+pub struct Complex {
+    #[blob(primary, default_fn = Uuid::new_v4().into )]
+    pub id: String,
+    #[text]
+    pub name: String,
+    #[text]
+    pub email: Option<String>,
+    #[integer]
+    pub age: Option<i32>,
+    #[real]
+    pub score: Option<f64>,
+    #[boolean]
+    pub active: bool,
 
-            // Text field for regular text storage
-            #[text]
-            pub description: Option<String>,
+    // Text field for regular text storage
+    #[text]
+    pub description: Option<String>,
 
-            // JSON stored as text (serde feature)
-            #[cfg(feature = "serde")]
-            #[text(json)]
-            pub metadata: Option<UserMetadata>,
+    // JSON stored as text (serde feature)
+    #[cfg(feature = "serde")]
+    #[text(json)]
+    pub metadata: Option<UserMetadata>,
 
-            // JSON stored as blob (serde feature)
-            #[cfg(feature = "serde")]
-            #[blob(json)]
-            pub config: Option<UserConfig>,
+    // JSON stored as blob (serde feature)
+    #[cfg(feature = "serde")]
+    #[blob(json)]
+    pub config: Option<UserConfig>,
 
-            // Raw blob storage
-            #[blob]
-            pub data_blob: Option<Vec<u8>>,
+    // Raw blob storage
+    #[blob]
+    pub data_blob: Option<Vec<u8>>,
 
-            #[text]
-            pub created_at: Option<String>,
-        }
-    }
-);
+    #[text]
+    pub created_at: Option<String>,
+}
 
 #[SQLiteTable(name = "posts")]
 pub struct Post {
