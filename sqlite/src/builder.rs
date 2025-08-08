@@ -97,11 +97,11 @@ where
         }
     }
 
-    pub fn insert<T>(&self) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, T>
+    pub fn insert<T>(&self, table: T) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, T>
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let sql = crate::helpers::insert::<T>();
+        let sql = crate::helpers::insert(table);
 
         insert::InsertBuilder {
             sql,
@@ -111,11 +111,11 @@ where
         }
     }
 
-    pub fn update<T>(&self) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, T>
+    pub fn update<T>(&self, table: T) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, T>
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let sql = crate::helpers::update::<T, SQLiteValue>();
+        let sql = crate::helpers::update(table);
 
         update::UpdateBuilder {
             sql,
@@ -125,11 +125,11 @@ where
         }
     }
 
-    pub fn delete<T>(&self) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, T>
+    pub fn delete<T>(&self, table: T) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, T>
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let sql = crate::helpers::delete::<T, SQLiteValue>();
+        let sql = crate::helpers::delete(table);
 
         delete::DeleteBuilder {
             sql,

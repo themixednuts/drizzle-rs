@@ -151,12 +151,12 @@ pub type SelectBuilder<'a, Schema, State, Table = ()> =
 
 impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// Specifies the table to select FROM and transitions state
-    pub fn from<T>(self) -> SelectBuilder<'a, S, SelectFromSet, T>
+    pub fn from<T>(self, table: T) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
         T: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<S>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::from::<T, SQLiteValue>()),
+            sql: self.sql.append(helpers::from(table)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

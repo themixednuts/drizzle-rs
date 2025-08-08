@@ -10,13 +10,12 @@ where
 }
 
 /// Helper function to create a FROM clause using table generic
-pub fn from<'a, T, V>() -> SQL<'a, V>
+pub fn from<'a, T, V>(table: T) -> SQL<'a, V>
 where
     T: SQLTable<'a, V>,
     V: SQLParam + 'a,
 {
-    let sql = SQL::raw("FROM");
-    sql.append(T::default().to_sql())
+    SQL::raw("FROM").append(&table)
 }
 
 /// Helper function to create a WHERE clause
@@ -87,13 +86,12 @@ where
 }
 
 /// Helper function to create an UPDATE statement using table generic
-pub fn update<'a, T, V>() -> SQL<'a, V>
+pub fn update<'a, T, V>(table: T) -> SQL<'a, V>
 where
     T: SQLTable<'a, V>,
     V: SQLParam + 'a,
 {
-    let sql = SQL::raw("UPDATE");
-    sql.append(T::default().to_sql())
+    SQL::raw("UPDATE").append(&table)
 }
 
 /// Helper function to create a SET clause for UPDATE
@@ -106,11 +104,10 @@ where
 }
 
 /// Helper function to create a DELETE FROM statement using table generic
-pub fn delete<'a, T, V>() -> SQL<'a, V>
+pub fn delete<'a, T, V>(table: T) -> SQL<'a, V>
 where
     T: SQLTable<'a, V>,
     V: SQLParam + 'a,
 {
-    let sql = SQL::raw("DELETE FROM");
-    sql.append(T::default().to_sql())
+    SQL::raw("DELETE FROM").append(&table)
 }

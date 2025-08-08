@@ -155,7 +155,7 @@ impl<Schema> Drizzle<Schema> {
     {
         use sqlite::builder::QueryBuilder;
 
-        let builder = QueryBuilder::new::<Schema>().insert::<T>();
+        let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
             drizzle: self,
             builder,
@@ -177,7 +177,7 @@ impl<Schema> Drizzle<Schema> {
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let builder = QueryBuilder::new::<Schema>().update::<T>();
+        let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
             drizzle: self,
             builder,
@@ -199,7 +199,7 @@ impl<Schema> Drizzle<Schema> {
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let builder = QueryBuilder::new::<Schema>().delete::<T>();
+        let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
             drizzle: self,
             builder,
@@ -245,7 +245,7 @@ impl<'a, Schema>
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        let builder = self.builder.from::<T>();
+        let builder = self.builder.from(table);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,

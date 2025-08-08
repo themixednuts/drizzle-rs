@@ -165,12 +165,11 @@ where
 }
 
 /// Creates an INSERT INTO statement with the specified table - SQLite specific
-pub(crate) fn insert<'a, T>() -> SQL<'a, SQLiteValue<'a>>
+pub(crate) fn insert<'a, T>(table: T) -> SQL<'a, SQLiteValue<'a>>
 where
     T: SQLTable<'a, SQLiteValue<'a>>,
 {
-    let sql = SQL::raw("INSERT INTO");
-    sql.append_raw(T::NAME)
+    SQL::raw("INSERT INTO").append(&table)
 }
 
 /// Helper function to create VALUES clause for INSERT

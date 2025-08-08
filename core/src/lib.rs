@@ -618,18 +618,28 @@ impl<'a, V: SQLParam + 'a> From<&'a str> for SQL<'a, V> {
     }
 }
 
-// Add implementation for references to SQL
-impl<'a, 'b, V: SQLParam + 'a> From<&'b SQL<'a, V>> for SQL<'a, V>
-where
-    'b: 'a,
-{
-    fn from(sql: &'b SQL<'a, V>) -> Self {
-        sql.clone()
-    }
-}
+// // Add implementation for references to SQL
+// impl<'a, 'b, V: SQLParam + 'a> From<&'b SQL<'a, V>> for SQL<'a, V>
+// where
+//     'b: 'a,
+// {
+//     fn from(sql: &'b SQL<'a, V>) -> Self {
+//         sql.clone()
+//     }
+// }
 
 pub trait ToSQL<'a, V: SQLParam> {
     fn to_sql(&self) -> SQL<'a, V>;
+}
+
+impl<'a, T, V> From<&T> for SQL<'a, V>
+where
+    T: ToSQL<'a, V>,
+    V: SQLParam,
+{
+    fn from(value: &T) -> Self {
+        value.to_sql()
+    }
 }
 
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for () {
