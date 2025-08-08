@@ -18,6 +18,7 @@ libsql-rusqlite = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+paste = { workspace = true }
 
 [dev-dependencies]
 drizzle-rs = { workspace = true, features = ["rusqlite"] }

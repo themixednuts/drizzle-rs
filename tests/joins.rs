@@ -1,8 +1,8 @@
 use common::{
     Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
-    PostCategory, SelectPost, setup_db,
+    PostCategory, setup_db,
 };
-use drizzle_core::{Join, OrderBy, sql};
+use drizzle_core::{OrderBy, sql};
 use drizzle_rs::prelude::*;
 use rusqlite::Row;
 
@@ -70,7 +70,7 @@ impl TryFrom<&Row<'_>> for PostResult {
 #[test]
 fn simple_inner_join() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Complex, Post, PostCategory, Category]);
+    let (drizzle, (complex, post, ..)) = drizzle!(db, [Complex, Post, PostCategory, Category]);
 
     // Insert test data: authors and their posts
     #[cfg(not(feature = "uuid"))]
@@ -102,11 +102,7 @@ fn simple_inner_join() {
             .with_email("charlie@example.com".to_string()), // No posts
     ];
 
-    let author_result = drizzle
-        .insert::<Complex>()
-        .values(authors)
-        .execute()
-        .unwrap();
+    let author_result = drizzle.insert(complex).values(authors).execute().unwrap();
     assert_eq!(author_result, 3);
 
     let posts = vec![
@@ -124,14 +120,14 @@ fn simple_inner_join() {
             .with_author_id(1),
     ];
 
-    let post_result = drizzle.insert::<Post>().values(posts).execute().unwrap();
+    let post_result = drizzle.insert(post).values(posts).execute().unwrap();
     assert_eq!(post_result, 3);
 
     // Test inner join: only authors with posts should appear
     let join_results: Vec<AuthorPostResult> = drizzle
         .select(columns![Complex::name, Post::title, Post::content])
-        .from::<Complex>()
-        .join::<Post>(Join::Inner, eq(Complex::id, Post::author_id))
+        .from(complex)
+        .inner_join(post, eq(Complex::id, Post::author_id))
         .order_by(sql![
             (Complex::name, OrderBy::Asc),
             (Post::title, OrderBy::Asc)
@@ -168,8 +164,8 @@ fn simple_inner_join() {
     // Verify that we can filter join results
     let alice_posts: Vec<AuthorPostResult> = drizzle
         .select(columns![Complex::name, Post::title, Post::content])
-        .from::<Complex>()
-        .join::<Post>(Join::Inner, eq(Complex::id, Post::author_id))
+        .from(complex)
+        .inner_join(post, eq(Complex::id, Post::author_id))
         .r#where(eq(Complex::name, "alice"))
         .all()
         .unwrap();
@@ -183,7 +179,8 @@ fn simple_inner_join() {
 #[test]
 fn many_to_many_join() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Complex, Post, PostCategory, Category]);
+    let (drizzle, (complex, post, postcategory, category)) =
+        drizzle!(db, [Complex, Post, PostCategory, Category]);
 
     // Insert test data: posts and categories with many-to-many relationship
     let posts = vec![
@@ -201,7 +198,7 @@ fn many_to_many_join() {
             .with_published(false),
     ];
 
-    let post_result = drizzle.insert::<Post>().values(posts).execute().unwrap();
+    let post_result = drizzle.insert(post).values(posts).execute().unwrap();
     assert_eq!(post_result, 3);
 
     let categories = vec![
@@ -217,7 +214,7 @@ fn many_to_many_join() {
     ];
 
     let category_result = drizzle
-        .insert::<Category>()
+        .insert(category)
         .values(categories)
         .execute()
         .unwrap();
@@ -240,24 +237,27 @@ fn many_to_many_join() {
     ];
 
     let junction_result = drizzle
-        .insert::<PostCategory>()
+        .insert(postcategory)
         .values(post_categories)
         .execute()
         .unwrap();
     assert_eq!(junction_result, 4);
 
     // Test many-to-many join: posts with their categories
-    let join_results: Vec<PostCategoryResult> = drizzle
+    let join_smt = drizzle
         .select(columns![Post::title, Category::name, Category::description])
-        .from::<Post>()
-        .join::<PostCategory>(Join::Inner, eq(Post::id, PostCategory::post_id))
-        .join::<Category>(Join::Inner, eq(PostCategory::category_id, Category::id))
+        .from(post)
+        .join(postcategory, eq(Post::id, PostCategory::post_id))
+        .join(category, eq(PostCategory::category_id, Category::id))
         .order_by(sql![
             (Post::title, OrderBy::Asc),
             (Category::name, OrderBy::Asc)
-        ])
-        .all()
-        .unwrap();
+        ]);
+    let sql = join_smt.to_sql().sql();
+
+    println!("{sql:?}");
+
+    let join_results: Vec<PostCategoryResult> = join_smt.all().unwrap();
 
     // Should have 4 results (each post-category relationship)
     assert_eq!(join_results.len(), 4);
@@ -289,9 +289,9 @@ fn many_to_many_join() {
     // Test filtering: only published posts
     let published_results: Vec<PostCategoryResult> = drizzle
         .select(columns![Post::title, Category::name, Category::description])
-        .from::<Post>()
-        .join::<PostCategory>(Join::Inner, eq(Post::id, PostCategory::post_id))
-        .join::<Category>(Join::Inner, eq(PostCategory::category_id, Category::id))
+        .from(post)
+        .join(postcategory, eq(Post::id, PostCategory::post_id))
+        .join(category, eq(PostCategory::category_id, Category::id))
         .r#where(eq(Post::published, true))
         .order_by(sql![
             (Post::title, OrderBy::Asc),

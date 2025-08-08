@@ -1,58 +1,167 @@
-use crate::values::SQLiteValue;
+use crate::{common::Join, values::SQLiteValue};
 use drizzle_core::{
-    Join, OrderBy, SQL, SQLSchema, SQLSchemaType, SQLTable, ToSQL, helpers as core_helpers,
+    SQL, SQLSchema, SQLTable, ToSQL, helpers as core_helpers,
     traits::{SQLModel, SQLParam},
 };
 
 // Re-export core helpers with SQLiteValue type for convenience
 pub(crate) use core_helpers::{
-    delete, from, group_by, having, limit, offset, order_by, select, set, update, where_clause,
+    delete, from, group_by, having, limit, offset, order_by, select, set, update, r#where,
 };
 
-/// Helper function to create a JOIN clause using table generic - SQLite-specific wrapper
-pub(crate) fn join<'a, T>(
-    join_type: Join,
-    condition: SQL<'a, SQLiteValue<'a>>,
-) -> SQL<'a, SQLiteValue<'a>>
+fn join_internal<'a, T, V>(table: T, join: Join, condition: SQL<'a, V>) -> SQL<'a, V>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
 {
-    core_helpers::join::<T, SQLiteValue>(join_type, condition)
+    let sql = join.to_sql();
+    let sql = sql.append_raw(" ");
+    let sql = sql.append(table.to_sql());
+    let sql = sql.append_raw(" ON ");
+    sql.append(condition)
 }
 
-/// Helper function to create an INNER JOIN clause using table generic - SQLite wrapper
-pub(crate) fn inner_join<'a, T>(condition: SQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>>
+/// Helper function to create a JOIN clause using table generic
+pub fn natural_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
 {
-    core_helpers::inner_join::<T, SQLiteValue>(condition)
+    join_internal(table, Join::default().natural(), condition)
 }
 
-/// Helper function to create a LEFT JOIN clause using table generic - SQLite wrapper
-pub(crate) fn left_join<'a, T>(condition: SQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>>
+/// Helper function to create a JOIN clause using table generic
+pub fn join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
 {
-    core_helpers::left_join::<T, SQLiteValue>(condition)
+    join_internal(table, Join::default(), condition)
 }
 
-/// Helper function to create a RIGHT JOIN clause using table generic - SQLite wrapper
-pub(crate) fn right_join<'a, T>(condition: SQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>>
+pub fn natural_left_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
 {
-    core_helpers::right_join::<T, SQLiteValue>(condition)
+    join_internal(table, Join::new().natural().left(), condition)
 }
 
-/// Helper function to create a FULL JOIN clause - SQLite specific (not actually supported in SQLite)
-/// This exists for API compatibility but will generate invalid SQL in SQLite
-pub(crate) fn full_join<'a, T>(condition: SQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>>
+/// Helper function to create a LEFT JOIN clause using table generic
+pub fn left_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
 {
-    // SQLite doesn't actually support FULL JOIN, but we'll generate it anyway
-    // This should probably emit a warning or error in real usage
-    core_helpers::join::<T, SQLiteValue>(Join::Full, condition)
+    join_internal(table, Join::new().left(), condition)
+}
+
+pub fn left_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().left().outer(), condition)
+}
+
+pub fn natural_left_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().natural().left().outer(), condition)
+}
+
+pub fn natural_right_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().natural().right(), condition)
+}
+
+/// Helper function to create a RIGHT JOIN clause using table generic
+pub fn right_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().right(), condition)
+}
+
+pub fn right_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().right().outer(), condition)
+}
+
+pub fn natural_right_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().natural().right().outer(), condition)
+}
+
+pub fn natural_full_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().natural().full(), condition)
+}
+
+/// Helper function to create a FULL JOIN clause using table generic
+pub fn full_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().full(), condition)
+}
+
+pub fn full_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().full().outer(), condition)
+}
+
+pub fn natural_full_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().natural().full().outer(), condition)
+}
+
+pub fn natural_inner_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().natural().inner(), condition)
+}
+
+/// Helper function to create an INNER JOIN clause using table generic
+pub fn inner_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().inner(), condition)
+}
+
+/// Helper function to create a CROSS JOIN clause using table generic
+pub fn cross_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+where
+    T: SQLTable<'a, V>,
+    V: SQLParam + 'a,
+{
+    join_internal(table, Join::new().cross(), condition)
 }
 
 /// Creates an INSERT INTO statement with the specified table - SQLite specific

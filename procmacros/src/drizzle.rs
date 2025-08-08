@@ -67,7 +67,7 @@ pub fn drizzle_impl(input: DrizzleInput) -> syn::Result<TokenStream> {
                     // // Create query builder and Drizzle instance with explicit type annotation
                     // let query_builder = ::drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>();
 
-                    ::drizzle_rs::Drizzle::new::<#schema_ident>(#conn)
+                    (::drizzle_rs::Drizzle::new::<#schema_ident>(#conn), (#(#types::default(),)*)  )
                 }
             }
         }

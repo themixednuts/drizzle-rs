@@ -35,7 +35,7 @@ struct ComplexResult {
 #[cfg(feature = "uuid")]
 #[derive(Debug)]
 struct ComplexResult {
-    id: String,
+    id: Uuid,
     name: String,
     email: Option<String>,
     age: Option<i32>,
@@ -59,11 +59,11 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn simple_insert() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Simple record
     let data = InsertSimple::default().with_name("test");
-    let result = drizzle.insert::<Simple>().values([data]).execute();
+    let result = drizzle.insert(simple).values([data]).execute();
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
@@ -71,7 +71,7 @@ fn simple_insert() {
     // Verify insertion by selecting the record
     let results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "test"))
         .all()
         .unwrap();
@@ -83,7 +83,7 @@ fn simple_insert() {
 #[test]
 fn complex_insert() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Complex record with various field types
     #[cfg(not(feature = "uuid"))]
@@ -107,7 +107,7 @@ fn complex_insert() {
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
-    let result = drizzle.insert::<Complex>().values([data]).execute();
+    let result = drizzle.insert(complex).values([data]).execute();
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
@@ -121,7 +121,7 @@ fn complex_insert() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::name, "complex_user"))
         .all()
         .unwrap();
@@ -136,20 +136,24 @@ fn complex_insert() {
 #[test]
 fn conflict_resolution() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Simple record
-    let initial_data = InsertSimple::default().with_name("conflict_test");
+    let initial_data = InsertSimple::default()
+        .with_id(1)
+        .with_name("conflict_test");
     drizzle
-        .insert::<Simple>()
+        .insert(simple)
         .values([initial_data])
         .execute()
         .unwrap();
 
     // Try to insert duplicate - should conflict and be ignored
-    let duplicate_data = InsertSimple::default().with_name("conflict_test");
+    let duplicate_data = InsertSimple::default()
+        .with_id(1)
+        .with_name("conflict_test");
     let result = drizzle
-        .insert::<Simple>()
+        .insert(simple)
         .values([duplicate_data])
         .on_conflict(Conflict::default())
         .execute();
@@ -160,7 +164,7 @@ fn conflict_resolution() {
     // Verify only one record exists
     let results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "conflict_test"))
         .all()
         .unwrap();
@@ -173,7 +177,7 @@ fn conflict_resolution() {
 #[test]
 fn feature_gated_insert() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Complex record using feature-gated fields
     let data = InsertComplex::default()
@@ -190,7 +194,7 @@ fn feature_gated_insert() {
             settings: std::collections::HashMap::new(),
         });
 
-    let result = drizzle.insert::<Complex>().values([data]).execute();
+    let result = drizzle.insert(complex).values([data]).execute();
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
@@ -204,7 +208,7 @@ fn feature_gated_insert() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::name, "feature_test"))
         .all()
         .unwrap();

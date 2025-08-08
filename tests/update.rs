@@ -58,12 +58,12 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn simple_update() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Simple record
     let insert_data = InsertSimple::default().with_name("original");
     let insert_result = drizzle
-        .insert::<Simple>()
+        .insert(simple)
         .values([insert_data])
         .execute()
         .unwrap();
@@ -71,7 +71,7 @@ fn simple_update() {
 
     // Update the record
     let update_result = drizzle
-        .update::<Simple>()
+        .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(eq(Simple::name, "original"))
         .execute()
@@ -81,7 +81,7 @@ fn simple_update() {
     // Verify the update by selecting the record
     let results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "updated"))
         .all()
         .unwrap();
@@ -92,7 +92,7 @@ fn simple_update() {
     // Verify original name is gone
     let old_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "original"))
         .all()
         .unwrap();
@@ -103,7 +103,7 @@ fn simple_update() {
 #[test]
 fn complex_update() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Complex record
     #[cfg(not(feature = "uuid"))]
@@ -122,7 +122,7 @@ fn complex_update() {
         .with_description("Original description".to_string());
 
     let insert_result = drizzle
-        .insert::<Complex>()
+        .insert(complex)
         .values([insert_data])
         .execute()
         .unwrap();
@@ -130,7 +130,7 @@ fn complex_update() {
 
     // Update multiple fields
     let update_result = drizzle
-        .update::<Complex>()
+        .update(complex)
         .set(
             UpdateComplex::default()
                 .with_email("new@example.com".to_string())
@@ -151,7 +151,7 @@ fn complex_update() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::name, "user"))
         .all()
         .unwrap();
@@ -170,7 +170,7 @@ fn complex_update() {
 #[test]
 fn feature_gated_update() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
@@ -189,7 +189,7 @@ fn feature_gated_update() {
         });
 
     let insert_result = drizzle
-        .insert::<Complex>()
+        .insert(complex)
         .values([insert_data])
         .execute()
         .unwrap();
@@ -197,7 +197,7 @@ fn feature_gated_update() {
 
     // Update feature-gated fields using UUID primary key
     let update_result = drizzle
-        .update::<Complex>()
+        .update(complex)
         .set(
             UpdateComplex::default()
                 .with_metadata(common::UserMetadata {
@@ -208,7 +208,10 @@ fn feature_gated_update() {
                 .with_config(common::UserConfig {
                     notifications: false,
                     language: "en".to_string(),
-                    settings: std::collections::HashMap::from([("updated".to_string(), "true".to_string())]),
+                    settings: std::collections::HashMap::from([(
+                        "updated".to_string(),
+                        "true".to_string(),
+                    )]),
                 }),
         )
         .r#where(eq(Complex::id, test_id.to_string()))
@@ -225,7 +228,7 @@ fn feature_gated_update() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::id, test_id.to_string()))
         .all()
         .unwrap();

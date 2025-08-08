@@ -1,11 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt::Display};
 use syn::{
-    Attribute, Error, Expr, ExprClosure, ExprPath, Field, Ident, Lit, LitStr, Meta, Result, Token,
-    Type,
+    Attribute, Error, Expr, ExprPath, Field, Ident, Lit, LitStr, Meta, Result, Token, Type,
     parse::{Parse, ParseStream},
-    parse_quote,
 };
 
 /// Enum representing supported SQLite column types
@@ -20,12 +18,21 @@ pub(crate) enum SQLiteType {
     Any,
 }
 
-impl SQLiteType {
-    /// Returns all supported attribute names
-    pub(crate) fn all_attribute_names() -> &'static [&'static str] {
-        &["integer", "text", "blob", "real", "numeric", "any"]
+impl Display for SQLiteType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            SQLiteType::Integer => "INTEGER",
+            SQLiteType::Text => "TEXT",
+            SQLiteType::Blob => "BLOB",
+            SQLiteType::Real => "REAL",
+            SQLiteType::Numeric => "NUMERIC",
+            SQLiteType::Any => "ANY",
+        };
+        f.write_fmt(format_args!("{value}"))
     }
+}
 
+impl SQLiteType {
     /// Convert from attribute name to enum variant
     pub(crate) fn from_attribute_name(name: &str) -> Option<Self> {
         match name {

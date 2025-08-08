@@ -152,8 +152,8 @@ mod tests {
         )
         .unwrap();
 
-        let drizzle = drizzle!(conn, [User, Post]);
-        let query = drizzle.select(columns!()).from::<User>();
+        let (drizzle, (user, post)) = drizzle!(conn, [User, Post]);
+        let query = drizzle.select(()).from(user);
         let sql = query.to_sql();
         assert!(sql.sql().contains("FROM Users"));
     }

@@ -73,7 +73,7 @@ impl TryFrom<&Row<'_>> for JoinResult {
 #[test]
 fn simple_select_with_conditions() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (simple, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert test data
     let test_data = vec![
@@ -83,16 +83,12 @@ fn simple_select_with_conditions() {
         InsertSimple::default().with_name("delta"),
     ];
 
-    drizzle
-        .insert::<Simple>()
-        .values(test_data)
-        .execute()
-        .unwrap();
+    drizzle.insert(simple).values(test_data).execute().unwrap();
 
     // Test WHERE condition
     let where_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "beta"))
         .all()
         .unwrap();
@@ -103,7 +99,7 @@ fn simple_select_with_conditions() {
     // Test ORDER BY with LIMIT
     let ordered_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .order_by(vec![(Simple::name, OrderBy::Asc)])
         .limit(2)
         .all()
@@ -116,7 +112,7 @@ fn simple_select_with_conditions() {
     // Test LIMIT with OFFSET
     let offset_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .order_by(vec![(Simple::name, OrderBy::Asc)])
         .limit(2)
         .offset(2)
@@ -131,7 +127,7 @@ fn simple_select_with_conditions() {
 #[test]
 fn complex_select_with_conditions() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (simple, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -169,11 +165,7 @@ fn complex_select_with_conditions() {
             .with_age(50),
     ];
 
-    drizzle
-        .insert::<Complex>()
-        .values(test_data)
-        .execute()
-        .unwrap();
+    drizzle.insert(complex).values(test_data).execute().unwrap();
 
     // Test complex WHERE with GT condition
     let gt_results: Vec<ComplexResult> = drizzle
@@ -183,7 +175,7 @@ fn complex_select_with_conditions() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(gt(Complex::age, 25))
         .all()
         .unwrap();
@@ -201,7 +193,7 @@ fn complex_select_with_conditions() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(and(vec![
             Some(gte(Complex::age, 25)),
             Some(lt(Complex::age, 45)),
@@ -218,7 +210,7 @@ fn complex_select_with_conditions() {
 #[test]
 fn feature_gated_select() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (simple, complex, post)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();
@@ -236,11 +228,7 @@ fn feature_gated_select() {
             settings: std::collections::HashMap::new(),
         });
 
-    drizzle
-        .insert::<Complex>()
-        .values([data])
-        .execute()
-        .unwrap();
+    drizzle.insert(complex).values([data]).execute().unwrap();
 
     // Query using UUID field
     let uuid_results: Vec<ComplexResult> = drizzle
@@ -250,7 +238,7 @@ fn feature_gated_select() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::id, test_id.to_string()))
         .all()
         .unwrap();
@@ -266,7 +254,7 @@ fn feature_gated_select() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::name, "feature_user"))
         .all()
         .unwrap();

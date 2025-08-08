@@ -75,7 +75,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
-        let where_sql = crate::helpers::where_clause(condition);
+        let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
             sql: self.sql.append(where_sql),
             schema: PhantomData,

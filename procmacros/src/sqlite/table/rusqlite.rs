@@ -1,17 +1,19 @@
 use crate::sqlite::field::SQLiteType;
 
-use super::FieldInfo;
+use super::{FieldInfo, MacroContext};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Error, Ident, Result};
 
 /// Generate TryFrom implementations for rusqlite::Row for a table's models
-pub(crate) fn generate_rusqlite_impls(
-    select_model_name: &Ident,
-    insert_model_name: &Ident,
-    update_model_name: &Ident,
-    field_infos: &[FieldInfo<'_>],
-) -> Result<TokenStream> {
+pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let MacroContext {
+        field_infos,
+        select_model_ident,
+        insert_model_ident,
+        update_model_ident,
+        ..
+    } = ctx;
     let (select, insert, update) = field_infos
         .iter()
         .map(|info| {
@@ -24,7 +26,7 @@ pub(crate) fn generate_rusqlite_impls(
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #select_model_name {
+        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #select_model_ident {
             type Error = ::rusqlite::Error;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
@@ -36,7 +38,7 @@ pub(crate) fn generate_rusqlite_impls(
     };
 
     let insert_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #insert_model_name {
+        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #insert_model_ident {
             type Error = ::rusqlite::Error;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
@@ -48,7 +50,7 @@ pub(crate) fn generate_rusqlite_impls(
     };
 
     let update_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #update_model_name {
+        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #update_model_ident {
             type Error = ::rusqlite::Error;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {

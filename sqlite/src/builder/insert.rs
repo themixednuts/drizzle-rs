@@ -1,5 +1,3 @@
-// Contents of querybuilder/src/sqlite/insert.rs moved here
-// querybuilder/src/sqlite/builder/insert.rs
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, SQLTable, ToSQL};
 use std::fmt::Debug;

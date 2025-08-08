@@ -1,6 +1,6 @@
 // Re-export common enums and traits from core
 pub use drizzle_core::{
-    Join, OrderBy, SQL, ToSQL,
+    OrderBy, SQL, ToSQL,
     traits::{IsInSchema, SQLSchema, SQLTable},
 };
 
@@ -28,28 +28,6 @@ pub use update::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWh
 //------------------------------------------------------------------------------
 // Common SQL Components
 //------------------------------------------------------------------------------
-
-/// Represents a JOIN clause in a query
-#[derive(Debug, Clone)]
-pub struct JoinClause<'a> {
-    /// The type of join (INNER, LEFT, etc.)
-    pub join_type: String,
-    /// The table to join with
-    pub table: String,
-    /// The ON condition for the join
-    pub condition: SQL<'a, SQLiteValue<'a>>,
-}
-
-impl<'a> JoinClause<'a> {
-    /// Creates a new JOIN clause
-    pub fn new(join_type: String, table: String, condition: SQL<'a, SQLiteValue<'a>>) -> Self {
-        Self {
-            join_type,
-            table,
-            condition,
-        }
-    }
-}
 
 /// Represents an ORDER BY clause in a query
 #[derive(Debug, Clone)]
@@ -281,15 +259,5 @@ mod tests {
         // assert_builder_state::<InsertInitial>();
         // assert_builder_state::<UpdateInitial>();
         // assert_builder_state::<DeleteInitial>();
-    }
-
-    #[test]
-    fn test_join_clause_creation() {
-        let condition = SQL::raw("users.id = posts.user_id");
-        let join = JoinClause::new("INNER JOIN".to_string(), "posts".to_string(), condition);
-
-        assert_eq!(join.join_type, "INNER JOIN");
-        assert_eq!(join.table, "posts");
-        assert_eq!(join.condition.sql(), "users.id = posts.user_id");
     }
 }

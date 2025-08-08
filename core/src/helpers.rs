@@ -1,7 +1,4 @@
-use crate::{
-    Join, OrderBy, SQL, SQLTable, ToSQL,
-    traits::{SQLParam, SQLSchema},
-};
+use crate::{OrderBy, SQL, SQLTable, ToSQL, traits::SQLParam};
 
 /// Helper function to create a SELECT statement with the given columns
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
@@ -19,56 +16,16 @@ where
     V: SQLParam + 'a,
 {
     let sql = SQL::raw("FROM");
-    sql.append_raw(T::Schema::NAME)
+    sql.append(T::default().to_sql())
 }
 
 /// Helper function to create a WHERE clause
-pub fn where_clause<'a, V>(condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn r#where<'a, V>(condition: SQL<'a, V>) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
     let sql = SQL::raw("WHERE");
     sql.append(condition)
-}
-
-/// Helper function to create a JOIN clause using table generic
-pub fn join<'a, T, V>(join_type: Join, condition: SQL<'a, V>) -> SQL<'a, V>
-where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
-{
-    let sql = join_type.to_sql();
-    let sql = sql.append_raw(" ");
-    let sql = sql.append_raw(T::Schema::NAME);
-    let sql = sql.append_raw(" ON ");
-    sql.append(condition)
-}
-
-/// Helper function to create an INNER JOIN clause using table generic
-pub fn inner_join<'a, T, V>(condition: SQL<'a, V>) -> SQL<'a, V>
-where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
-{
-    join::<T, V>(Join::Inner, condition)
-}
-
-/// Helper function to create a LEFT JOIN clause using table generic
-pub fn left_join<'a, T, V>(condition: SQL<'a, V>) -> SQL<'a, V>
-where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
-{
-    join::<T, V>(Join::Left, condition)
-}
-
-/// Helper function to create a RIGHT JOIN clause using table generic
-pub fn right_join<'a, T, V>(condition: SQL<'a, V>) -> SQL<'a, V>
-where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
-{
-    join::<T, V>(Join::Right, condition)
 }
 
 /// Helper function to create a GROUP BY clause
@@ -136,7 +93,7 @@ where
     V: SQLParam + 'a,
 {
     let sql = SQL::raw("UPDATE");
-    sql.append_raw(T::Schema::NAME)
+    sql.append(T::default().to_sql())
 }
 
 /// Helper function to create a SET clause for UPDATE
@@ -155,5 +112,5 @@ where
     V: SQLParam + 'a,
 {
     let sql = SQL::raw("DELETE FROM");
-    sql.append_raw(T::Schema::NAME)
+    sql.append(T::default().to_sql())
 }

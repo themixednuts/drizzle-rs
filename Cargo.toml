@@ -38,7 +38,12 @@ rusqlite = { version = "0.34.0", features = ["bundled", "uuid"] }
 libsql = { version = "0.9" }
 libsql-rusqlite = { version = "0.33.0", features = ["bundled"] }
 frunk = { version = "0.4.4" }
-smallvec = { version = "1.15.1", features = ["union", "const_new", "const_generics"] }
+smallvec = { version = "1.15.1", features = [
+  "union",
+  "const_new",
+  "const_generics",
+] }
+cfg-if = "1.0.1"
 
 # Add dev-dependencies for tests
 [dev-dependencies]
@@ -88,6 +93,7 @@ mysql = ["procmacros/mysql", "dep:mysql"]
 procmacros = { workspace = true }
 paste = { workspace = true }
 drizzle_core = { workspace = true }
+cfg-if = { workspace = true }
 
 # Optional dependencies activated by features
 sqlite = { workspace = true, optional = true }

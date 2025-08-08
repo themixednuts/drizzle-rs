@@ -34,7 +34,7 @@ struct ComplexResult {
 #[cfg(feature = "uuid")]
 #[derive(Debug)]
 struct ComplexResult {
-    id: String, // UUID stored as string
+    id: Uuid, // UUID stored as string
     name: String,
     email: Option<String>,
     age: Option<i32>,
@@ -58,14 +58,14 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn end_to_end_workflow() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // === PHASE 1: INSERT ===
 
     // Insert Simple record
     let simple_insert = InsertSimple::default().with_name("test_simple");
     let simple_rows = drizzle
-        .insert::<Simple>()
+        .insert(simple)
         .values([simple_insert])
         .execute()
         .unwrap();
@@ -88,7 +88,7 @@ fn end_to_end_workflow() {
         .with_description("A test record".to_string());
 
     let complex_rows = drizzle
-        .insert::<Complex>()
+        .insert(complex)
         .values([complex_insert])
         .execute()
         .unwrap();
@@ -99,7 +99,7 @@ fn end_to_end_workflow() {
     // Verify Simple record was inserted
     let simple_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "test_simple"))
         .all()
         .unwrap();
@@ -116,7 +116,7 @@ fn end_to_end_workflow() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::name, "test_complex"))
         .all()
         .unwrap();
@@ -137,7 +137,7 @@ fn end_to_end_workflow() {
 
     // Update Simple record
     let simple_update_rows = drizzle
-        .update::<Simple>()
+        .update(simple)
         .set(UpdateSimple::default().with_name("updated_simple"))
         .r#where(eq(Simple::name, "test_simple"))
         .execute()
@@ -146,7 +146,7 @@ fn end_to_end_workflow() {
 
     // Update Complex record
     let complex_update_rows = drizzle
-        .update::<Complex>()
+        .update(complex)
         .set(
             UpdateComplex::default()
                 .with_email("updated@example.com".to_string())
@@ -163,7 +163,7 @@ fn end_to_end_workflow() {
     // Verify Simple record was updated
     let updated_simple_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "updated_simple"))
         .all()
         .unwrap();
@@ -174,7 +174,7 @@ fn end_to_end_workflow() {
     // Verify old Simple record name is gone
     let old_simple_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "test_simple"))
         .all()
         .unwrap();
@@ -190,7 +190,7 @@ fn end_to_end_workflow() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::name, "test_complex"))
         .all()
         .unwrap();
@@ -210,7 +210,7 @@ fn end_to_end_workflow() {
 
     // Delete Simple record
     let simple_delete_rows = drizzle
-        .delete::<Simple>()
+        .delete(simple)
         .r#where(eq(Simple::name, "updated_simple"))
         .execute()
         .unwrap();
@@ -218,7 +218,7 @@ fn end_to_end_workflow() {
 
     // Delete Complex record
     let complex_delete_rows = drizzle
-        .delete::<Complex>()
+        .delete(complex)
         .r#where(eq(Complex::name, "test_complex"))
         .execute()
         .unwrap();
@@ -229,7 +229,7 @@ fn end_to_end_workflow() {
     // Verify Simple record was deleted
     let deleted_simple_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .all()
         .unwrap();
 
@@ -244,7 +244,7 @@ fn end_to_end_workflow() {
             Complex::age,
             Complex::description,
         ])
-        .from::<Complex>()
+        .from(complex)
         .all()
         .unwrap();
 

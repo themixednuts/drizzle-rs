@@ -7,7 +7,10 @@ use smallvec::{SmallVec, smallvec};
 use std::{borrow::Cow, fmt, fmt::Display};
 use traits::SQLParam;
 // Re-export key traits from traits module
-pub use traits::{IsInSchema, SQLColumn, SQLComparable, SQLPartial, SQLSchema, SQLTable};
+pub use traits::{
+    IsInSchema, SQLColumn, SQLColumnInfo, SQLComparable, SQLPartial, SQLSchema, SQLTable,
+    SQLTableInfo,
+};
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -62,29 +65,6 @@ macro_rules! or {
     };
 }
 
-/// Join types for SQL joins
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Join {
-    Inner,
-    Left,
-    Right,
-    Full,
-    Cross,
-}
-
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
-    fn to_sql(&self) -> SQL<'a, V> {
-        let sql_str = match self {
-            Join::Inner => "INNER JOIN",
-            Join::Left => "LEFT JOIN",
-            Join::Right => "RIGHT JOIN",
-            Join::Full => "FULL JOIN", // Consider dialect differences later
-            Join::Cross => "CROSS JOIN",
-        };
-        SQL::raw(sql_str)
-    }
-}
-
 /// Sort direction for ORDER BY clauses
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OrderBy {
@@ -103,7 +83,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for OrderBy {
 }
 
 /// Various styles of SQL parameter placeholders.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PlaceholderStyle {
     /// Colon style placeholders (:param)
     Colon,
@@ -116,7 +96,7 @@ pub enum PlaceholderStyle {
 }
 
 /// A SQL parameter placeholder.
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Hash, Copy, PartialEq, Eq)]
 pub struct Placeholder<'a> {
     /// The name of the parameter.
     pub name: Option<&'a str>,
@@ -169,7 +149,7 @@ impl<'a> fmt::Display for Placeholder<'a> {
 }
 
 /// A SQL chunk represents a part of an SQL statement.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum SQLChunk<'a, V: SQLParam + 'a> {
     Text(Cow<'a, str>),
     Param {
@@ -177,6 +157,17 @@ pub enum SQLChunk<'a, V: SQLParam + 'a> {
         placeholder: Cow<'a, Placeholder<'a>>,
     },
     SQL(Box<SQL<'a, V>>),
+    /// A table reference that can render itself with proper schema/alias handling
+    Table(&'a dyn SQLTableInfo),
+    /// A column reference that can render itself with proper table qualification
+    Column(&'a dyn SQLColumnInfo),
+    /// An alias wrapping any SQL chunk: "chunk AS alias"
+    Alias {
+        chunk: Box<SQLChunk<'a, V>>,
+        alias: Cow<'a, str>,
+    },
+    /// A subquery wrapped in parentheses: "(SELECT ...)"
+    Subquery(Box<SQL<'a, V>>),
 }
 
 impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
@@ -196,6 +187,47 @@ impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
     /// Creates a nested SQL chunk
     pub fn sql(sql: SQL<'a, V>) -> Self {
         Self::SQL(Box::new(sql))
+    }
+
+    /// Creates a table chunk
+    pub fn table(table: &'a dyn SQLTableInfo) -> Self {
+        Self::Table(table)
+    }
+
+    /// Creates a column chunk
+    pub fn column(column: &'a dyn SQLColumnInfo) -> Self {
+        Self::Column(column)
+    }
+
+    /// Creates an alias chunk wrapping any SQLChunk
+    pub fn alias(chunk: SQLChunk<'a, V>, alias: impl Into<Cow<'a, str>>) -> Self {
+        Self::Alias {
+            chunk: Box::new(chunk),
+            alias: alias.into(),
+        }
+    }
+
+    /// Creates a subquery chunk
+    pub fn subquery(sql: SQL<'a, V>) -> Self {
+        Self::Subquery(Box::new(sql))
+    }
+
+    /// Renders a single SQL chunk to a string
+    fn render(&self) -> String {
+        match self {
+            SQLChunk::Text(text) => text.to_string(),
+            SQLChunk::Param { placeholder, .. } => placeholder.to_string(),
+            SQLChunk::SQL(sql) => sql.sql(),
+            SQLChunk::Table(table) => table.name().to_string(),
+            SQLChunk::Column(column) => {
+                format!(r#""{}"."{}""#, column.table().name(), column.name())
+            }
+            SQLChunk::Alias { chunk, alias } => {
+                format!("{} AS {}", Self::render(chunk), alias)
+            }
+
+            SQLChunk::Subquery(sql) => format!("({})", sql.sql()),
+        }
     }
 }
 
@@ -224,8 +256,8 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
         }
     }
 
-    /// Helper to create const SQL with a single text chunk
-    const fn single_text_chunk(text: &'a str) -> Self {
+    /// Helper to create const SQL
+    const fn text(text: &'a str) -> Self {
         // Create a SmallVec with the single chunk and pad with empty chunks
         let chunks = SmallVec::from_const([
             SQLChunk::Text(Cow::Borrowed(text)),
@@ -237,22 +269,22 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
 
     /// Creates a wildcard SELECT fragment: "*"
     pub const fn wildcard() -> Self {
-        Self::single_text_chunk("*")
+        Self::text("*")
     }
 
     /// Creates a NULL SQL fragment
     pub const fn null() -> Self {
-        Self::single_text_chunk("NULL")
+        Self::text("NULL")
     }
 
     /// Creates a TRUE SQL fragment
     pub const fn r#true() -> Self {
-        Self::single_text_chunk("TRUE")
+        Self::text("TRUE")
     }
 
     /// Creates a FALSE SQL fragment
     pub const fn r#false() -> Self {
-        Self::single_text_chunk("FALSE")
+        Self::text("FALSE")
     }
 
     /// Creates a new SQL fragment from a raw string.
@@ -333,17 +365,25 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
 
         SQL { chunks }
     }
+
+    /// Collects parameter values from a single chunk
+    fn collect_chunk_params(chunk: &SQLChunk<'a, V>) -> Vec<V> {
+        match chunk {
+            SQLChunk::Param { value, .. } => vec![value.as_ref().clone()],
+            SQLChunk::SQL(sql) => sql.params(),
+            SQLChunk::Alias { chunk, .. } => Self::collect_chunk_params(chunk),
+            SQLChunk::Subquery(sql) => sql.params(),
+            _ => vec![],
+        }
+    }
+
     /// Returns the SQL string represented by this SQL fragment, using placeholders for parameters.
     pub fn sql(&self) -> String {
         if self.chunks.is_empty() {
             return String::new();
         }
         if self.chunks.len() == 1 {
-            return match &self.chunks[0] {
-                SQLChunk::Text(text) => text.to_string(),
-                SQLChunk::Param { placeholder, .. } => placeholder.to_string(),
-                SQLChunk::SQL(sql) => sql.sql(),
-            };
+            return self.chunks[0].render();
         }
 
         // Better capacity estimation based on chunk content
@@ -354,6 +394,10 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
                 SQLChunk::Text(text) => text.len(),
                 SQLChunk::Param { .. } => 1, // "?" placeholder
                 SQLChunk::SQL(sql) => sql.chunks.len() * 8, // Rough estimate
+                SQLChunk::Table(table) => table.name().len(),
+                SQLChunk::Column(column) => column.name().len(),
+                SQLChunk::Alias { chunk: _, alias } => alias.len() + 4, // " AS " + alias
+                SQLChunk::Subquery(sql) => sql.chunks.len() * 8 + 2,    // Rough estimate + "()"
             })
             .sum::<usize>()
             + self.chunks.len(); // +1 space per chunk
@@ -371,6 +415,30 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
                 }
                 SQLChunk::Param { placeholder, .. } => result.push_str(&placeholder.to_string()),
                 SQLChunk::SQL(sql) => result.push_str(&sql.sql()),
+                SQLChunk::Table(table) => {
+                    result.push('\"');
+                    result.push_str(table.name());
+                    result.push('\"');
+                }
+                SQLChunk::Column(column) => {
+                    result.push('\"');
+                    result.push_str(column.table().name());
+                    result.push('\"');
+                    result.push('.');
+                    result.push('\"');
+                    result.push_str(column.name());
+                    result.push('\"');
+                }
+                SQLChunk::Alias { chunk, alias } => {
+                    result.push_str(&chunk.render());
+                    result.push_str(" AS ");
+                    result.push_str(alias);
+                }
+                SQLChunk::Subquery(sql) => {
+                    result.push('(');
+                    result.push_str(&sql.sql());
+                    result.push(')');
+                }
             }
 
             // Add space separator between chunks, except for the last one
@@ -400,39 +468,58 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
         let mut params_vec = Vec::with_capacity(self.chunks.len().min(8));
 
         for chunk in &self.chunks {
-            match chunk {
-                SQLChunk::Param { value, .. } => {
-                    params_vec.push(value.as_ref().clone());
-                }
-                SQLChunk::SQL(sql) => {
-                    params_vec.extend(sql.params());
-                }
-                SQLChunk::Text(_) => { /* Ignore text chunks */ }
-            }
+            params_vec.extend(Self::collect_chunk_params(chunk));
         }
         params_vec
     }
 
     /// Returns references to parameter values - zero-copy when possible.
-    pub fn param_refs(&self) -> Vec<&V> {
+    pub fn param_refs(&'a self) -> Vec<&'a V> {
         let mut param_refs = Vec::with_capacity(self.chunks.len().min(8));
 
-        for chunk in &self.chunks {
+        fn collect_refs<'a, V: SQLParam + 'a>(chunk: &'a SQLChunk<'a, V>, refs: &mut Vec<&'a V>) {
             match chunk {
                 SQLChunk::Param { value, .. } => {
-                    param_refs.push(value.as_ref());
+                    refs.push(value.as_ref());
                 }
                 SQLChunk::SQL(sql) => {
-                    param_refs.extend(sql.param_refs());
+                    refs.extend(sql.param_refs());
                 }
-                SQLChunk::Text(_) => { /* Ignore text chunks */ }
+                SQLChunk::Alias { chunk, .. } => {
+                    collect_refs(chunk, refs);
+                }
+                SQLChunk::Subquery(sql) => {
+                    refs.extend(sql.param_refs());
+                }
+                _ => {}
             }
+        }
+
+        for chunk in &self.chunks {
+            collect_refs(chunk, &mut param_refs);
         }
         param_refs
     }
 
     pub fn as_(self, alias: &str) -> SQL<'a, V> {
         self.append_raw(format!("AS {}", alias))
+    }
+
+    /// Creates an aliased version of this SQL using the Alias chunk (more context-aware)
+    pub fn alias(self, alias: impl Into<Cow<'a, str>>) -> SQL<'a, V> {
+        SQL {
+            chunks: smallvec![SQLChunk::Alias {
+                chunk: Box::new(SQLChunk::SQL(Box::new(self))),
+                alias: alias.into(),
+            }],
+        }
+    }
+
+    /// Wraps this SQL as a subquery
+    pub fn subquery(self) -> SQL<'a, V> {
+        SQL {
+            chunks: smallvec![SQLChunk::subquery(self)],
+        }
     }
 
     /// Creates a comma-separated list of column names: "col1, col2, col3"
@@ -599,6 +686,23 @@ where
     }
 }
 
+// Implement ToSQL for SQLTableInfo and SQLColumnInfo trait objects
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'a dyn SQLTableInfo {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL {
+            chunks: smallvec![SQLChunk::table(*self)],
+        }
+    }
+}
+
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'a dyn SQLColumnInfo {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL {
+            chunks: smallvec![SQLChunk::column(*self)],
+        }
+    }
+}
+
 // Implement ToSQL for primitive types
 impl<'a, V> ToSQL<'a, V> for &'a str
 where
@@ -741,5 +845,55 @@ macro_rules! sql {
     // Single value pattern: sql!("hello") -> SQL::parameter("hello")
     ($value:literal) => {
        $value.to_sql()
+    };
+}
+
+/// A generic alias wrapper for tables that maintains type information through PhantomData
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Alias<T = ()> {
+    name: &'static str,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> Alias<T> {
+    /// Creates a new table alias instance
+    pub const fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> traits::SQLAlias for Alias<T> {
+    fn alias(&self) -> &'static str {
+        self.name
+    }
+}
+
+impl<'a, T, V> ToSQL<'a, V> for Alias<T>
+where
+    T: traits::SQLTable<'a, V>,
+    V: traits::SQLParam + 'a,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        let table = T::default();
+        let static_table: &'a dyn traits::SQLTableInfo =
+            unsafe { std::mem::transmute(&table as &dyn traits::SQLTableInfo) };
+        SQL {
+            chunks: smallvec![SQLChunk::Alias {
+                chunk: Box::new(SQLChunk::table(static_table)),
+                alias: std::borrow::Cow::Borrowed(self.name),
+            }],
+        }
+    }
+}
+
+/// Creates an aliased table that can be used in joins and queries
+/// Usage: alias!(User, "u") creates an alias of the User table with alias "u"
+#[macro_export]
+macro_rules! alias {
+    ($table:ty, $alias_name:literal) => {
+        $crate::Alias::<$table>::new($alias_name)
     };
 }

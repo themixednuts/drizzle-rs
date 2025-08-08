@@ -381,6 +381,7 @@ name = "drizzle-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cfg-if",
  "drizzle-rs",
  "drizzle_core",
  "libsql",
@@ -1756,6 +1757,7 @@ dependencies = [
  "drizzle_core",
  "libsql",
  "libsql-rusqlite 0.33.0",
+ "paste",
  "procmacros",
  "rusqlite",
  "serde",

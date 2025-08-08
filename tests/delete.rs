@@ -55,7 +55,7 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn simple_delete() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert test records
     let test_data = vec![
@@ -64,24 +64,20 @@ fn simple_delete() {
         InsertSimple::default().with_name("delete_me"),
     ];
 
-    let insert_result = drizzle
-        .insert::<Simple>()
-        .values(test_data)
-        .execute()
-        .unwrap();
+    let insert_result = drizzle.insert(simple).values(test_data).execute().unwrap();
     assert_eq!(insert_result, 3);
 
     // Verify initial state
     let initial_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .all()
         .unwrap();
     assert_eq!(initial_results.len(), 3);
 
     // Delete records with specific condition
     let delete_result = drizzle
-        .delete::<Simple>()
+        .delete(simple)
         .r#where(eq(Simple::name, "delete_me"))
         .execute()
         .unwrap();
@@ -90,7 +86,7 @@ fn simple_delete() {
     // Verify deletion - should only have "keep_me" left
     let remaining_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .all()
         .unwrap();
 
@@ -100,7 +96,7 @@ fn simple_delete() {
     // Verify deleted records are gone
     let deleted_results: Vec<SimpleResult> = drizzle
         .select(columns![Simple::id, Simple::name])
-        .from::<Simple>()
+        .from(simple)
         .r#where(eq(Simple::name, "delete_me"))
         .all()
         .unwrap();
@@ -112,7 +108,7 @@ fn simple_delete() {
 #[test]
 fn feature_gated_delete() {
     let db = setup_db();
-    let drizzle = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert test records with UUIDs
     let test_id_1 = uuid::Uuid::new_v4();
@@ -131,11 +127,7 @@ fn feature_gated_delete() {
             .with_age(35),
     ];
 
-    let insert_result = drizzle
-        .insert::<Complex>()
-        .values(test_data)
-        .execute()
-        .unwrap();
+    let insert_result = drizzle.insert(complex).values(test_data).execute().unwrap();
     assert_eq!(insert_result, 2);
 
     // Verify initial state
@@ -146,14 +138,14 @@ fn feature_gated_delete() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .all()
         .unwrap();
     assert_eq!(initial_results.len(), 2);
 
     // Delete specific record using UUID primary key
     let delete_result = drizzle
-        .delete::<Complex>()
+        .delete(complex)
         .r#where(eq(Complex::id, test_id_1))
         .execute()
         .unwrap();
@@ -167,7 +159,7 @@ fn feature_gated_delete() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .all()
         .unwrap();
 
@@ -183,7 +175,7 @@ fn feature_gated_delete() {
             Complex::email,
             Complex::age
         ])
-        .from::<Complex>()
+        .from(complex)
         .r#where(eq(Complex::id, test_id_1.to_string()))
         .all()
         .unwrap();

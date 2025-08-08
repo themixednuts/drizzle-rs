@@ -1,7 +1,8 @@
 use crate::helpers;
 use crate::values::SQLiteValue;
-use drizzle_core::traits::{IsInSchema, SQLSchema, SQLTable};
-use drizzle_core::{Join, OrderBy, SQL, ToSQL};
+use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::{OrderBy, SQL, ToSQL};
+use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -91,6 +92,42 @@ impl SelectOffsetSet {
     }
 }
 
+macro_rules! join_impl {
+    () => {
+        join_impl!(natural);
+        join_impl!(natural_left);
+        join_impl!(left);
+        join_impl!(left_outer);
+        join_impl!(natural_left_outer);
+        join_impl!(natural_right);
+        join_impl!(right);
+        join_impl!(right_outer);
+        join_impl!(natural_right_outer);
+        join_impl!(natural_full);
+        join_impl!(full);
+        join_impl!(full_outer);
+        join_impl!(natural_full_outer);
+        join_impl!(inner);
+        join_impl!(cross);
+    };
+    ($type:ident) => {
+        paste! {
+            pub fn [<$type _join>]<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
+                self,
+                table: U,
+                condition: SQL<'a, SQLiteValue<'a>>,
+            ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+                SelectBuilder {
+                    sql: self.sql.append(helpers::[<$type _join>](table, condition)),
+                    schema: PhantomData,
+                    state: PhantomData,
+                    table: PhantomData,
+                }
+            }
+        }
+    };
+}
+
 // Mark states that can execute queries as implementing the ExecutableState trait
 impl ExecutableState for SelectFromSet {}
 impl ExecutableState for SelectWhereSet {}
@@ -138,24 +175,25 @@ where
     /// Adds a JOIN clause to the query
     pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
         self,
-        join_type: Join,
-        on_condition: SQL<'a, SQLiteValue<'a>>,
+        table: U,
+        condition: SQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::join::<U>(join_type, on_condition)),
+            sql: self.sql.append(helpers::join(table, condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
         }
     }
 
-    /// Adds a WHERE condition to the query
+    join_impl!();
+
     pub fn r#where(
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::where_clause(condition)),
+            sql: self.sql.append(helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -224,7 +262,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         condition: SQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::where_clause(condition)),
+            sql: self.sql.append(crate::helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -249,16 +287,17 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     /// Adds a JOIN clause to the query
     pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
         self,
-        join_type: Join,
-        on_condition: SQL<'a, SQLiteValue<'a>>,
+        table: U,
+        condition: SQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::join::<U>(join_type, on_condition)),
+            sql: self.sql.append(helpers::join(table, condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
         }
     }
+    join_impl!();
 }
 
 //------------------------------------------------------------------------------

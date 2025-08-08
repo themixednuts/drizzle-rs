@@ -58,14 +58,14 @@ fn json_storage() {
     )
     .unwrap();
 
-    let db = drizzle!(conn, [JsonUser]);
+    let (db, (jsonuser, ..)) = drizzle!(conn, [JsonUser]);
 
     let stmt = db
         .select(columns![
             JsonUser::id,
             json_extract(JsonUser::profile, "age")
         ])
-        .from::<JsonUser>()
+        .from(jsonuser)
         .r#where(eq(JsonUser::id, id));
 
     let user: UserResult = stmt.get().unwrap();

@@ -421,10 +421,10 @@ fn generate_create_table_sql(
 /// Generates the `impl` block on the table struct for individual column access.
 /// E.g., `impl User { pub const id: UserId = UserId; }`
 fn generate_column_accessors(
-    struct_ident: &Ident,
-    field_infos: &[FieldInfo],
+    ctx: &MacroContext,
     column_zst_idents: &[Ident],
 ) -> Result<TokenStream> {
+    let MacroContext {struct_ident, field_infos, ..} = &ctx; 
     let const_defs = field_infos
         .iter()
         .zip(column_zst_idents.iter())
@@ -440,6 +440,27 @@ fn generate_column_accessors(
         impl #struct_ident {
             #(#const_defs)*
         }
+    })
+}
+
+/// Generates the `impl` block on the table struct for individual column access.
+/// E.g., `impl User { pub const id: UserId = UserId; }`
+fn generate_column_fields(
+    ctx: &MacroContext,
+    column_zst_idents: &[Ident],
+) -> Result<TokenStream> {
+    let const_defs = ctx.field_infos
+        .iter()
+        .zip(column_zst_idents.iter())
+        .map(|(info, zst_ident)| {
+            let const_name = info.ident; // The original field name, e.g., `id`
+            quote! {
+                pub #const_name: #zst_ident
+            }
+        });
+
+    Ok(quote! {
+        #(#const_defs,)*
     })
 }
 
@@ -479,7 +500,7 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
 
         let column_code = quote! {
             #[allow(non_camel_case_types)]
-            #[derive(Debug, Clone, Copy, Default)]
+            #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             pub struct #zst_ident;
 
             impl <'a> ::drizzle_rs::core::SQLSchema<'a, &'a str> for #zst_ident {
@@ -487,11 +508,37 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
                 const TYPE: &'a str = #col_type;
                 const SQL: &'a str = #sql;
             }
+            impl ::drizzle_rs::core::SQLColumnInfo for #zst_ident {
+
+                fn name(&self) -> &str {
+                    <Self as ::drizzle_rs::core::SQLSchema<'_, _>>::NAME
+                }
+                fn r#type(&self) -> &str {
+                    <Self as ::drizzle_rs::core::SQLSchema<'_, _>>::TYPE
+                }
+                fn is_primary_key(&self) -> bool {
+                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::PRIMARY_KEY
+                }
+                fn is_not_null(&self) -> bool {
+                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::NOT_NULL
+                }
+                fn is_unique(&self) -> bool {
+                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::UNIQUE
+                }
+                fn table(&self) -> Box<dyn SQLTableInfo> {
+                    Box::new(#struct_ident::default())
+                }
+            }
+
+            impl ::drizzle_rs::sqlite::SQLiteColumnInfo for #zst_ident {
+                fn is_autoincrement(&self) -> bool {
+                    <Self as ::drizzle_rs::sqlite::SQLiteColumn<'_>>::AUTOINCREMENT
+                }
+            }
 
             impl<'a> ::drizzle_rs::core::SQLColumn<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident {
                 type Table = #struct_ident;
                 type Type = #rust_type;
-                type Schema = Self;
 
                 const PRIMARY_KEY: bool = #is_primary;
                 const NOT_NULL: bool = #is_not_null;
@@ -509,7 +556,10 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
 
             impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident {
                 fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                    ::drizzle_rs::core::SQL::raw(#name)
+                    use ::drizzle_rs::core::ToSQL;
+                    // Since this is a ZST (zero-sized type), we can safely transmute the lifetime
+                    let static_self: &'a dyn ::drizzle_rs::core::SQLColumnInfo = unsafe { ::std::mem::transmute(self as &dyn ::drizzle_rs::core::SQLColumnInfo) };
+                    static_self.to_sql()
                 }
             }
 
@@ -536,39 +586,8 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
     );
     let column_len = column_zst_idents.len();
 
-    // Generate SQLColumnInfo implementations for each column ZST
-    let column_info_impls = column_zst_idents.iter().enumerate().map(|(i, ident)| {
-        quote! {
-            impl ::drizzle_rs::core::SQLColumnInfo for #ident {
-
-                fn name(&self) -> &str {
-                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::Schema::NAME
-                }
-                fn r#type(&self) -> &str {
-                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::Schema::TYPE
-                }
-                fn is_primary_key(&self) -> bool {
-                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::PRIMARY_KEY
-                }
-                fn is_not_null(&self) -> bool {
-                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::NOT_NULL
-                }
-                fn is_unique(&self) -> bool {
-                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::UNIQUE
-                }
-            }
-
-            impl ::drizzle_rs::sqlite::SQLiteColumnInfo for #ident {
-                fn is_autoincrement(&self) -> bool {
-                    <Self as ::drizzle_rs::sqlite::SQLiteColumn<'_>>::AUTOINCREMENT
-                }
-            }
-        }
-    });
 
     Ok(quote! {
-        #(#column_info_impls)*
-
         impl<'a> ::drizzle_rs::core::SQLSchema<'a, ::drizzle_rs::core::SQLSchemaType> for #struct_ident {
             const NAME: &'a str = #table_name;
             const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Table;
@@ -584,6 +603,24 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
 
             const COUNT: usize = #column_len;
             const COLUMNS: Self::Columns = (#(#column_zst_idents,)*);
+        }
+
+        impl ::drizzle_rs::core::SQLTableInfo for #struct_ident {
+            fn name(&self) -> &str {
+                <Self as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType>>::NAME
+            }
+            fn r#type(&self) -> ::drizzle_rs::core::SQLSchemaType {
+                <Self as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType>>::TYPE
+            }
+        }
+
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
+            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                use ::drizzle_rs::core::ToSQL;
+                // Since this is a ZST (zero-sized type), we can safely transmute the lifetime
+                let static_self: &'a dyn ::drizzle_rs::core::SQLTableInfo = unsafe { ::std::mem::transmute(self as &dyn ::drizzle_rs::core::SQLTableInfo) };
+                static_self.to_sql()
+            }
         }
     })
 }
@@ -954,9 +991,9 @@ fn generate_model_trait_impls(ctx: &MacroContext) -> Result<TokenStream> {
 }
 
 /// Generates `FromSql` and `ToSql` impls for JSON fields.
-fn generate_json_impls(field_infos: &[FieldInfo<'_>]) -> Result<TokenStream> {
+fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     // Create a filter for JSON fields
-    let json_fields: Vec<_> = field_infos.iter().filter(|info| info.is_json).collect();
+    let json_fields: Vec<_> = ctx.field_infos.iter().filter(|info| info.is_json).collect();
 
     // If no JSON fields, return an empty TokenStream
     if json_fields.is_empty() {
@@ -1066,7 +1103,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         attrs.without_rowid,
     );
 
-    let context = MacroContext {
+    let ctx = MacroContext {
         struct_ident,
         table_name,
         create_table_sql,
@@ -1082,20 +1119,16 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     // -------------------
     // 2. Generation Phase
     // -------------------
-    let (column_definitions, column_zst_idents) = generate_column_definitions(&context)?;
+    let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
+    let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
     let column_accessors =
-        generate_column_accessors(struct_ident, &field_infos, &column_zst_idents)?;
-    let table_impls = generate_table_impls(&context, &column_zst_idents)?;
-    let model_definitions = generate_model_definitions(&context)?;
-    let json_impls = generate_json_impls(&field_infos)?;
+        generate_column_accessors(&ctx, &column_zst_idents)?;
+    let table_impls = generate_table_impls(&ctx, &column_zst_idents)?;
+    let model_definitions = generate_model_definitions(&ctx)?;
+    let json_impls = generate_json_impls(&ctx)?;
 
     #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = rusqlite::generate_rusqlite_impls(
-        &context.select_model_ident,
-        &context.insert_model_ident,
-        &context.update_model_ident,
-        &field_infos,
-    )?;
+    let rusqlite_impls = rusqlite::generate_rusqlite_impls(&ctx)?;
 
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote!();
@@ -1113,7 +1146,9 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         // The main, user-facing struct is now a ZST.
         // It acts as a namespace for the table's schema.
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub struct #struct_ident;
+        pub struct #struct_ident {
+         #column_fields   
+        }
         #column_accessors
 
         // All generated code is scoped under a module to avoid polluting the global namespace.

@@ -1,13 +1,10 @@
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, error::Result};
+use drizzle_core::SQL;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
-
-#[cfg(feature = "serde")]
-use serde::de::DeserializeOwned;
 
 //------------------------------------------------------------------------------
 // Type State Markers
@@ -47,7 +44,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteWhereSet, T> {
-        let where_sql = crate::helpers::where_clause(condition);
+        let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {
             sql: self.sql.append(where_sql),
             schema: PhantomData,
