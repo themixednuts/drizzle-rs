@@ -170,7 +170,7 @@ where
     T: SQLTable<'a, SQLiteValue<'a>>,
 {
     let sql = SQL::raw("INSERT INTO");
-    sql.append_raw(T::Schema::NAME)
+    sql.append_raw(T::NAME)
 }
 
 /// Helper function to create VALUES clause for INSERT

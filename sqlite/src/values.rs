@@ -7,7 +7,7 @@ use std::borrow::Cow;
 //------------------------------------------------------------------------------
 
 /// Represents a SQLite value
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum SQLiteValue<'a> {
     /// Integer value (i64)
     Integer(i64),

@@ -116,11 +116,12 @@ where
 }
 
 // Helper function for the JSON arrow-arrow operators (extract as Value)
-pub fn json_extract<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_extract<'a, L>(left: L, path: impl AsRef<str>) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
-    left.to_sql().append(SQL::raw(format!("->>'{}'", path)))
+    left.to_sql()
+        .append(SQL::raw(format!("->>'{}'", path.as_ref())))
 }
 
 // Helper function for the JSON arrow operators (extract as JSON text)

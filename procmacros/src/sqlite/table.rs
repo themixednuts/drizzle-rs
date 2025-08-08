@@ -4,14 +4,14 @@
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite;
 
-use super::field::{FieldInfo, SQLiteType};
+use super::field::FieldInfo;
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 #[cfg(feature = "rusqlite")]
 use rusqlite::generate_rusqlite_from_to_sql;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Expr, Meta, Result, parse::Parse, parse_macro_input};
+use syn::{Data, DeriveInput, Expr, Meta, Result, parse::Parse};
 
 // Common SQLite documentation URLs for error messages and macro docs
 const SQLITE_CREATE_TABLE_URL: &str = "https://sqlite.org/lang_createtable.html";
@@ -609,6 +609,7 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
     let column_len = column_zst_idents.len();
 
 
+
     Ok(quote! {
         impl<'a> ::drizzle_rs::core::SQLSchema<'a, ::drizzle_rs::core::SQLSchemaType> for #struct_ident {
             const NAME: &'a str = #table_name;
@@ -617,14 +618,9 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
         }
 
         impl<'a> ::drizzle_rs::core::SQLTable<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
-            type Schema = Self;
             type Select = #select_model;
             type Insert = #insert_model;
             type Update = #update_model;
-            type Columns = (#(#column_zst_idents,)*);
-
-            const COUNT: usize = #column_len;
-            const COLUMNS: Self::Columns = (#(#column_zst_idents,)*);
         }
 
         impl ::drizzle_rs::core::SQLTableInfo for #struct_ident {
@@ -633,6 +629,11 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
             }
             fn r#type(&self) -> ::drizzle_rs::core::SQLSchemaType {
                 <Self as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType>>::TYPE
+            }
+            fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
+                #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+            
+                Box::new([#(#column_zst_idents.as_column(),)*])
             }
         }
 

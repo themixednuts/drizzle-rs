@@ -61,10 +61,7 @@ fn json_storage() {
     let (db, (jsonuser, ..)) = drizzle!(conn, [JsonUser]);
 
     let stmt = db
-        .select(columns![
-            JsonUser::id,
-            json_extract(JsonUser::profile, "age")
-        ])
+        .select((jsonuser.id, json_extract(JsonUser::profile, "age")))
         .from(jsonuser)
         .r#where(eq(JsonUser::id, id));
 

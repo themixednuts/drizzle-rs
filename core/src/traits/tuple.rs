@@ -1,18 +1,17 @@
-use crate::SQLColumnInfo;
-use crate::traits::SQLColumns;
-
+use crate::{SQL, SQLParam, ToSQL};
 // A macro to implement ColumnsTuple for tuples of various sizes.
-macro_rules! impl_columns_tuple {
+macro_rules! impl_tuple {
     ( $($len:literal, ($($T:ident - $idx:tt),*);)+ ) => {
         $(
             // Paste T and idx together to make T0, T1, etc.
             paste::paste! {
-                impl<'a, $([<$T $idx>]),*> SQLColumns<'a> for ($([<$T $idx>],)*)
+                impl<'a, V, $([<$T $idx>]),*> ToSQL<'a, V> for ($([<$T $idx>],)*)
                 where
-                    $([<$T $idx>]: SQLColumnInfo,)*
+                    V: SQLParam,
+                    $([<$T $idx>]: ToSQL<'a, V>,)*
                 {
-                    fn columns(&'a self) -> Box<[&'a dyn SQLColumnInfo]> {
-                        Box::new([$(&self.$idx,)*])
+                    fn to_sql(&self) -> SQL<'a, V> {
+                        SQL::join([$(self.$idx.to_sql(),)*], ", ")
                     }
                 }
             }
@@ -20,7 +19,7 @@ macro_rules! impl_columns_tuple {
     };
 }
 
-impl_columns_tuple! {
+impl_tuple! {
     1, (T-0);
     2, (T-0, T-1);
     3, (T-0, T-1, T-2);
@@ -32,13 +31,13 @@ impl_columns_tuple! {
 }
 
 #[cfg(any(
-    feature = "columns-16",
-    feature = "columns-32",
-    feature = "columns-64",
-    feature = "columns-128",
-    feature = "columns-200"
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
 ))]
-impl_columns_tuple! {
+impl_tuple! {
     9, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8);
     10, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9);
     11, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10);
@@ -50,12 +49,12 @@ impl_columns_tuple! {
 }
 
 #[cfg(any(
-    feature = "columns-32",
-    feature = "columns-64",
-    feature = "columns-128",
-    feature = "columns-200"
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
 ))]
-impl_columns_tuple! {
+impl_tuple! {
     17, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16);
     18, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17);
     19, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18);
@@ -74,12 +73,8 @@ impl_columns_tuple! {
     32, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31);
 }
 
-#[cfg(any(
-    feature = "columns-64",
-    feature = "columns-128",
-    feature = "columns-200"
-))]
-impl_columns_tuple! {
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+impl_tuple! {
     33, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32);
     34, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33);
     35, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34);
@@ -114,8 +109,8 @@ impl_columns_tuple! {
     64, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63);
 }
 
-#[cfg(any(feature = "columns-128", feature = "columns-200"))]
-impl_columns_tuple! {
+#[cfg(any(feature = "col128", feature = "col200"))]
+impl_tuple! {
     65, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64);
     66, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64, T-65);
     67, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64, T-65, T-66);
@@ -183,8 +178,8 @@ impl_columns_tuple! {
     129, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64, T-65, T-66, T-67, T-68, T-69, T-70, T-71, T-72, T-73, T-74, T-75, T-76, T-77, T-78, T-79, T-80, T-81, T-82, T-83, T-84, T-85, T-86, T-87, T-88, T-89, T-90, T-91, T-92, T-93, T-94, T-95, T-96, T-97, T-98, T-99, T-100, T-101, T-102, T-103, T-104, T-105, T-106, T-107, T-108, T-109, T-110, T-111, T-112, T-113, T-114, T-115, T-116, T-117, T-118, T-119, T-120, T-121, T-122, T-123, T-124, T-125, T-126, T-127, T-128);
 }
 
-#[cfg(feature = "columns-200")]
-impl_columns_tuple! {
+#[cfg(feature = "col200")]
+impl_tuple! {
     130, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64, T-65, T-66, T-67, T-68, T-69, T-70, T-71, T-72, T-73, T-74, T-75, T-76, T-77, T-78, T-79, T-80, T-81, T-82, T-83, T-84, T-85, T-86, T-87, T-88, T-89, T-90, T-91, T-92, T-93, T-94, T-95, T-96, T-97, T-98, T-99, T-100, T-101, T-102, T-103, T-104, T-105, T-106, T-107, T-108, T-109, T-110, T-111, T-112, T-113, T-114, T-115, T-116, T-117, T-118, T-119, T-120, T-121, T-122, T-123, T-124, T-125, T-126, T-127, T-128, T-129);
     131, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64, T-65, T-66, T-67, T-68, T-69, T-70, T-71, T-72, T-73, T-74, T-75, T-76, T-77, T-78, T-79, T-80, T-81, T-82, T-83, T-84, T-85, T-86, T-87, T-88, T-89, T-90, T-91, T-92, T-93, T-94, T-95, T-96, T-97, T-98, T-99, T-100, T-101, T-102, T-103, T-104, T-105, T-106, T-107, T-108, T-109, T-110, T-111, T-112, T-113, T-114, T-115, T-116, T-117, T-118, T-119, T-120, T-121, T-122, T-123, T-124, T-125, T-126, T-127, T-128, T-129, T-130);
     132, (T-0, T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21, T-22, T-23, T-24, T-25, T-26, T-27, T-28, T-29, T-30, T-31, T-32, T-33, T-34, T-35, T-36, T-37, T-38, T-39, T-40, T-41, T-42, T-43, T-44, T-45, T-46, T-47, T-48, T-49, T-50, T-51, T-52, T-53, T-54, T-55, T-56, T-57, T-58, T-59, T-60, T-61, T-62, T-63, T-64, T-65, T-66, T-67, T-68, T-69, T-70, T-71, T-72, T-73, T-74, T-75, T-76, T-77, T-78, T-79, T-80, T-81, T-82, T-83, T-84, T-85, T-86, T-87, T-88, T-89, T-90, T-91, T-92, T-93, T-94, T-95, T-96, T-97, T-98, T-99, T-100, T-101, T-102, T-103, T-104, T-105, T-106, T-107, T-108, T-109, T-110, T-111, T-112, T-113, T-114, T-115, T-116, T-117, T-118, T-119, T-120, T-121, T-122, T-123, T-124, T-125, T-126, T-127, T-128, T-129, T-130, T-131);

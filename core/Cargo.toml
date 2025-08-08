@@ -19,16 +19,16 @@ frunk = { workspace = true }
 smallvec = { workspace = true }
 
 [features]
-default = ["columns-16"]
+default = ["col16"]
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]
 sqlite = []
 rusqlite = ["dep:rusqlite"]
 
 # Column count feature flags - mutually exclusive
-columns-8 = []
-columns-16 = []
-columns-32 = []
-columns-64 = []
-columns-128 = []
-columns-200 = []  # SQLite's maximum without modification
+col8 = []
+col16 = []
+col32 = []
+col64 = []
+col128 = []
+col200 = [] # SQLite's maximum without modification

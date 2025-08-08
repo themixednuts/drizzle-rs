@@ -1,3 +1,5 @@
+use std::array;
+
 use common::{
     Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
     PostCategory, setup_db,
@@ -72,34 +74,25 @@ fn simple_inner_join() {
     let db = setup_db();
     let (drizzle, (complex, post, ..)) = drizzle!(db, [Complex, Post, PostCategory, Category]);
 
-    // Insert test data: authors and their posts
     #[cfg(not(feature = "uuid"))]
-    let authors = vec![
-        InsertComplex::default()
-            .with_name("alice")
-            .with_email("alice@example.com".to_string()),
-        InsertComplex::default()
-            .with_name("bob")
-            .with_email("bob@example.com".to_string()),
-        InsertComplex::default()
-            .with_name("charlie")
-            .with_email("charlie@example.com".to_string()), // No posts
-    ];
+    let (id1, id2, id3) = (1, 2, 3);
+    #[cfg(feature = "uuid")]
+    let [id1, id2, id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
 
     #[cfg(feature = "uuid")]
     let authors = vec![
         InsertComplex::default()
-            .with_id(uuid::Uuid::new_v4())
+            .with_id(id1)
             .with_name("alice")
-            .with_email("alice@example.com".to_string()),
+            .with_email("alice@example.com"),
         InsertComplex::default()
-            .with_id(uuid::Uuid::new_v4())
+            .with_id(id2)
             .with_name("bob")
-            .with_email("bob@example.com".to_string()),
+            .with_email("bob@example.com"),
         InsertComplex::default()
-            .with_id(uuid::Uuid::new_v4())
+            .with_id(id3)
             .with_name("charlie")
-            .with_email("charlie@example.com".to_string()), // No posts
+            .with_email("charlie@example.com"), // No posts
     ];
 
     let author_result = drizzle.insert(complex).values(authors).execute().unwrap();
@@ -108,16 +101,16 @@ fn simple_inner_join() {
     let posts = vec![
         InsertPost::default()
             .with_title("Alice's First Post")
-            .with_content("Content by Alice".to_string())
-            .with_author_id(1),
+            .with_content("Content by Alice")
+            .with_author_id(id1),
         InsertPost::default()
             .with_title("Bob's Adventure")
-            .with_content("Travel blog by Bob".to_string())
-            .with_author_id(2),
+            .with_content("Travel blog by Bob")
+            .with_author_id(id2),
         InsertPost::default()
             .with_title("Alice's Second Post")
-            .with_content("More content by Alice".to_string())
-            .with_author_id(1),
+            .with_content("More content by Alice")
+            .with_author_id(id3),
     ];
 
     let post_result = drizzle.insert(post).values(posts).execute().unwrap();
@@ -125,15 +118,17 @@ fn simple_inner_join() {
 
     // Test inner join: only authors with posts should appear
     let join_results: Vec<AuthorPostResult> = drizzle
-        .select(columns![Complex::name, Post::title, Post::content])
+        .select((complex.name, post.title, post.content))
         .from(complex)
         .inner_join(post, eq(complex.id, post.author_id))
         .order_by(sql![
-            (Complex::name, OrderBy::Asc),
-            (Post::title, OrderBy::Asc)
+            (complex.name, OrderBy::Asc),
+            (post.title, OrderBy::Asc)
         ])
         .all()
         .unwrap();
+
+    dbg!(&join_results);
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded because no posts
     assert_eq!(join_results.len(), 3);
@@ -163,10 +158,10 @@ fn simple_inner_join() {
 
     // Verify that we can filter join results
     let alice_posts: Vec<AuthorPostResult> = drizzle
-        .select(columns![Complex::name, Post::title, Post::content])
+        .select(columns![complex.name, post.title, post.content])
         .from(complex)
-        .inner_join(post, eq(Complex::id, Post::author_id))
-        .r#where(eq(Complex::name, "alice"))
+        .inner_join(post, eq(complex.id, post.author_id))
+        .r#where(eq(complex.name, "alice"))
         .all()
         .unwrap();
 
@@ -245,13 +240,13 @@ fn many_to_many_join() {
 
     // Test many-to-many join: posts with their categories
     let join_smt = drizzle
-        .select(columns![Post::title, Category::name, Category::description])
+        .select(columns![post.title, category.name, category.description])
         .from(post)
-        .join(postcategory, eq(Post::id, PostCategory::post_id))
-        .join(category, eq(PostCategory::category_id, Category::id))
+        .join(postcategory, eq(post.id, postcategory.post_id))
+        .join(category, eq(postcategory.category_id, category.id))
         .order_by(sql![
-            (Post::title, OrderBy::Asc),
-            (Category::name, OrderBy::Asc)
+            (post.title, OrderBy::Asc),
+            (category.name, OrderBy::Asc)
         ]);
     let sql = join_smt.to_sql().sql();
 
@@ -288,14 +283,14 @@ fn many_to_many_join() {
 
     // Test filtering: only published posts
     let published_results: Vec<PostCategoryResult> = drizzle
-        .select(columns![Post::title, Category::name, Category::description])
+        .select(columns![post.title, category.name, category.description])
         .from(post)
-        .join(postcategory, eq(Post::id, PostCategory::post_id))
-        .join(category, eq(PostCategory::category_id, Category::id))
-        .r#where(eq(Post::published, true))
+        .join(postcategory, eq(post.id, postcategory.post_id))
+        .join(category, eq(postcategory.category_id, category.id))
+        .r#where(eq(post.published, true))
         .order_by(sql![
-            (Post::title, OrderBy::Asc),
-            (Category::name, OrderBy::Asc)
+            (post.title, OrderBy::Asc),
+            (category.name, OrderBy::Asc)
         ])
         .all()
         .unwrap();

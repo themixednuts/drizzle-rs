@@ -129,6 +129,7 @@ pub struct Complex {
     pub created_at: Option<String>,
 }
 
+#[cfg(not(feature = "uuid"))]
 #[SQLiteTable(name = "posts")]
 pub struct Post {
     #[integer(primary)]
@@ -139,6 +140,26 @@ pub struct Post {
     pub content: Option<String>,
     #[integer]
     pub author_id: Option<i32>,
+    #[boolean]
+    pub published: bool,
+    #[cfg(feature = "serde")]
+    #[text]
+    pub tags: Option<String>,
+    #[text]
+    pub created_at: Option<String>,
+}
+
+#[cfg(feature = "uuid")]
+#[SQLiteTable(name = "posts")]
+pub struct Post {
+    #[integer(primary)]
+    pub id: i32,
+    #[text]
+    pub title: String,
+    #[text]
+    pub content: Option<String>,
+    #[blob]
+    pub author_id: Option<Uuid>,
     #[boolean]
     pub published: bool,
     #[cfg(feature = "serde")]
