@@ -50,6 +50,7 @@ pub trait BuilderState {}
 pub struct BuilderInit;
 
 impl BuilderState for BuilderInit {}
+impl ExecutableState for BuilderInit {}
 
 /// Main query builder for SQLite
 ///
@@ -156,27 +157,33 @@ pub trait ExecutableState {}
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite_impl {
     use super::*;
-    use ::rusqlite::{self, Connection, Row, params_from_iter};
+    use ::rusqlite::{Connection, Row, params_from_iter};
     use drizzle_core::error::{DrizzleError, Result};
 
     impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
     where
         State: ExecutableState,
     {
-        /// Executes the query and returns the number of affected rows
+        // pub fn execute<T, P>(query: T, conn: &Connection) -> Result<usize>
+        // where
+        //     T: ToSQL<'a, SQLiteValue<'a>>,
+        // {
+        //     let q = query.to_sql();
+        //     let sql = q.sql();
+        //     let params = q.params();
+
+        //     conn.execute(&sql, params_from_iter(params))
+        //         .map_err(|e| DrizzleError::Other(e.to_string()))
+        // }
+
+        /// Runs the query and returns the number of affected rows
         pub fn execute(&self, conn: &Connection) -> Result<usize> {
             let sql = self.sql.sql();
 
             // Get parameters and handle potential errors from IntoParams
             let params = self.sql.params();
 
-            // Convert SQLiteValue to rusqlite-compatible values
-            let rusqlite_params: Vec<&dyn rusqlite::ToSql> = params
-                .iter()
-                .map(|val| val as &dyn rusqlite::ToSql)
-                .collect();
-
-            conn.execute(&sql, params_from_iter(rusqlite_params.into_iter()))
+            conn.execute(&sql, params_from_iter(params))
                 .map_err(|e| DrizzleError::Other(e.to_string()))
         }
 
@@ -217,7 +224,7 @@ pub mod rusqlite_impl {
             let sql = self.sql.sql();
 
             // Get parameters and handle potential errors from IntoParams
-            let params: Vec<SQLiteValue> = self.sql.params();
+            let params = self.sql.params();
 
             let mut stmt = conn
                 .prepare(&sql)

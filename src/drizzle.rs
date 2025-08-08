@@ -1,6 +1,7 @@
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use paste::paste;
+use rusqlite::{Connection, params_from_iter};
 use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
@@ -41,7 +42,6 @@ macro_rules! join_impl {
                 on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
             ) -> DrizzleBuilder<
                 'a,
-                Conn,
                 Schema,
                 SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
                 select::SelectJoinSet,
@@ -70,14 +70,16 @@ pub struct DrizzleInitial;
 impl DrizzleState for DrizzleInitial {}
 
 /// Drizzle instance that provides access to the database and query builder.
-#[derive(Debug, Clone, Default)]
-pub struct Drizzle<Conn, Schema = ()> {
-    conn: Conn,
+#[derive(Debug)]
+pub struct Drizzle<Schema = ()> {
+    #[cfg(feature = "rusqlite")]
+    conn: Connection,
     _schema: PhantomData<Schema>,
 }
 
-impl<Conn> Drizzle<Conn> {
-    pub fn new<S>(conn: Conn) -> Drizzle<Conn, S> {
+impl Drizzle {
+    #[cfg(feature = "rusqlite")]
+    pub const fn new<S>(conn: Connection) -> Drizzle<S> {
         Drizzle {
             conn,
             _schema: PhantomData,
@@ -90,8 +92,8 @@ impl<Conn> Drizzle<Conn> {
 //------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub struct DrizzleBuilder<'a, Conn: 'a, Schema, Builder, State> {
-    drizzle: &'a Drizzle<Conn, Schema>,
+pub struct DrizzleBuilder<'a, Schema, Builder, State> {
+    drizzle: &'a Drizzle<Schema>,
     builder: Builder,
     state: PhantomData<(Schema, State)>,
 }
@@ -100,9 +102,15 @@ pub struct DrizzleBuilder<'a, Conn: 'a, Schema, Builder, State> {
 // Drizzle Query Building Methods
 //------------------------------------------------------------------------------
 
-impl<Conn, Schema> Drizzle<Conn, Schema> {
+impl<Schema> Drizzle<Schema> {
     /// Gets a mutable reference to the underlying connection
-    pub fn connection(&mut self) -> &mut Conn {
+    #[cfg(feature = "rusqlite")]
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
+    #[cfg(feature = "rusqlite")]
+    pub fn mut_conn(&mut self) -> &mut Connection {
         &mut self.conn
     }
 
@@ -113,7 +121,6 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         query: T,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectInitial>,
         select::SelectInitial,
@@ -139,7 +146,6 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         table: T,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertInitial, T>,
         insert::InsertInitial,
@@ -164,7 +170,6 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         table: T,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateInitial, T>,
         update::UpdateInitial,
@@ -187,7 +192,6 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         table: T,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         DeleteBuilder<'a, Schema, delete::DeleteInitial, T>,
         delete::DeleteInitial,
@@ -202,6 +206,18 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
             state: PhantomData,
         }
     }
+
+    #[cfg(feature = "rusqlite")]
+    pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
+    where
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let query = query.to_sql();
+        let sql = query.sql();
+        let params = query.params();
+
+        self.conn.execute(&sql, params_from_iter(params))
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -209,21 +225,25 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, C, S>
-    DrizzleBuilder<'a, C, S, SelectBuilder<'a, S, select::SelectInitial>, select::SelectInitial>
+impl<'a, Schema>
+    DrizzleBuilder<
+        'a,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectInitial>,
+        select::SelectInitial,
+    >
 {
     pub fn from<T>(
         self,
         table: T,
     ) -> DrizzleBuilder<
         'a,
-        C,
-        S,
-        SelectBuilder<'a, S, select::SelectFromSet, T>,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectFromSet, T>,
         select::SelectFromSet,
     >
     where
-        T: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>,
+        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.from::<T>();
         DrizzleBuilder {
@@ -235,10 +255,9 @@ impl<'a, C, S>
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, T>
+impl<'a, Schema, T>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectFromSet, T>,
         select::SelectFromSet,
@@ -251,7 +270,6 @@ where
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectWhereSet, T>,
         select::SelectWhereSet,
@@ -269,7 +287,6 @@ where
         limit: usize,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
         select::SelectLimitSet,
@@ -287,7 +304,6 @@ where
         expressions: TIter,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
         select::SelectOrderSet,
@@ -310,7 +326,6 @@ where
         on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
         select::SelectJoinSet,
@@ -329,10 +344,9 @@ where
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, T>
+impl<'a, Schema, T>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
         select::SelectJoinSet,
@@ -345,7 +359,6 @@ where
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectWhereSet, T>,
         select::SelectWhereSet,
@@ -362,7 +375,6 @@ where
         expressions: TIter,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
         select::SelectOrderSet,
@@ -385,7 +397,6 @@ where
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectJoinSet, T>,
         select::SelectJoinSet,
@@ -404,10 +415,9 @@ where
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, T>
+impl<'a, Schema, T>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectWhereSet, T>,
         select::SelectWhereSet,
@@ -420,7 +430,6 @@ where
         limit: usize,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
         select::SelectLimitSet,
@@ -438,7 +447,6 @@ where
         expressions: TI,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
         select::SelectOrderSet,
@@ -460,10 +468,9 @@ where
     }
 }
 
-impl<'a, Conn, Schema, T>
+impl<'a, Schema, T>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
         select::SelectLimitSet,
@@ -476,7 +483,6 @@ where
         offset: usize,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectOffsetSet, T>,
         select::SelectOffsetSet,
@@ -490,10 +496,9 @@ where
     }
 }
 
-impl<'a, Conn, Schema, T>
+impl<'a, Schema, T>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectOrderSet, T>,
         select::SelectOrderSet,
@@ -506,7 +511,6 @@ where
         limit: usize,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         SelectBuilder<'a, Schema, select::SelectLimitSet, T>,
         select::SelectLimitSet,
@@ -524,10 +528,9 @@ where
 // INSERT Builder Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, Conn, Schema, Table>
+impl<'a, Schema, Table>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
         insert::InsertInitial,
@@ -539,7 +542,6 @@ impl<'a, Conn, Schema, Table>
         values: impl IntoIterator<Item = Table::Insert>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertValuesSet, Table>,
         insert::InsertValuesSet,
@@ -561,10 +563,9 @@ impl<'a, Conn, Schema, Table>
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, Table>
+impl<'a, Schema, Table>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertValuesSet, Table>,
         insert::InsertValuesSet,
@@ -578,7 +579,6 @@ where
         conflict: insert::Conflict<'a, TI>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertOnConflictSet, Table>,
         insert::InsertOnConflictSet,
@@ -601,7 +601,6 @@ where
         columns: Vec<drizzle_core::SQL<'a, SQLiteValue<'a>>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertReturningSet, Table>,
         insert::InsertReturningSet,
@@ -620,10 +619,9 @@ where
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, Table>
+impl<'a, Schema, Table>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertOnConflictSet, Table>,
         insert::InsertOnConflictSet,
@@ -635,7 +633,6 @@ impl<'a, Conn, Schema, Table>
         columns: Vec<drizzle_core::SQL<'a, SQLiteValue<'a>>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertReturningSet, Table>,
         insert::InsertReturningSet,
@@ -654,10 +651,9 @@ impl<'a, Conn, Schema, Table>
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, Table>
+impl<'a, Schema, Table>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
         update::UpdateInitial,
@@ -670,7 +666,6 @@ where
         values: Table::Update,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateSetClauseSet, Table>,
         update::UpdateSetClauseSet,
@@ -685,10 +680,9 @@ where
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, Conn, Schema, Table>
+impl<'a, Schema, Table>
     DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateSetClauseSet, Table>,
         update::UpdateSetClauseSet,
@@ -699,7 +693,6 @@ impl<'a, Conn, Schema, Table>
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        Conn,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateWhereSet, Table>,
         update::UpdateWhereSet,
@@ -718,8 +711,8 @@ impl<'a, Conn, Schema, Table>
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, C, S, T>
-    DrizzleBuilder<'a, C, S, DeleteBuilder<'a, S, delete::DeleteInitial, T>, delete::DeleteInitial>
+impl<'a, S, T>
+    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteInitial, T>, delete::DeleteInitial>
 where
     T: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>,
 {
@@ -728,7 +721,6 @@ where
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
-        C,
         S,
         DeleteBuilder<'a, S, delete::DeleteWhereSet, T>,
         delete::DeleteWhereSet,
@@ -747,7 +739,7 @@ where
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, C, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'a, C, S, T, State>
+impl<'a, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'a, S, T, State>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -762,8 +754,7 @@ where
 
 // Add execution methods for SELECT - SelectWhereSet state
 #[cfg(feature = "rusqlite")]
-impl<'a, S, State, T>
-    DrizzleBuilder<'a, ::rusqlite::Connection, S, SelectBuilder<'a, S, State, T>, State>
+impl<'a, S, State, T> DrizzleBuilder<'a, S, SelectBuilder<'a, S, State, T>, State>
 where
     State: builder::ExecutableState,
 {
@@ -789,13 +780,7 @@ where
 // Add execution methods for INSERT - ValuesSet state
 #[cfg(feature = "rusqlite")]
 impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        ::rusqlite::Connection,
-        S,
-        InsertBuilder<'a, S, insert::InsertValuesSet, T>,
-        insert::InsertValuesSet,
-    >
+    DrizzleBuilder<'a, S, InsertBuilder<'a, S, insert::InsertValuesSet, T>, insert::InsertValuesSet>
 {
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
         self.builder.execute(&self.drizzle.conn)
@@ -807,7 +792,6 @@ impl<'a, S, T>
 impl<'a, S, T>
     DrizzleBuilder<
         'a,
-        ::rusqlite::Connection,
         S,
         InsertBuilder<'a, S, insert::InsertReturningSet, T>,
         insert::InsertReturningSet,
@@ -823,7 +807,6 @@ impl<'a, S, T>
 impl<'a, S, T>
     DrizzleBuilder<
         'a,
-        ::rusqlite::Connection,
         S,
         InsertBuilder<'a, S, insert::InsertOnConflictSet, T>,
         insert::InsertOnConflictSet,
@@ -839,7 +822,6 @@ impl<'a, S, T>
 impl<'a, S, T>
     DrizzleBuilder<
         'a,
-        ::rusqlite::Connection,
         S,
         UpdateBuilder<'a, S, update::UpdateSetClauseSet, T>,
         update::UpdateSetClauseSet,
@@ -853,13 +835,7 @@ impl<'a, S, T>
 // Add execution methods for UPDATE - WhereSet state
 #[cfg(feature = "rusqlite")]
 impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        ::rusqlite::Connection,
-        S,
-        UpdateBuilder<'a, S, update::UpdateWhereSet, T>,
-        update::UpdateWhereSet,
-    >
+    DrizzleBuilder<'a, S, UpdateBuilder<'a, S, update::UpdateWhereSet, T>, update::UpdateWhereSet>
 {
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
         self.builder.execute(&self.drizzle.conn)
@@ -871,7 +847,6 @@ impl<'a, S, T>
 impl<'a, S, T>
     DrizzleBuilder<
         'a,
-        ::rusqlite::Connection,
         S,
         UpdateBuilder<'a, S, update::UpdateReturningSet, T>,
         update::UpdateReturningSet,
@@ -885,13 +860,7 @@ impl<'a, S, T>
 // Add execution methods for DELETE - Initial state
 #[cfg(feature = "rusqlite")]
 impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        ::rusqlite::Connection,
-        S,
-        DeleteBuilder<'a, S, delete::DeleteInitial, T>,
-        delete::DeleteInitial,
-    >
+    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteInitial, T>, delete::DeleteInitial>
 {
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
         self.builder.execute(&self.drizzle.conn)
@@ -901,13 +870,7 @@ impl<'a, S, T>
 // Add execution methods for DELETE - WhereSet state
 #[cfg(feature = "rusqlite")]
 impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        ::rusqlite::Connection,
-        S,
-        DeleteBuilder<'a, S, delete::DeleteWhereSet, T>,
-        delete::DeleteWhereSet,
-    >
+    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteWhereSet, T>, delete::DeleteWhereSet>
 {
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
         self.builder.execute(&self.drizzle.conn)
@@ -919,7 +882,6 @@ impl<'a, S, T>
 impl<'a, S, T>
     DrizzleBuilder<
         'a,
-        ::rusqlite::Connection,
         S,
         DeleteBuilder<'a, S, delete::DeleteReturningSet, T>,
         delete::DeleteReturningSet,

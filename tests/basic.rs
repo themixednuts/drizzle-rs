@@ -3,7 +3,7 @@ use common::{Complex, InsertComplex, InsertSimple, SelectSimple, Simple, setup_d
 use drizzle_core::sql;
 use drizzle_rs::prelude::*;
 use procmacros::FromRow;
-use rusqlite::{Row, Rows};
+use rusqlite::Row;
 
 mod common;
 
@@ -187,7 +187,7 @@ fn debug_uuid_storage() {
 
     // Check what's actually in the database using raw SQL
     let query = "SELECT typeof(id) as id_type FROM complex LIMIT 1";
-    let mut stmt = drizzle.connection().prepare(query).unwrap();
+    let mut stmt = drizzle.conn().prepare(query).unwrap();
     let id_type: String = stmt
         .query_row([], |row| Ok(row.get::<_, String>(0)?))
         .unwrap();
