@@ -4,10 +4,10 @@ use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use paste::paste;
 #[cfg(feature = "rusqlite")]
-use rusqlite::{Connection as RusqliteConnection, params_from_iter};
+use rusqlite::{Connection, params_from_iter};
 use std::marker::PhantomData;
 #[cfg(feature = "turso")]
-use turso::{Connection as TursoConnection, IntoValue};
+use turso::{Connection, IntoValue};
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
@@ -73,15 +73,15 @@ macro_rules! join_impl {
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     #[cfg(feature = "rusqlite")]
-    conn: RusqliteConnection,
+    conn: Connection,
     #[cfg(feature = "turso")]
-    conn: TursoConnection,
+    conn: Connection,
     _schema: PhantomData<Schema>,
 }
 
 impl Drizzle {
     #[cfg(feature = "rusqlite")]
-    pub const fn new<S>(conn: RusqliteConnection) -> Drizzle<S> {
+    pub const fn new<S>(conn: Connection) -> Drizzle<S> {
         Drizzle {
             conn,
             _schema: PhantomData,
@@ -89,7 +89,7 @@ impl Drizzle {
     }
 
     #[cfg(feature = "turso")]
-    pub const fn new<S>(conn: TursoConnection) -> Drizzle<S> {
+    pub const fn new<S>(conn: Connection) -> Drizzle<S> {
         Drizzle {
             conn,
             _schema: PhantomData,
@@ -191,23 +191,23 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
 impl<Schema> Drizzle<Schema> {
     /// Gets a reference to the underlying connection
     #[cfg(feature = "rusqlite")]
-    pub fn conn(&self) -> &RusqliteConnection {
+    pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
     #[cfg(feature = "rusqlite")]
-    pub fn mut_conn(&mut self) -> &mut RusqliteConnection {
+    pub fn mut_conn(&mut self) -> &mut Connection {
         &mut self.conn
     }
 
     /// Gets a reference to the underlying connection
     #[cfg(feature = "turso")]
-    pub fn conn(&self) -> &TursoConnection {
+    pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
     #[cfg(feature = "turso")]
-    pub fn mut_conn(&mut self) -> &mut TursoConnection {
+    pub fn mut_conn(&mut self) -> &mut Connection {
         &mut self.conn
     }
 
