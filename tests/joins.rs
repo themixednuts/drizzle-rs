@@ -1,72 +1,28 @@
-use std::array;
-
 use common::{
     Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
     PostCategory, setup_db,
 };
 use drizzle_core::{OrderBy, sql};
 use drizzle_rs::prelude::*;
-use rusqlite::Row;
+use procmacros::FromRow;
+use std::array;
+#[cfg(feature = "uuid")]
+use uuid::Uuid;
 
 mod common;
 
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct AuthorPostResult {
     author_name: String,
     post_title: String,
     post_content: Option<String>,
 }
 
-impl TryFrom<&Row<'_>> for AuthorPostResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            author_name: row.get(0)?,
-            post_title: row.get(1)?,
-            post_content: row.get(2)?,
-        })
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct PostCategoryResult {
     post_title: String,
     category_name: String,
     category_description: Option<String>,
-}
-
-impl TryFrom<&Row<'_>> for PostCategoryResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            post_title: row.get(0)?,
-            category_name: row.get(1)?,
-            category_description: row.get(2)?,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct PostResult {
-    id: i32,
-    title: String,
-    content: Option<String>,
-    published: bool,
-}
-
-impl TryFrom<&Row<'_>> for PostResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            content: row.get(2)?,
-            published: row.get(3)?,
-        })
-    }
 }
 
 #[test]
@@ -84,15 +40,21 @@ fn simple_inner_join() {
         InsertComplex::default()
             .with_id(id1)
             .with_name("alice")
-            .with_email("alice@example.com"),
+            .with_email("alice@example.com")
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_id(id2)
             .with_name("bob")
-            .with_email("bob@example.com"),
+            .with_email("bob@example.com")
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_id(id3)
             .with_name("charlie")
-            .with_email("charlie@example.com"), // No posts
+            .with_email("charlie@example.com") // No posts
+            .with_active(true)
+            .with_role(common::Role::User),
     ];
 
     let author_result = drizzle.insert(complex).values(authors).execute().unwrap();
@@ -102,15 +64,18 @@ fn simple_inner_join() {
         InsertPost::default()
             .with_title("Alice's First Post")
             .with_content("Content by Alice")
-            .with_author_id(id1),
+            .with_author_id(id1)
+            .with_published(true),
         InsertPost::default()
             .with_title("Bob's Adventure")
             .with_content("Travel blog by Bob")
-            .with_author_id(id2),
+            .with_author_id(id2)
+            .with_published(true),
         InsertPost::default()
             .with_title("Alice's Second Post")
             .with_content("More content by Alice")
-            .with_author_id(id3),
+            .with_author_id(id1)
+            .with_published(true),
     ];
 
     let post_result = drizzle.insert(post).values(posts).execute().unwrap();
@@ -174,7 +139,7 @@ fn simple_inner_join() {
 #[test]
 fn many_to_many_join() {
     let db = setup_db();
-    let (drizzle, (complex, post, postcategory, category)) =
+    let (drizzle, (.., post, postcategory, category)) =
         drizzle!(db, [Complex, Post, PostCategory, Category]);
 
     // Insert test data: posts and categories with many-to-many relationship

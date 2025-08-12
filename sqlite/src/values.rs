@@ -1,6 +1,67 @@
 //! SQLite value conversion traits and types
 
+use drizzle_core::SQL;
+
+#[cfg(feature = "rusqlite")]
+use rusqlite::types::FromSql;
+#[cfg(feature = "turso")]
+use turso::IntoValue;
+
 use std::borrow::Cow;
+
+//------------------------------------------------------------------------------
+// InsertValue Definition - Three-state value for inserts
+//------------------------------------------------------------------------------
+
+/// Represents a value for INSERT operations that can be omitted, null, or a specific value
+#[derive(Debug, Clone, PartialEq)]
+pub enum InsertValue<T> {
+    /// Omit this column from the INSERT (use database default)
+    Omit,
+    /// Explicitly insert NULL
+    Null,
+    /// Insert this specific value
+    Value(T),
+}
+
+impl<T> Default for InsertValue<T> {
+    fn default() -> Self {
+        Self::Omit
+    }
+}
+
+// Automatic conversion from T to InsertValue<T>
+impl<T> From<T> for InsertValue<T> {
+    fn from(value: T) -> Self {
+        InsertValue::Value(value)
+    }
+}
+
+// Conversion from Option<T>
+impl<T> From<Option<T>> for InsertValue<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(v) => InsertValue::Value(v),
+            None => InsertValue::Omit, // Use database default when None
+        }
+    }
+}
+
+// String-specific InsertValue conversions
+impl From<&str> for InsertValue<String> {
+    fn from(value: &str) -> Self {
+        InsertValue::Value(value.to_string())
+    }
+}
+
+impl From<Option<&str>> for InsertValue<String> {
+    fn from(value: Option<&str>) -> Self {
+        match value {
+            Some(s) => InsertValue::Value(s.to_string()),
+            None => InsertValue::Omit, // Use database default when None
+        }
+    }
+}
 
 //------------------------------------------------------------------------------
 // SQLiteValue Definition
@@ -20,6 +81,25 @@ pub enum SQLiteValue<'a> {
     /// NULL value
     #[default]
     Null,
+}
+
+impl<'a> std::fmt::Display for SQLiteValue<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            SQLiteValue::Integer(i) => i.to_string(),
+            SQLiteValue::Real(r) => r.to_string(),
+            SQLiteValue::Text(cow) => cow.to_string(),
+            SQLiteValue::Blob(cow) => String::from_utf8_lossy(cow).to_string(),
+            SQLiteValue::Null => String::new(),
+        };
+        write!(f, "{value}")
+    }
+}
+
+impl<'a> From<SQL<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
+    fn from(value: SQL<'a, SQLiteValue<'a>>) -> Self {
+        todo!()
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -50,8 +130,90 @@ impl<'a> rusqlite::ToSql for SQLiteValue<'a> {
     }
 }
 
+#[cfg(feature = "rusqlite")]
+impl<'a> FromSql for SQLiteValue<'a> {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let result = match value {
+            rusqlite::types::ValueRef::Null => SQLiteValue::Null,
+            rusqlite::types::ValueRef::Integer(i) => SQLiteValue::Integer(i),
+            rusqlite::types::ValueRef::Real(r) => SQLiteValue::Real(r),
+            rusqlite::types::ValueRef::Text(items) => {
+                SQLiteValue::Text(String::from_utf8_lossy(items).into_owned().into())
+            }
+            rusqlite::types::ValueRef::Blob(items) => SQLiteValue::Blob(items.to_vec().into()),
+        };
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "turso")]
+impl<'a> IntoValue for SQLiteValue<'a> {
+    fn into_value(self) -> turso::Result<turso::Value> {
+        let result = match self {
+            SQLiteValue::Integer(i) => turso::Value::Integer(i),
+            SQLiteValue::Real(r) => turso::Value::Real(r),
+            SQLiteValue::Text(cow) => turso::Value::Text(cow.into()),
+            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.into()),
+            SQLiteValue::Null => turso::Value::Null,
+        };
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "turso")]
+impl<'a> IntoValue for &SQLiteValue<'a> {
+    fn into_value(self) -> turso::Result<turso::Value> {
+        let result = match self {
+            SQLiteValue::Integer(i) => turso::Value::Integer(*i),
+            SQLiteValue::Real(r) => turso::Value::Real(*r),
+            SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
+            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
+            SQLiteValue::Null => turso::Value::Null,
+        };
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "turso")]
+impl<'a> TryFrom<SQLiteValue<'a>> for turso::Value {
+    type Error = turso::Error;
+
+    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
+        let result = match value {
+            SQLiteValue::Integer(i) => turso::Value::Integer(i),
+            SQLiteValue::Real(r) => turso::Value::Real(r),
+            SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
+            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
+            SQLiteValue::Null => turso::Value::Null,
+        };
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "turso")]
+impl<'a> TryFrom<&SQLiteValue<'a>> for turso::Value {
+    type Error = turso::Error;
+
+    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
+        let result = match value {
+            SQLiteValue::Integer(i) => turso::Value::Integer(*i),
+            SQLiteValue::Real(r) => turso::Value::Real(*r),
+            SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
+            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
+            SQLiteValue::Null => turso::Value::Null,
+        };
+        Ok(result)
+    }
+}
+
 // Implement core traits required by Drizzle
 impl<'a> drizzle_core::traits::SQLParam for SQLiteValue<'a> {}
+
+impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {
+    fn from(value: SQLiteValue<'a>) -> Self {
+        SQL::parameter(value)
+    }
+}
 
 //------------------------------------------------------------------------------
 // From<T> implementations
@@ -189,6 +351,15 @@ impl<'a> From<&'a usize> for SQLiteValue<'a> {
     }
 }
 
+// impl<'a, T> From<T> for SQLiteValue<'a>
+// where
+//     T: SQLEnum<Type = SQLiteEnumRepr>,
+// {
+//     fn from(value: T) -> Self {
+//         todo!()
+//     }
+// }
+
 // --- Floating Point Types ---
 
 // f32
@@ -242,6 +413,12 @@ impl<'a> From<&'a str> for SQLiteValue<'a> {
 impl<'a> From<String> for SQLiteValue<'a> {
     fn from(value: String) -> Self {
         SQLiteValue::Text(Cow::Owned(value))
+    }
+}
+
+impl<'a> From<&'a String> for SQLiteValue<'a> {
+    fn from(value: &'a String) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value))
     }
 }
 

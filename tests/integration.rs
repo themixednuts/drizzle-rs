@@ -1,6 +1,9 @@
 use common::{Complex, InsertComplex, InsertSimple, Simple, UpdateComplex, UpdateSimple, setup_db};
 use drizzle_rs::prelude::*;
+#[cfg(feature = "rusqlite")]
 use rusqlite::Row;
+#[cfg(feature = "uuid")]
+use uuid::Uuid;
 
 mod common;
 
@@ -11,9 +14,11 @@ struct SimpleResult {
 }
 
 impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = rusqlite::Error;
+    type Error = drizzle_rs::error::DrizzleError;
 
-    fn try_from(row: &Row<'_>) -> std::result::Result<SimpleResult, rusqlite::Error> {
+    fn try_from(
+        row: &Row<'_>,
+    ) -> std::result::Result<SimpleResult, drizzle_rs::error::DrizzleError> {
         Ok(Self {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -42,9 +47,11 @@ struct ComplexResult {
 }
 
 impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = rusqlite::Error;
+    type Error = drizzle_rs::error::DrizzleError;
 
-    fn try_from(row: &Row<'_>) -> std::result::Result<ComplexResult, rusqlite::Error> {
+    fn try_from(
+        row: &Row<'_>,
+    ) -> std::result::Result<ComplexResult, drizzle_rs::error::DrizzleError> {
         Ok(Self {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -77,6 +84,8 @@ fn end_to_end_workflow() {
         .with_name("test_complex")
         .with_email("test@example.com".to_string())
         .with_age(25)
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_description("A test record".to_string());
 
     #[cfg(feature = "uuid")]
@@ -85,6 +94,8 @@ fn end_to_end_workflow() {
         .with_name("test_complex")
         .with_email("test@example.com".to_string())
         .with_age(25)
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_description("A test record".to_string());
 
     let complex_rows = drizzle

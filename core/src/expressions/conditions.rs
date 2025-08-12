@@ -1,32 +1,19 @@
 use crate::{SQL, SQLChunk, SQLComparable, SQLParam, ToSQL};
-use std::borrow::Cow;
 
 /// Format a SQL comparison with the given operator
-fn internal_format_sql_comparison<'a, V, L, R>(left: L, operator: &'a str, right: R) -> SQL<'a, V>
+fn internal_format_sql_comparison<'a, V, L, R>(
+    left: L,
+    operator: &'static str,
+    right: R,
+) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
     L: ToSQL<'a, V>,
     R: ToSQL<'a, V>,
 {
-    let left_sql = left.to_sql();
-    let right_sql = right.to_sql();
-
-    // Pre-calculate capacity for all chunks
-    let total_capacity = left_sql.chunks.len() + 1 + right_sql.chunks.len();
-    let mut chunks = Vec::with_capacity(total_capacity);
-
-    // Add left expression chunks
-    chunks.extend(left_sql.chunks);
-
-    // Add operator as a Text chunk
-    chunks.push(SQLChunk::Text(Cow::Borrowed(operator)));
-
-    // Add right expression chunks
-    chunks.extend(right_sql.chunks);
-
-    SQL {
-        chunks: chunks.into(),
-    }
+    left.to_sql()
+        .append_raw(operator)
+        .append(right.to_sql())
 }
 
 pub fn eq<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
@@ -84,81 +71,49 @@ where
 }
 
 // in_array - column IN (values)
-pub fn in_array<'a, V, L, R>(left: L, values: Vec<R>) -> SQL<'a, V>
+pub fn in_array<'a, V, L, I, R>(left: L, values: I) -> SQL<'a, V>
 where
     V: SQLParam,
     L: ToSQL<'a, V>,
+    I: IntoIterator<Item = R>,
     R: Into<V> + ToSQL<'a, V>,
 {
     let left_sql = left.to_sql();
-
-    // Early optimization: empty values case
-    if values.is_empty() {
-        return SQL::raw(format!("{}IN(NULL)", left_sql.sql()));
-    }
-
-    let mut result = SQL::raw("");
-
-    // Add left expression
-    result = result.append(left_sql);
-
-    // Add "IN(" text
-    result = result.append_raw("IN(");
-
-    // Join the values with commas
-    let mut first = true;
-    for value in values {
-        if !first {
-            result = result.append_raw(",");
+    let mut values_iter = values.into_iter();
+    
+    match values_iter.next() {
+        None => left_sql.append_raw("IN (NULL)"),
+        Some(first_value) => {
+            let mut result = left_sql.append_raw("IN (").append(first_value.to_sql());
+            for value in values_iter {
+                result = result.append_raw(",").append(value.to_sql());
+            }
+            result.append_raw(")")
         }
-        first = false;
-
-        result = result.append(value.to_sql());
     }
-
-    // Add closing parenthesis
-    result = result.append_raw(")");
-
-    result
 }
 
 // not_in_array - column NOT IN (values)
-pub fn not_in_array<'a, V, L, R>(left: L, values: Vec<R>) -> SQL<'a, V>
+pub fn not_in_array<'a, V, L, I, R>(left: L, values: I) -> SQL<'a, V>
 where
     V: SQLParam,
     L: ToSQL<'a, V>,
+    I: IntoIterator<Item = R>,
     R: Into<V> + ToSQL<'a, V>,
 {
     let left_sql = left.to_sql();
-
-    // Early optimization: empty values case
-    if values.is_empty() {
-        return SQL::raw(format!("{} NOT IN(NULL)", left_sql.sql()));
-    }
-
-    let mut result = SQL::raw("");
-
-    // Add left expression
-    result = result.append(left_sql);
-
-    // Add "NOT IN(" text
-    result = result.append_raw("NOT IN(");
-
-    // Join the values with commas
-    let mut first = true;
-    for value in values {
-        if !first {
-            result = result.append_raw(",");
+    let mut values_iter = values.into_iter();
+    
+    match values_iter.next() {
+        None => left_sql.append_raw("NOT IN (NULL)"),
+        Some(first_value) => {
+            let mut result = left_sql.append_raw("NOT IN (").append(first_value.to_sql());
+            for value in values_iter {
+                result = result.append_raw(",").append(value.to_sql());
+            }
+            result.append_raw(")")
         }
-        first = false;
-
-        result = result.append(value.to_sql());
     }
-
-    // Add closing parenthesis
-    result = result.append_raw(")");
-
-    result
 }
 
 // is_null - column IS NULL
@@ -167,13 +122,7 @@ where
     V: SQLParam,
     R: ToSQL<'a, V>,
 {
-    let right_sql = right.to_sql();
-
-    let mut result = SQL::raw("");
-    result = result.append(right_sql);
-    result = result.append_raw("IS NULL");
-
-    result
+    right.to_sql().append_raw("IS NULL")
 }
 
 // is_not_null - column IS NOT NULL
@@ -182,13 +131,7 @@ where
     V: SQLParam,
     R: ToSQL<'a, V>,
 {
-    let right_sql = right.to_sql();
-
-    let mut result = SQL::raw("");
-    result = result.append(right_sql);
-    result = result.append_raw("IS NOT NULL");
-
-    result
+    right.to_sql().append_raw("IS NOT NULL")
 }
 
 // exists - EXISTS (subquery)
@@ -197,14 +140,9 @@ where
     V: SQLParam,
     T: ToSQL<'a, V>,
 {
-    let subquery_sql = subquery.to_sql();
-
-    let mut result = SQL::raw("");
-    result = result.append_raw("EXISTS(");
-    result = result.append(subquery_sql);
-    result = result.append_raw(")");
-
-    result
+    SQL::raw("EXISTS (")
+        .append(subquery.to_sql())
+        .append_raw(")")
 }
 
 // not_exists - NOT EXISTS (subquery)
@@ -213,14 +151,9 @@ where
     V: SQLParam,
     T: ToSQL<'a, V>,
 {
-    let subquery_sql = subquery.to_sql();
-
-    let mut result = SQL::raw("");
-    result = result.append_raw("NOT EXISTS(");
-    result = result.append(subquery_sql);
-    result = result.append_raw(")");
-
-    result
+    SQL::raw("NOT EXISTS (")
+        .append(subquery.to_sql())
+        .append_raw(")")
 }
 
 // between - column BETWEEN lower AND upper
@@ -231,32 +164,13 @@ where
     R1: ToSQL<'a, V>,
     R2: ToSQL<'a, V>,
 {
-    let left_sql = left.to_sql();
-    let start_sql = start.to_sql();
-    let end_sql = end.to_sql();
-
-    let mut result = SQL::raw("");
-
-    // Add opening parenthesis and left expression
-    result = result.append_raw("(");
-    result = result.append(left_sql);
-
-    // Add BETWEEN clause
-    result = result.append_raw("BETWEEN");
-
-    // Add start value
-    result = result.append(start_sql);
-
-    // Add AND clause
-    result = result.append_raw("AND");
-
-    // Add end value
-    result = result.append(end_sql);
-
-    // Add closing parenthesis
-    result = result.append_raw(")");
-
-    result
+    SQL::raw("(")
+        .append(left.to_sql())
+        .append_raw("BETWEEN")
+        .append(start.to_sql())
+        .append_raw("AND")
+        .append(end.to_sql())
+        .append_raw(")")
 }
 
 // not_between - column NOT BETWEEN lower AND upper
@@ -267,32 +181,13 @@ where
     R1: ToSQL<'a, V>,
     R2: ToSQL<'a, V>,
 {
-    let left_sql = left.to_sql();
-    let lower_sql = lower.to_sql();
-    let upper_sql = upper.to_sql();
-
-    let mut result = SQL::raw("");
-
-    // Add opening parenthesis and left expression
-    result = result.append_raw("(");
-    result = result.append(left_sql);
-
-    // Add NOT BETWEEN clause
-    result = result.append_raw("NOT BETWEEN");
-
-    // Add lower value
-    result = result.append(lower_sql);
-
-    // Add AND clause
-    result = result.append_raw("AND");
-
-    // Add upper value
-    result = result.append(upper_sql);
-
-    // Add closing parenthesis
-    result = result.append_raw(")");
-
-    result
+    SQL::raw("(")
+        .append(left.to_sql())
+        .append_raw("NOT BETWEEN")
+        .append(lower.to_sql())
+        .append_raw("AND")
+        .append(upper.to_sql())
+        .append_raw(")")
 }
 
 // String LIKE - column LIKE pattern
@@ -345,20 +240,18 @@ where
     T: Clone + Into<V> + ToSQL<'a, V>,
 {
     let left_sql = left.to_sql();
-    let value_sqls: Vec<SQL<'a, V>> = values.into_iter().map(|v| v.to_sql()).collect();
-
-    if value_sqls.is_empty() {
-        // SQL standard requires at least one value in IN, but different DBs handle it differently.
-        // Returning `left IN (NULL)` is often safe but might not be desired.
-        // Returning a universally false condition like `1=0` might be safer depending on context.
-        // For now, stick to `IN (NULL)` as per original code, but this might need revisiting.
-        return left_sql.append_raw("IN(NULL)");
+    let mut values_iter = values.into_iter();
+    
+    match values_iter.next() {
+        None => left_sql.append_raw("IN (NULL)"),
+        Some(first_value) => {
+            let mut result = left_sql.append_raw("IN (").append(first_value.to_sql());
+            for value in values_iter {
+                result = result.append_raw(",").append(value.to_sql());
+            }
+            result.append_raw(")")
+        }
     }
-
-    left_sql
-        .append_raw("IN(")
-        .append(SQL::join(value_sqls, ",")) // Join values with comma
-        .append_raw(")")
 }
 
 // not_in - column NOT IN (values)
@@ -370,54 +263,74 @@ where
     T: Clone + Into<V> + ToSQL<'a, V>,
 {
     let left_sql = left.to_sql();
-    let value_sqls: Vec<SQL<'a, V>> = values.into_iter().map(|v| v.to_sql()).collect();
-
-    if value_sqls.is_empty() {
-        // Similar to `is_in`, empty `NOT IN` is tricky. `NOT IN (NULL)` is often true.
-        // Returning `1=1` might be safer. Sticking to original `NOT IN (NULL)` for now.
-        return left_sql.append_raw("NOT IN(NULL)");
+    let mut values_iter = values.into_iter();
+    
+    match values_iter.next() {
+        None => left_sql.append_raw("NOT IN (NULL)"),
+        Some(first_value) => {
+            let mut result = left_sql.append_raw("NOT IN (").append(first_value.to_sql());
+            for value in values_iter {
+                result = result.append_raw(",").append(value.to_sql());
+            }
+            result.append_raw(")")
+        }
     }
-
-    left_sql
-        .append_raw("NOT IN(")
-        .append(SQL::join(value_sqls, ",")) // Join values with comma
-        .append_raw(")")
 }
 
 // Combine conditions with AND
-pub fn and<'a, V>(conditions: Vec<Option<SQL<'a, V>>>) -> SQL<'a, V>
+pub fn and<'a, V, T>(conditions: T) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    T: IntoIterator<Item = SQL<'a, V>>,
 {
-    let conditions: Vec<SQL<'a, V>> = conditions.into_iter().filter_map(|c| c).collect();
-
-    if conditions.is_empty() {
-        return SQL::raw("");
+    let mut iter = conditions.into_iter();
+    
+    match iter.next() {
+        None => SQL::empty(), // No conditions = empty
+        Some(first) => {
+            let second = iter.next();
+            if second.is_none() {
+                // Single condition doesn't need parentheses
+                first
+            } else {
+                // Multiple conditions - rebuild iterator and wrap in parentheses
+                let all_conditions = std::iter::once(first)
+                    .chain(std::iter::once(second.unwrap()))
+                    .chain(iter);
+                SQL::raw("(")
+                    .append(SQL::join(all_conditions, "AND"))
+                    .append_raw(")")
+            }
+        }
     }
-    if conditions.len() == 1 {
-        return conditions.into_iter().next().unwrap();
-    }
-
-    SQL::raw("(")
-        .append(SQL::join(conditions, "AND"))
-        .append_raw(")")
 }
 
 // Combine conditions with OR
-pub fn or<'a, V>(conditions: Vec<SQL<'a, V>>) -> SQL<'a, V>
+pub fn or<'a, V, T>(conditions: T) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    T: IntoIterator<Item = SQL<'a, V>>,
 {
-    if conditions.is_empty() {
-        return SQL::raw("");
+    let mut iter = conditions.into_iter();
+    
+    match iter.next() {
+        None => SQL::empty(), // No conditions = empty
+        Some(first) => {
+            let second = iter.next();
+            if second.is_none() {
+                // Single condition doesn't need parentheses
+                first
+            } else {
+                // Multiple conditions - rebuild iterator and wrap in parentheses
+                let all_conditions = std::iter::once(first)
+                    .chain(std::iter::once(second.unwrap()))
+                    .chain(iter);
+                SQL::raw("(")
+                    .append(SQL::join(all_conditions, "OR"))
+                    .append_raw(")")
+            }
+        }
     }
-    if conditions.len() == 1 {
-        return conditions.into_iter().next().unwrap();
-    }
-
-    SQL::raw("(")
-        .append(SQL::join(conditions, "OR"))
-        .append_raw(")")
 }
 
 // String concatenation (using || operator)

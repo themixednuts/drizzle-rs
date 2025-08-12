@@ -1,7 +1,9 @@
-use common::{Complex, InsertComplex, InsertSimple, PartialSelectCategory, Simple, setup_db};
+use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;
 use rusqlite::Row;
+#[cfg(feature = "uuid")]
+use uuid::Uuid;
 
 mod common;
 
@@ -12,9 +14,11 @@ struct SimpleResult {
 }
 
 impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = rusqlite::Error;
+    type Error = drizzle_rs::error::DrizzleError;
 
-    fn try_from(row: &Row<'_>) -> std::result::Result<SimpleResult, rusqlite::Error> {
+    fn try_from(
+        row: &Row<'_>,
+    ) -> std::result::Result<SimpleResult, drizzle_rs::error::DrizzleError> {
         Ok(Self {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -43,9 +47,11 @@ struct ComplexResult {
 }
 
 impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = rusqlite::Error;
+    type Error = drizzle_rs::error::DrizzleError;
 
-    fn try_from(row: &Row<'_>) -> std::result::Result<ComplexResult, rusqlite::Error> {
+    fn try_from(
+        row: &Row<'_>,
+    ) -> std::result::Result<ComplexResult, drizzle_rs::error::DrizzleError> {
         Ok(Self {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -59,7 +65,7 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn simple_insert() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Simple record
     let data = InsertSimple::default().with_name("test");
@@ -83,7 +89,7 @@ fn simple_insert() {
 #[test]
 fn complex_insert() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Complex record with various field types
     #[cfg(not(feature = "uuid"))]
@@ -93,6 +99,7 @@ fn complex_insert() {
         .with_age(25)
         .with_score(95.5)
         .with_active(true)
+        .with_role(common::Role::User)
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
@@ -104,6 +111,7 @@ fn complex_insert() {
         .with_age(25)
         .with_score(95.5)
         .with_active(true)
+        .with_role(common::Role::User)
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
@@ -136,7 +144,7 @@ fn complex_insert() {
 #[test]
 fn conflict_resolution() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Simple record
     let initial_data = InsertSimple::default()
@@ -177,12 +185,14 @@ fn conflict_resolution() {
 #[test]
 fn feature_gated_insert() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Complex record using feature-gated fields
     let data = InsertComplex::default()
         .with_id(uuid::Uuid::new_v4())
         .with_name("feature_test")
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_metadata(common::UserMetadata {
             preferences: vec!["dark_mode".to_string()],
             last_login: Some("2023-01-01".to_string()),

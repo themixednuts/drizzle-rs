@@ -2,8 +2,8 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::{collections::HashSet, fmt::Display};
 use syn::{
-    Attribute, Error, Expr, ExprPath, Field, Ident, Lit, LitStr, Meta, Result, Token, Type,
-    parse::{Parse, ParseStream},
+    Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type,
+    parse::ParseStream,
 };
 
 /// Enum representing supported SQLite column types
@@ -20,15 +20,7 @@ pub(crate) enum SQLiteType {
 
 impl Display for SQLiteType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = match self {
-            SQLiteType::Integer => "INTEGER",
-            SQLiteType::Text => "TEXT",
-            SQLiteType::Blob => "BLOB",
-            SQLiteType::Real => "REAL",
-            SQLiteType::Numeric => "NUMERIC",
-            SQLiteType::Any => "ANY",
-        };
-        f.write_fmt(format_args!("{value}"))
+        write!(f, "{}", self.to_sql_type())
     }
 }
 
@@ -36,12 +28,13 @@ impl SQLiteType {
     /// Convert from attribute name to enum variant
     pub(crate) fn from_attribute_name(name: &str) -> Option<Self> {
         match name {
-            "integer" => Some(SQLiteType::Integer),
-            "text" => Some(SQLiteType::Text),
-            "blob" => Some(SQLiteType::Blob),
-            "real" => Some(SQLiteType::Real),
-            "number" | "numeric" => Some(SQLiteType::Numeric),
-            "any" => Some(Default::default()),
+            "integer" => Some(Self::Integer),
+            "text" => Some(Self::Text),
+            "blob" => Some(Self::Blob),
+            "real" => Some(Self::Real),
+            "number" | "numeric" => Some(Self::Numeric),
+            "boolean" => Some(Self::Integer), // Store booleans as integers (0/1)
+            "any" => Some(Self::Any),
             _ => None,
         }
     }
@@ -49,22 +42,22 @@ impl SQLiteType {
     /// Get the SQL type string for this type
     pub(crate) fn to_sql_type(&self) -> &'static str {
         match self {
-            SQLiteType::Integer => "INTEGER",
-            SQLiteType::Text => "TEXT",
-            SQLiteType::Blob => "BLOB",
-            SQLiteType::Real => "REAL",
-            SQLiteType::Numeric => "NUMERIC",
-            SQLiteType::Any => "ANY",
+            Self::Integer => "INTEGER",
+            Self::Text => "TEXT",
+            Self::Blob => "BLOB",
+            Self::Real => "REAL",
+            Self::Numeric => "NUMERIC",
+            Self::Any => "ANY",
         }
     }
 
     /// Check if a flag is valid for this column type
     pub(crate) fn is_valid_flag(&self, flag: &str) -> bool {
         match (self, flag) {
-            (SQLiteType::Integer, "autoincrement") => true,
-            (SQLiteType::Text | SQLiteType::Blob, "json") => true,
-            (SQLiteType::Text | SQLiteType::Integer, "enum") => true,
-            (_, "primary") | (_, "primary_key") | (_, "unique") => true,
+            (Self::Integer, "autoincrement") => true,
+            (Self::Text | Self::Blob, "json") => true,
+            (Self::Text | Self::Integer, "enum") => true,
+            (_, "primary" | "primary_key" | "unique") => true,
             _ => false,
         }
     }
@@ -102,6 +95,15 @@ impl SQLiteType {
     }
 }
 
+/// Foreign key reference information
+#[derive(Debug, Clone)]
+pub(crate) struct ForeignKeyReference {
+    /// The referenced table identifier (e.g., "User" from User::id)
+    pub(crate) table_ident: Ident,
+    /// The referenced column identifier (e.g., "id" from User::id)
+    pub(crate) column_ident: Ident,
+}
+
 /// Comprehensive field information for code generation
 #[derive(Clone)]
 pub(crate) struct FieldInfo<'a> {
@@ -125,368 +127,408 @@ pub(crate) struct FieldInfo<'a> {
     pub(crate) is_uuid: bool,
     pub(crate) column_type: SQLiteType,
 
+    // Foreign key support
+    pub(crate) foreign_key: Option<ForeignKeyReference>,
+
     // Attribute values
     pub(crate) default_value: Option<Expr>,
     pub(crate) default_fn: Option<Expr>,
-    pub(crate) references_path: Option<ExprPath>,
-    pub(crate) name: Option<String>,
 
     // Type representations for models
     pub(crate) select_type: Option<TokenStream>,
-    pub(crate) insert_type: Option<TokenStream>,
     pub(crate) update_type: Option<TokenStream>,
 }
 
-impl<'a> Parse for FieldInfo<'a> {
-    fn parse(input: ParseStream) -> Result<Self> {
-        // This implementation is a placeholder since FieldInfo requires
-        // references to fields that can't be obtained solely from parsing.
-        // The actual parsing happens in parse_attribute_args and from_field.
-        Err(Error::new(
-            input.span(),
-            "FieldInfo cannot be directly parsed from a token stream",
-        ))
+/// Parse attribute items, handling reserved keywords like 'enum'
+fn parse_item(input: ParseStream) -> Result<Expr> {
+    let lookahead = input.lookahead1();
+
+    if lookahead.peek(Token![enum]) {
+        input.parse::<Token![enum]>()?;
+        let ident = syn::Ident::new("enum", proc_macro2::Span::call_site());
+        Ok(syn::Expr::Path(syn::ExprPath {
+            attrs: Vec::new(),
+            qself: None,
+            path: syn::Path::from(ident),
+        }))
+    } else {
+        input.parse::<Expr>()
+    }
+}
+
+#[derive(Default)]
+struct ParsedArgs {
+    default_value: Option<Expr>,
+    default_fn: Option<Expr>,
+    references: Option<Expr>,
+    name: Option<Expr>,
+    flags: HashSet<String>,
+}
+
+#[derive(Default)]
+struct AttributeData {
+    column_type: SQLiteType,
+    flags: HashSet<String>,
+    default_value: Option<Expr>,
+    default_fn: Option<Expr>,
+    references_path: Option<ExprPath>,
+    attr_name: Option<String>,
+}
+
+struct FieldProperties {
+    is_primary: bool,
+    is_autoincrement: bool,
+    is_unique: bool,
+    is_json: bool,
+    is_enum: bool,
+    is_uuid: bool,
+    has_default: bool,
+}
+
+impl FieldProperties {
+    fn from_flags_and_types(flags: &HashSet<String>, _field_type: &Type, base_type: &Type) -> Self {
+        Self {
+            is_primary: flags.contains("primary_key") || flags.contains("primary"),
+            is_autoincrement: flags.contains("autoincrement"),
+            is_unique: flags.contains("unique"),
+            is_json: flags.contains("json"),
+            is_enum: flags.contains("enum"),
+            is_uuid: base_type.to_token_stream().to_string() == "Uuid",
+            has_default: false, // Will be set in build() based on actual values
+        }
     }
 }
 
 impl<'a> FieldInfo<'a> {
-    /// Parse attribute arguments for field attributes
-    pub(crate) fn parse_attribute_args(
-        input: ParseStream,
-    ) -> Result<(
-        Option<Expr>,
-        Option<Expr>,
-        Option<Expr>,
-        Option<Expr>,
-        HashSet<String>,
-    )> {
-        let mut default_value = None;
-        let mut default_fn = None;
-        let mut references = None;
-        let mut name = None;
-        let mut flags = HashSet::new();
-
-        // If the input is empty, return empty collections
+    /// Parse attribute arguments, extracting flags and named parameters
+    fn parse_args(input: ParseStream) -> Result<ParsedArgs> {
         if input.is_empty() {
-            return Ok((default_value, default_fn, references, name, flags));
+            return Ok(ParsedArgs::default());
         }
 
-        // Parse a comma-separated list of expressions
-        let punctuated = input.parse_terminated(Expr::parse, Token![,])?;
+        let items = input.parse_terminated(parse_item, Token![,])?;
+        let mut args = ParsedArgs::default();
 
-        for expr in punctuated {
-            match expr {
-                Expr::Path(path_expr) => {
-                    // Handle flags like primary_key, not_null, etc.
-                    if let Some(flag_ident) = path_expr.path.get_ident() {
-                        let flag_str = flag_ident.to_string();
-                        if flag_str == "default" {
-                            // Handle bare 'default' keyword - use Default::default()
-                            let default_path: syn::ExprPath = syn::parse_quote!(Default::default);
-                            default_fn = Some(syn::Expr::Path(default_path));
-                        } else {
-                            flags.insert(flag_str);
+        items.into_iter().for_each(|expr| match expr {
+            Expr::Path(path) => {
+                if let Some(ident) = path.path.get_ident() {
+                    match ident.to_string().as_str() {
+                        "default" => args.default_fn = Some(syn::parse_quote!(Default::default)),
+                        flag => {
+                            args.flags.insert(flag.to_string());
                         }
                     }
                 }
-                Expr::Assign(assign_expr) => {
-                    // Handle named parameters (e.g., default = "value")
-                    if let Expr::Path(path_expr) = &*assign_expr.left {
-                        if let Some(param_ident) = path_expr.path.get_ident() {
-                            let param_name = param_ident.to_string();
-                            match param_name.as_str() {
-                                "default" => default_value = Some(*assign_expr.right.clone()),
-                                "default_fn" => default_fn = Some(*assign_expr.right.clone()),
-                                "references" => references = Some(*assign_expr.right.clone()),
-                                "name" => name = Some(*assign_expr.right.clone()),
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-                _ => {}
             }
-        }
+            Expr::Assign(assign) => {
+                if let Expr::Path(path) = &*assign.left {
+                    if let Some(param) = path.path.get_ident() {
+                        match param.to_string().as_str() {
+                            "default" => args.default_value = Some(*assign.right),
+                            "default_fn" => args.default_fn = Some(*assign.right),
+                            "references" => args.references = Some(*assign.right),
+                            "name" => args.name = Some(*assign.right),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
+        });
 
-        Ok((default_value, default_fn, references, name, flags))
+        Ok(args)
     }
 
-    /// Parse field information from a Field
+    /// Parse field information from a struct field
     pub(crate) fn from_field(field: &'a Field, is_part_of_composite_pk: bool) -> Result<Self> {
-        let field_name = field.ident.as_ref().ok_or_else(|| {
-            Error::new_spanned(
+        let Some(field_name) = &field.ident else {
+            return Err(Error::new_spanned(
                 field,
                 "All struct fields must have names. Tuple structs are not supported.\n\
-                 Example: pub field_name: String (not pub String)",
-            )
-        })?;
-        let field_type = &field.ty;
+                 Example: pub field_name: String",
+            ));
+        };
 
-        // Initialize collections for parsed attributes
-        let mut flags = HashSet::new();
-        let mut column_type = Default::default();
-        let mut default_value = None;
-        let mut default_fn = None;
-        let mut references_path = None;
-        let mut attr_name = None;
+        let attrs = Self::parse_attributes(&field.attrs)?;
+        Self::build(field_name, &field.ty, attrs, is_part_of_composite_pk)
+    }
 
-        // Parse attributes
-        for attr in &field.attrs {
-            // Check if the attribute path is one of our supported column types
-            let path_ident = attr.path().get_ident();
-            if let Some(ident) = path_ident {
+    /// Parse field attributes to extract column information
+    fn parse_attributes(attrs: &[Attribute]) -> Result<AttributeData> {
+        attrs
+            .iter()
+            .filter_map(|attr| {
+                let ident = attr.path().get_ident()?;
                 let type_name = ident.to_string();
+                let column_type = SQLiteType::from_attribute_name(&type_name)?;
+                Some((attr, column_type))
+            })
+            .try_fold(AttributeData::default(), |mut data, (attr, column_type)| {
+                data.column_type = column_type.clone();
 
-                // Check if this is a column type attribute
-                if let Some(sqlite_type) = SQLiteType::from_attribute_name(&type_name) {
-                    // Set the column type
-                    column_type = sqlite_type.clone();
-
-                    // Handle the case of an empty attribute (e.g., #[text])
-                    if let Meta::Path(_) = attr.meta {
-                        // This is an attribute without arguments, like #[text]
-                        continue;
-                    }
-
-                    // Parse the arguments using our custom parser
-                    if let Ok((
-                        default_val,
-                        default_fn_val,
-                        references_val,
-                        name_val,
-                        parsed_flags,
-                    )) = attr.parse_args_with(Self::parse_attribute_args)
-                    {
-                        // Validate attributes based on column type
-                        for flag in &parsed_flags {
-                            // Validate the flag for this column type
-                            sqlite_type.validate_flag(flag, attr)?;
-                        }
-
-                        // Set values
-                        if let Some(val) = default_val {
-                            default_value = Some(val);
-                        }
-
-                        if let Some(val) = default_fn_val {
-                            default_fn = Some(val);
-                        }
-
-                        if let Some(val) = references_val {
-                            if let Expr::Path(path) = val {
-                                references_path = Some(path);
-                            }
-                        }
-
-                        // Extract name from attribute if present using modern pattern matching
-                        if let Some(Expr::Lit(expr_lit)) = name_val
-                            && let Lit::Str(lit_str) = expr_lit.lit
-                        {
-                            attr_name = Some(lit_str.value());
-                        }
-
-                        // Merge the flags
-                        flags.extend(parsed_flags);
-                    }
+                // Handle empty attributes like #[text]
+                if matches!(&attr.meta, Meta::Path(_)) {
+                    return Ok(data);
                 }
-            }
-        }
 
-        // Get column name (attribute name or field name)
-        let column_name = attr_name.clone().unwrap_or_else(|| field_name.to_string());
+                let Ok(args) = attr.parse_args_with(Self::parse_args) else {
+                    return Ok(data); // Skip unparseable attributes
+                };
 
-        // Parse flags and options
-        let is_primary = flags.contains("primary_key") || flags.contains("primary");
-        let is_autoincrement = flags.contains("autoincrement");
-        let is_unique = flags.contains("unique");
+                // Validate flags
+                args.flags
+                    .iter()
+                    .try_for_each(|flag| column_type.validate_flag(flag, attr))?;
+
+                // Extract values
+                data.flags.extend(args.flags);
+                data.default_value = data.default_value.or(args.default_value);
+                data.default_fn = data.default_fn.or(args.default_fn);
+
+                if let Some(Expr::Path(path)) = args.references {
+                    data.references_path = Some(path);
+                }
+
+                if let Some(Expr::Lit(expr_lit)) = args.name
+                    && let Lit::Str(lit_str) = expr_lit.lit
+                {
+                    data.attr_name = Some(lit_str.value());
+                }
+
+                Ok(data)
+            })
+    }
+
+    /// Build FieldInfo from parsed components
+    fn build(
+        field_name: &'a Ident,
+        field_type: &'a Type,
+        attrs: AttributeData,
+        is_part_of_composite_pk: bool,
+    ) -> Result<Self> {
+        let column_name = attrs
+            .attr_name
+            .clone()
+            .unwrap_or_else(|| field_name.to_string());
         let is_nullable = is_option_type(field_type);
-        let is_json = flags.contains("json");
-        let is_enum = flags.contains("enum");
-        let has_default = default_value.is_some() || default_fn.is_some();
-
-        // Determine base type (T from Option<T> or T)
-        let base_type: &Type = if is_nullable {
-            get_option_inner_type(field_type).unwrap_or(field_type)
+        let base_type = if is_nullable {
+            extract_option_inner(field_type).unwrap_or(field_type)
         } else {
             field_type
         };
 
-        // Create column definition
-        let mut sql = format!("{} {}", column_name, column_type.to_sql_type());
+        let mut properties =
+            FieldProperties::from_flags_and_types(&attrs.flags, field_type, base_type);
+        properties.has_default = attrs.default_value.is_some() || attrs.default_fn.is_some();
 
-        // Add generic column constraints
-        if is_primary && !is_part_of_composite_pk {
-            sql.push_str(" PRIMARY KEY");
-        }
+        Self::validate_constraints(
+            &attrs.column_type,
+            &properties,
+            &attrs.default_value,
+            &attrs.default_fn,
+            field_name,
+        )?;
 
-        if !is_nullable {
-            sql.push_str(" NOT NULL");
-        }
+        let sql_definition = build_sql_definition(
+            &column_name,
+            &attrs.column_type,
+            properties.is_primary && !is_part_of_composite_pk,
+            !is_nullable,
+            properties.is_unique,
+            properties.is_autoincrement,
+            &attrs.default_value,
+        );
 
-        if is_unique {
-            sql.push_str(" UNIQUE");
-        }
+        // Detect foreign key reference from the attributes (references = Table::column)
+        let foreign_key = attrs
+            .references_path
+            .as_ref()
+            .and_then(|path| detect_foreign_key_reference_from_path(path));
 
-        // Add default value using modern pattern matching
-        if let Some(Expr::Lit(expr_lit)) = &default_value {
-            let default_sql = match &expr_lit.lit {
-                Lit::Int(i) => format!(" DEFAULT {}", i),
-                Lit::Float(f) => format!(" DEFAULT {}", f),
-                Lit::Bool(b) => format!(" DEFAULT {}", b.value() as i64),
-                Lit::Str(s) => format!(" DEFAULT '{}'", s.value()),
-                _ => String::new(),
-            };
-            sql.push_str(&default_sql);
-        }
-
-        // Create type representations for models
-        let select_type = if !is_nullable || has_default {
-            Some(quote!(#base_type))
-        } else {
-            Some(quote!(::std::option::Option<#base_type>))
-        };
-
-        let insert_type = if is_nullable || has_default || is_primary {
-            Some(quote!(::std::option::Option<#base_type>))
-        } else {
-            Some(quote!(#base_type))
-        };
-
-        let update_type = Some(quote!(::std::option::Option<#base_type>));
-        let is_uuid = base_type.to_token_stream().to_string().eq("Uuid");
-
-        // Add helpful warnings for common mistakes
-        if is_autoincrement && !matches!(column_type, SQLiteType::Integer) {
-            return Err(Error::new_spanned(
-                field,
-                "AUTOINCREMENT can only be used with INTEGER PRIMARY KEY.\n\
-                 See: https://sqlite.org/autoinc.html\n\
-                 Hint: Change column type to '#[integer(primary, autoincrement)]'",
-            ));
-        }
-
-        if is_autoincrement && !is_primary {
-            return Err(Error::new_spanned(
-                field,
-                "AUTOINCREMENT requires PRIMARY KEY constraint.\n\
-                 See: https://sqlite.org/autoinc.html\n\
-                 Hint: Add 'primary' flag: '#[integer(primary, autoincrement)]'",
-            ));
-        }
-
-        if default_value.is_some() && default_fn.is_some() {
-            return Err(Error::new_spanned(
-                field,
-                "Cannot specify both 'default' (compile-time literal) and 'default_fn' (runtime function).\n\
-                 Choose one: either 'default = literal' or 'default_fn = function'\n\
-                 Examples:\n  #[text(default = \"hello\")] for compile-time defaults\n  #[text(default_fn = String::new)] for runtime defaults",
-            ));
-        }
-
-        // Validate UUID fields can only use BLOB column type
-        if is_uuid && !matches!(column_type, SQLiteType::Blob) {
-            return Err(Error::new_spanned(
-                field,
-                "UUID fields must use BLOB column type for optimal performance and compatibility.\n\
-                 UUIDs are stored as 16-byte binary data in SQLite.\n\
-                 See: https://sqlite.org/datatype3.html#storage_classes_and_datatypes\n\
-                 Use: #[blob] instead of #[text] for UUID fields\n\
-                 Example: #[blob(primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid",
-            ));
-        }
-
-        // Create the FieldInfo struct
         Ok(FieldInfo {
             ident: field_name,
             field_type,
             base_type,
             column_name,
-            sql_definition: sql,
+            sql_definition,
             is_nullable,
-            has_default,
-            is_primary,
-            is_autoincrement,
-            is_unique,
-            is_json,
-            is_enum,
-            is_uuid,
-            column_type,
-            default_value,
-            default_fn,
-            references_path,
-            name: attr_name,
-            select_type,
-            insert_type,
-            update_type,
+            has_default: properties.has_default,
+            is_primary: properties.is_primary,
+            is_autoincrement: properties.is_autoincrement,
+            is_unique: properties.is_unique,
+            is_json: properties.is_json,
+            is_enum: properties.is_enum,
+            is_uuid: properties.is_uuid,
+            column_type: attrs.column_type,
+            foreign_key,
+            default_value: attrs.default_value,
+            default_fn: attrs.default_fn,
+            select_type: Some(select_type(base_type, is_nullable, properties.has_default)),
+            update_type: Some(update_type(base_type)),
         })
     }
 
+    /// Validate field constraints and configuration
+    fn validate_constraints(
+        column_type: &SQLiteType,
+        props: &FieldProperties,
+        default_value: &Option<Expr>,
+        default_fn: &Option<Expr>,
+        field_name: &Ident,
+    ) -> Result<()> {
+        let validations = [
+            (
+                props.is_autoincrement && !matches!(column_type, SQLiteType::Integer),
+                "AUTOINCREMENT can only be used with INTEGER PRIMARY KEY.\n\
+              See: https://sqlite.org/autoinc.html\n\
+              Hint: Change column type to '#[integer(primary, autoincrement)]'",
+            ),
+            (
+                props.is_autoincrement && !props.is_primary,
+                "AUTOINCREMENT requires PRIMARY KEY constraint.\n\
+              See: https://sqlite.org/autoinc.html\n\
+              Hint: Add 'primary' flag: '#[integer(primary, autoincrement)]'",
+            ),
+            (
+                default_value.is_some() && default_fn.is_some(),
+                "Cannot specify both 'default' (compile-time literal) and 'default_fn' (runtime function).\n\
+              Choose one: either 'default = literal' or 'default_fn = function'\n\
+              Examples:\n  #[text(default = \"hello\")] for compile-time defaults\n  #[text(default_fn = String::new)] for runtime defaults",
+            ),
+            (
+                props.is_uuid && !matches!(column_type, SQLiteType::Blob),
+                "UUID fields must use BLOB column type for optimal performance and compatibility.\n\
+              UUIDs are stored as 16-byte binary data in SQLite.\n\
+              See: https://sqlite.org/datatype3.html#storage_classes_and_datatypes\n\
+              Use: #[blob] instead of #[text] for UUID fields\n\
+              Example: #[blob(primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid",
+            ),
+        ];
+
+        validations
+            .iter()
+            .find(|(condition, _)| *condition)
+            .map_or(Ok(()), |(_, msg)| Err(Error::new_spanned(field_name, msg)))
+    }
+}
+
+/// Build SQL column definition string
+fn build_sql_definition(
+    column_name: &str,
+    column_type: &SQLiteType,
+    is_primary_single: bool,
+    is_not_null: bool,
+    is_unique: bool,
+    is_autoincrement: bool,
+    default_value: &Option<Expr>,
+) -> String {
+    let mut sql = format!("{} {}", column_name, column_type.to_sql_type());
+
+    // Handle primary key with potential autoincrement
+    if is_primary_single {
+        sql.push_str(" PRIMARY KEY");
+        if is_autoincrement {
+            sql.push_str(" AUTOINCREMENT");
+        }
+    }
+
+    // Add NOT NULL constraint
+    if is_not_null {
+        sql.push_str(" NOT NULL");
+    }
+
+    // Add UNIQUE constraint
+    if is_unique {
+        sql.push_str(" UNIQUE");
+    }
+
+    if let Some(Expr::Lit(expr_lit)) = default_value {
+        let default_val = match &expr_lit.lit {
+            Lit::Int(i) => format!(" DEFAULT {i}"),
+            Lit::Float(f) => format!(" DEFAULT {f}"),
+            Lit::Bool(b) => format!(" DEFAULT {}", b.value() as i64),
+            Lit::Str(s) => format!(" DEFAULT \"{}\"", s.value()),
+            _ => String::new(),
+        };
+        sql.push_str(&default_val);
+    }
+
+    sql
+}
+
+/// Generate the appropriate type for select models
+fn select_type(base_type: &Type, is_nullable: bool, has_default: bool) -> TokenStream {
+    if !is_nullable || has_default {
+        quote!(#base_type)
+    } else {
+        quote!(::std::option::Option<#base_type>)
+    }
+}
+
+/// Generate the appropriate type for update models
+fn update_type(base_type: &Type) -> TokenStream {
+    quote!(::std::option::Option<#base_type>)
+}
+
+impl<'a> FieldInfo<'a> {
     /// Get the model field type for this field in the SelectModel
     pub(crate) fn get_select_type(&self) -> TokenStream {
-        self.select_type.clone().unwrap_or_else(|| {
-            let base_type = self.base_type;
-            if !self.is_nullable || self.has_default {
-                quote!(#base_type)
-            } else {
-                quote!(::std::option::Option<#base_type>)
-            }
-        })
-    }
-
-    /// Get the model field type for this field in the InsertModel
-    pub(crate) fn get_insert_type(&self) -> TokenStream {
-        self.insert_type.clone().unwrap_or_else(|| {
-            let base_type = self.base_type;
-            // All primary keys should be optional in insert models to avoid unique constraint conflicts
-            // when default values (like 0) are used
-            if self.is_nullable || self.has_default || self.is_primary {
-                quote!(::std::option::Option<#base_type>)
-            } else {
-                quote!(#base_type)
-            }
-        })
+        self.select_type
+            .clone()
+            .unwrap_or_else(|| select_type(self.base_type, self.is_nullable, self.has_default))
     }
 
     /// Get the model field type for this field in the UpdateModel
     pub(crate) fn get_update_type(&self) -> TokenStream {
-        self.update_type.clone().unwrap_or_else(|| {
-            let base_type = self.base_type;
-            quote!(::std::option::Option<#base_type>)
-        })
+        self.update_type
+            .clone()
+            .unwrap_or_else(|| update_type(self.base_type))
     }
 }
 
-#[derive(Clone)]
-pub(crate) enum Relationship {
-    One(LitStr),
-    Many(LitStr),
+/// Check if a type is an Option<T>
+pub(crate) fn is_option_type(ty: &Type) -> bool {
+    matches!(ty, Type::Path(type_path)
+        if type_path.path.segments.last()
+            .is_some_and(|seg| seg.ident == "Option"))
 }
 
-// Helper function to check if a type is an Option<T>
-pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            if segment.ident == "Option" {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-// Helper function to get the inner type of Option<T>
-pub(crate) fn get_option_inner_type<'a>(ty: &'a syn::Type) -> Option<&'a syn::Type> {
-    let syn::Type::Path(type_path) = ty else {
+/// Extract the inner type from Option<T>
+pub(crate) fn extract_option_inner(ty: &Type) -> Option<&Type> {
+    let Type::Path(type_path) = ty else {
         return None;
     };
-
     let segment = type_path.path.segments.last()?;
 
     if segment.ident == "Option"
         && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
         && let Some(syn::GenericArgument::Type(inner_type)) = args.args.first()
     {
-        return Some(inner_type);
+        Some(inner_type)
+    } else {
+        None
+    }
+}
+
+/// Detect if an ExprPath is a foreign key reference (Table::column syntax)
+/// Returns (table_ident, column_ident) if the path matches the pattern
+pub(crate) fn detect_foreign_key_reference_from_path(
+    path: &ExprPath,
+) -> Option<ForeignKeyReference> {
+    // Check if this is a path with exactly 2 segments (Table::column)
+    if path.path.segments.len() == 2 {
+        let table_ident = path.path.segments.first()?.ident.clone();
+        let column_ident = path.path.segments.last()?.ident.clone();
+
+        // Basic validation: ensure both segments exist and are valid identifiers
+        if !table_ident.to_string().is_empty() && !column_ident.to_string().is_empty() {
+            return Some(ForeignKeyReference {
+                table_ident,
+                column_ident,
+            });
+        }
+    } else {
+        // Path doesn't match expected pattern
     }
     None
 }

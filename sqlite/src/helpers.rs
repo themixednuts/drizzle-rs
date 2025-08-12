@@ -1,13 +1,23 @@
 use crate::{common::Join, values::SQLiteValue};
 use drizzle_core::{
-    SQL, SQLSchema, SQLTable, ToSQL, helpers as core_helpers,
-    traits::{SQLModel, SQLParam},
+    SQL, SQLTable, ToSQL, helpers as core_helpers,
+    traits::{SQLColumnInfo, SQLModel, SQLParam},
 };
 
 // Re-export core helpers with SQLiteValue type for convenience
 pub(crate) use core_helpers::{
     delete, from, group_by, having, limit, offset, order_by, select, set, update, r#where,
 };
+
+/// Helper to convert column info to SQL for joining (column names only for INSERT)
+fn columns_info_to_sql<'a, V>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+{
+    // For INSERT statements, we need just column names, not fully qualified names
+    let joined_names = columns.iter().map(|col| col.name()).collect::<Vec<_>>().join(", ");
+    SQL::raw(joined_names)
+}
 
 fn join_internal<'a, T, V>(table: T, join: Join, condition: SQL<'a, V>) -> SQL<'a, V>
 where
@@ -172,7 +182,8 @@ where
     SQL::raw("INSERT INTO").append(&table)
 }
 
-/// Helper function to create VALUES clause for INSERT
+/// Helper function to create VALUES clause for INSERT with smart batching
+/// Groups rows by their column patterns and generates separate batch INSERT statements
 pub(crate) fn values<'a, Table, V>(
     rows: impl IntoIterator<Item = <Table as SQLTable<'a, V>>::Insert>,
 ) -> SQL<'a, V>
@@ -180,34 +191,98 @@ where
     Table: SQLTable<'a, V>,
     V: SQLParam + 'a,
 {
-    let rows_vec: Vec<_> = rows.into_iter().collect();
-    if rows_vec.is_empty() {
-        return SQL::raw("VALUES");
+    let mut rows_iter = rows.into_iter();
+    
+    match rows_iter.next() {
+        None => SQL::raw("VALUES"),
+        Some(first_row) => {
+            let rows_vec: Vec<_> = std::iter::once(first_row).chain(rows_iter).collect();
+            
+            // Group rows by their column patterns (handles both single and multiple rows)
+            SQL::join(
+                group_rows_by_columns(&rows_vec)
+                    .into_iter()
+                    .map(|(columns, batch_rows)| generate_batch_insert(columns, batch_rows)),
+                "; "
+            )
+        }
+    }
+}
+
+/// Groups rows by their column patterns for efficient batching
+fn group_rows_by_columns<'a, V, Row>(rows: &[Row]) -> Vec<(SQL<'a, V>, Vec<&Row>)>
+where
+    V: SQLParam + 'a,
+    Row: SQLModel<'a, V>,
+{
+    use std::collections::BTreeMap;
+
+    // Use BTreeMap for consistent ordering of column patterns
+    let mut groups: BTreeMap<String, (SQL<'a, V>, Vec<&Row>)> = BTreeMap::new();
+
+    for row in rows {
+        let columns_info = row.columns();
+        let columns_sql = columns_info_to_sql(&columns_info);
+        let columns_key = columns_sql.sql(); // Use SQL string as grouping key
+
+        groups
+            .entry(columns_key)
+            .or_insert_with(|| (columns_sql, Vec::new()))
+            .1
+            .push(row);
     }
 
-    // Get column names from the first row
-    let columns = rows_vec[0].columns();
+    groups.into_values().collect()
+}
 
-    // Generate value rows, each row uses values() method
-    let value_rows: Vec<SQL<'a, V>> = rows_vec
+/// Generates a batched INSERT statement for rows with the same column pattern  
+fn generate_batch_insert<'a, V, Row>(columns: SQL<'a, V>, batch_rows: Vec<&Row>) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+    Row: SQLModel<'a, V>,
+{
+    // Check if this batch has no columns (all fields are Omit) - use DEFAULT VALUES
+    if batch_rows
+        .first()
+        .map_or(true, |row| row.columns().is_empty())
+    {
+        return batch_rows
+            .iter()
+            .map(|_| SQL::raw("DEFAULT VALUES"))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .reduce(|acc, sql| acc.append_raw("; ").append(sql))
+            .unwrap_or(SQL::raw("DEFAULT VALUES"));
+    }
+
+    // Generate standard INSERT with columns and values
+    let value_clauses = batch_rows
         .iter()
         .map(|row| SQL::raw("(").append(row.values()).append_raw(")"))
-        .collect();
+        .collect::<Vec<_>>();
 
-    // Return: (col1, col2) VALUES (?, ?), (?, ?)
     SQL::raw("(")
         .append(columns)
         .append_raw(") VALUES ")
-        .append(SQL::join(value_rows, ", "))
+        .append(SQL::join(value_clauses, ", "))
 }
 
 /// Helper function to create a RETURNING clause - SQLite specific
-pub(crate) fn returning<'a>(columns: Vec<SQL<'a, SQLiteValue<'a>>>) -> SQL<'a, SQLiteValue<'a>> {
+pub(crate) fn returning<'a, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
+where
+    I: IntoIterator<Item = SQL<'a, SQLiteValue<'a>>>,
+{
     let sql = SQL::raw("RETURNING");
+    let mut columns_iter = columns.into_iter();
 
-    if columns.is_empty() {
-        return sql.append_raw("*");
+    match columns_iter.next() {
+        None => sql.append_raw("*"),
+        Some(first_col) => {
+            let mut result = sql.append(first_col);
+            for col in columns_iter {
+                result = result.append_raw(", ").append(col);
+            }
+            result
+        }
     }
-
-    sql.append(SQL::join(columns, ", "))
 }

@@ -1,152 +1,186 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DataEnum, Ident};
+use syn::{DataEnum, Expr, ExprLit, ExprUnary, Ident, Lit, UnOp, spanned::Spanned};
 
-// Generate implementation for integer-based enum representation
-pub fn generate_integer_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
-    let to_integer_variants = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let discriminant = if let Some((_, ref expr)) = variant.discriminant {
-            quote! { #expr }
-        } else {
-            quote! { Self::#variant_name as i64 }
-        };
+fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
+    match expr {
+        // Simple positive literal like `3`
+        Expr::Lit(ExprLit {
+            lit: Lit::Int(i), ..
+        }) => i
+            .base10_parse::<i64>()
+            .map_err(|e| syn::Error::new(i.span(), e)),
 
-        quote! {
-            Self::#variant_name => #discriminant,
-        }
-    });
-
-    let from_integer_variants = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let discriminant = if let Some((_, ref expr)) = variant.discriminant {
-            quote! { #expr }
-        } else {
-            quote! { Self::#variant_name as i64 }
-        };
-
-        quote! {
-            i if i == #discriminant => Some(Self::#variant_name),
-        }
-    });
-
-    let display_variants = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let variant_str = variant_name.to_string();
-
-        quote! {
-            Self::#variant_name => write!(f, #variant_str),
-        }
-    });
-
-    let from_str_variants = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let variant_str = variant_name.to_string();
-
-        quote! {
-            #variant_str => Ok(Self::#variant_name),
-        }
-    });
-
-    Ok(quote! {
-        // Use absolute paths when generating
-        impl ::drizzle_rs::sqlite::SQLiteEnum for #name {
-            const ENUM_REPR: ::drizzle_rs::sqlite::SQLiteEnumRepr = ::drizzle_rs::sqlite::SQLiteEnumRepr::Integer;
-
-            fn to_integer(&self) -> i64 {
-                match self {
-                    #(#to_integer_variants)*
-                    _ => Self::default().to_integer(),
-                }
-            }
-
-            fn from_integer(i: i64) -> Option<Self> {
-                match i {
-                    #(#from_integer_variants)*
-                    _ => None,
-                }
+        // Negative literal like `-1`
+        Expr::Unary(ExprUnary {
+            op: UnOp::Neg(_),
+            expr,
+            ..
+        }) => {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Int(i), ..
+            }) = &**expr
+            {
+                let val = i
+                    .base10_parse::<i64>()
+                    .map_err(|e| syn::Error::new(i.span(), e))?;
+                Ok(-val)
+            } else {
+                Err(syn::Error::new(
+                    expr.span(),
+                    "Expected integer literal after unary minus",
+                ))
             }
         }
 
-        // Implement Display for the enum
-        impl std::fmt::Display for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    #(#display_variants)*
-                    _ => write!(f, "{}", Self::default()),
-                }
-            }
-        }
-
-        // Implement FromStr for the enum with String as the error type
-        impl std::str::FromStr for #name {
-            type Err = String;
-
-            fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-                match s {
-                    #(#from_str_variants)*
-                    _ => std::result::Result::Err(format!("Unknown variant: {}", s)),
-                }
-            }
-        }
-    })
+        other => Err(syn::Error::new(
+            other.span(),
+            "Expected integer literal or unary minus",
+        )),
+    }
 }
-
 // Generate implementation for text-based enum representation
-pub fn generate_text_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
+pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
     let display_variants = data.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         let variant_str = variant_name.to_string();
 
         quote! {
-            Self::#variant_name => write!(f, #variant_str),
+            #name::#variant_name => write!(f, #variant_str),
         }
     });
 
-    let from_str_variants = data.variants.iter().map(|variant| {
-        let variant_name = &variant.ident;
-        let variant_str = variant_name.to_string();
+    let to_str_variants: Vec<_> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let ident = &variant.ident;
 
-        quote! {
-            #variant_str => Ok(Self::#variant_name),
-        }
-    });
+            quote! {
+                #name::#ident => stringify!(#ident)
+            }
+        })
+        .collect();
 
-    let to_integer_variants = data.variants.iter().enumerate().map(|(i, variant)| {
-        let variant_name = &variant.ident;
-        let index = i as i64;
+    let to_str_ref_variants: Box<_> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let ident = &variant.ident;
 
-        quote! {
-            Self::#variant_name => #index,
-        }
-    });
+            quote! {
+                &#name::#ident => stringify!(#ident)
+            }
+        })
+        .collect();
 
-    let from_integer_variants = data.variants.iter().enumerate().map(|(i, variant)| {
-        let variant_name = &variant.ident;
-        let index = i as i64;
+    let from_str_variants: Box<_> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let ident = &variant.ident;
 
-        quote! {
-            i if i == #index => Some(Self::#variant_name),
-        }
-    });
+            quote! {
+                stringify!(#ident) => #name::#ident,
+            }
+        })
+        .collect();
+
+    // let to_str_variants: Vec<_> = data
+    //     .variants
+    //     .iter()
+    //     .map(|variant| {
+    //         let ident = &variant.ident;
+
+    //         quote! {
+    //             #name::#ident => ::drizzle_rs::sqlite::SQLiteValue::from(#ident).into()
+    //         }
+    //     })
+    //     .collect();
+
+    let to_integer_variants = data
+        .variants
+        .iter()
+        .try_fold((0, Vec::new()), |(val, mut acc), variant| {
+            let ident = &variant.ident;
+            let value = if let Some((_, expr)) = &variant.discriminant {
+                parse_discriminant(expr)?
+            } else {
+                val
+            };
+
+            acc.push(quote! {
+                #name::#ident => #value
+            });
+
+            Ok::<_, syn::Error>((value + 1, acc))
+        })
+        .map(|(_, t)| t.into_boxed_slice())?;
+
+    let to_integer_ref_variants = data
+        .variants
+        .iter()
+        .try_fold((0, Vec::new()), |(val, mut acc), variant| {
+            let ident = &variant.ident;
+            let value = if let Some((_, expr)) = &variant.discriminant {
+                parse_discriminant(expr)?
+            } else {
+                val
+            };
+
+            acc.push(quote! {
+                &#name::#ident => #value
+            });
+
+            Ok::<_, syn::Error>((value + 1, acc))
+        })
+        .map(|(_, t)| t.into_boxed_slice())?;
+
+    let from_integer_variants = data
+        .variants
+        .iter()
+        .try_fold((0, Vec::new()), |(val, mut acc), variant| {
+            let ident = &variant.ident;
+
+            // Determine the numeric value
+            let value = if let Some((_, expr)) = &variant.discriminant {
+                parse_discriminant(expr)?
+            } else {
+                val
+            };
+            acc.push(quote! {
+                i if i == #value => #name::#ident
+            });
+            Ok::<_, syn::Error>((value + 1, acc))
+        })
+        .map(|(_, t)| t.into_boxed_slice())?;
 
     Ok(quote! {
-        // Use absolute paths when generating
-        impl ::drizzle_rs::sqlite::SQLiteEnum for #name {
-            const ENUM_REPR: ::drizzle_rs::sqlite::SQLiteEnumRepr = ::drizzle_rs::sqlite::SQLiteEnumRepr::Text;
 
-            fn to_integer(&self) -> i64 {
-                match self {
-                    #(#to_integer_variants)*
-                    _ => Self::default().to_integer(),
+        impl From<#name> for i64 {
+            fn from(value: #name) -> Self {
+                match value {
+                    #(#to_integer_variants,)*
                 }
             }
+        }
 
-            fn from_integer(i: i64) -> Option<Self> {
-                match i {
-                    #(#from_integer_variants)*
-                    _ => None,
+        impl From<&#name> for i64 {
+            fn from(value: &#name) -> Self {
+                match value {
+                    #(#to_integer_ref_variants,)*
                 }
+            }
+        }
+
+        impl TryFrom<i64> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: i64) -> std::result::Result<Self, Self::Error> {
+                Ok(match value {
+                    #(#from_integer_variants,)*
+                    _ => return Err(::drizzle_rs::error::DrizzleError::Mapping(format!("{value}"))),
+                })
             }
         }
 
@@ -155,21 +189,58 @@ pub fn generate_text_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<Tok
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
                     #(#display_variants)*
-                    _ => write!(f, "{}", Self::default()),
                 }
+            }
+        }
+
+        impl From<#name> for &str {
+            fn from(value: #name) -> Self {
+                match value {
+                    #(#to_str_variants,)*
+                }
+            }
+        }
+
+        impl From<&#name> for &str {
+            fn from(value: &#name) -> Self {
+                match value {
+                    #(#to_str_ref_variants,)*
+                }
+            }
+        }
+
+        impl AsRef<str> for #name {
+            fn as_ref(&self) -> &str {
+                match self {
+                    #(#to_str_variants,)*
+                }
+            }
+        }
+
+        impl TryFrom<&str> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+                Ok(match value {
+                    #(#from_str_variants)*
+                    _ => return Err(::drizzle_rs::error::DrizzleError::Mapping(format!("{value}"))),
+                })
             }
         }
 
         // Implement FromStr for the enum with String as the error type
         impl std::str::FromStr for #name {
-            type Err = String;
+            type Err = ::drizzle_rs::error::DrizzleError;
 
             fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-                match s {
+                Ok(match s {
                     #(#from_str_variants)*
-                    _ => std::result::Result::Err(format!("Unknown variant: {}", s)),
-                }
+                    _ => return Err(::drizzle_rs::error::DrizzleError::Mapping(format!("{s}"))),
+                })
             }
         }
+
+
+
     })
 }

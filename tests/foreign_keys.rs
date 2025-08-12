@@ -1,0 +1,64 @@
+use drizzle_rs::prelude::*;
+mod common;
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use crate::common::{Complex, InsertComplex, InsertPost, Post, SelectPost, setup_db};
+
+    use super::*;
+
+    #[test]
+    fn test_foreign_key_generation() {
+        // Test that foreign keys are generated correctly
+        let post_instance = Post::default();
+        let post_sql = post_instance.sql().sql();
+
+        println!("Post table SQL: {}", post_sql);
+
+        assert!(post_sql.contains("CREATE TABLE"));
+        assert!(post_sql.contains("posts"));
+
+        // Check for foreign key constraint
+        assert!(
+            post_sql.contains("REFERENCES"),
+            "Post table should contain REFERENCES for foreign key"
+        );
+        assert!(
+            post_sql.contains("complex"),
+            "Post table should reference users table"
+        );
+        assert!(
+            post_sql.contains("(id)"),
+            "Post table should reference id column"
+        );
+    }
+
+    #[test]
+    fn test_foreign_key_impl() {
+        let conn = setup_db();
+        let (db, (user, post)) = drizzle!(conn, [Complex, Post]);
+
+        let id = Uuid::new_v4();
+
+        db.insert(user)
+            .values([InsertComplex::new("John", false, common::Role::User).with_id(id)])
+            .execute()
+            .expect("insert user john");
+
+        db.insert(post)
+            .values([InsertPost::new("test", true).with_author_id(id)])
+            .execute()
+            .expect("insert post");
+
+        let row: SelectPost = db
+            .select(())
+            .from(post)
+            .r#where(eq(post.author_id, id))
+            .get()
+            .expect("select post");
+
+        assert_eq!(row.author_id, Some(id));
+    }
+}

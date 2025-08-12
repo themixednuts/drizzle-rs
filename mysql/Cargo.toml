@@ -7,6 +7,7 @@ keywords.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 drizzle_core = { workspace = true }

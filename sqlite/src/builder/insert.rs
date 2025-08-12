@@ -133,9 +133,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         let conflict_sql = match conflict {
             Conflict::Ignore { target } => {
                 if let Some(target_iter) = target {
-                    let target_sqls: Vec<SQL<'a, SQLiteValue<'a>>> =
-                        target_iter.into_iter().map(|item| item.to_sql()).collect();
-                    let cols = SQL::join(target_sqls, ", ");
+                    let cols = SQL::join(target_iter.into_iter().map(|item| item.to_sql()), ", ");
                     SQL::raw("ON CONFLICT (")
                         .append(cols)
                         .append_raw(") DO NOTHING")
@@ -149,9 +147,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
                 target_where,
                 set_where,
             } => {
-                let target_sqls: Vec<SQL<'a, SQLiteValue<'a>>> =
-                    target.into_iter().map(|item| item.to_sql()).collect();
-                let target_cols = SQL::join(target_sqls, ", ");
+                let target_cols = SQL::join(target.into_iter().map(|item| item.to_sql()), ", ");
                 let mut sql = SQL::raw("ON CONFLICT (")
                     .append(target_cols)
                     .append_raw(")");

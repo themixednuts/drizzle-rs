@@ -43,7 +43,7 @@ struct JsonUser {
 fn json_storage() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
 
-    conn.execute(JsonUser::SQL, []).unwrap();
+    conn.execute(JsonUser::SQL.sql().as_str(), []).unwrap();
 
     let profile = Profile {
         age: 30,
@@ -58,8 +58,7 @@ fn json_storage() {
     )
     .unwrap();
 
-    let (db, (jsonuser, ..)) = drizzle!(conn, [JsonUser]);
-    db.execute("");
+    let (db, jsonuser) = drizzle!(conn, [JsonUser]);
 
     let stmt = db
         .select((jsonuser.id, json_extract(jsonuser.profile, "age")))

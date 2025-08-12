@@ -1,14 +1,10 @@
 use crate::values::SQLiteValue;
-use drizzle_core::SQLTable;
-use drizzle_core::{SQL, error::Result};
+use drizzle_core::{SQL, SQLTable};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
-
-#[cfg(feature = "serde")]
-use serde::de::DeserializeOwned;
 
 //------------------------------------------------------------------------------
 // Type State Markers

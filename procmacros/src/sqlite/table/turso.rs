@@ -3,8 +3,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Error, Result};
 
-/// Generate TryFrom implementations for rusqlite::Row for a table's models
-pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
+/// Generate TryFrom implementations for turso::Row for a table's models
+pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -26,10 +26,10 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #select_model_ident {
-            type Error = ::rusqlite::Error;
+        impl ::std::convert::TryFrom<&turso::Row> for #select_model_ident {
+            type Error = turso::Error;
 
-            fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#select)*
                 })
@@ -40,10 +40,10 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
     let partial_select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #partial_ident {
-            type Error = ::rusqlite::Error;
+        impl ::std::convert::TryFrom<&turso::Row> for #partial_ident {
+            type Error = turso::Error;
 
-            fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#partial)*
                 })
@@ -55,10 +55,10 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
     // writing data TO the database, not reading FROM it
 
     let update_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for #update_model_ident {
-            type Error = ::rusqlite::Error;
+        impl ::std::convert::TryFrom<&turso::Row> for #update_model_ident {
+            type Error = turso::Error;
 
-            fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#update)*
                 })
@@ -74,7 +74,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
     })
 }
 
-/// Handles both standard types and conditional JSON deserialization.
+/// Handles both standard types and conditional JSON deserialization for turso.
 fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     let name = info.ident;
     let column_name = &info.column_name;
@@ -85,11 +85,21 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
             "JSON fields require the 'serde' feature to be enabled",
         ));
     } else if info.is_uuid {
-        // Handle all UUIDs as BLOB - rusqlite handles this perfectly with built-in support
+        // Handle UUIDs as BLOB for turso - use row.get() for type-safe conversion
         Ok(quote! {
             #name: row.get(#column_name)?,
         })
+    } else if info.is_json {
+        // Handle JSON fields with serde - get as string then deserialize
+        Ok(quote! {
+            #name: {
+                let json_str: String = row.get(#column_name)?;
+                serde_json::from_str(&json_str)
+                    .map_err(|e| turso::Error::Other(format!("JSON parse error: {}", e)))?
+            },
+        })
     } else {
+        // Standard field types - use turso's type-safe get method
         Ok(quote! {
             #name: row.get(#column_name)?,
         })

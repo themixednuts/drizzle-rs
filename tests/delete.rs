@@ -1,6 +1,9 @@
 use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
 use drizzle_rs::prelude::*;
+#[cfg(feature = "rusqlite")]
 use rusqlite::Row;
+#[cfg(feature = "uuid")]
+use uuid::Uuid;
 
 mod common;
 
@@ -11,7 +14,7 @@ struct SimpleResult {
 }
 
 impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = rusqlite::Error;
+    type Error = drizzle_rs::error::DrizzleError;
 
     fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
@@ -40,7 +43,7 @@ struct ComplexResult {
 }
 
 impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = rusqlite::Error;
+    type Error = drizzle_rs::error::DrizzleError;
 
     fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
@@ -55,7 +58,7 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn simple_delete() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert test records
     let test_data = vec![
@@ -108,7 +111,7 @@ fn simple_delete() {
 #[test]
 fn feature_gated_delete() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert test records with UUIDs
     let test_id_1 = uuid::Uuid::new_v4();
@@ -119,12 +122,16 @@ fn feature_gated_delete() {
             .with_id(test_id_1)
             .with_name("delete_user")
             .with_email("delete@example.com".to_string())
-            .with_age(25),
+            .with_age(25)
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_id(test_id_2)
             .with_name("keep_user")
             .with_email("keep@example.com".to_string())
-            .with_age(35),
+            .with_age(35)
+            .with_active(true)
+            .with_role(common::Role::User),
     ];
 
     let insert_result = drizzle.insert(complex).values(test_data).execute().unwrap();

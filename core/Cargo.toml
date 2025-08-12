@@ -7,6 +7,7 @@ keywords.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -17,6 +18,8 @@ rusqlite = { workspace = true, optional = true }
 paste = { workspace = true }
 frunk = { workspace = true }
 smallvec = { workspace = true }
+compact_str = { workspace = true }
+turso = { workspace = true, optional = true }
 
 [features]
 default = ["col16"]
@@ -24,11 +27,11 @@ serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]
 sqlite = []
 rusqlite = ["dep:rusqlite"]
+turso = ["dep:turso"]
 
-# Column count feature flags - mutually exclusive
 col8 = []
 col16 = []
 col32 = []
 col64 = []
 col128 = []
-col200 = [] # SQLite's maximum without modification
+col200 = []

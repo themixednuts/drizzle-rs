@@ -4,6 +4,7 @@ version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
+rust-version.workspace = true
 
 [lib]
 proc-macro = true
@@ -24,3 +25,4 @@ mysql = []
 rusqlite = ["sqlite"]
 libsql = ["sqlite"]
 libsql-rusqlite = ["sqlite"]
+turso = ["sqlite"]

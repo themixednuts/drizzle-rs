@@ -58,7 +58,7 @@ impl ExecutableState for BuilderInit {}
 /// to ensure type safety when building queries.
 #[derive(Debug, Clone, Default)]
 pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
-    pub(crate) sql: SQL<'a, SQLiteValue<'a>>,
+    pub sql: SQL<'a, SQLiteValue<'a>>,
     schema: PhantomData<Schema>,
     state: PhantomData<State>,
     table: PhantomData<Table>,
@@ -67,6 +67,14 @@ pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
 //------------------------------------------------------------------------------
 // QueryBuilder Implementation
 //------------------------------------------------------------------------------
+
+impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
+    for QueryBuilder<'a, Schema, State, Table>
+{
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+        self.sql.clone()
+    }
+}
 
 impl<'a> QueryBuilder<'a> {
     /// Creates a new query builder for the given schema
@@ -139,13 +147,6 @@ where
         }
     }
 }
-impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
-    for QueryBuilder<'a, Schema, State, Table>
-{
-    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-        self.sql.clone()
-    }
-}
 
 // Marker trait to indicate a query builder state is executable
 pub trait ExecutableState {}
@@ -164,18 +165,6 @@ pub mod rusqlite_impl {
     where
         State: ExecutableState,
     {
-        // pub fn execute<T, P>(query: T, conn: &Connection) -> Result<usize>
-        // where
-        //     T: ToSQL<'a, SQLiteValue<'a>>,
-        // {
-        //     let q = query.to_sql();
-        //     let sql = q.sql();
-        //     let params = q.params();
-
-        //     conn.execute(&sql, params_from_iter(params))
-        //         .map_err(|e| DrizzleError::Other(e.to_string()))
-        // }
-
         /// Runs the query and returns the number of affected rows
         pub fn execute(&self, conn: &Connection) -> Result<usize> {
             let sql = self.sql.sql();
@@ -183,8 +172,7 @@ pub mod rusqlite_impl {
             // Get parameters and handle potential errors from IntoParams
             let params = self.sql.params();
 
-            conn.execute(&sql, params_from_iter(params))
-                .map_err(|e| DrizzleError::Other(e.to_string()))
+            Ok(conn.execute(&sql, params_from_iter(params))?)
         }
 
         /// Runs the query and returns all matching rows
@@ -193,13 +181,13 @@ pub mod rusqlite_impl {
             T: for<'r> TryFrom<&'r Row<'r>>,
             for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
         {
-            let sql = self.sql.sql();
+            let sql = &self.sql;
+            let sql_str = sql.sql();
 
-            // Get parameters and handle potential errors from IntoParams
-            let params = self.sql.params();
+            let params = sql.params();
 
             let mut stmt = conn
-                .prepare(&sql)
+                .prepare(&sql_str)
                 .map_err(|e| DrizzleError::Other(e.to_string()))?;
 
             let rows = stmt
@@ -210,7 +198,7 @@ pub mod rusqlite_impl {
 
             let mut results = Vec::new();
             for row in rows {
-                results.push(row.map_err(|e| DrizzleError::Other(e.to_string()))??);
+                results.push(row??);
             }
 
             Ok(results)
@@ -221,19 +209,118 @@ pub mod rusqlite_impl {
             T: for<'r> TryFrom<&'r Row<'r>>,
             for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
         {
-            let sql = self.sql.sql();
+            let sql = &self.sql;
+            let sql_str = sql.sql();
 
             // Get parameters and handle potential errors from IntoParams
-            let params = self.sql.params();
+            let params = sql.params();
 
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            let mut stmt = conn.prepare(&sql_str)?;
 
             stmt.query_row(params_from_iter(params), |row| {
                 Ok(T::try_from(row).map_err(Into::into))
-            })
-            .map_err(|e| DrizzleError::Other(e.to_string()))?
+            })?
+        }
+    }
+}
+
+// Turso implementation
+#[cfg(feature = "turso")]
+pub mod turso_impl {
+    use super::*;
+    use drizzle_core::error::{DrizzleError, Result};
+    use turso::{Connection, IntoValue, Row};
+
+    impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
+    where
+        State: ExecutableState,
+    {
+        /// Runs the query and returns the number of affected rows
+        pub async fn execute(&self, conn: &Connection) -> Result<u64> {
+            let sql = self.sql.sql();
+            let params: Vec<turso::Value> = self
+                .sql
+                .params()
+                .into_iter()
+                .map(|p| {
+                    p.into_value()
+                        .map_err(|e| DrizzleError::Other(e.to_string()))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            let result = conn
+                .execute(&sql, params)
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+            Ok(result)
+        }
+
+        /// Runs the query and returns all matching rows
+        pub async fn all<T>(&self, conn: &Connection) -> Result<Vec<T>>
+        where
+            T: for<'r> TryFrom<&'r Row>,
+            for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        {
+            let sql = &self.sql;
+            let sql_str = sql.sql();
+            let params: Vec<turso::Value> = sql
+                .params()
+                .into_iter()
+                .map(|p| {
+                    p.into_value()
+                        .map_err(|e| DrizzleError::Other(e.to_string()))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            let mut rows = conn
+                .query(&sql_str, params)
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+            let mut results = Vec::new();
+            while let Some(row) = rows
+                .next()
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string()))?
+            {
+                let converted = T::try_from(&row).map_err(Into::into)?;
+                results.push(converted);
+            }
+
+            Ok(results)
+        }
+
+        pub async fn get<T>(&self, conn: &Connection) -> Result<T>
+        where
+            T: for<'r> TryFrom<&'r Row>,
+            for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        {
+            let sql = &self.sql;
+            let sql_str = sql.sql();
+            let params: Vec<turso::Value> = sql
+                .params()
+                .into_iter()
+                .map(|p| {
+                    p.into_value()
+                        .map_err(|e| DrizzleError::Other(e.to_string()))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            let mut rows = conn
+                .query(&sql_str, params)
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+            if let Some(row) = rows
+                .next()
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string()))?
+            {
+                T::try_from(&row).map_err(Into::into)
+            } else {
+                Err(DrizzleError::Other("No rows returned".to_string()))
+            }
         }
     }
 }

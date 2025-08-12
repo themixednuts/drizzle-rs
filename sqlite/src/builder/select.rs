@@ -9,9 +9,6 @@ use std::marker::PhantomData;
 // Import the ExecutableState trait
 use super::ExecutableState;
 
-#[cfg(feature = "serde")]
-use serde::de::DeserializeOwned;
-
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------

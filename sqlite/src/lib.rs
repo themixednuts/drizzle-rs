@@ -20,7 +20,6 @@ pub mod values;
 /// A prelude module that re-exports commonly used types and traits
 pub mod prelude {
     pub use crate::SQLiteTransactionType;
-    pub use crate::common::Number;
     pub use crate::traits::SQLiteColumn;
     pub use crate::values::SQLiteValue;
 
@@ -29,8 +28,7 @@ pub mod prelude {
     pub use ::rusqlite::types::ToSql;
 }
 
-// Re-export types from common and values
-pub use self::values::SQLiteValue;
+pub use self::values::{InsertValue, SQLiteValue};
 
 /// SQLite transaction types
 #[derive(Debug, Clone, Copy)]
@@ -41,4 +39,41 @@ pub enum SQLiteTransactionType {
     Immediate,
     /// An exclusive transaction acquires an EXCLUSIVE lock immediately
     Exclusive,
+}
+
+/// Creates an array of SQL parameters for binding values to placeholders.
+///
+/// # Syntax
+/// - `{ name: value }` - Colon parameter (creates :name placeholder)
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_rs::prelude::*;
+///
+/// let params = params![{ name: "alice" }, { active: true }];
+/// ```
+#[macro_export]
+macro_rules! params {
+    // Multiple parameters - creates a fixed-size array of Param structs
+    [$($param:tt),+ $(,)?] => {
+        [
+            $(
+                $crate::params_internal!($param)
+            ),+
+        ]
+    };
+}
+
+/// Internal helper macro for params! - converts individual items to Param structs
+#[macro_export]
+macro_rules! params_internal {
+    // Colon-style named parameter
+    ({ $key:ident: $value:expr }) => {
+        ::drizzle_rs::core::ParamBind::new(stringify!($key), $crate::SQLiteValue::from($value))
+    };
+    // Positional parameter
+    ($value:expr) => {
+        ::drizzle_rs::core::ParamBind::new($crate::SQLiteValue::from($value))
+    };
 }

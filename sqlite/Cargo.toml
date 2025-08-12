@@ -7,10 +7,12 @@ keywords.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 drizzle_core = { workspace = true }
 thiserror = { workspace = true }
+compact_str = { workspace = true }
 
 rusqlite = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
@@ -19,10 +21,11 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 paste = { workspace = true }
+turso = { workspace = true, optional = true }
 
 [dev-dependencies]
-drizzle-rs = { workspace = true, features = ["rusqlite"] }
-procmacros = { workspace = true }
+drizzle_rs = { workspace = true }
+
 
 [features]
 rusqlite = ["dep:rusqlite"]
@@ -30,3 +33,4 @@ libsql = ["dep:libsql"]
 libsql-rusqlite = ["dep:libsql-rusqlite"]
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]
+turso = ["dep:turso"]

@@ -1,25 +1,14 @@
-use common::{Complex, InsertComplex, InsertPost, InsertSimple, Post, Simple, setup_db};
+use common::{Complex, InsertComplex, InsertSimple, Post, Simple, setup_db};
 use drizzle_core::OrderBy;
 use drizzle_rs::prelude::*;
-use rusqlite::Row;
+use procmacros::FromRow;
 
 mod common;
 
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct SimpleResult {
     id: i32,
     name: String,
-}
-
-impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    }
 }
 
 #[cfg(not(feature = "uuid"))]
@@ -32,48 +21,24 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct ComplexResult {
-    id: String,
+    id: uuid::Uuid,
     name: String,
     email: Option<String>,
     age: Option<i32>,
 }
 
-impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            email: row.get(2)?,
-            age: row.get(3)?,
-        })
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct JoinResult {
     name: String,
     title: String,
 }
 
-impl TryFrom<&Row<'_>> for JoinResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            name: row.get(0)?,
-            title: row.get(1)?,
-        })
-    }
-}
-
 #[test]
 fn simple_select_with_conditions() {
     let db = setup_db();
-    let (drizzle, (simple, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert test data
     let test_data = vec![
@@ -127,7 +92,7 @@ fn simple_select_with_conditions() {
 #[test]
 fn complex_select_with_conditions() {
     let db = setup_db();
-    let (drizzle, (simple, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (_, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -135,15 +100,21 @@ fn complex_select_with_conditions() {
         InsertComplex::default()
             .with_name("young")
             .with_email("young@test.com".to_string())
-            .with_age(20),
+            .with_age(20)
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_name("middle")
             .with_email("middle@test.com".to_string())
-            .with_age(35),
+            .with_age(35)
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_name("old")
             .with_email("old@test.com".to_string())
-            .with_age(50),
+            .with_age(50)
+            .with_active(true)
+            .with_role(common::Role::User),
     ];
 
     #[cfg(feature = "uuid")]
@@ -152,17 +123,23 @@ fn complex_select_with_conditions() {
             .with_id(uuid::Uuid::new_v4())
             .with_name("young")
             .with_email("young@test.com".to_string())
-            .with_age(20),
+            .with_age(20)
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_id(uuid::Uuid::new_v4())
             .with_name("middle")
             .with_email("middle@test.com".to_string())
-            .with_age(35),
+            .with_age(35)
+            .with_active(true)
+            .with_role(common::Role::User),
         InsertComplex::default()
             .with_id(uuid::Uuid::new_v4())
             .with_name("old")
             .with_email("old@test.com".to_string())
-            .with_age(50),
+            .with_age(50)
+            .with_active(true)
+            .with_role(common::Role::User),
     ];
 
     drizzle.insert(complex).values(test_data).execute().unwrap();
@@ -194,10 +171,7 @@ fn complex_select_with_conditions() {
             Complex::age
         ])
         .from(complex)
-        .r#where(and(vec![
-            Some(gte(Complex::age, 25)),
-            Some(lt(Complex::age, 45)),
-        ]))
+        .r#where(and([gte(Complex::age, 25), lt(Complex::age, 45)]))
         .all()
         .unwrap();
 
@@ -210,13 +184,15 @@ fn complex_select_with_conditions() {
 #[test]
 fn feature_gated_select() {
     let db = setup_db();
-    let (drizzle, (simple, complex, post)) = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (_, complex, _)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();
     let data = InsertComplex::default()
         .with_id(test_id)
         .with_name("feature_user")
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_metadata(common::UserMetadata {
             preferences: vec!["admin_panel".to_string()],
             last_login: Some("2023-12-01".to_string()),
@@ -239,7 +215,7 @@ fn feature_gated_select() {
             Complex::age
         ])
         .from(complex)
-        .r#where(eq(Complex::id, test_id.to_string()))
+        .r#where(eq(Complex::id, test_id))
         .all()
         .unwrap();
 

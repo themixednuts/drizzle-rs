@@ -28,9 +28,10 @@ where
 }
 
 /// Helper function to create a GROUP BY clause
-pub fn group_by<'a, V>(expressions: Vec<SQL<'a, V>>) -> SQL<'a, V>
+pub fn group_by<'a, V, I>(expressions: I) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    I: IntoIterator<Item = SQL<'a, V>>,
 {
     let sql = SQL::raw("GROUP BY");
     sql.append(SQL::join(expressions, ", "))
@@ -54,19 +55,17 @@ where
 {
     let sql = SQL::raw("ORDER BY");
 
-    let order_sqls: Vec<SQL<'a, V>> = expressions
-        .into_iter()
-        .map(|(expr, direction)| {
+    sql.append(SQL::join(
+        expressions.into_iter().map(|(expr, direction)| {
             let mut expr_sql = expr.to_sql();
             expr_sql = expr_sql.append_raw(" ");
             match direction {
                 OrderBy::Asc => expr_sql.append_raw("ASC"),
                 OrderBy::Desc => expr_sql.append_raw("DESC"),
             }
-        })
-        .collect();
-
-    sql.append(SQL::join(order_sqls, ", "))
+        }),
+        ", ",
+    ))
 }
 
 /// Helper function to create a LIMIT clause

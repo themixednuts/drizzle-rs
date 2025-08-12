@@ -1,26 +1,11 @@
-use cfg_if::cfg_if;
 use common::{Complex, InsertComplex, InsertSimple, SelectSimple, Simple, setup_db};
 use drizzle_core::sql;
 use drizzle_rs::prelude::*;
 use procmacros::FromRow;
-use rusqlite::Row;
+
+use crate::common::PartialSelectSimple;
 
 mod common;
-
-#[derive(Debug)]
-struct PartialSimple {
-    name: String,
-}
-
-impl TryFrom<&Row<'_>> for PartialSimple {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<PartialSimple, rusqlite::Error> {
-        Ok(Self {
-            name: row.get("name")?,
-        })
-    }
-}
 
 // Test the new FromRow derive macro
 #[derive(FromRow, Debug)]
@@ -28,68 +13,37 @@ struct DerivedPartialSimple {
     name: String,
 }
 
-// Test FromRow with multiple fields and types
-#[derive(FromRow, Debug)]
-struct DerivedComplexResult {
-    id: i32,
-    name: String,
-    email: Option<String>,
-}
-
 #[test]
 fn basic_insert_select() {
     let db = setup_db();
-    let (mut drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (db, simple) = drizzle!(db, [Simple]);
 
     let data = InsertSimple::default().with_name("test");
-    let inserted = drizzle.insert(simple).values([data]).execute().unwrap();
+    let inserted = db.insert(simple).values([data]).execute().unwrap();
 
     assert_eq!(inserted, 1);
 
-    let selected: Vec<SelectSimple> = drizzle.select(()).from(simple).all().unwrap();
+    let selected: Vec<SelectSimple> = db.select(()).from(simple).all().unwrap();
 
-    let row: PartialSimple = drizzle.select(simple.name).from(simple).get().unwrap();
+    assert!(selected.len() > 0);
+    assert_eq!(selected[0].name, "test");
 
-    assert_eq!(row.name, "test");
+    let row: PartialSelectSimple = db.select(simple.name).from(simple).get().unwrap();
+
+    assert_eq!(row.name, Some("test".into()));
 
     // Test the new FromRow derive macro
-    let derived_row: DerivedPartialSimple = drizzle.select(simple.name).from(simple).get().unwrap();
+    let derived_row: DerivedPartialSimple = db.select(simple.name).from(simple).get().unwrap();
 
     assert_eq!(derived_row.name, "test");
-}
-
-cfg_if!(
-    if #[cfg(feature = "uuid")] {
-        #[derive(Debug)]
-        struct PartialComplex {
-            id: Uuid,
-            name: String,
-        }
-    } else {
-        #[derive(Debug)]
-        struct PartialComplex {
-            id: String,
-            name: String,
-        }
-    }
-);
-
-#[cfg(feature = "uuid")]
-impl TryFrom<&Row<'_>> for PartialComplex {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<PartialComplex, rusqlite::Error> {
-        Ok(Self {
-            id: row.get("id")?,
-            name: row.get("name")?,
-        })
-    }
 }
 
 #[cfg(feature = "uuid")]
 #[test]
 fn multiple_tables() {
     use common::SelectComplex;
+
+    use crate::common::{PartialSelectComplex, Role};
 
     let db = setup_db();
     let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
@@ -100,7 +54,10 @@ fn multiple_tables() {
         .execute()
         .unwrap();
 
-    let complex_data = InsertComplex::default().with_name("complex");
+    let complex_data = InsertComplex::default()
+        .with_name("complex")
+        .with_active(true)
+        .with_role(Role::User);
 
     drizzle
         .insert(complex)
@@ -117,20 +74,20 @@ fn multiple_tables() {
     let sql: Vec<SelectComplex> = drizzle.select(()).from(complex).all().unwrap();
     println!("{sql:?}");
 
-    let complex: PartialComplex = drizzle
-        .select(sql![[Complex::id, Complex::name]])
+    let complex: PartialSelectComplex = drizzle
+        .select(sql![[complex.id, complex.name]])
         .from(complex)
         .get()
         .unwrap();
 
     assert_eq!(simple.name, "simple");
-    assert_eq!(complex.name, "complex");
+    assert_eq!(complex.name, Some("complex".into()));
 }
 
 #[test]
 fn test_from_row_derive_with_simple_struct() {
     let db = setup_db();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple]);
+    let (drizzle, simple) = drizzle!(db, [Simple]);
 
     let data = InsertSimple::default().with_name("derive_test");
     drizzle.insert(simple).values([data]).execute().unwrap();
@@ -148,26 +105,25 @@ fn test_from_row_derive_with_simple_struct() {
 #[cfg(feature = "uuid")]
 #[test]
 fn debug_schema() {
-    println!("Complex SQL schema: {}", Complex::SQL);
+    println!(
+        "Complex SQL schema: {}",
+        Complex::SQL.to_sql().sql().as_str()
+    );
 }
 
 #[cfg(feature = "uuid")]
 #[test]
 fn debug_uuid_storage() {
-    use drizzle_core::sql;
     use uuid::Uuid;
+
+    use crate::common::Role;
     let db = setup_db();
-    let (mut drizzle, (complex, ..)) = drizzle!(db, [Complex]);
+    let (drizzle, complex) = drizzle!(db, [Complex]);
 
     let select_sql = drizzle.select(complex.id).from(complex).to_sql();
     println!("SelectSQL {select_sql:?}");
     let sql = select_sql.sql();
     println!("SelectSQL {sql}");
-
-    let c = Complex::default();
-    c.id;
-
-    drop(select_sql);
 
     // Insert a UUID directly using rusqlite to see how it's stored
     let test_uuid = Uuid::new_v4();
@@ -176,7 +132,10 @@ fn debug_uuid_storage() {
     println!("UUID as bytes: {:?}", test_uuid.as_bytes());
 
     // Insert using drizzle
-    let complex_data = InsertComplex::default().with_name("debug_test");
+    let complex_data = InsertComplex::default()
+        .with_name("debug_test")
+        .with_active(false)
+        .with_role(Role::User);
     println!("InsertCoplex SQL: {:?}", complex_data.to_sql());
 
     drizzle

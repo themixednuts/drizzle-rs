@@ -1,40 +1,37 @@
-pub use procmacros;
+extern crate self as drizzle_rs;
+
 mod drizzle;
-pub use drizzle::*;
+pub use drizzle_core::error::Result;
 pub use procmacros::{drizzle, qb};
+
+pub mod error {
+    pub use drizzle_core::error::DrizzleError;
+}
 
 // Core components (dialect-agnostic)
 pub mod core {
     // Core traits and types from core crate
     pub use drizzle_core::traits::*;
-    pub use drizzle_core::{SQL, ToSQL};
-    // Explicitly re-export IsInSchema
-    pub use drizzle_core::traits::IsInSchema;
+    pub use drizzle_core::{Param, ParamBind, SQL, SQLComparable, ToSQL};
 
     // Core expression functions & macros
     pub use drizzle_core::expressions::conditions::*;
-    pub use drizzle_core::{SQLSchemaType, and, columns, or}; // Keep macros accessible
-
-    // Core error types
-    pub use drizzle_core::error::{DrizzleError, Result};
-
-    // Core Drizzle struct (if defined in src/core.rs or similar)
-    // pub use crate::core::Drizzle; // Example if you have a src/core.rs
+    pub use drizzle_core::{SQLSchemaType, columns};
 }
 
 // SQLite specific components
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    pub use super::drizzle::sqlite::Drizzle;
+    pub use ::procmacros::SQLiteIndex;
+    pub use sqlite::builder::QueryBuilder;
+
     // SQLite specific types, columns, etc. from sqlite crate
-    pub use sqlite::SQLiteTransactionType;
     pub use sqlite::builder;
-    pub use sqlite::common::{SQLiteEnum, SQLiteEnumRepr};
     pub use sqlite::conditions;
     pub use sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
-    pub use sqlite::values::SQLiteValue;
-
-    // Proc macros related to SQLite (if desired here, they are also in prelude)
-    // pub use procmacros::{SQLiteEnum, SQLiteTable};
+    pub use sqlite::values::{InsertValue, SQLiteValue};
+    pub use sqlite::{SQLiteTransactionType, params};
 
     // Re-export rusqlite specific functionality when the feature is enabled
     #[cfg(feature = "rusqlite")]
@@ -68,7 +65,8 @@ pub mod prelude {
     // Export QueryBuilder types from core crate
     pub use drizzle_core::expressions::alias;
 
-    // Update to use the appropriate crates
+    #[cfg(feature = "sqlite")]
+    pub use super::drizzle::sqlite::Drizzle;
     #[cfg(feature = "sqlite")]
     pub use sqlite::builder::QueryBuilder;
 
@@ -80,7 +78,7 @@ pub mod prelude {
     pub use crate::sqlite::*; // Includes SQLiteColumn, SQLiteValue, etc.
 
     #[cfg(feature = "sqlite")]
-    pub use procmacros::{SQLiteEnum, SQLiteTable}; // SQLite specific macros
+    pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable}; // SQLite specific macros
 
     // #[cfg(feature = "postgres")]
     // pub use crate::postgres::*;
@@ -89,18 +87,10 @@ pub mod prelude {
     // #[cfg(feature = "mysql")]
     // pub use crate::mysql::*;
     // #[cfg(feature = "mysql")] pub use procmacros::{MySQLEnum, MySQLTable};
-
-    // Utility features
-    #[cfg(feature = "uuid")]
-    pub use uuid::Uuid;
-
-    // Add Drizzle struct to prelude
-    pub use crate::Drizzle;
 }
 
 #[cfg(test)]
 mod tests {
-    extern crate self as drizzle_rs;
     use drizzle_rs::prelude::*;
     use procmacros::{SQLiteTable, drizzle, qb};
 
@@ -136,25 +126,39 @@ mod tests {
     #[test]
     fn test_schema_macro() {
         // Create a schema with the User table using schema! macro
-        let builder = qb!([User, Post]);
+        let (builder, (user, ..)) = qb!([User, Post]);
 
-        let query = builder.select(columns!(User::id)).from::<User>();
+        let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);
     }
 
     #[cfg(feature = "rusqlite")]
     #[test]
     fn test_insert() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE Users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)",
-            [],
-        )
-        .unwrap();
+        use sqlite::builder::Conflict;
 
-        let (drizzle, (user, post)) = drizzle!(conn, [User, Post]);
-        let query = drizzle.select(()).from(user);
-        let sql = query.to_sql();
-        assert!(sql.sql().contains(r#"FROM "Users""#));
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let (db, user) = drizzle!(conn, [User]);
+        db.execute(User::SQL).expect("Should have created table");
+
+        let result = db
+            .insert(user)
+            .values([InsertUser::default().with_name("test")])
+            .on_conflict(Conflict::default())
+            .execute()
+            .expect("Should have inserted");
+
+        assert_eq!(result, 1);
+
+        let query: Vec<SelectUser> = db
+            .select(())
+            .from(user)
+            .all()
+            .expect("should have gotten all users");
+
+        assert_eq!(query.len(), 1);
+        assert_eq!(query[0].id, 1);
+        assert_eq!(query[0].name, "test");
+        assert_eq!(query[0].email, None);
     }
 }

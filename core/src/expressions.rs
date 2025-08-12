@@ -2,31 +2,10 @@ pub mod conditions;
 
 use crate::{SQL, SQLParam, ToSQL};
 
-/// Creates an aliased SQL expression (e.g., "column AS alias").
-///
-/// # Arguments
-/// * `col` - The column or expression to alias (must implement `ToSQL`).
-/// * `alias` - The desired alias name.
-///
-/// # Returns
-/// An `SQL` fragment representing the aliased expression.
-///
-/// # Example
-/// ```
-/// # use querybuilder::core::{SQL, SQLParam, ToSQL};
-/// # use querybuilder::core::expressions::alias;
-/// # use std::borrow::Cow;
-/// # #[derive(Clone)] pub struct MockValue;
-/// # impl SQLParam for MockValue {}
-/// # struct MyColumn;
-/// # impl<'a> ToSQL<'a, MockValue> for MyColumn {
-/// #     fn to_sql(&self) -> SQL<'a, MockValue> { SQL { fragments: vec![Cow::Borrowed("my_col")], params: vec![] } }
-/// # }
-/// let aliased_col = alias(MyColumn, "mc");
-/// assert_eq!(aliased_col.to_string(), "my_col AS mc");
-/// ```
 pub fn alias<'a, V: SQLParam + 'a, C: ToSQL<'a, V>>(col: C, alias: &'a str) -> SQL<'a, V> {
-    col.to_sql().append_raw(" AS ").append(SQL::raw(alias))
+    col.to_sql()
+        .append_raw(" AS ")
+        .append(SQL::<'a, V>::raw(alias))
 }
 
 /// Helper function to create a COUNT expression

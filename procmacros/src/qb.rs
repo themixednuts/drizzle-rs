@@ -48,7 +48,7 @@ fn parse_qb_input(input: TokenStream) -> Result<TokenStream> {
             #schema_impl;
 
             // Create and return a QueryBuilder
-            drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>()
+            (drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>(), (#(#types::new(),)*))
         }
     })
 }

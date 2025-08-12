@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Result, Type};
+use syn::Type;
 
 /// Generates a schema type name based on the types
 pub fn get_schema_name(types: &[Type]) -> String {
@@ -44,7 +44,7 @@ pub(crate) fn generate_schema(input: TokenStream) -> syn::Result<TokenStream> {
         // Add IsInSchema implementations for each type
         let is_in_schema_impls = types.iter().map(|ty| {
             quote! {
-                impl drizzle_rs::core::IsInSchema<#schema_ident> for #ty {}
+                impl ::drizzle_rs::core::IsInSchema<#schema_ident> for #ty {}
             }
         });
         // Define the schema type and implementations

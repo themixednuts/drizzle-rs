@@ -59,27 +59,44 @@ pub fn drizzle_impl(input: DrizzleInput) -> syn::Result<TokenStream> {
             let schema_impl = schema::generate_schema(tables.to_token_stream())
                 .map_err(|err| syn::Error::new(err.span(), err.to_string()))?;
 
-            quote! {
-                {
-                    // Generate the schema
-                    #schema_impl;
-
-                    // // Create query builder and Drizzle instance with explicit type annotation
-                    // let query_builder = ::drizzle_rs::sqlite::builder::QueryBuilder::new::<#schema_ident>();
-
-                    (::drizzle_rs::Drizzle::new::<#schema_ident>(#conn), (#(#types::default(),)*)  )
+            if types.len() == 1 {
+                quote! {
+                    {
+                        #schema_impl;
+                        (::drizzle_rs::sqlite::Drizzle::new::<#schema_ident>(#conn) , #(#types::default(),)*  )
+                    }
+                }
+            } else {
+                quote! {
+                    {
+                        #schema_impl;
+                        (::drizzle_rs::sqlite::Drizzle::new::<#schema_ident>(#conn) , (#(#types::default(),)*)  )
+                    }
                 }
             }
+
+            // #[cfg(all(feature = "sqlite", not(feature = "postgres"), not(feature = "mysql")))]
+            // #[cfg(all(not(feature = "sqlite"), feature = "postgres", not(feature = "mysql")))]
+            // return quote! {
+            //     {
+            //         #schema_impl;
+            //         (::drizzle_rs::postgres::Drizzle::new::<#schema_ident>(#conn) , (#(#types::default(),)*)  )
+            //     }
+            // };
+            // #[cfg(all(not(feature = "sqlite"), not(feature = "postgres"), feature = "mysql"))]
+            // return quote! {
+            //     {
+            //         #schema_impl;
+            //         (::drizzle_rs::mysql::Drizzle::new::<#schema_ident>(#conn)  , (#(#types::default(),)*)  )
+            //     }
+            // };
+
+            // quote! {}
         }
         None => {
             // No tables specified, use empty schema
             quote! {
                 {
-                    // Generate an empty schema
-                    ::drizzle_rs::procmacros::schema!();
-
-                    // let schema = ::drizzle_rs::sqlite::builder::QueryBuilder::new::<EmptySchema>();
-
                     ::drizzle_rs::Drizzle::new::<EmptySchema>(#conn)
                 }
             }

@@ -5,7 +5,8 @@
       "Bash(cargo test)",
       "Bash(cargo test:*)",
       "Bash(cargo check:*)",
-      "WebFetch(domain:sqlite.org)"
+      "WebFetch(domain:sqlite.org)",
+      "Bash(cargo expand:*)"
     ],
     "deny": []
   }

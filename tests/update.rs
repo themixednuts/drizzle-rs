@@ -1,24 +1,16 @@
 use common::{Complex, InsertComplex, InsertSimple, Simple, UpdateComplex, UpdateSimple, setup_db};
 use drizzle_rs::prelude::*;
+use procmacros::FromRow;
+
+#[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 
 mod common;
 
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct SimpleResult {
     id: i32,
     name: String,
-}
-
-impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    }
 }
 
 #[cfg(not(feature = "uuid"))]
@@ -34,7 +26,7 @@ struct ComplexResult {
 #[cfg(feature = "uuid")]
 #[derive(Debug)]
 struct ComplexResult {
-    id: String,
+    id: uuid::Uuid,
     name: String,
     email: Option<String>,
     age: Option<i32>,
@@ -58,7 +50,7 @@ impl TryFrom<&Row<'_>> for ComplexResult {
 #[test]
 fn simple_update() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Simple record
     let insert_data = InsertSimple::default().with_name("original");
@@ -103,7 +95,7 @@ fn simple_update() {
 #[test]
 fn complex_update() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Complex record
     #[cfg(not(feature = "uuid"))]
@@ -111,6 +103,8 @@ fn complex_update() {
         .with_name("user")
         .with_email("old@example.com".to_string())
         .with_age(25)
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_description("Original description".to_string());
 
     #[cfg(feature = "uuid")]
@@ -119,6 +113,8 @@ fn complex_update() {
         .with_name("user")
         .with_email("old@example.com".to_string())
         .with_age(25)
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_description("Original description".to_string());
 
     let insert_result = drizzle
@@ -170,13 +166,15 @@ fn complex_update() {
 #[test]
 fn feature_gated_update() {
     let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
     let insert_data = InsertComplex::default()
         .with_id(test_id)
         .with_name("feature_user")
+        .with_active(true)
+        .with_role(common::Role::User)
         .with_metadata(common::UserMetadata {
             preferences: vec!["user_mode".to_string()],
             last_login: Some("2023-01-15".to_string()),
@@ -214,7 +212,7 @@ fn feature_gated_update() {
                     )]),
                 }),
         )
-        .r#where(eq(Complex::id, test_id.to_string()))
+        .r#where(eq(Complex::id, test_id))
         .execute()
         .unwrap();
     assert_eq!(update_result, 1);
@@ -229,11 +227,11 @@ fn feature_gated_update() {
             Complex::description,
         ])
         .from(complex)
-        .r#where(eq(Complex::id, test_id.to_string()))
+        .r#where(eq(Complex::id, test_id))
         .all()
         .unwrap();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_user");
-    assert_eq!(results[0].id, test_id.to_string());
+    assert_eq!(results[0].id, test_id);
 }

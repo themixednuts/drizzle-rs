@@ -23,35 +23,35 @@ struct StrictTable {
 fn table_sql() {
     let conn = Connection::open_in_memory().unwrap();
 
-    let sql = TestTable::SQL;
+    let sql = TestTable::SQL.sql();
     assert!(sql.contains("CREATE TABLE"));
     assert!(sql.contains("test_table"));
     assert!(sql.contains("PRIMARY KEY"));
 
-    conn.execute(sql, []).unwrap();
+    conn.execute(&sql, []).unwrap();
 }
 
 #[test]
 fn strict_table() {
     let conn = Connection::open_in_memory().unwrap();
 
-    let sql = StrictTable::SQL;
+    let sql = StrictTable::SQL.sql();
     assert!(sql.contains("STRICT"));
     assert!(sql.contains("strict_table"));
 
-    conn.execute(sql, []).unwrap();
+    conn.execute(&sql, []).unwrap();
 }
 
 #[test]
 fn name_attribute() {
-    let sql = TestTable::SQL;
+    let sql = TestTable::SQL.sql();
     assert!(sql.contains("test_table"));
     assert!(!sql.contains("TestTable"));
 }
 
 #[test]
 fn column_types() {
-    let sql = TestTable::SQL;
+    let sql = TestTable::SQL.sql();
     assert!(sql.contains("INTEGER"));
     assert!(sql.contains("TEXT"));
 }
