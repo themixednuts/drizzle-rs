@@ -184,6 +184,99 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
+        impl TryFrom<&i64> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: &i64) -> std::result::Result<Self, Self::Error> {
+                let value = *value;
+                Ok(match value {
+                    #(#from_integer_variants,)*
+                    _ => return Err(::drizzle_rs::error::DrizzleError::Mapping(format!("{value}"))),
+                })
+            }
+        }
+
+        // Generic Option implementation - works for any T that can convert to the enum
+        impl<T> TryFrom<Option<T>> for #name
+        where
+            T: TryInto<#name>,
+            T::Error: Into<::drizzle_rs::error::DrizzleError>,
+        {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: Option<T>) -> std::result::Result<Self, Self::Error> {
+                match value {
+                    Some(inner) => inner.try_into().map_err(Into::into),
+                    None => Err(::drizzle_rs::error::DrizzleError::ConversionError("Cannot convert None to enum".to_string())),
+                }
+            }
+        }
+        // Generic implementation for integer types that aren't explicitly covered
+        impl TryFrom<isize> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: isize) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        impl TryFrom<usize> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        // Generic implementation for integer types that aren't explicitly covered
+        impl TryFrom<i32> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: i32) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        impl TryFrom<u32> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: u32) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        impl TryFrom<i16> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: i16) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        impl TryFrom<u16> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: u16) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        impl TryFrom<i8> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: i8) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
+        impl TryFrom<u8> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+                Self::try_from(value as i64)
+            }
+        }
+
         // Implement Display for the enum
         impl std::fmt::Display for #name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -227,6 +320,23 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                 })
             }
         }
+
+        impl TryFrom<&String> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: &String) -> std::result::Result<Self, Self::Error> {
+                <#name as std::str::FromStr>::from_str(value)
+            }
+        }
+
+        impl TryFrom<String> for #name {
+            type Error = ::drizzle_rs::error::DrizzleError;
+
+            fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+                <#name as std::str::FromStr>::from_str(&value)
+            }
+        }
+
 
         // Implement FromStr for the enum with String as the error type
         impl std::str::FromStr for #name {

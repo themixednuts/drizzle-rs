@@ -4,909 +4,17 @@ use std::prelude::rust_2024::*;
 #[macro_use]
 extern crate std;
 use common::setup_db;
-use drizzle_core::SQL;
-use drizzle_core::SQLTableInfo;
-use drizzle_rs::prelude::*;
-use drizzle_rs::{core::eq, sqlite::{SQLiteValue, params}};
-use procmacros::{SQLiteTable, drizzle};
-use rusqlite::Row;
-use crate::common::Complex;
-pub struct Simple {
-    pub id: SimpleId,
-    pub name: SimpleName,
-}
-#[automatically_derived]
-impl ::core::default::Default for Simple {
-    #[inline]
-    fn default() -> Simple {
-        Simple {
-            id: ::core::default::Default::default(),
-            name: ::core::default::Default::default(),
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::clone::Clone for Simple {
-    #[inline]
-    fn clone(&self) -> Simple {
-        let _: ::core::clone::AssertParamIsClone<SimpleId>;
-        let _: ::core::clone::AssertParamIsClone<SimpleName>;
-        *self
-    }
-}
-#[automatically_derived]
-impl ::core::marker::Copy for Simple {}
-#[automatically_derived]
-impl ::core::fmt::Debug for Simple {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::debug_struct_field2_finish(
-            f,
-            "Simple",
-            "id",
-            &self.id,
-            "name",
-            &&self.name,
-        )
-    }
-}
-#[automatically_derived]
-impl ::core::marker::StructuralPartialEq for Simple {}
-#[automatically_derived]
-impl ::core::cmp::PartialEq for Simple {
-    #[inline]
-    fn eq(&self, other: &Simple) -> bool {
-        self.id == other.id && self.name == other.name
-    }
-}
-#[automatically_derived]
-impl ::core::cmp::Eq for Simple {
-    #[inline]
-    #[doc(hidden)]
-    #[coverage(off)]
-    fn assert_receiver_is_total_eq(&self) -> () {
-        let _: ::core::cmp::AssertParamIsEq<SimpleId>;
-        let _: ::core::cmp::AssertParamIsEq<SimpleName>;
-    }
-}
-#[automatically_derived]
-impl ::core::hash::Hash for Simple {
-    #[inline]
-    fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {
-        ::core::hash::Hash::hash(&self.id, state);
-        ::core::hash::Hash::hash(&self.name, state)
-    }
-}
-#[automatically_derived]
-impl ::core::cmp::PartialOrd for Simple {
-    #[inline]
-    fn partial_cmp(
-        &self,
-        other: &Simple,
-    ) -> ::core::option::Option<::core::cmp::Ordering> {
-        match ::core::cmp::PartialOrd::partial_cmp(&self.id, &other.id) {
-            ::core::option::Option::Some(::core::cmp::Ordering::Equal) => {
-                ::core::cmp::PartialOrd::partial_cmp(&self.name, &other.name)
-            }
-            cmp => cmp,
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::cmp::Ord for Simple {
-    #[inline]
-    fn cmp(&self, other: &Simple) -> ::core::cmp::Ordering {
-        match ::core::cmp::Ord::cmp(&self.id, &other.id) {
-            ::core::cmp::Ordering::Equal => {
-                ::core::cmp::Ord::cmp(&self.name, &other.name)
-            }
-            cmp => cmp,
-        }
-    }
-}
-#[allow(non_upper_case_globals)]
-impl Simple {
-    const fn new() -> Self {
-        Self {
-            id: SimpleId::new(),
-            name: SimpleName::new(),
-        }
-    }
-    pub const id: SimpleId = SimpleId;
-    pub const name: SimpleName = SimpleName;
-}
-#[allow(non_camel_case_types)]
-pub struct SimpleId;
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::fmt::Debug for SimpleId {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::write_str(f, "SimpleId")
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::clone::Clone for SimpleId {
-    #[inline]
-    fn clone(&self) -> SimpleId {
-        *self
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::marker::Copy for SimpleId {}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::default::Default for SimpleId {
-    #[inline]
-    fn default() -> SimpleId {
-        SimpleId {}
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::PartialOrd for SimpleId {
-    #[inline]
-    fn partial_cmp(
-        &self,
-        other: &SimpleId,
-    ) -> ::core::option::Option<::core::cmp::Ordering> {
-        ::core::option::Option::Some(::core::cmp::Ordering::Equal)
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::Ord for SimpleId {
-    #[inline]
-    fn cmp(&self, other: &SimpleId) -> ::core::cmp::Ordering {
-        ::core::cmp::Ordering::Equal
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::Eq for SimpleId {
-    #[inline]
-    #[doc(hidden)]
-    #[coverage(off)]
-    fn assert_receiver_is_total_eq(&self) -> () {}
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::marker::StructuralPartialEq for SimpleId {}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::PartialEq for SimpleId {
-    #[inline]
-    fn eq(&self, other: &SimpleId) -> bool {
-        true
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::hash::Hash for SimpleId {
-    #[inline]
-    fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
-}
-impl SimpleId {
-    const fn new() -> SimpleId {
-        SimpleId {}
-    }
-}
-impl<
-    'a,
-> ::drizzle_rs::core::SQLSchema<'a, &'a str, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SimpleId {
-    const NAME: &'a str = "id";
-    const TYPE: &'a str = "INTEGER";
-    const SQL: ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> = ::drizzle_rs::core::SQL::text(
-        "id INTEGER PRIMARY KEY NOT NULL",
-    );
-}
-impl ::drizzle_rs::core::SQLColumnInfo for SimpleId {
-    fn name(&self) -> &str {
-        Self::NAME
-    }
-    fn r#type(&self) -> &str {
-        Self::TYPE
-    }
-    fn is_primary_key(&self) -> bool {
-        Self::PRIMARY_KEY
-    }
-    fn is_not_null(&self) -> bool {
-        Self::NOT_NULL
-    }
-    fn is_unique(&self) -> bool {
-        Self::UNIQUE
-    }
-    fn has_default(&self) -> bool {
-        false
-    }
-    fn table(&self) -> &dyn SQLTableInfo {
-        static TABLE: Simple = Simple::new();
-        &TABLE
-    }
-}
-impl ::drizzle_rs::sqlite::SQLiteColumnInfo for SimpleId {
-    fn is_autoincrement(&self) -> bool {
-        <Self as ::drizzle_rs::sqlite::SQLiteColumn<'_>>::AUTOINCREMENT
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLColumn<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SimpleId {
-    type Table = Simple;
-    type Type = i32;
-    const PRIMARY_KEY: bool = true;
-    const NOT_NULL: bool = true;
-    const UNIQUE: bool = false;
-    const DEFAULT: Option<Self::Type> = None;
-    fn default_fn(&self) -> Option<impl Fn() -> Self::Type> {
-        None::<fn() -> Self::Type>
-    }
-}
-impl ::drizzle_rs::sqlite::SQLiteColumn<'_> for SimpleId {
-    const AUTOINCREMENT: bool = false;
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SimpleId {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        use ::drizzle_rs::core::ToSQL;
-        static INSTANCE: SimpleId = SimpleId::new();
-        INSTANCE.as_column().to_sql()
-    }
-}
-impl<'a> ::std::convert::Into<::drizzle_rs::sqlite::SQLiteValue<'a>> for SimpleId {
-    fn into(self) -> ::drizzle_rs::sqlite::SQLiteValue<'a> {
-        ::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Borrowed("id"))
-    }
-}
-#[allow(non_camel_case_types)]
-pub struct SimpleName;
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::fmt::Debug for SimpleName {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::write_str(f, "SimpleName")
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::clone::Clone for SimpleName {
-    #[inline]
-    fn clone(&self) -> SimpleName {
-        *self
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::marker::Copy for SimpleName {}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::default::Default for SimpleName {
-    #[inline]
-    fn default() -> SimpleName {
-        SimpleName {}
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::PartialOrd for SimpleName {
-    #[inline]
-    fn partial_cmp(
-        &self,
-        other: &SimpleName,
-    ) -> ::core::option::Option<::core::cmp::Ordering> {
-        ::core::option::Option::Some(::core::cmp::Ordering::Equal)
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::Ord for SimpleName {
-    #[inline]
-    fn cmp(&self, other: &SimpleName) -> ::core::cmp::Ordering {
-        ::core::cmp::Ordering::Equal
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::Eq for SimpleName {
-    #[inline]
-    #[doc(hidden)]
-    #[coverage(off)]
-    fn assert_receiver_is_total_eq(&self) -> () {}
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::marker::StructuralPartialEq for SimpleName {}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::cmp::PartialEq for SimpleName {
-    #[inline]
-    fn eq(&self, other: &SimpleName) -> bool {
-        true
-    }
-}
-#[automatically_derived]
-#[allow(non_camel_case_types)]
-impl ::core::hash::Hash for SimpleName {
-    #[inline]
-    fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
-}
-impl SimpleName {
-    const fn new() -> SimpleName {
-        SimpleName {}
-    }
-}
-impl<
-    'a,
-> ::drizzle_rs::core::SQLSchema<'a, &'a str, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SimpleName {
-    const NAME: &'a str = "name";
-    const TYPE: &'a str = "TEXT";
-    const SQL: ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> = ::drizzle_rs::core::SQL::text(
-        "name TEXT NOT NULL",
-    );
-}
-impl ::drizzle_rs::core::SQLColumnInfo for SimpleName {
-    fn name(&self) -> &str {
-        Self::NAME
-    }
-    fn r#type(&self) -> &str {
-        Self::TYPE
-    }
-    fn is_primary_key(&self) -> bool {
-        Self::PRIMARY_KEY
-    }
-    fn is_not_null(&self) -> bool {
-        Self::NOT_NULL
-    }
-    fn is_unique(&self) -> bool {
-        Self::UNIQUE
-    }
-    fn has_default(&self) -> bool {
-        false
-    }
-    fn table(&self) -> &dyn SQLTableInfo {
-        static TABLE: Simple = Simple::new();
-        &TABLE
-    }
-}
-impl ::drizzle_rs::sqlite::SQLiteColumnInfo for SimpleName {
-    fn is_autoincrement(&self) -> bool {
-        <Self as ::drizzle_rs::sqlite::SQLiteColumn<'_>>::AUTOINCREMENT
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLColumn<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SimpleName {
-    type Table = Simple;
-    type Type = String;
-    const PRIMARY_KEY: bool = false;
-    const NOT_NULL: bool = true;
-    const UNIQUE: bool = false;
-    const DEFAULT: Option<Self::Type> = None;
-    fn default_fn(&self) -> Option<impl Fn() -> Self::Type> {
-        None::<fn() -> Self::Type>
-    }
-}
-impl ::drizzle_rs::sqlite::SQLiteColumn<'_> for SimpleName {
-    const AUTOINCREMENT: bool = false;
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SimpleName {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        use ::drizzle_rs::core::ToSQL;
-        static INSTANCE: SimpleName = SimpleName::new();
-        INSTANCE.as_column().to_sql()
-    }
-}
-impl<'a> ::std::convert::Into<::drizzle_rs::sqlite::SQLiteValue<'a>> for SimpleName {
-    fn into(self) -> ::drizzle_rs::sqlite::SQLiteValue<'a> {
-        ::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Borrowed("name"))
-    }
-}
-impl<
-    'a,
-> ::drizzle_rs::core::SQLSchema<
-    'a,
-    ::drizzle_rs::core::SQLSchemaType,
-    ::drizzle_rs::sqlite::SQLiteValue<'a>,
-> for Simple {
-    const NAME: &'a str = "simple";
-    const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Table;
-    const SQL: ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> = ::drizzle_rs::core::SQL::text(
-        "CREATE TABLE \"simple\" (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL);",
-    );
-}
-impl<'a> ::drizzle_rs::core::SQLTable<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for Simple {
-    type Select = SelectSimple;
-    type Insert = InsertSimple;
-    type Update = UpdateSimple;
-}
-impl ::drizzle_rs::core::SQLTableInfo for Simple {
-    fn name(&self) -> &str {
-        Self::NAME
-    }
-    fn r#type(&self) -> ::drizzle_rs::core::SQLSchemaType {
-        Self::TYPE
-    }
-    fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
-        #[allow(non_upper_case_globals)]
-        static SimpleId: SimpleId = SimpleId::new();
-        #[allow(non_upper_case_globals)]
-        static SimpleName: SimpleName = SimpleName::new();
-        Box::new([SimpleId.as_column(), SimpleName.as_column()])
-    }
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for Simple {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        use ::drizzle_rs::core::ToSQL;
-        static INSTANCE: Simple = Simple::new();
-        INSTANCE.as_table().to_sql()
-    }
-}
-pub struct SelectSimple {
-    pub id: i32,
-    pub name: String,
-}
-#[automatically_derived]
-impl ::core::fmt::Debug for SelectSimple {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::debug_struct_field2_finish(
-            f,
-            "SelectSimple",
-            "id",
-            &self.id,
-            "name",
-            &&self.name,
-        )
-    }
-}
-#[automatically_derived]
-impl ::core::clone::Clone for SelectSimple {
-    #[inline]
-    fn clone(&self) -> SelectSimple {
-        SelectSimple {
-            id: ::core::clone::Clone::clone(&self.id),
-            name: ::core::clone::Clone::clone(&self.name),
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::marker::StructuralPartialEq for SelectSimple {}
-#[automatically_derived]
-impl ::core::cmp::PartialEq for SelectSimple {
-    #[inline]
-    fn eq(&self, other: &SelectSimple) -> bool {
-        self.id == other.id && self.name == other.name
-    }
-}
-#[automatically_derived]
-impl ::core::default::Default for SelectSimple {
-    #[inline]
-    fn default() -> SelectSimple {
-        SelectSimple {
-            id: ::core::default::Default::default(),
-            name: ::core::default::Default::default(),
-        }
-    }
-}
-pub struct PartialSelectSimple {
-    pub id: Option<i32>,
-    pub name: Option<String>,
-}
-#[automatically_derived]
-impl ::core::fmt::Debug for PartialSelectSimple {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::debug_struct_field2_finish(
-            f,
-            "PartialSelectSimple",
-            "id",
-            &self.id,
-            "name",
-            &&self.name,
-        )
-    }
-}
-#[automatically_derived]
-impl ::core::clone::Clone for PartialSelectSimple {
-    #[inline]
-    fn clone(&self) -> PartialSelectSimple {
-        PartialSelectSimple {
-            id: ::core::clone::Clone::clone(&self.id),
-            name: ::core::clone::Clone::clone(&self.name),
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::marker::StructuralPartialEq for PartialSelectSimple {}
-#[automatically_derived]
-impl ::core::cmp::PartialEq for PartialSelectSimple {
-    #[inline]
-    fn eq(&self, other: &PartialSelectSimple) -> bool {
-        self.id == other.id && self.name == other.name
-    }
-}
-#[automatically_derived]
-impl ::core::default::Default for PartialSelectSimple {
-    #[inline]
-    fn default() -> PartialSelectSimple {
-        PartialSelectSimple {
-            id: ::core::default::Default::default(),
-            name: ::core::default::Default::default(),
-        }
-    }
-}
-impl PartialSelectSimple {
-    pub fn with_id(mut self, value: i32) -> Self {
-        self.id = Some(value);
-        self
-    }
-    pub fn with_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
-        let value = value.into();
-        self.name = Some(value);
-        self
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLPartial<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SelectSimple {
-    type Partial = PartialSelectSimple;
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for PartialSelectSimple {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        ::core::panicking::panic("not implemented")
-    }
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SelectSimple {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        ::core::panicking::panic("not implemented")
-    }
-}
-pub struct InsertSimple {
-    pub id: ::drizzle_rs::sqlite::InsertValue<i32>,
-    pub name: ::drizzle_rs::sqlite::InsertValue<String>,
-}
-#[automatically_derived]
-impl ::core::fmt::Debug for InsertSimple {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::debug_struct_field2_finish(
-            f,
-            "InsertSimple",
-            "id",
-            &self.id,
-            "name",
-            &&self.name,
-        )
-    }
-}
-#[automatically_derived]
-impl ::core::clone::Clone for InsertSimple {
-    #[inline]
-    fn clone(&self) -> InsertSimple {
-        InsertSimple {
-            id: ::core::clone::Clone::clone(&self.id),
-            name: ::core::clone::Clone::clone(&self.name),
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::marker::StructuralPartialEq for InsertSimple {}
-#[automatically_derived]
-impl ::core::cmp::PartialEq for InsertSimple {
-    #[inline]
-    fn eq(&self, other: &InsertSimple) -> bool {
-        self.id == other.id && self.name == other.name
-    }
-}
-impl Default for InsertSimple {
-    fn default() -> Self {
-        Self {
-            id: ::drizzle_rs::sqlite::InsertValue::Omit,
-            name: ::drizzle_rs::sqlite::InsertValue::Omit,
-        }
-    }
-}
-impl InsertSimple {
-    pub fn new(name: impl Into<::std::string::String>) -> Self {
-        Self {
-            name: ::drizzle_rs::sqlite::InsertValue::Value(name.into()),
-            ..Self::default()
-        }
-    }
-    pub fn with_id<V: Into<::drizzle_rs::sqlite::InsertValue<i32>>>(
-        mut self,
-        value: V,
-    ) -> Self {
-        self.id = value.into();
-        self
-    }
-    pub fn with_name<V: Into<::drizzle_rs::sqlite::InsertValue<::std::string::String>>>(
-        mut self,
-        value: V,
-    ) -> Self {
-        self.name = value.into();
-        self
-    }
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for InsertSimple {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        let mut values = Vec::new();
-        match &self.id {
-            ::drizzle_rs::sqlite::InsertValue::Omit => {}
-            ::drizzle_rs::sqlite::InsertValue::Null => {
-                values.push(::drizzle_rs::sqlite::SQLiteValue::Null);
-            }
-            ::drizzle_rs::sqlite::InsertValue::Value(val) => {
-                values
-                    .push(
-                        val
-                            .clone()
-                            .try_into()
-                            .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                    );
-            }
-        }
-        match &self.name {
-            ::drizzle_rs::sqlite::InsertValue::Omit => {}
-            ::drizzle_rs::sqlite::InsertValue::Null => {
-                values.push(::drizzle_rs::sqlite::SQLiteValue::Null);
-            }
-            ::drizzle_rs::sqlite::InsertValue::Value(val) => {
-                values
-                    .push(
-                        val
-                            .clone()
-                            .try_into()
-                            .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                    );
-            }
-        }
-        ::drizzle_rs::core::SQL::parameters(values)
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for InsertSimple {
-    fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
-        static TABLE: Simple = Simple::new();
-        let all_columns = TABLE.columns();
-        let mut result_columns = Vec::new();
-        if let ::drizzle_rs::sqlite::InsertValue::Omit = &self.id {} else {
-            result_columns.push(all_columns[0usize]);
-        }
-        if let ::drizzle_rs::sqlite::InsertValue::Omit = &self.name {} else {
-            result_columns.push(all_columns[1usize]);
-        }
-        result_columns.into_boxed_slice()
-    }
-    fn values(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        let mut values = Vec::new();
-        match &self.id {
-            ::drizzle_rs::sqlite::InsertValue::Omit => {}
-            ::drizzle_rs::sqlite::InsertValue::Null => {
-                values.push(::drizzle_rs::sqlite::SQLiteValue::Null);
-            }
-            ::drizzle_rs::sqlite::InsertValue::Value(val) => {
-                values
-                    .push(
-                        val
-                            .clone()
-                            .try_into()
-                            .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                    );
-            }
-        }
-        match &self.name {
-            ::drizzle_rs::sqlite::InsertValue::Omit => {}
-            ::drizzle_rs::sqlite::InsertValue::Null => {
-                values.push(::drizzle_rs::sqlite::SQLiteValue::Null);
-            }
-            ::drizzle_rs::sqlite::InsertValue::Value(val) => {
-                values
-                    .push(
-                        val
-                            .clone()
-                            .try_into()
-                            .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                    );
-            }
-        }
-        ::drizzle_rs::core::SQL::parameters(values)
-    }
-}
-pub struct UpdateSimple {
-    pub id: ::std::option::Option<i32>,
-    pub name: ::std::option::Option<String>,
-}
-#[automatically_derived]
-impl ::core::fmt::Debug for UpdateSimple {
-    #[inline]
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        ::core::fmt::Formatter::debug_struct_field2_finish(
-            f,
-            "UpdateSimple",
-            "id",
-            &self.id,
-            "name",
-            &&self.name,
-        )
-    }
-}
-#[automatically_derived]
-impl ::core::clone::Clone for UpdateSimple {
-    #[inline]
-    fn clone(&self) -> UpdateSimple {
-        UpdateSimple {
-            id: ::core::clone::Clone::clone(&self.id),
-            name: ::core::clone::Clone::clone(&self.name),
-        }
-    }
-}
-#[automatically_derived]
-impl ::core::marker::StructuralPartialEq for UpdateSimple {}
-#[automatically_derived]
-impl ::core::cmp::PartialEq for UpdateSimple {
-    #[inline]
-    fn eq(&self, other: &UpdateSimple) -> bool {
-        self.id == other.id && self.name == other.name
-    }
-}
-#[automatically_derived]
-impl ::core::default::Default for UpdateSimple {
-    #[inline]
-    fn default() -> UpdateSimple {
-        UpdateSimple {
-            id: ::core::default::Default::default(),
-            name: ::core::default::Default::default(),
-        }
-    }
-}
-impl UpdateSimple {
-    pub fn with_id(mut self, value: i32) -> Self {
-        self.id = Some(value);
-        self
-    }
-    pub fn with_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
-        let value = value.into();
-        self.name = Some(value);
-        self
-    }
-}
-impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for UpdateSimple {
-    fn to_sql(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        let mut assignments = Vec::new();
-        if let Some(val) = &self.id {
-            assignments
-                .push((
-                    "id",
-                    val
-                        .clone()
-                        .try_into()
-                        .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                ));
-        }
-        if let Some(val) = &self.name {
-            assignments
-                .push((
-                    "name",
-                    val
-                        .clone()
-                        .try_into()
-                        .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                ));
-        }
-        ::drizzle_rs::core::SQL::assignments(assignments)
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for SelectSimple {
-    fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
-        static INSTANCE: Simple = Simple::new();
-        INSTANCE.columns()
-    }
-    fn values(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        ::drizzle_rs::core::SQL::empty()
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for UpdateSimple {
-    fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
-        static INSTANCE: Simple = Simple::new();
-        INSTANCE.columns()
-    }
-    fn values(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        let mut values = Vec::new();
-        if let Some(val) = &self.id {
-            values
-                .push(
-                    val
-                        .clone()
-                        .try_into()
-                        .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                );
-        }
-        if let Some(val) = &self.name {
-            values
-                .push(
-                    val
-                        .clone()
-                        .try_into()
-                        .unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null),
-                );
-        }
-        ::drizzle_rs::core::SQL::parameters(values)
-    }
-}
-impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
-for PartialSelectSimple {
-    fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
-        static INSTANCE: Simple = Simple::new();
-        INSTANCE.columns()
-    }
-    fn values(
-        &self,
-    ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-        ::drizzle_rs::core::SQL::empty()
-    }
-}
-impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for SelectSimple {
-    type Error = ::rusqlite::Error;
-    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get("id")?,
-            name: row.get("name")?,
-        })
-    }
-}
-impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for PartialSelectSimple {
-    type Error = ::rusqlite::Error;
-    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get("id")?,
-            name: row.get("name")?,
-        })
-    }
-}
-impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for UpdateSimple {
-    type Error = ::rusqlite::Error;
-    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get("id")?,
-            name: row.get("name")?,
-        })
-    }
-}
+use drizzle_core::{SQL, SQLChunk, ToSQL, prepare_render};
+use drizzle_rs::{
+    core::{and, eq},
+    sqlite::{SQLiteValue, params},
+};
+use procmacros::drizzle;
+use crate::common::{Complex, PartialSelectSimple, Simple};
 mod common {
     use drizzle_rs::prelude::*;
-    use rusqlite::Connection;
+    use rand::seq::IndexedRandom;
+    use turso::Connection;
     use uuid::Uuid;
     pub struct UserMetadata {
         pub preferences: Vec<String>,
@@ -1262,6 +370,17 @@ mod common {
         fn eq(&self, other: &UserMetadata) -> bool {
             self.preferences == other.preferences && self.last_login == other.last_login
                 && self.theme == other.theme
+        }
+    }
+    #[automatically_derived]
+    impl ::core::default::Default for UserMetadata {
+        #[inline]
+        fn default() -> UserMetadata {
+            UserMetadata {
+                preferences: ::core::default::Default::default(),
+                last_login: ::core::default::Default::default(),
+                theme: ::core::default::Default::default(),
+            }
         }
     }
     pub struct UserConfig {
@@ -1622,23 +741,16 @@ mod common {
                 && self.settings == other.settings
         }
     }
-    pub fn setup_db() -> Connection {
-        let conn = Connection::open_in_memory()
-            .expect("Failed to create in-memory database");
-        create_tables(&conn);
-        conn
-    }
-    fn create_tables(conn: &Connection) {
-        conn.execute(Simple::SQL.to_sql().sql().as_str(), [])
-            .expect("Failed to create simple table");
-        conn.execute(Complex::SQL.to_sql().sql().as_str(), [])
-            .expect("Failed to create complex table");
-        conn.execute(Post::SQL.to_sql().sql().as_str(), [])
-            .expect("Failed to create posts table");
-        conn.execute(Category::SQL.to_sql().sql().as_str(), [])
-            .expect("Failed to create categories table");
-        conn.execute(PostCategory::SQL.to_sql().sql().as_str(), [])
-            .expect("Failed to create post_categories table");
+    #[automatically_derived]
+    impl ::core::default::Default for UserConfig {
+        #[inline]
+        fn default() -> UserConfig {
+            UserConfig {
+                notifications: ::core::default::Default::default(),
+                language: ::core::default::Default::default(),
+                settings: ::core::default::Default::default(),
+            }
+        }
     }
     pub enum Role {
         #[default]
@@ -1679,6 +791,94 @@ mod common {
                     }
                 },
             )
+        }
+    }
+    impl TryFrom<&i64> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: &i64) -> std::result::Result<Self, Self::Error> {
+            let value = *value;
+            Ok(
+                match value {
+                    i if i == 0i64 => Role::User,
+                    i if i == 1i64 => Role::Admin,
+                    _ => {
+                        return Err(
+                            ::drizzle_rs::error::DrizzleError::Mapping(
+                                ::alloc::__export::must_use({
+                                    ::alloc::fmt::format(format_args!("{0}", value))
+                                }),
+                            ),
+                        );
+                    }
+                },
+            )
+        }
+    }
+    impl<T> TryFrom<Option<T>> for Role
+    where
+        T: TryInto<Role>,
+        T::Error: Into<::drizzle_rs::error::DrizzleError>,
+    {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: Option<T>) -> std::result::Result<Self, Self::Error> {
+            match value {
+                Some(inner) => inner.try_into().map_err(Into::into),
+                None => {
+                    Err(
+                        ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Cannot convert None to enum".to_string(),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+    impl TryFrom<isize> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: isize) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<usize> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<i32> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: i32) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<u32> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: u32) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<i16> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: i16) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<u16> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: u16) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<i8> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: i8) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
+        }
+    }
+    impl TryFrom<u8> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+            Self::try_from(value as i64)
         }
     }
     impl std::fmt::Display for Role {
@@ -1731,6 +931,18 @@ mod common {
                     }
                 },
             )
+        }
+    }
+    impl TryFrom<&String> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: &String) -> std::result::Result<Self, Self::Error> {
+            <Role as std::str::FromStr>::from_str(value)
+        }
+    }
+    impl TryFrom<String> for Role {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+            <Role as std::str::FromStr>::from_str(&value)
         }
     }
     impl std::str::FromStr for Role {
@@ -1889,7 +1101,7 @@ mod common {
     }
     #[allow(non_upper_case_globals)]
     impl Simple {
-        const fn new() -> Self {
+        pub const fn new() -> Self {
             Self {
                 id: SimpleId::new(),
                 name: SimpleName::new(),
@@ -1972,7 +1184,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl SimpleId {
-        const fn new() -> SimpleId {
+        pub const fn new() -> SimpleId {
             SimpleId {}
         }
     }
@@ -2119,7 +1331,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl SimpleName {
-        const fn new() -> SimpleName {
+        pub const fn new() -> SimpleName {
             SimpleName {}
         }
     }
@@ -2225,13 +1437,18 @@ mod common {
             static SimpleName: SimpleName = SimpleName::new();
             Box::new([SimpleId.as_column(), SimpleName.as_column()])
         }
+        fn strict(&self) -> bool {
+            false
+        }
+        fn without_rowid(&self) -> bool {
+            false
+        }
     }
     impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
     for Simple {
         fn to_sql(
             &self,
         ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-            use ::drizzle_rs::core::ToSQL;
             static INSTANCE: Simple = Simple::new();
             INSTANCE.as_table().to_sql()
         }
@@ -2659,36 +1876,54 @@ mod common {
             ::drizzle_rs::core::SQL::empty()
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for SelectSimple {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for SelectSimple {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
+                id: {
+                    let val = row
+                        .get_value(0usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field id".to_string(),
+                        ))?;
+                    (*val).try_into()?
+                },
+                name: {
+                    let val = row
+                        .get_value(1usize)?
+                        .as_text()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field name".to_string(),
+                        ))?;
+                    val.to_string()
+                },
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for PartialSelectSimple {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for PartialSelectSimple {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                name: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for UpdateSimple {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for UpdateSimple {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                name: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
@@ -3026,7 +2261,7 @@ mod common {
     }
     #[allow(non_upper_case_globals)]
     impl Complex {
-        const fn new() -> Self {
+        pub const fn new() -> Self {
             Self {
                 id: ComplexId::new(),
                 name: ComplexName::new(),
@@ -3129,7 +2364,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexId {
-        const fn new() -> ComplexId {
+        pub const fn new() -> ComplexId {
             ComplexId {}
         }
     }
@@ -3276,7 +2511,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexName {
-        const fn new() -> ComplexName {
+        pub const fn new() -> ComplexName {
             ComplexName {}
         }
     }
@@ -3424,7 +2659,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexEmail {
-        const fn new() -> ComplexEmail {
+        pub const fn new() -> ComplexEmail {
             ComplexEmail {}
         }
     }
@@ -3574,7 +2809,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexAge {
-        const fn new() -> ComplexAge {
+        pub const fn new() -> ComplexAge {
             ComplexAge {}
         }
     }
@@ -3721,7 +2956,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexScore {
-        const fn new() -> ComplexScore {
+        pub const fn new() -> ComplexScore {
             ComplexScore {}
         }
     }
@@ -3871,7 +3106,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexActive {
-        const fn new() -> ComplexActive {
+        pub const fn new() -> ComplexActive {
             ComplexActive {}
         }
     }
@@ -4021,7 +3256,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexRole {
-        const fn new() -> ComplexRole {
+        pub const fn new() -> ComplexRole {
             ComplexRole {}
         }
     }
@@ -4118,31 +3353,6 @@ mod common {
                 .into()
         }
     }
-    impl ::rusqlite::types::FromSql for Role {
-        fn column_result(
-            value: ::rusqlite::types::ValueRef<'_>,
-        ) -> ::rusqlite::types::FromSqlResult<Self> {
-            match value {
-                ::rusqlite::types::ValueRef::Text(s) => {
-                    let s_str = ::std::str::from_utf8(s)
-                        .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
-                    Self::try_from(s_str)
-                        .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                }
-                _ => Err(::rusqlite::types::FromSqlError::InvalidType),
-            }
-        }
-    }
-    impl ::rusqlite::types::ToSql for Role {
-        fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
-            let val: &str = self.into();
-            Ok(
-                ::rusqlite::types::ToSqlOutput::Borrowed(
-                    ::rusqlite::types::ValueRef::Text(val.as_bytes()),
-                ),
-            )
-        }
-    }
     #[allow(non_camel_case_types)]
     pub struct ComplexDescription;
     #[automatically_derived]
@@ -4217,7 +3427,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexDescription {
-        const fn new() -> ComplexDescription {
+        pub const fn new() -> ComplexDescription {
             ComplexDescription {}
         }
     }
@@ -4367,7 +3577,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexMetadata {
-        const fn new() -> ComplexMetadata {
+        pub const fn new() -> ComplexMetadata {
             ComplexMetadata {}
         }
     }
@@ -4517,7 +3727,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexConfig {
-        const fn new() -> ComplexConfig {
+        pub const fn new() -> ComplexConfig {
             ComplexConfig {}
         }
     }
@@ -4667,7 +3877,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexDataBlob {
-        const fn new() -> ComplexDataBlob {
+        pub const fn new() -> ComplexDataBlob {
             ComplexDataBlob {}
         }
     }
@@ -4817,7 +4027,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl ComplexCreatedAt {
-        const fn new() -> ComplexCreatedAt {
+        pub const fn new() -> ComplexCreatedAt {
             ComplexCreatedAt {}
         }
     }
@@ -4959,13 +4169,18 @@ mod common {
                 ComplexCreatedAt.as_column(),
             ])
         }
+        fn strict(&self) -> bool {
+            false
+        }
+        fn without_rowid(&self) -> bool {
+            false
+        }
     }
     impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
     for Complex {
         fn to_sql(
             &self,
         ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-            use ::drizzle_rs::core::ToSQL;
             static INSTANCE: Complex = Complex::new();
             INSTANCE.as_table().to_sql()
         }
@@ -6327,24 +5542,12 @@ mod common {
             ::drizzle_rs::core::SQL::empty()
         }
     }
-    impl rusqlite::types::FromSql for UserMetadata {
-        fn column_result(
-            value: rusqlite::types::ValueRef<'_>,
-        ) -> rusqlite::types::FromSqlResult<Self> {
-            match value {
-                rusqlite::types::ValueRef::Text(items) => {
-                    serde_json::from_slice(items)
-                        .map_err(|_| rusqlite::types::FromSqlError::InvalidType)
-                }
-                _ => Err(rusqlite::types::FromSqlError::InvalidType),
-            }
-        }
-    }
-    impl rusqlite::types::ToSql for UserMetadata {
-        fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-            let json = serde_json::to_string(self)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-            Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Text(json)))
+    impl<'a> ::std::convert::TryInto<::drizzle_rs::sqlite::SQLiteValue<'a>>
+    for UserConfig {
+        type Error = serde_json::Error;
+        fn try_into(self) -> Result<::drizzle_rs::sqlite::SQLiteValue<'a>, Self::Error> {
+            let json = serde_json::to_vec(&self)?;
+            Ok(::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
         }
     }
     impl<'a> ::std::convert::TryInto<::drizzle_rs::sqlite::SQLiteValue<'a>>
@@ -6355,94 +5558,144 @@ mod common {
             Ok(::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
         }
     }
-    impl rusqlite::types::FromSql for UserConfig {
-        fn column_result(
-            value: rusqlite::types::ValueRef<'_>,
-        ) -> rusqlite::types::FromSqlResult<Self> {
-            match value {
-                rusqlite::types::ValueRef::Blob(items) => {
-                    serde_json::from_slice(items)
-                        .map_err(|_| rusqlite::types::FromSqlError::InvalidType)
-                }
-                _ => Err(rusqlite::types::FromSqlError::InvalidType),
-            }
-        }
-    }
-    impl rusqlite::types::ToSql for UserConfig {
-        fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-            let json = serde_json::to_vec(self)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-            Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Blob(json)))
-        }
-    }
-    impl<'a> ::std::convert::TryInto<::drizzle_rs::sqlite::SQLiteValue<'a>>
-    for UserConfig {
-        type Error = serde_json::Error;
-        fn try_into(self) -> Result<::drizzle_rs::sqlite::SQLiteValue<'a>, Self::Error> {
-            let json = serde_json::to_vec(&self)?;
-            Ok(::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
-        }
-    }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for SelectComplex {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for SelectComplex {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                email: row.get("email")?,
-                age: row.get("age")?,
-                score: row.get("score")?,
-                active: row.get("active")?,
-                role: row.get("role")?,
-                description: row.get("description")?,
-                metadata: row.get("metadata")?,
-                config: row.get("config")?,
-                data_blob: row.get("data_blob")?,
-                created_at: row.get("created_at")?,
+                id: {
+                    let val = row
+                        .get_value(0usize)?
+                        .as_blob()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field id".to_string(),
+                        ))?;
+                    uuid::Uuid::from_slice(val)?
+                },
+                name: {
+                    let val = row
+                        .get_value(1usize)?
+                        .as_text()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field name".to_string(),
+                        ))?;
+                    val.to_string()
+                },
+                email: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
+                age: row
+                    .get_value(3usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                score: row.get_value(4usize)?.as_real().map(|v| *v),
+                active: {
+                    let val = row
+                        .get_value(5usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field active".to_string(),
+                        ))?;
+                    *val != 0
+                },
+                role: {
+                    let val = row
+                        .get_value(6usize)?
+                        .as_text()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field role".to_string(),
+                        ))?;
+                    val.try_into()?
+                },
+                description: row.get_value(7usize)?.as_text().map(|v| v.to_string()),
+                metadata: row
+                    .get_value(8usize)?
+                    .as_text()
+                    .map(|v| serde_json::from_str(v))
+                    .transpose()?,
+                config: row
+                    .get_value(9usize)?
+                    .as_blob()
+                    .map(|v| serde_json::from_slice(v))
+                    .transpose()?,
+                data_blob: row.get_value(10usize)?.as_blob().map(|v| v.to_vec()),
+                created_at: row.get_value(11usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for PartialSelectComplex {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for PartialSelectComplex {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                email: row.get("email")?,
-                age: row.get("age")?,
-                score: row.get("score")?,
-                active: row.get("active")?,
-                role: row.get("role")?,
-                description: row.get("description")?,
-                metadata: row.get("metadata")?,
-                config: row.get("config")?,
-                data_blob: row.get("data_blob")?,
-                created_at: row.get("created_at")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_blob()
+                    .map(|v| uuid::Uuid::from_slice(v))
+                    .transpose()?,
+                name: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
+                email: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
+                age: row
+                    .get_value(3usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                score: row.get_value(4usize)?.as_real().map(|v| *v),
+                active: row.get_value(5usize)?.as_integer().map(|v| *v != 0),
+                role: row
+                    .get_value(6usize)?
+                    .as_text()
+                    .map(|v| v.try_into())
+                    .transpose()?,
+                description: row.get_value(7usize)?.as_text().map(|v| v.to_string()),
+                metadata: row
+                    .get_value(8usize)?
+                    .as_text()
+                    .map(|v| serde_json::from_str(v))
+                    .transpose()?,
+                config: row
+                    .get_value(9usize)?
+                    .as_blob()
+                    .map(|v| serde_json::from_slice(v))
+                    .transpose()?,
+                data_blob: row.get_value(10usize)?.as_blob().map(|v| v.to_vec()),
+                created_at: row.get_value(11usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for UpdateComplex {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for UpdateComplex {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                email: row.get("email")?,
-                age: row.get("age")?,
-                score: row.get("score")?,
-                active: row.get("active")?,
-                role: row.get("role")?,
-                description: row.get("description")?,
-                metadata: row.get("metadata")?,
-                config: row.get("config")?,
-                data_blob: row.get("data_blob")?,
-                created_at: row.get("created_at")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_blob()
+                    .map(|v| uuid::Uuid::from_slice(v))
+                    .transpose()?,
+                name: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
+                email: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
+                age: row
+                    .get_value(3usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                score: row.get_value(4usize)?.as_real().map(|v| *v),
+                active: row.get_value(5usize)?.as_integer().map(|v| *v != 0),
+                role: row
+                    .get_value(6usize)?
+                    .as_text()
+                    .map(|v| v.try_into())
+                    .transpose()?,
+                description: row.get_value(7usize)?.as_text().map(|v| v.to_string()),
+                metadata: row
+                    .get_value(8usize)?
+                    .as_text()
+                    .map(|v| serde_json::from_str(v))
+                    .transpose()?,
+                config: row
+                    .get_value(9usize)?
+                    .as_blob()
+                    .map(|v| serde_json::from_slice(v))
+                    .transpose()?,
+                data_blob: row.get_value(10usize)?.as_blob().map(|v| v.to_vec()),
+                created_at: row.get_value(11usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
@@ -6662,7 +5915,7 @@ mod common {
     }
     #[allow(non_upper_case_globals)]
     impl Post {
-        const fn new() -> Self {
+        pub const fn new() -> Self {
             Self {
                 id: PostId::new(),
                 title: PostTitle::new(),
@@ -6755,7 +6008,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostId {
-        const fn new() -> PostId {
+        pub const fn new() -> PostId {
             PostId {}
         }
     }
@@ -6902,7 +6155,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostTitle {
-        const fn new() -> PostTitle {
+        pub const fn new() -> PostTitle {
             PostTitle {}
         }
     }
@@ -7051,7 +6304,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostContent {
-        const fn new() -> PostContent {
+        pub const fn new() -> PostContent {
             PostContent {}
         }
     }
@@ -7201,7 +6454,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostAuthorId {
-        const fn new() -> PostAuthorId {
+        pub const fn new() -> PostAuthorId {
             PostAuthorId {}
         }
     }
@@ -7351,7 +6604,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostPublished {
-        const fn new() -> PostPublished {
+        pub const fn new() -> PostPublished {
             PostPublished {}
         }
     }
@@ -7501,7 +6754,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostTags {
-        const fn new() -> PostTags {
+        pub const fn new() -> PostTags {
             PostTags {}
         }
     }
@@ -7648,7 +6901,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostCreatedAt {
-        const fn new() -> PostCreatedAt {
+        pub const fn new() -> PostCreatedAt {
             PostCreatedAt {}
         }
     }
@@ -7734,8 +6987,52 @@ mod common {
         const NAME: &'a str = "posts";
         const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Table;
         const SQL: ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> = ::drizzle_rs::core::SQL::text(
-            "CREATE TABLE \"posts\" (id INTEGER PRIMARY KEY NOT NULL, title TEXT NOT NULL, content TEXT, author_id BLOB, published INTEGER NOT NULL, tags TEXT, created_at TEXT);",
+            "-- Runtime SQL generation required",
         );
+        fn sql(
+            &self,
+        ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+            let runtime_sql = {
+                let column_defs = <[_]>::into_vec(
+                    ::alloc::boxed::box_new([
+                        "id INTEGER PRIMARY KEY NOT NULL".to_string(),
+                        "title TEXT NOT NULL".to_string(),
+                        "content TEXT".to_string(),
+                        {
+                            let base_def = "author_id BLOB";
+                            let table_name = Complex::NAME.to_string();
+                            let column_name = Complex::id.name().to_string();
+                            ::alloc::__export::must_use({
+                                ::alloc::fmt::format(
+                                    format_args!(
+                                        "{0} REFERENCES {1}({2})",
+                                        base_def,
+                                        table_name,
+                                        column_name,
+                                    ),
+                                )
+                            })
+                        },
+                        "published INTEGER NOT NULL".to_string(),
+                        "tags TEXT".to_string(),
+                        "created_at TEXT".to_string(),
+                    ]),
+                );
+                let mut column_defs_str = column_defs.join(", ");
+                let mut sql = ::alloc::__export::must_use({
+                    ::alloc::fmt::format(
+                        format_args!(
+                            "CREATE TABLE \"{0}\" ({1})",
+                            "posts",
+                            column_defs_str,
+                        ),
+                    )
+                });
+                sql.push(';');
+                sql
+            };
+            ::drizzle_rs::core::SQL::raw(runtime_sql)
+        }
     }
     impl<'a> ::drizzle_rs::core::SQLTable<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
     for Post {
@@ -7775,13 +7072,18 @@ mod common {
                 PostCreatedAt.as_column(),
             ])
         }
+        fn strict(&self) -> bool {
+            false
+        }
+        fn without_rowid(&self) -> bool {
+            false
+        }
     }
     impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
     for Post {
         fn to_sql(
             &self,
         ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-            use ::drizzle_rs::core::ToSQL;
             static INSTANCE: Post = Post::new();
             INSTANCE.as_table().to_sql()
         }
@@ -8691,51 +7993,89 @@ mod common {
             ::drizzle_rs::core::SQL::empty()
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for SelectPost {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for SelectPost {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                title: row.get("title")?,
-                content: row.get("content")?,
-                author_id: row.get("author_id")?,
-                published: row.get("published")?,
-                tags: row.get("tags")?,
-                created_at: row.get("created_at")?,
+                id: {
+                    let val = row
+                        .get_value(0usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field id".to_string(),
+                        ))?;
+                    (*val).try_into()?
+                },
+                title: {
+                    let val = row
+                        .get_value(1usize)?
+                        .as_text()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field title".to_string(),
+                        ))?;
+                    val.to_string()
+                },
+                content: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
+                author_id: row
+                    .get_value(3usize)?
+                    .as_blob()
+                    .map(|v| uuid::Uuid::from_slice(v))
+                    .transpose()?,
+                published: {
+                    let val = row
+                        .get_value(4usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field published".to_string(),
+                        ))?;
+                    *val != 0
+                },
+                tags: row.get_value(5usize)?.as_text().map(|v| v.to_string()),
+                created_at: row.get_value(6usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for PartialSelectPost {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for PartialSelectPost {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                title: row.get("title")?,
-                content: row.get("content")?,
-                author_id: row.get("author_id")?,
-                published: row.get("published")?,
-                tags: row.get("tags")?,
-                created_at: row.get("created_at")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                title: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
+                content: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
+                author_id: row
+                    .get_value(3usize)?
+                    .as_blob()
+                    .map(|v| uuid::Uuid::from_slice(v))
+                    .transpose()?,
+                published: row.get_value(4usize)?.as_integer().map(|v| *v != 0),
+                tags: row.get_value(5usize)?.as_text().map(|v| v.to_string()),
+                created_at: row.get_value(6usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for UpdatePost {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for UpdatePost {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                title: row.get("title")?,
-                content: row.get("content")?,
-                author_id: row.get("author_id")?,
-                published: row.get("published")?,
-                tags: row.get("tags")?,
-                created_at: row.get("created_at")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                title: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
+                content: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
+                author_id: row
+                    .get_value(3usize)?
+                    .as_blob()
+                    .map(|v| uuid::Uuid::from_slice(v))
+                    .transpose()?,
+                published: row.get_value(4usize)?.as_integer().map(|v| *v != 0),
+                tags: row.get_value(5usize)?.as_text().map(|v| v.to_string()),
+                created_at: row.get_value(6usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
@@ -8855,7 +8195,7 @@ mod common {
     }
     #[allow(non_upper_case_globals)]
     impl Category {
-        const fn new() -> Self {
+        pub const fn new() -> Self {
             Self {
                 id: CategoryId::new(),
                 name: CategoryName::new(),
@@ -8940,7 +8280,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl CategoryId {
-        const fn new() -> CategoryId {
+        pub const fn new() -> CategoryId {
             CategoryId {}
         }
     }
@@ -9087,7 +8427,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl CategoryName {
-        const fn new() -> CategoryName {
+        pub const fn new() -> CategoryName {
             CategoryName {}
         }
     }
@@ -9235,7 +8575,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl CategoryDescription {
-        const fn new() -> CategoryDescription {
+        pub const fn new() -> CategoryDescription {
             CategoryDescription {}
         }
     }
@@ -9350,13 +8690,18 @@ mod common {
                 CategoryDescription.as_column(),
             ])
         }
+        fn strict(&self) -> bool {
+            false
+        }
+        fn without_rowid(&self) -> bool {
+            false
+        }
     }
     impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
     for Category {
         fn to_sql(
             &self,
         ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-            use ::drizzle_rs::core::ToSQL;
             static INSTANCE: Category = Category::new();
             INSTANCE.as_table().to_sql()
         }
@@ -9882,39 +9227,57 @@ mod common {
             ::drizzle_rs::core::SQL::empty()
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for SelectCategory {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for SelectCategory {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                description: row.get("description")?,
+                id: {
+                    let val = row
+                        .get_value(0usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field id".to_string(),
+                        ))?;
+                    (*val).try_into()?
+                },
+                name: {
+                    let val = row
+                        .get_value(1usize)?
+                        .as_text()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field name".to_string(),
+                        ))?;
+                    val.to_string()
+                },
+                description: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for PartialSelectCategory {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for PartialSelectCategory {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                description: row.get("description")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                name: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
+                description: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for UpdateCategory {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for UpdateCategory {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                id: row.get("id")?,
-                name: row.get("name")?,
-                description: row.get("description")?,
+                id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                name: row.get_value(1usize)?.as_text().map(|v| v.to_string()),
+                description: row.get_value(2usize)?.as_text().map(|v| v.to_string()),
             })
         }
     }
@@ -10016,7 +9379,7 @@ mod common {
     }
     #[allow(non_upper_case_globals)]
     impl PostCategory {
-        const fn new() -> Self {
+        pub const fn new() -> Self {
             Self {
                 post_id: PostCategoryPostId::new(),
                 category_id: PostCategoryCategoryId::new(),
@@ -10099,7 +9462,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostCategoryPostId {
-        const fn new() -> PostCategoryPostId {
+        pub const fn new() -> PostCategoryPostId {
             PostCategoryPostId {}
         }
     }
@@ -10249,7 +9612,7 @@ mod common {
         fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {}
     }
     impl PostCategoryCategoryId {
-        const fn new() -> PostCategoryCategoryId {
+        pub const fn new() -> PostCategoryCategoryId {
             PostCategoryCategoryId {}
         }
     }
@@ -10361,13 +9724,18 @@ mod common {
                 PostCategoryCategoryId.as_column(),
             ])
         }
+        fn strict(&self) -> bool {
+            false
+        }
+        fn without_rowid(&self) -> bool {
+            false
+        }
     }
     impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>>
     for PostCategory {
         fn to_sql(
             &self,
         ) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-            use ::drizzle_rs::core::ToSQL;
             static INSTANCE: PostCategory = PostCategory::new();
             INSTANCE.as_table().to_sql()
         }
@@ -10795,37 +10163,153 @@ mod common {
             ::drizzle_rs::core::SQL::empty()
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for SelectPostCategory {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for SelectPostCategory {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                post_id: row.get("post_id")?,
-                category_id: row.get("category_id")?,
+                post_id: {
+                    let val = row
+                        .get_value(0usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field post_id".to_string(),
+                        ))?;
+                    (*val).try_into()?
+                },
+                category_id: {
+                    let val = row
+                        .get_value(1usize)?
+                        .as_integer()
+                        .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(
+                            "Expected value for field category_id".to_string(),
+                        ))?;
+                    (*val).try_into()?
+                },
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for PartialSelectPostCategory {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for PartialSelectPostCategory {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                post_id: row.get("post_id")?,
-                category_id: row.get("category_id")?,
+                post_id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                category_id: row
+                    .get_value(1usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
             })
         }
     }
-    impl ::std::convert::TryFrom<&rusqlite::Row<'_>> for UpdatePostCategory {
-        type Error = ::rusqlite::Error;
-        fn try_from(
-            row: &::rusqlite::Row<'_>,
-        ) -> ::std::result::Result<Self, Self::Error> {
+    impl ::std::convert::TryFrom<&turso::Row> for UpdatePostCategory {
+        type Error = ::drizzle_rs::error::DrizzleError;
+        fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
             Ok(Self {
-                post_id: row.get("post_id")?,
-                category_id: row.get("category_id")?,
+                post_id: row
+                    .get_value(0usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
+                category_id: row
+                    .get_value(1usize)?
+                    .as_integer()
+                    .map(|v| (*v).try_into())
+                    .transpose()?,
             })
+        }
+    }
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+    pub fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
+        let mut rng = StdRng::seed_from_u64(rng_seed);
+        let simple_names = [
+            "John",
+            "Alice",
+            "Thomas",
+            "Appa",
+            "Sarah",
+            "Mike",
+            "Laura",
+            "Ethan",
+        ];
+        for _ in 0..rows {
+            let name = simple_names.choose(&mut rng).unwrap();
+        }
+        let mut complex_ids: Vec<Uuid> = Vec::new();
+        for _ in 0..rows {
+            let id = Uuid::new_v4();
+            complex_ids.push(id.clone());
+            let name = ::alloc::__export::must_use({
+                ::alloc::fmt::format(format_args!("User{0}", rng.random_range(1..=1000)))
+            });
+            let email: Option<String> = if rng.random_bool(0.7) {
+                Some(
+                    ::alloc::__export::must_use({
+                        ::alloc::fmt::format(
+                            format_args!("{0}@example.com", name.to_lowercase()),
+                        )
+                    }),
+                )
+            } else {
+                None
+            };
+            let age = if rng.random_bool(0.5) {
+                Some(rng.random_range(18..=70))
+            } else {
+                None
+            };
+            let score = if rng.random_bool(0.5) {
+                Some(rng.random_range(0.0..100.0))
+            } else {
+                None
+            };
+            let active = rng.random_bool(0.5);
+            let bytes = <[_]>::into_vec(
+                ::alloc::boxed::box_new([
+                    rng.random_range(0u8..=255),
+                    rng.random_range(0u8..=255),
+                    rng.random_range(0u8..=255),
+                    rng.random_range(0u8..=255),
+                ]),
+            );
+        }
+        let categories = [
+            ("Technology", "Tech related posts"),
+            ("Lifestyle", "Lifestyle related posts"),
+            ("Travel", "Travel experiences"),
+            ("Food", "Food and recipes"),
+        ];
+        for &(name, desc) in &categories {}
+        for i in 0..rows {
+            let title = ::alloc::__export::must_use({
+                ::alloc::fmt::format(format_args!("Post {0}", i + 1))
+            });
+            let content: Option<String> = if rng.random_bool(0.8) {
+                Some(
+                    ::alloc::__export::must_use({
+                        ::alloc::fmt::format(
+                            format_args!("This is the content of post {0}", i + 1),
+                        )
+                    }),
+                )
+            } else {
+                None
+            };
+            let published = rng.random_bool(0.5);
+            let created_at = ::alloc::__export::must_use({
+                ::alloc::fmt::format(
+                    format_args!("2025-08-11T{0:02}:00:00Z", rng.random_range(0..24)),
+                )
+            });
+        }
+        let category_ids: Vec<i32> = (1..=(categories.len() as i32)).collect();
+        for post_id in 1..=rows as i32 {
+            let num_cats = rng.random_range(1..=category_ids.len());
+            for &cat_id in category_ids.choose_multiple(&mut rng, num_cats) {}
         }
     }
 }
@@ -10838,9 +10322,9 @@ pub const test_prepare_with_placeholder: test::TestDescAndFn = test::TestDescAnd
         ignore: false,
         ignore_message: ::core::option::Option::None,
         source_file: "tests\\prepare.rs",
-        start_line: 25usize,
+        start_line: 14usize,
         start_col: 4usize,
-        end_line: 25usize,
+        end_line: 14usize,
         end_col: 33usize,
         compile_fail: false,
         no_run: false,
@@ -10854,7 +10338,11 @@ pub const test_prepare_with_placeholder: test::TestDescAndFn = test::TestDescAnd
 };
 fn test_prepare_with_placeholder() {
     let conn = setup_db();
-    let (db, (simple, complex)) = {
+    conn.execute("INSERT INTO simple (name) VALUES (?1)", ["Alice"])
+        .expect("Failed to insert test data");
+    conn.execute("INSERT INTO simple (name) VALUES (?1)", ["Bob"])
+        .expect("Failed to insert test data");
+    let (db, (simple, _complex)) = {
         #[allow(non_camel_case_types)]
         pub struct SimpleComplexSchema;
         #[automatically_derived]
@@ -10880,15 +10368,10 @@ fn test_prepare_with_placeholder() {
             (Simple::default(), Complex::default()),
         )
     };
-    let effected = db
-        .insert(simple)
-        .values([InsertSimple::new("alice")])
-        .execute()
-        .unwrap();
     let prepared_sql = db
         .select(simple.name)
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(and([eq(simple.name, SQL::placeholder("name"))]))
         .prepare();
     {
         ::std::io::_print(format_args!("{0}\n", prepared_sql));
@@ -10897,7 +10380,7 @@ fn test_prepare_with_placeholder() {
         .all([
             ::drizzle_rs::core::ParamBind::new(
                 "name",
-                ::sqlite::SQLiteValue::from("alice"),
+                ::sqlite::SQLiteValue::from("Alice"),
             ),
         ])
         .unwrap();
@@ -10914,7 +10397,7 @@ fn test_prepare_with_placeholder() {
             }
         }
     };
-    match (&result[0].name, &Some("alice".into())) {
+    match (&result[0].name, &Some("Alice".into())) {
         (left_val, right_val) => {
             if !(*left_val == *right_val) {
                 let kind = ::core::panicking::AssertKind::Eq;
@@ -10937,9 +10420,9 @@ pub const test_prepare_render_basic: test::TestDescAndFn = test::TestDescAndFn {
         ignore: false,
         ignore_message: ::core::option::Option::None,
         source_file: "tests\\prepare.rs",
-        start_line: 52usize,
+        start_line: 41usize,
         start_col: 4usize,
-        end_line: 52usize,
+        end_line: 41usize,
         end_col: 29usize,
         compile_fail: false,
         no_run: false,
@@ -10956,7 +10439,7 @@ fn test_prepare_render_basic() {
         .append(SQL::placeholder("user_id"))
         .append_raw(" AND name = ")
         .append(SQL::placeholder("user_name"));
-    let prepared = sql.prepare_render();
+    let prepared = prepare_render(sql);
     match (&prepared.text_segments.len(), &3) {
         (left_val, right_val) => {
             if !(*left_val == *right_val) {
@@ -11045,9 +10528,9 @@ pub const test_prepare_with_multiple_parameters: test::TestDescAndFn = test::Tes
         ignore: false,
         ignore_message: ::core::option::Option::None,
         source_file: "tests\\prepare.rs",
-        start_line: 75usize,
+        start_line: 64usize,
         start_col: 4usize,
-        end_line: 75usize,
+        end_line: 64usize,
         end_col: 41usize,
         compile_fail: false,
         no_run: false,
@@ -11067,7 +10550,7 @@ fn test_prepare_with_multiple_parameters() {
         .append_raw(", ")
         .append(SQL::placeholder("active"))
         .append_raw(")");
-    let prepared = sql.prepare_render();
+    let prepared = prepare_render(sql);
     let (final_sql, bound_params) = prepared
         .bind([
             ::drizzle_rs::core::ParamBind::new(
@@ -11159,9 +10642,9 @@ pub const test_prepare_sql_reconstruction: test::TestDescAndFn = test::TestDescA
         ignore: false,
         ignore_message: ::core::option::Option::None,
         source_file: "tests\\prepare.rs",
-        start_line: 106usize,
+        start_line: 95usize,
         start_col: 4usize,
-        end_line: 106usize,
+        end_line: 95usize,
         end_col: 35usize,
         compile_fail: false,
         no_run: false,
@@ -11174,13 +10657,112 @@ pub const test_prepare_sql_reconstruction: test::TestDescAndFn = test::TestDescA
     ),
 };
 fn test_prepare_sql_reconstruction() {
-    let _original_query = "SELECT * FROM posts WHERE author = :author AND published = :published ORDER BY created_at DESC";
-    let sql = SQL::<SQLiteValue>::raw("SELECT * FROM posts WHERE author = ")
+    let first = "SELECT * FROM posts WHERE author = ";
+    let second = " AND published = ";
+    let last = " ORDER BY created_at DESC";
+    let sql = SQL::<SQLiteValue>::raw(first)
         .append(SQL::placeholder("author"))
-        .append_raw(" AND published = ")
+        .append_raw(second)
         .append(SQL::placeholder("published"))
-        .append_raw(" ORDER BY created_at DESC");
-    let prepared = sql.prepare_render();
+        .append_raw(last);
+    let prepared = prepare_render(sql);
+    let chunk_sql = prepared.to_sql();
+    let chunks: Vec<_> = chunk_sql.into_iter().collect();
+    match (&chunks.len(), &5) {
+        (left_val, right_val) => {
+            if !(*left_val == *right_val) {
+                let kind = ::core::panicking::AssertKind::Eq;
+                ::core::panicking::assert_failed(
+                    kind,
+                    &*left_val,
+                    &*right_val,
+                    ::core::option::Option::None,
+                );
+            }
+        }
+    };
+    match (&chunks[0], &chunks[1], &chunks[2], &chunks[3], &chunks[4]) {
+        (
+            SQLChunk::Text(text1),
+            SQLChunk::Param(param1),
+            SQLChunk::Text(text2),
+            SQLChunk::Param(param2),
+            SQLChunk::Text(text3),
+        ) => {
+            match (&text1.to_string().as_str(), &first) {
+                (left_val, right_val) => {
+                    if !(*left_val == *right_val) {
+                        let kind = ::core::panicking::AssertKind::Eq;
+                        ::core::panicking::assert_failed(
+                            kind,
+                            &*left_val,
+                            &*right_val,
+                            ::core::option::Option::None,
+                        );
+                    }
+                }
+            };
+            match (&text2.to_string().as_str(), &second) {
+                (left_val, right_val) => {
+                    if !(*left_val == *right_val) {
+                        let kind = ::core::panicking::AssertKind::Eq;
+                        ::core::panicking::assert_failed(
+                            kind,
+                            &*left_val,
+                            &*right_val,
+                            ::core::option::Option::None,
+                        );
+                    }
+                }
+            };
+            match (&text3.to_string().as_str(), &last) {
+                (left_val, right_val) => {
+                    if !(*left_val == *right_val) {
+                        let kind = ::core::panicking::AssertKind::Eq;
+                        ::core::panicking::assert_failed(
+                            kind,
+                            &*left_val,
+                            &*right_val,
+                            ::core::option::Option::None,
+                        );
+                    }
+                }
+            };
+            match (&param1.placeholder.name, &Some("author")) {
+                (left_val, right_val) => {
+                    if !(*left_val == *right_val) {
+                        let kind = ::core::panicking::AssertKind::Eq;
+                        ::core::panicking::assert_failed(
+                            kind,
+                            &*left_val,
+                            &*right_val,
+                            ::core::option::Option::None,
+                        );
+                    }
+                }
+            };
+            match (&param2.placeholder.name, &Some("published")) {
+                (left_val, right_val) => {
+                    if !(*left_val == *right_val) {
+                        let kind = ::core::panicking::AssertKind::Eq;
+                        ::core::panicking::assert_failed(
+                            kind,
+                            &*left_val,
+                            &*right_val,
+                            ::core::option::Option::None,
+                        );
+                    }
+                }
+            };
+        }
+        _ => {
+            ::core::panicking::panic_fmt(
+                format_args!(
+                    "Chunks are not in expected text-param-text-param-text pattern",
+                ),
+            );
+        }
+    }
     let (final_sql, _) = prepared
         .bind([
             ::drizzle_rs::core::ParamBind::new(
@@ -11217,9 +10799,9 @@ pub const test_prepare_with_no_parameters: test::TestDescAndFn = test::TestDescA
         ignore: false,
         ignore_message: ::core::option::Option::None,
         source_file: "tests\\prepare.rs",
-        start_line: 129usize,
+        start_line: 147usize,
         start_col: 4usize,
-        end_line: 129usize,
+        end_line: 147usize,
         end_col: 35usize,
         compile_fail: false,
         no_run: false,
@@ -11233,7 +10815,7 @@ pub const test_prepare_with_no_parameters: test::TestDescAndFn = test::TestDescA
 };
 fn test_prepare_with_no_parameters() {
     let sql = SQL::<SQLiteValue>::raw("SELECT COUNT(*) FROM users");
-    let prepared = sql.prepare_render();
+    let prepared = prepare_render(sql);
     match (&prepared.text_segments.len(), &1) {
         (left_val, right_val) => {
             if !(*left_val == *right_val) {
@@ -11310,9 +10892,9 @@ pub const test_prepare_complex_query: test::TestDescAndFn = test::TestDescAndFn 
         ignore: false,
         ignore_message: ::core::option::Option::None,
         source_file: "tests\\prepare.rs",
-        start_line: 145usize,
+        start_line: 163usize,
         start_col: 4usize,
-        end_line: 145usize,
+        end_line: 163usize,
         end_col: 30usize,
         compile_fail: false,
         no_run: false,
@@ -11332,7 +10914,7 @@ fn test_prepare_complex_query() {
         .append_raw("INNER JOIN category_tree ct ON c.parent_id = ct.id) ")
         .append_raw("SELECT * FROM category_tree WHERE name LIKE ")
         .append(SQL::placeholder("search_pattern"));
-    let prepared = sql.prepare_render();
+    let prepared = prepare_render(sql);
     let (final_sql, bound_params) = prepared
         .bind([
             ::drizzle_rs::core::ParamBind::new(

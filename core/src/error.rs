@@ -63,10 +63,24 @@ pub enum DrizzleError {
     #[error("Rusqlite error: {0}")]
     Rusqlite(#[from] rusqlite::Error),
 
-    /// Rusqlite specific errors
+    /// Turso specific errors
     #[cfg(feature = "turso")]
     #[error("Turso error: {0}")]
     Turso(#[from] turso::Error),
+
+    /// UUID parsing error
+    #[cfg(feature = "uuid")]
+    #[error("UUID error: {0}")]
+    UuidError(#[from] uuid::Error),
+
+    /// JSON serialization/deserialization error
+    #[cfg(feature = "serde")]
+    #[error("JSON error: {0}")]
+    JsonError(#[from] serde_json::Error),
+
+    /// Infallible conversion error (should never happen)
+    #[error("Infallible conversion error")]
+    Infallible(#[from] std::convert::Infallible),
 }
 
 /// Result type for database operations

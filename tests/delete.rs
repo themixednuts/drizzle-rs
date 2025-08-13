@@ -7,21 +7,10 @@ use uuid::Uuid;
 
 mod common;
 
-#[derive(Debug)]
+#[derive(FromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
-}
-
-impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = drizzle_rs::error::DrizzleError;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    }
 }
 
 #[cfg(not(feature = "uuid"))]

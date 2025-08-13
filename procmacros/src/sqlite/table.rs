@@ -1296,14 +1296,48 @@ fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     }
 
-    // Generate rusqlite implementations based on the first occurrence of each type
-    #[cfg(feature = "rusqlite")]
-    let impls = if json_type_storage.is_empty() { 
+    // Generate core SQLiteValue implementations (needed for all drivers)
+    let core_impls = if json_type_storage.is_empty() { 
         vec![] 
     } else {
         json_type_storage.iter().map(|(_, (storage_type, info))| {
             let struct_name = info.base_type;
-            let (from_impl, to_impl, core_conversion) = match storage_type {
+            let core_conversion = match storage_type {
+                SQLiteType::Text => quote! {
+                    let json = serde_json::to_string(&self)?;
+                    Ok(::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
+                },
+                SQLiteType::Blob => quote! {
+                    let json = serde_json::to_vec(&self)?;
+                    Ok(::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
+                },
+                _ => return Err(syn::Error::new_spanned(
+                    info.ident, 
+                    "JSON fields must use either TEXT or BLOB column types"
+                )),
+            };
+
+            Ok(quote! {
+                // Core TryInto implementation for SQLiteValue (needed for all drivers)
+                impl<'a> ::std::convert::TryInto<::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
+                    type Error = serde_json::Error;
+
+                    fn try_into(self) -> Result<::drizzle_rs::sqlite::SQLiteValue<'a>, Self::Error> {
+                        #core_conversion
+                    }
+                }
+            })
+        }).collect::<Result<Vec<_>>>()?
+    };
+
+    // Generate rusqlite-specific implementations
+    #[cfg(feature = "rusqlite")]
+    let rusqlite_impls = if json_type_storage.is_empty() { 
+        vec![] 
+    } else {
+        json_type_storage.iter().map(|(_, (storage_type, info))| {
+            let struct_name = info.base_type;
+            let (from_impl, to_impl) = match storage_type {
                 SQLiteType::Text => (
                     quote! {
                         match value {
@@ -1316,10 +1350,6 @@ fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         let json = serde_json::to_string(self)
                             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                         Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Text(json)))
-                    },
-                    quote! {
-                        let json = serde_json::to_string(&self)?;
-                        Ok(::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
                     }
                 ),
                 SQLiteType::Blob => (
@@ -1334,10 +1364,6 @@ fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         let json = serde_json::to_vec(self)
                             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                         Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Blob(json)))
-                    },
-                    quote! {
-                        let json = serde_json::to_vec(&self)?;
-                        Ok(::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
                     }
                 ),
                 _ => return Err(syn::Error::new_spanned(
@@ -1360,24 +1386,16 @@ fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         #to_impl
                     }
                 }
-
-                // Add TryInto implementation for field conversion logic
-                impl<'a> ::std::convert::TryInto<::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
-                    type Error = serde_json::Error;
-
-                    fn try_into(self) -> Result<::drizzle_rs::sqlite::SQLiteValue<'a>, Self::Error> {
-                        #core_conversion
-                    }
-                }
             })
         }).collect::<Result<Vec<_>>>()?
     };
     
     #[cfg(not(feature = "rusqlite"))]
-    let impls: Vec<TokenStream> = vec![];
+    let rusqlite_impls: Vec<TokenStream> = vec![];
 
     let json_types_impl = quote! {
-        #(#impls)*
+        #(#core_impls)*
+        #(#rusqlite_impls)*
     };
 
     Ok(json_types_impl)
@@ -1475,6 +1493,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     let rusqlite_impls = quote!();
 
     #[cfg(feature = "turso")]
+    // let turso_impls = quote! {};
     let turso_impls = turso::generate_turso_impls(&ctx)?;
 
     #[cfg(not(feature = "turso"))]

@@ -4,10 +4,12 @@ use drizzle_core::{SQL, error::DrizzleError};
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::types::FromSql;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "turso")]
 use turso::IntoValue;
+use uuid::Uuid;
 
-use std::borrow::Cow;
+use std::{borrow::Cow, str::FromStr};
 
 //------------------------------------------------------------------------------
 // InsertValue Definition - Three-state value for inserts
@@ -96,11 +98,77 @@ impl<'a> std::fmt::Display for SQLiteValue<'a> {
     }
 }
 
-// impl<'a> From<SQL<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
-//     fn from(value: SQL<'a, SQLiteValue<'a>>) -> Self {
-//         SQL
-//     }
-// }
+impl<'a> From<SQL<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
+    fn from(value: SQL<'a, SQLiteValue<'a>>) -> Self {
+        unimplemented!()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TestJson {
+    id: String,
+}
+
+struct TestFields {
+    id: Option<i32>,
+    id2: i32,
+    json: Option<TestJson>,
+    json2: TestJson,
+    desc: Option<String>,
+    author: Option<Uuid>,
+    author2: Uuid,
+    context: String,
+}
+
+impl TryFrom<&turso::Row> for TestFields {
+    type Error = DrizzleError;
+
+    fn try_from(value: &turso::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value
+                .get_value(0)?
+                .as_integer()
+                .map(|&v| v.try_into())
+                .transpose()?,
+            id2: value
+                .get_value(0)?
+                .as_integer()
+                .map(|&v| v.try_into())
+                .transpose()?
+                .ok_or_else(|| DrizzleError::NotFound)?,
+            json: value
+                .get_value(1)?
+                .as_text()
+                .map(|v| serde_json::from_str(v))
+                .transpose()?,
+            json2: value
+                .get_value(1)?
+                .as_text()
+                .map(|v| serde_json::from_str(v))
+                .transpose()?
+                .ok_or_else(|| DrizzleError::NotFound)?,
+            desc: value.get_value(2)?.as_text().cloned(),
+            author: value
+                .get_value(3)?
+                .as_blob()
+                .map(|v| Uuid::from_slice(v))
+                .transpose()?,
+            author2: value
+                .get_value(3)?
+                .as_text()
+                .map(|v| Uuid::from_str(v))
+                .transpose()?
+                .ok_or_else(|| DrizzleError::NotFound)?,
+            context: {
+                value
+                    .get_value(4)?
+                    .as_text()
+                    .cloned()
+                    .ok_or_else(|| DrizzleError::NotFound)?
+            },
+        })
+    }
+}
 
 //------------------------------------------------------------------------------
 // Database Driver Implementations
@@ -487,6 +555,11 @@ impl<'a> From<&'a uuid::Uuid> for SQLiteValue<'a> {
         SQLiteValue::Blob(Cow::Borrowed(value.as_bytes()))
     }
 }
+
+// --- JSON ---
+// Note: JSON types should be handled through serialization in the schema macros
+// These implementations provide fallback support but JSON fields should primarily
+// be serialized to TEXT or BLOB through the field generation logic
 
 // --- Option Types ---
 impl<'a, T> From<Option<T>> for SQLiteValue<'a>

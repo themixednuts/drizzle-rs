@@ -193,7 +193,7 @@ impl FieldProperties {
             is_unique: flags.contains("unique"),
             is_json: flags.contains("json"),
             is_enum: flags.contains("enum"),
-            is_uuid: base_type.to_token_stream().to_string() == "Uuid",
+            is_uuid: base_type.to_token_stream().to_string().contains("Uuid"),
             has_default: false, // Will be set in build() based on actual values
         }
     }

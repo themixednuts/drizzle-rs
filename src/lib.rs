@@ -123,24 +123,6 @@ mod tests {
         content: String,
     }
 
-    impl TryFrom<&turso::Row> for SelectComment {
-        type Error = turso::Error;
-
-        fn try_from(value: &turso::Row) -> Result<Self, Self::Error> {
-            Ok(Self {
-                id: SQLiteValue::from(
-                    value
-                        .get_value(0)?
-                        .as_integer()
-                        .cloned()
-                        .unwrap_or_default(),
-                )
-                .into(),
-                content: value.get_value(1)?.as_text().cloned().unwrap_or_default(),
-            })
-        }
-    }
-
     #[test]
     fn test_schema_macro() {
         // Create a schema with the User table using schema! macro

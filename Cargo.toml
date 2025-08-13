@@ -48,7 +48,7 @@ smallvec = { version = "1.15.1", features = [
 sqlite = { path = "./sqlite" }
 thiserror = "1.0.49"
 tokio = { version = "1.47", features = ["full"] }
-turso = { version = "0.1.3" }
+turso = { version = "0.1" }
 uuid = { version = "1.16.0", features = ["v4", "serde"] }
 
 # Add dev-dependencies for tests
@@ -57,6 +57,7 @@ drizzle_rs = { workspace = true, features = ["turso", "uuid", "serde"] }
 procmacros = { workspace = true, features = ["turso"] }
 rand = { workspace = true }
 tokio = { workspace = true }
+futures-util = { workspace = true }
 
 [features]
 rusqlite = [
