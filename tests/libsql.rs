@@ -1,22 +1,19 @@
 mod common;
 
-#[cfg(feature = "turso")]
-mod turso_tests {
+#[cfg(feature = "libsql")]
+mod libsql_tests {
     use drizzle_rs::prelude::*;
-    use turso::{Builder, Connection};
+    use libsql::{Builder, Connection};
 
     use crate::common::{Complex, InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
 
-    // Helper function to create a turso connection for testing
-    // Note: This will need a real turso database URL in practice
-    async fn setup_turso_connection() -> Connection {
-        // For testing, you'll need to provide an actual turso database URL
-        // This is a placeholder - replace with your actual turso database URL
-        let url = std::env::var("TURSO_DATABASE_URL").unwrap_or_else(|_| ":memory:".to_string());
-
-        let db = Builder::new_local(&url).build().await.unwrap();
-        let conn = db.connect().unwrap();
-        conn
+    // Helper function to create a libsql connection for testing
+    async fn setup_libsql_connection() -> Connection {
+        let db = Builder::new_local(":memory:")
+            .build()
+            .await
+            .expect("Failed to create in-memory database");
+        db.connect().expect("Failed to connect to database")
     }
 
     async fn setup_test_tables(conn: &Connection) {
@@ -32,14 +29,14 @@ mod turso_tests {
     }
 
     #[tokio::test]
-    async fn test_basic_turso_insert_select() {
-        let conn = setup_turso_connection().await;
+    async fn test_basic_libsql_insert_select() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Test basic insert
-        let data = InsertSimple::default().with_name("turso_test");
+        let data = InsertSimple::default().with_name("libsql_test");
         let inserted = db.insert(simple).values([data]).execute().await.unwrap();
 
         assert_eq!(inserted, 1);
@@ -48,12 +45,12 @@ mod turso_tests {
         let selected: Vec<SelectSimple> = db.select(()).from(simple).all().await.unwrap();
 
         assert!(selected.len() > 0);
-        assert_eq!(selected[0].name, "turso_test");
+        assert_eq!(selected[0].name, "libsql_test");
     }
 
     #[tokio::test]
-    async fn test_turso_get_single_row() {
-        let conn = setup_turso_connection().await;
+    async fn test_libsql_get_single_row() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, simple) = drizzle!(conn, [Simple]);
@@ -69,8 +66,8 @@ mod turso_tests {
     }
 
     #[tokio::test]
-    async fn test_turso_column_tuple_select() {
-        let conn = setup_turso_connection().await;
+    async fn test_libsql_column_tuple_select() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, simple) = drizzle!(conn, [Simple]);
@@ -79,7 +76,7 @@ mod turso_tests {
         let data = InsertSimple::default().with_name("column_tuple_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
-        // Test column tuple select (alternative to partial select for turso)
+        // Test column tuple select (alternative to partial select for libsql)
         let row: (i32, String) = db
             .select((simple.id, simple.name))
             .from(simple)
@@ -92,16 +89,16 @@ mod turso_tests {
 
     #[cfg(feature = "uuid")]
     #[tokio::test]
-    async fn test_turso_complex_types() {
-        let conn = setup_turso_connection().await;
+    async fn test_libsql_complex_types() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, complex) = drizzle!(conn, [Complex]);
 
         // Test complex type insertion
         let complex_data = InsertComplex::default()
-            .with_name("turso_complex")
-            .with_email("test@turso.com".to_string())
+            .with_name("libsql_complex")
+            .with_email("test@libsql.com".to_string())
             .with_age(30)
             .with_active(true)
             .with_role(Role::User);
@@ -119,8 +116,8 @@ mod turso_tests {
         let selected: Vec<SelectComplex> = db.select(()).from(complex).all().await.unwrap();
 
         assert!(selected.len() > 0);
-        assert_eq!(selected[0].name, "turso_complex");
-        assert_eq!(selected[0].email, Some("test@turso.com".to_string()));
+        assert_eq!(selected[0].name, "libsql_complex");
+        assert_eq!(selected[0].email, Some("test@libsql.com".to_string()));
         assert_eq!(selected[0].age, Some(30));
         assert_eq!(selected[0].active, true);
         assert_eq!(selected[0].role, Role::User);
@@ -128,10 +125,10 @@ mod turso_tests {
 
     #[cfg(all(feature = "serde", feature = "uuid"))]
     #[tokio::test]
-    async fn test_turso_json_fields() {
+    async fn test_libsql_json_fields() {
         use crate::common::{InsertComplex, SelectComplex, UserMetadata};
 
-        let conn = setup_turso_connection().await;
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, complex) = drizzle!(conn, [Complex]);
@@ -165,8 +162,8 @@ mod turso_tests {
     }
 
     #[tokio::test]
-    async fn test_turso_update_operations() {
-        let conn = setup_turso_connection().await;
+    async fn test_libsql_update_operations() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, simple) = drizzle!(conn, [Simple]);
@@ -193,8 +190,8 @@ mod turso_tests {
     }
 
     #[tokio::test]
-    async fn test_turso_delete_operations() {
-        let conn = setup_turso_connection().await;
+    async fn test_libsql_delete_operations() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, simple) = drizzle!(conn, [Simple]);
@@ -219,8 +216,8 @@ mod turso_tests {
     }
 
     #[tokio::test]
-    async fn test_turso_error_handling() {
-        let conn = setup_turso_connection().await;
+    async fn test_libsql_error_handling() {
+        let conn = setup_libsql_connection().await;
         setup_test_tables(&conn).await;
 
         let (db, simple) = drizzle!(conn, [Simple]);
@@ -236,5 +233,73 @@ mod turso_tests {
         db.insert(simple).values([data1]).execute().await.unwrap();
         let result = db.insert(simple).values([data2]).execute().await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_libsql_prepared_statements() {
+        let conn = setup_libsql_connection().await;
+        setup_test_tables(&conn).await;
+
+        let (db, simple) = drizzle!(conn, [Simple]);
+
+        // Insert test data
+        let data = InsertSimple::default().with_name("prepared_test");
+        db.insert(simple).values([data]).execute().await.unwrap();
+
+        // Test prepared statement with parameters
+        let prepared = db.select(()).from(simple).prepare();
+        let selected: Vec<SelectSimple> = prepared.all([]).await.unwrap();
+
+        assert!(selected.len() > 0);
+        assert_eq!(selected[0].name, "prepared_test");
+    }
+
+    #[tokio::test]
+    async fn test_libsql_transactions() {
+        let conn = setup_libsql_connection().await;
+        setup_test_tables(&conn).await;
+
+        let (db, simple) = drizzle!(conn, [Simple]);
+
+        // Insert data in a transaction context
+        let data1 = InsertSimple::default().with_name("trans_test1");
+        let data2 = InsertSimple::default().with_name("trans_test2");
+
+        db.insert(simple).values([data1]).execute().await.unwrap();
+        db.insert(simple).values([data2]).execute().await.unwrap();
+
+        // Verify both records exist
+        let selected: Vec<SelectSimple> = db.select(()).from(simple).all().await.unwrap();
+        assert_eq!(selected.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_libsql_where_conditions() {
+        let conn = setup_libsql_connection().await;
+        setup_test_tables(&conn).await;
+
+        let (db, simple) = drizzle!(conn, [Simple]);
+
+        // Insert multiple test records
+        let data1 = InsertSimple::default().with_name("where_test1");
+        let data2 = InsertSimple::default().with_name("where_test2");
+        let data3 = InsertSimple::default().with_name("other_test");
+
+        db.insert(simple)
+            .values([data1, data2, data3])
+            .execute()
+            .await
+            .unwrap();
+
+        // Test where condition with like
+        let selected: Vec<SelectSimple> = db
+            .select(())
+            .from(simple)
+            .r#where(like(simple.name, "where_test%"))
+            .all()
+            .await
+            .unwrap();
+
+        assert_eq!(selected.len(), 2);
     }
 }

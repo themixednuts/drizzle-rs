@@ -1,3 +1,4 @@
+use drizzle_core::ParamBind;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use turso::{Connection, IntoValue};
@@ -15,7 +16,7 @@ use sqlite::{
     },
 };
 
-use crate::drizzle::sqlite::DrizzleBuilder;
+use crate::drizzle::sqlite::{DrizzleBuilder, PreparedDrizzle};
 
 /// Drizzle instance that provides access to the database and query builder.
 #[derive(Debug)]
@@ -167,6 +168,91 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
+impl<'a, S, State, T> PreparedDrizzle<'a, S, SelectBuilder<'a, S, State, T>, State>
+where
+    State: builder::ExecutableState,
+{
+    pub async fn all<R>(
+        self,
+        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+    ) -> drizzle_core::error::Result<Vec<R>>
+    where
+        R: for<'r> TryFrom<&'r turso::Row>,
+        for<'r> <R as TryFrom<&'r turso::Row>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+    {
+        // Bind parameters to pre-rendered SQL
+        let (sql_str, sql_params) = self.sql.bind(params);
+        
+        // Convert to turso values
+        let turso_params: Vec<turso::Value> = sql_params
+            .into_iter()
+            .map(|p| {
+                p.into_value()
+                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Execute with connection
+        let conn = &self.drizzle.drizzle.conn;
+        let mut rows = conn
+            .query(&sql_str, turso_params)
+            .await
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?;
+
+        let mut results = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?
+        {
+            let converted = R::try_from(&row).map_err(Into::into)?;
+            results.push(converted);
+        }
+
+        Ok(results)
+    }
+
+    pub async fn get<R>(
+        self,
+        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+    ) -> drizzle_core::error::Result<R>
+    where
+        R: for<'r> TryFrom<&'r turso::Row>,
+        for<'r> <R as TryFrom<&'r turso::Row>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+    {
+        // Bind parameters to pre-rendered SQL
+        let (sql_str, sql_params) = self.sql.bind(params);
+        
+        // Convert to turso values
+        let turso_params: Vec<turso::Value> = sql_params
+            .into_iter()
+            .map(|p| {
+                p.into_value()
+                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Execute with connection
+        let conn = &self.drizzle.drizzle.conn;
+        let mut rows = conn
+            .query(&sql_str, turso_params)
+            .await
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?;
+
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?
+        {
+            R::try_from(&row).map_err(Into::into)
+        } else {
+            Err(drizzle_core::error::DrizzleError::Other("No rows returned".to_string()))
+        }
+    }
+}
+
 // Execution Methods for Turso
 
 // Add execution methods for SELECT - Turso
@@ -188,6 +274,16 @@ where
         for<'r> <R as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
         self.builder.get(&self.drizzle.conn).await
+    }
+
+    pub fn prepare(self) -> PreparedDrizzle<'a, S, SelectBuilder<'a, S, State, T>, State> {
+        use drizzle_core::prepare_render;
+        let prepared_sql = prepare_render(self.builder.sql.clone());
+
+        PreparedDrizzle {
+            drizzle: self,
+            sql: prepared_sql,
+        }
     }
 }
 
