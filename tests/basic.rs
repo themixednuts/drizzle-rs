@@ -102,11 +102,7 @@ fn test_from_row_derive_with_simple_struct() {
     drizzle.insert(simple).values([data]).execute().unwrap();
 
     // Test the derived implementation
-    let result: DerivedPartialSimple = drizzle
-        .select(columns![Simple::name])
-        .from(simple)
-        .get()
-        .unwrap();
+    let result: DerivedPartialSimple = drizzle.select(simple.id).from(simple).get().unwrap();
 
     assert_eq!(result.name, "derive_test");
 }
@@ -116,7 +112,7 @@ fn test_from_row_with_column_mapping() {
     let db = setup_db();
     let (drizzle, simple) = drizzle!(db, [Simple]);
 
-    let data = InsertSimple::default().with_id(42).with_name("column_test");
+    let data = InsertSimple::new("column_test").with_id(42);
     drizzle.insert(simple).values([data]).execute().unwrap();
 
     // Test the column-mapped FromRow implementation

@@ -1,3 +1,32 @@
+//! # Drizzle RS Procedural Macros
+//!
+//! This crate provides the procedural macros for Drizzle RS, a type-safe SQL query builder for Rust.
+//! 
+//! ## Core Macros
+//! 
+//! - [`drizzle!`] - Initialize a Drizzle instance with database connection and schemas
+//! - [`SQLiteTable`] - Define SQLite table schemas with type safety
+//! - [`SQLiteEnum`] - Define enums that can be stored in SQLite
+//! - [`FromRow`] - Derive automatic row-to-struct conversion
+//! 
+//! ## Example Usage
+//! 
+//! ```rust
+//! # use drizzle_rs::prelude::*;
+//! // Define your schema
+//! #[SQLiteTable(name = "users")]
+//! struct Users {
+//!     #[integer(primary)]
+//!     id: i32,
+//!     #[text]
+//!     name: String,
+//!     #[text]
+//!     email: String,
+//! }
+//! ```
+//!
+//! For more detailed documentation, see the individual macro documentation below.
+
 extern crate proc_macro;
 
 mod drizzle;
@@ -16,8 +45,79 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
 
-/// Process the drizzle! proc macro
-/// This macro creates a Drizzle instance from a connection and schema
+/// Initialize a Drizzle instance with database connection and table schemas.
+///
+/// This macro creates a type-safe Drizzle instance that provides query building
+/// capabilities for the specified table schemas.
+///
+/// # Syntax
+///
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// # #[SQLiteTable] struct Table1 { #[integer(primary)] id: i32 }
+/// # #[SQLiteTable] struct Table2 { #[integer(primary)] id: i32 }
+/// # #[SQLiteTable] struct Table { #[integer(primary)] id: i32 }
+/// # fn main() {
+/// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
+/// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
+/// # let connection3 = rusqlite::Connection::open_in_memory().unwrap();
+/// // Multiple tables (returns tuple)
+/// let (drizzle_instance, table_handles) = drizzle!(connection1, [Table1, Table2]);
+/// // Single table with array syntax (returns single table)
+/// let (drizzle_instance, single_table) = drizzle!(connection2, [Table]);
+/// // Single table without array syntax (returns single table) 
+/// let (drizzle_instance, single_table) = drizzle!(connection3, Table);
+/// # }
+/// ```
+///
+/// # Examples
+///
+/// ## Single Table
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
+/// }
+/// 
+/// # fn main() {
+/// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
+/// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
+/// // Both syntaxes are equivalent for single tables:
+/// let (db, users) = drizzle!(connection1, [Users]);
+/// let (db, users) = drizzle!(connection2, Users);
+/// # }
+/// ```
+///
+/// ## Multiple Tables
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
+/// }
+/// 
+/// #[SQLiteTable(name = "posts")]
+/// struct Posts {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text]
+///     title: String,
+///     #[integer(references = Users::id)]
+///     user_id: i32,
+/// }
+/// 
+/// # fn main() {
+/// # let connection = rusqlite::Connection::open_in_memory().unwrap();
+/// let (db, (users, posts)) = drizzle!(connection, [Users, Posts]);
+/// # }
+/// ```
 #[proc_macro]
 pub fn drizzle(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DrizzleInput);
@@ -36,6 +136,69 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 }
 
+/// Derive macro for creating SQLite-compatible enums.
+///
+/// This macro allows enums to be stored in SQLite databases as either TEXT (variant names)
+/// or INTEGER (discriminant values) depending on the column attribute used.
+///
+/// The enum can be used with `#[text(enum)]` or `#[integer(enum)]` column attributes.
+///
+/// # Requirements
+///
+/// - Enum must have at least one variant
+/// - For `#[integer(enum)]`, variants can have explicit discriminants
+/// - Must derive `Default` to specify the default variant
+///
+/// # Examples
+///
+/// ## Text Storage (Variant Names)
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+/// enum UserRole {
+///     #[default]
+///     User,      // Stored as "User"
+///     Admin,     // Stored as "Admin" 
+///     Moderator, // Stored as "Moderator"
+/// }
+///
+/// #[SQLiteTable]
+/// struct Users {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text(enum)] // Stores variant names as TEXT
+///     role: UserRole,
+/// }
+/// ```
+///
+/// ## Integer Storage (Discriminants)
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+/// enum Priority {
+///     #[default]
+///     Low = 1,    // Stored as 1
+///     Medium = 5, // Stored as 5
+///     High = 10,  // Stored as 10
+/// }
+///
+/// #[SQLiteTable]
+/// struct Tasks {
+///     #[integer(primary)]
+///     id: i32,
+///     #[integer(enum)] // Stores discriminants as INTEGER
+///     priority: Priority,
+/// }
+/// ```
+///
+/// ## Generated Implementations
+///
+/// The macro automatically implements:
+/// - `std::fmt::Display` - For TEXT representation
+/// - `TryFrom<i64>` - For INTEGER representation  
+/// - `Into<i64>` - For INTEGER representation
+/// - `From<EnumType>` for `SQLiteValue` - Database conversion
+/// - `TryFrom<SQLiteValue>` for `EnumType` - Database conversion
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteEnum)]
 pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
@@ -71,6 +234,126 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Define a SQLite table schema with type-safe column definitions.
+///
+/// This attribute macro transforms a Rust struct into a complete SQLite table definition
+/// with generated types for INSERT, SELECT, and UPDATE operations.
+///
+/// See [SQLite CREATE TABLE documentation](https://sqlite.org/lang_createtable.html) for
+/// the underlying SQL concepts.
+///
+/// # Table Attributes
+///
+/// - `name = "table_name"` - Custom table name (defaults to struct name in snake_case)
+/// - `strict` - Enable [SQLite STRICT mode](https://sqlite.org/stricttables.html)  
+/// - `without_rowid` - Create a [WITHOUT ROWID table](https://sqlite.org/withoutrowid.html)
+///
+/// # Field Attributes
+///
+/// ## Column Types
+/// - `#[integer]` - SQLite INTEGER type
+/// - `#[text]` - SQLite TEXT type
+/// - `#[real]` - SQLite REAL type
+/// - `#[blob]` - SQLite BLOB type
+/// - `#[boolean]` - Stored as INTEGER (0/1)
+///
+/// ## Constraints
+/// - `primary` - Primary key constraint
+/// - `autoincrement` - Auto-increment (INTEGER PRIMARY KEY only)
+/// - `unique` - Unique constraint
+///
+/// ## Defaults
+/// - `default = value` - Compile-time default value
+/// - `default_fn = function` - Runtime default function
+///
+/// ## Special Types
+/// - `enum` - Store enum as TEXT or INTEGER
+/// - `json` - JSON serialization (requires serde feature)
+/// - `references = Table::column` - Foreign key reference
+///
+/// # Examples
+///
+/// ## Basic Table
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     name: String,
+///     #[text(unique)]
+///     email: String,
+///     #[integer]
+///     age: Option<i32>, // Nullable field
+/// }
+/// ```
+///
+/// ## Table with Defaults
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[SQLiteTable(name = "posts", strict)]
+/// struct Posts {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     title: String,
+///     #[text(default = "draft")]
+///     status: String,
+///     #[text(default_fn = || chrono::Utc::now().to_rfc3339())]
+///     created_at: String,
+/// }
+/// ```
+///
+/// ## Enums and JSON
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// # use serde::{Serialize, Deserialize};
+/// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+/// enum Role { 
+///     #[default]
+///     User, 
+///     Admin 
+/// }
+///
+/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+/// struct Metadata { theme: String }
+///
+/// #[SQLiteTable(name = "accounts")]
+/// struct Accounts {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text(enum)]
+///     role: Role,
+///     #[text(json)]
+///     metadata: Option<Metadata>,
+/// }
+/// ```
+///
+/// # Generated Types
+///
+/// For a table `Users`, the macro generates:
+/// - `SelectUsers` - For SELECT operations
+/// - `PartialSelectUsers` - For partial SELECT operations  
+/// - `InsertUsers` - For INSERT operations
+/// - `UpdateUsers` - For UPDATE operations
+///
+/// # Nullability
+///
+/// Use `Option<T>` for nullable fields, or `T` for NOT NULL constraints:
+///
+/// ```rust
+/// # use drizzle_rs::prelude::*;
+/// #[SQLiteTable]
+/// struct Example {
+///     #[integer(primary)]
+///     id: i32,           // NOT NULL
+///     #[text]
+///     name: String,      // NOT NULL  
+///     #[text]
+///     email: Option<String>, // NULL allowed
+/// }
+/// ```
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]

@@ -6,14 +6,46 @@ use syn::{
     parse::ParseStream,
 };
 
-/// Enum representing supported SQLite column types
+/// Enum representing supported SQLite column types.
+///
+/// These correspond to the [SQLite storage classes](https://sqlite.org/datatype3.html#storage_classes_and_datatypes).
+/// Each type maps to specific Rust types and has different capabilities for constraints and features.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SQLiteType {
+    /// SQLite INTEGER type - stores signed integers up to 8 bytes.
+    /// 
+    /// See: <https://sqlite.org/datatype3.html#integer_datatype>
+    /// 
+    /// Supports: primary keys, autoincrement, enums (discriminant storage)
     Integer,
+    
+    /// SQLite TEXT type - stores text in UTF-8, UTF-16BE, or UTF-16LE encoding.
+    ///
+    /// See: <https://sqlite.org/datatype3.html#text_datatype>
+    /// 
+    /// Supports: enums (variant name storage), JSON serialization
     Text,
+    
+    /// SQLite BLOB type - stores binary data exactly as input.
+    ///
+    /// See: <https://sqlite.org/datatype3.html#blob_datatype>
+    /// 
+    /// Supports: JSON serialization, UUID storage
     Blob,
+    
+    /// SQLite REAL type - stores floating point values as 8-byte IEEE floating point numbers.
+    ///
+    /// See: <https://sqlite.org/datatype3.html#real_datatype>
     Real,
+    
+    /// SQLite NUMERIC type - stores values as INTEGER, REAL, or TEXT depending on the value.
+    ///
+    /// See: <https://sqlite.org/datatype3.html#numeric_datatype>
     Numeric,
+    
+    /// SQLite ANY type - no type affinity, can store any type of data.
+    ///
+    /// See: <https://sqlite.org/datatype3.html#type_affinity>
     #[default]
     Any,
 }
@@ -63,28 +95,48 @@ impl SQLiteType {
         }
     }
 
-    /// Validate a flag for this column type, returning an error with SQLite docs link if invalid
+    /// Validate a flag for this column type, returning an error with SQLite docs link if invalid.
+    ///
+    /// Provides helpful error messages with links to relevant SQLite documentation
+    /// when incompatible flag/type combinations are used.
     pub(crate) fn validate_flag(&self, flag: &str, attr: &Attribute) -> Result<()> {
         if !self.is_valid_flag(flag) {
             let error_msg = match flag {
                 "autoincrement" => {
                     "AUTOINCREMENT can only be used with INTEGER PRIMARY KEY columns.\n\
+                     \n\
+                     SQLite AUTOINCREMENT ensures that new rows get unique rowids, but it only \
+                     works on INTEGER PRIMARY KEY columns in regular (non-WITHOUT ROWID) tables.\n\
+                     \n\
                      See: https://sqlite.org/autoinc.html\n\
-                     Use: #[integer(primary_key, autoincrement)]"
+                     Use: #[integer(primary, autoincrement)]"
                 }
                 "json" => {
                     "JSON serialization is only supported for TEXT or BLOB column types.\n\
+                     \n\
+                     JSON data can be stored as TEXT (human-readable) or BLOB (binary). \
+                     The choice affects storage size and query capabilities.\n\
+                     \n\
                      See: https://sqlite.org/json1.html\n\
                      Use: #[text(json)] or #[blob(json)]"
                 }
                 "enum" => {
                     "Enum serialization is supported for TEXT (string) or INTEGER (discriminant) columns.\n\
+                     \n\
+                     - TEXT storage: stores variant names like 'Active', 'Inactive'\n\
+                     - INTEGER storage: stores discriminant values like 0, 1, 2\n\
+                     \n\
                      Use: #[text(enum)] or #[integer(enum)]"
                 }
                 "not_null" => {
                     "Use Option<T> in your struct field to represent nullable columns instead of 'not_null' attribute.\n\
+                     \n\
+                     Drizzle RS uses Rust's type system for nullability:\n\
+                     - Field type `T` = NOT NULL column\n\
+                     - Field type `Option<T>` = NULL allowed column\n\
+                     \n\
                      See: https://sqlite.org/lang_createtable.html#notnullconst\n\
-                     Example: pub field: Option<String> for nullable TEXT"
+                     Example: pub email: Option<String> for nullable TEXT"
                 }
                 _ => return Ok(()),
             };

@@ -1750,12 +1750,18 @@ dependencies = [
 name = "procmacros"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "drizzle_rs",
  "heck",
  "paste",
  "proc-macro2",
  "quote",
  "rand 0.8.5",
+ "rusqlite",
+ "serde",
+ "serde_json",
  "syn",
+ "uuid",
 ]
 
 [[package]]
