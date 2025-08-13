@@ -5,12 +5,11 @@ use drizzle_core::{SQL, error::DrizzleError};
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::types::FromSql;
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "turso")]
 use turso::IntoValue;
 use uuid::Uuid;
 
-use std::{borrow::Cow, str::FromStr};
+use std::borrow::Cow;
 
 //------------------------------------------------------------------------------
 // InsertValue Definition - Three-state value for inserts
@@ -100,7 +99,7 @@ impl<'a> std::fmt::Display for SQLiteValue<'a> {
 }
 
 impl<'a> From<SQL<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
-    fn from(value: SQL<'a, SQLiteValue<'a>>) -> Self {
+    fn from(_value: SQL<'a, SQLiteValue<'a>>) -> Self {
         unimplemented!()
     }
 }
@@ -478,15 +477,15 @@ impl<'a> From<Vec<u8>> for SQLiteValue<'a> {
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
-impl<'a> From<uuid::Uuid> for SQLiteValue<'a> {
-    fn from(value: uuid::Uuid) -> Self {
+impl<'a> From<Uuid> for SQLiteValue<'a> {
+    fn from(value: Uuid) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.as_bytes().to_vec()))
     }
 }
 
 #[cfg(feature = "uuid")]
-impl<'a> From<&'a uuid::Uuid> for SQLiteValue<'a> {
-    fn from(value: &'a uuid::Uuid) -> Self {
+impl<'a> From<&'a Uuid> for SQLiteValue<'a> {
+    fn from(value: &'a Uuid) -> Self {
         SQLiteValue::Blob(Cow::Borrowed(value.as_bytes()))
     }
 }
@@ -738,7 +737,7 @@ impl<'a> TryFrom<SQLiteValue<'a>> for Vec<u8> {
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
-impl<'a> TryFrom<SQLiteValue<'a>> for uuid::Uuid {
+impl<'a> TryFrom<SQLiteValue<'a>> for Uuid {
     type Error = DrizzleError;
 
     fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
@@ -747,7 +746,7 @@ impl<'a> TryFrom<SQLiteValue<'a>> for uuid::Uuid {
                 let bytes: [u8; 16] = cow.as_ref().try_into().map_err(|_| {
                     DrizzleError::ConversionError("UUID blob must be exactly 16 bytes".to_string())
                 })?;
-                Ok(uuid::Uuid::from_bytes(bytes))
+                Ok(Uuid::from_bytes(bytes))
             }
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to UUID",
@@ -1015,7 +1014,7 @@ impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a [u8] {
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
-impl<'a> TryFrom<&SQLiteValue<'a>> for uuid::Uuid {
+impl<'a> TryFrom<&SQLiteValue<'a>> for Uuid {
     type Error = DrizzleError;
 
     fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
@@ -1024,7 +1023,7 @@ impl<'a> TryFrom<&SQLiteValue<'a>> for uuid::Uuid {
                 let bytes: [u8; 16] = cow.as_ref().try_into().map_err(|_| {
                     DrizzleError::ConversionError("UUID blob must be exactly 16 bytes".to_string())
                 })?;
-                Ok(uuid::Uuid::from_bytes(bytes))
+                Ok(Uuid::from_bytes(bytes))
             }
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to UUID",

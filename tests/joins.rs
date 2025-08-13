@@ -11,17 +11,23 @@ use uuid::Uuid;
 
 mod common;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Default)]
 struct AuthorPostResult {
+    #[column(Complex::name)]
     author_name: String,
+    #[column(Post::title)]
     post_title: String,
+    #[column(Post::content)]
     post_content: Option<String>,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Default)]
 struct PostCategoryResult {
+    #[column(Post::title)]
     post_title: String,
+    #[column(Category::name)]
     category_name: String,
+    #[column(Category::description)]
     category_description: Option<String>,
 }
 
@@ -83,7 +89,7 @@ fn simple_inner_join() {
 
     // Test inner join: only authors with posts should appear
     let join_results: Vec<AuthorPostResult> = drizzle
-        .select((complex.name, post.title, post.content))
+        .select(AuthorPostResult::default())
         .from(complex)
         .inner_join(post, eq(complex.id, post.author_id))
         .order_by(sql![
@@ -123,7 +129,7 @@ fn simple_inner_join() {
 
     // Verify that we can filter join results
     let alice_posts: Vec<AuthorPostResult> = drizzle
-        .select(columns![complex.name, post.title, post.content])
+        .select(AuthorPostResult::default())
         .from(complex)
         .inner_join(post, eq(complex.id, post.author_id))
         .r#where(eq(complex.name, "alice"))
@@ -205,7 +211,7 @@ fn many_to_many_join() {
 
     // Test many-to-many join: posts with their categories
     let join_smt = drizzle
-        .select(columns![post.title, category.name, category.description])
+        .select(PostCategoryResult::default())
         .from(post)
         .join(postcategory, eq(post.id, postcategory.post_id))
         .join(category, eq(postcategory.category_id, category.id))
@@ -248,7 +254,7 @@ fn many_to_many_join() {
 
     // Test filtering: only published posts
     let published_results: Vec<PostCategoryResult> = drizzle
-        .select(columns![post.title, category.name, category.description])
+        .select(PostCategoryResult::default())
         .from(post)
         .join(postcategory, eq(post.id, postcategory.post_id))
         .join(category, eq(postcategory.category_id, category.id))
