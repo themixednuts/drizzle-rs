@@ -14,6 +14,14 @@ pub mod insert;
 pub mod select;
 pub mod update;
 
+// Driver implementations
+#[cfg(feature = "rusqlite")]
+pub mod rusqlite;
+
+#[cfg(feature = "turso")]
+pub mod turso;
+
+
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 pub use insert::{
@@ -151,185 +159,6 @@ where
 // Marker trait to indicate a query builder state is executable
 pub trait ExecutableState {}
 
-// Implementations for specific database drivers
-//------------------------------------------------------------------------------
-
-// RusQLite implementation
-#[cfg(feature = "rusqlite")]
-pub mod rusqlite_impl {
-    use super::*;
-    use ::rusqlite::{Connection, Row, params_from_iter};
-    use drizzle_core::error::{DrizzleError, Result};
-
-    impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
-    where
-        State: ExecutableState,
-    {
-        /// Runs the query and returns the number of affected rows
-        pub fn execute(&self, conn: &Connection) -> Result<usize> {
-            let sql = self.sql.sql();
-
-            // Get parameters and handle potential errors from IntoParams
-            let params = self.sql.params();
-
-            Ok(conn.execute(&sql, params_from_iter(params))?)
-        }
-
-        /// Runs the query and returns all matching rows
-        pub fn all<T>(&self, conn: &Connection) -> Result<Vec<T>>
-        where
-            T: for<'r> TryFrom<&'r Row<'r>>,
-            for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
-        {
-            let sql = &self.sql;
-            let sql_str = sql.sql();
-
-            let params = sql.params();
-
-            let mut stmt = conn
-                .prepare(&sql_str)
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
-
-            let rows = stmt
-                .query_map(params_from_iter(params), |row| {
-                    Ok(T::try_from(row).map_err(Into::into))
-                })
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
-
-            let mut results = Vec::new();
-            for row in rows {
-                results.push(row??);
-            }
-
-            Ok(results)
-        }
-
-        pub fn get<T>(&self, conn: &Connection) -> Result<T>
-        where
-            T: for<'r> TryFrom<&'r Row<'r>>,
-            for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
-        {
-            let sql = &self.sql;
-            let sql_str = sql.sql();
-
-            // Get parameters and handle potential errors from IntoParams
-            let params = sql.params();
-
-            let mut stmt = conn.prepare(&sql_str)?;
-
-            stmt.query_row(params_from_iter(params), |row| {
-                Ok(T::try_from(row).map_err(Into::into))
-            })?
-        }
-    }
-}
-
-// Turso implementation
-#[cfg(feature = "turso")]
-pub mod turso_impl {
-    use super::*;
-    use drizzle_core::error::{DrizzleError, Result};
-    use turso::{Connection, IntoValue, Row};
-
-    impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
-    where
-        State: ExecutableState,
-    {
-        /// Runs the query and returns the number of affected rows
-        pub async fn execute(&self, conn: &Connection) -> Result<u64> {
-            let sql = self.sql.sql();
-            let params: Vec<turso::Value> = self
-                .sql
-                .params()
-                .into_iter()
-                .map(|p| {
-                    p.into_value()
-                        .map_err(|e| DrizzleError::Other(e.to_string()))
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            let result = conn
-                .execute(&sql, params)
-                .await
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
-
-            Ok(result)
-        }
-
-        /// Runs the query and returns all matching rows
-        pub async fn all<T>(&self, conn: &Connection) -> Result<Vec<T>>
-        where
-            T: for<'r> TryFrom<&'r Row>,
-            for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        {
-            let sql = &self.sql;
-            let sql_str = sql.sql();
-            let params: Vec<turso::Value> = sql
-                .params()
-                .into_iter()
-                .map(|p| {
-                    p.into_value()
-                        .map_err(|e| DrizzleError::Other(e.to_string()))
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            let mut rows = conn
-                .query(&sql_str, params)
-                .await
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
-
-            let mut results = Vec::new();
-            while let Some(row) = rows
-                .next()
-                .await
-                .map_err(|e| DrizzleError::Other(e.to_string()))?
-            {
-                let converted = T::try_from(&row).map_err(Into::into)?;
-                results.push(converted);
-            }
-
-            Ok(results)
-        }
-
-        pub async fn get<T>(&self, conn: &Connection) -> Result<T>
-        where
-            T: for<'r> TryFrom<&'r Row>,
-            for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        {
-            let sql = &self.sql;
-            let sql_str = sql.sql();
-            let params: Vec<turso::Value> = sql
-                .params()
-                .into_iter()
-                .map(|p| {
-                    p.into_value()
-                        .map_err(|e| DrizzleError::Other(e.to_string()))
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            let mut rows = conn
-                .query(&sql_str, params)
-                .await
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
-
-            if let Some(row) = rows
-                .next()
-                .await
-                .map_err(|e| DrizzleError::Other(e.to_string()))?
-            {
-                T::try_from(&row).map_err(Into::into)
-            } else {
-                Err(DrizzleError::Other("No rows returned".to_string()))
-            }
-        }
-    }
-}
-
-// LibSQL implementation can be added in a similar way when needed
-#[cfg(feature = "libsql")]
-pub mod libsql_impl {
-    // Will implement similarly to rusqlite_impl when needed
-}
 
 #[cfg(test)]
 mod tests {
