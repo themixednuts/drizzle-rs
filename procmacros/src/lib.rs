@@ -126,7 +126,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[cfg(feature = "rusqlite")]
-#[proc_macro_derive(FromRow)]
+#[proc_macro_derive(FromRow, attributes(column))]
 pub fn from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 

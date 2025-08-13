@@ -393,13 +393,13 @@ async fn test_primary_key_autoincrement() {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
         let mut results = Vec::new();
-        
+
         while let Some(row) = rows.next().await.unwrap() {
             let auto_id = row.get_value(0).unwrap().as_integer().cloned().unwrap();
             let name = row.get_value(1).unwrap().as_text().unwrap().to_string();
             results.push((auto_id, name));
         }
-        
+
         assert_eq!(results.len(), 2);
         assert_eq!(results[0], (1, "first".to_string()));
         assert_eq!(results[1], (2, "second".to_string()));
@@ -423,7 +423,7 @@ async fn test_manual_primary_key() {
     let result = db.insert(manual_pk).values([data]).execute().unwrap();
     #[cfg(feature = "turso")]
     let result = db.insert(manual_pk).values([data]).execute().await.unwrap();
-    
+
     assert_eq!(result, 1);
 
     // Verify the manual primary key
@@ -444,7 +444,7 @@ async fn test_manual_primary_key() {
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
-        
+
         if let Some(row) = rows.next().await.unwrap() {
             let manual_id = row.get_value(0).unwrap().as_text().cloned().unwrap();
             let description = row.get_value(1).unwrap().as_text().cloned().unwrap();
@@ -472,8 +472,13 @@ async fn test_unique_constraints() {
     #[cfg(feature = "rusqlite")]
     let result1 = db.insert(unique_table).values([data1]).execute().unwrap();
     #[cfg(feature = "turso")]
-    let result1 = db.insert(unique_table).values([data1]).execute().await.unwrap();
-    
+    let result1 = db
+        .insert(unique_table)
+        .values([data1])
+        .execute()
+        .await
+        .unwrap();
+
     assert_eq!(result1, 1);
 
     // Try to insert duplicate email - should fail
@@ -485,7 +490,7 @@ async fn test_unique_constraints() {
     let result2 = db.insert(unique_table).values([data2]).execute();
     #[cfg(feature = "turso")]
     let result2 = db.insert(unique_table).values([data2]).execute().await;
-    
+
     assert!(result2.is_err()); // Should fail due to unique constraint
 }
 
@@ -500,12 +505,17 @@ async fn test_compile_time_defaults() {
 
     // Insert with minimal data - defaults should be used
     let data = InsertCompileTimeDefaults::default();
-    
+
     #[cfg(feature = "rusqlite")]
     let result = db.insert(defaults_table).values([data]).execute().unwrap();
     #[cfg(feature = "turso")]
-    let result = db.insert(defaults_table).values([data]).execute().await.unwrap();
-    
+    let result = db
+        .insert(defaults_table)
+        .values([data])
+        .execute()
+        .await
+        .unwrap();
+
     assert_eq!(result, 1);
 
     // Verify defaults were applied
@@ -535,14 +545,19 @@ async fn test_compile_time_defaults() {
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
-        
+
         if let Some(row) = rows.next().await.unwrap() {
             let name = row.get_value(0).unwrap().as_text().cloned().unwrap();
             let answer = row.get_value(1).unwrap().as_integer().cloned().unwrap();
             let pi = row.get_value(2).unwrap().as_real().cloned().unwrap();
-            let active = row.get_value(3).unwrap().as_integer().map(|&v| v != 0).unwrap();
+            let active = row
+                .get_value(3)
+                .unwrap()
+                .as_integer()
+                .map(|&v| v != 0)
+                .unwrap();
             let status = row.get_value(4).unwrap().as_text().cloned().unwrap();
-            
+
             assert_eq!(name, "default_name");
             assert_eq!(answer, 42);
             assert_eq!(pi, 3.14);
@@ -563,12 +578,17 @@ async fn test_runtime_defaults() {
 
     // Insert with minimal data - runtime defaults should be used
     let data = InsertRuntimeDefaults::default().with_name("test".to_string());
-    
+
     #[cfg(feature = "rusqlite")]
     let result = db.insert(runtime_table).values([data]).execute().unwrap();
     #[cfg(feature = "turso")]
-    let result = db.insert(runtime_table).values([data]).execute().await.unwrap();
-    
+    let result = db
+        .insert(runtime_table)
+        .values([data])
+        .execute()
+        .await
+        .unwrap();
+
     assert_eq!(result, 1);
 
     // Verify runtime defaults were applied
@@ -594,12 +614,12 @@ async fn test_runtime_defaults() {
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
-        
+
         if let Some(row) = rows.next().await.unwrap() {
             let empty_text = row.get_value(0).unwrap().as_text().cloned().unwrap();
             let computed_int = row.get_value(1).unwrap().as_integer().cloned().unwrap();
             let name = row.get_value(2).unwrap().as_text().cloned().unwrap();
-            
+
             assert_eq!(empty_text, ""); // String::new() returns empty string
             assert_eq!(computed_int, 100); // Closure returns 100
             assert_eq!(name, "test");
@@ -625,8 +645,13 @@ async fn test_enum_storage_types() {
     #[cfg(feature = "rusqlite")]
     let result = db.insert(enum_table).values([data]).execute().unwrap();
     #[cfg(feature = "turso")]
-    let result = db.insert(enum_table).values([data]).execute().await.unwrap();
-    
+    let result = db
+        .insert(enum_table)
+        .values([data])
+        .execute()
+        .await
+        .unwrap();
+
     assert_eq!(result, 1);
 
     // Verify enum storage
@@ -654,13 +679,13 @@ async fn test_enum_storage_types() {
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
-        
+
         if let Some(row) = rows.next().await.unwrap() {
             let priority = row.get_value(0).unwrap().as_integer().cloned().unwrap();
             let status = row.get_value(1).unwrap().as_text().cloned().unwrap();
             let priority_type = row.get_value(2).unwrap().as_text().cloned().unwrap();
             let status_type = row.get_value(3).unwrap().as_text().cloned().unwrap();
-            
+
             assert_eq!(priority, 3); // Priority::High = 3
             assert_eq!(status, "InProgress"); // TaskStatus::InProgress as text
             assert_eq!(priority_type, "integer"); // integer(enum) stores as INTEGER
@@ -692,8 +717,13 @@ async fn test_json_storage_types() {
     #[cfg(feature = "rusqlite")]
     let result = db.insert(json_table).values([data]).execute().unwrap();
     #[cfg(feature = "turso")]
-    let result = db.insert(json_table).values([data]).execute().await.unwrap();
-    
+    let result = db
+        .insert(json_table)
+        .values([data])
+        .execute()
+        .await
+        .unwrap();
+
     assert_eq!(result, 1);
 
     // Verify JSON storage type
@@ -711,7 +741,7 @@ async fn test_json_storage_types() {
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
-        
+
         if let Some(row) = rows.next().await.unwrap() {
             let text_type = row.get_value(0).unwrap().as_text().cloned().unwrap();
             assert_eq!(text_type, "text"); // text(json) stores as TEXT
@@ -731,12 +761,17 @@ async fn test_uuid_primary_key_with_default_fn() {
 
     // Insert without specifying UUID - default_fn should generate one
     let data = InsertUuidFields::default().with_name("uuid test".to_string());
-    
+
     #[cfg(feature = "rusqlite")]
     let result = db.insert(uuid_table).values([data]).execute().unwrap();
     #[cfg(feature = "turso")]
-    let result = db.insert(uuid_table).values([data]).execute().await.unwrap();
-    
+    let result = db
+        .insert(uuid_table)
+        .values([data])
+        .execute()
+        .await
+        .unwrap();
+
     assert_eq!(result, 1);
 
     // Verify UUID was generated and is valid
@@ -758,13 +793,13 @@ async fn test_uuid_primary_key_with_default_fn() {
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
-        
+
         if let Some(row) = rows.next().await.unwrap() {
             let id_bytes = row.get_value(0).unwrap().as_blob().cloned().unwrap();
             let name = row.get_value(1).unwrap().as_text().cloned().unwrap();
-            
+
             let id = uuid::Uuid::from_slice(&id_bytes).unwrap();
-            
+
             assert_eq!(name, "uuid test");
             // Verify it's a valid UUID (not nil)
             assert_ne!(id, uuid::Uuid::nil());
@@ -800,7 +835,7 @@ async fn test_nullable_vs_non_nullable() {
         .execute()
         .await
         .unwrap();
-        
+
     assert_eq!(result, 1);
 
     // Test 2: Insert with all fields populated
@@ -827,7 +862,7 @@ async fn test_nullable_vs_non_nullable() {
         .execute()
         .await
         .unwrap();
-        
+
     assert_eq!(result, 1);
 
     // Verify both records
@@ -864,7 +899,7 @@ async fn test_nullable_vs_non_nullable() {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
         let mut results = Vec::new();
-        
+
         while let Some(row) = rows.next().await.unwrap() {
             let required_text = row.get_value(0).unwrap().as_text().cloned().unwrap();
             let optional_text = match row.get_value(1).unwrap() {
@@ -877,7 +912,7 @@ async fn test_nullable_vs_non_nullable() {
             };
             results.push((required_text, optional_text, optional_int));
         }
-        
+
         assert_eq!(results.len(), 2);
 
         // First record: minimal data

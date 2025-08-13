@@ -51,6 +51,7 @@ impl SQLiteType {
         }
     }
 
+
     /// Check if a flag is valid for this column type
     pub(crate) fn is_valid_flag(&self, flag: &str) -> bool {
         match (self, flag) {

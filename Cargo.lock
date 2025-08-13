@@ -484,7 +484,6 @@ version = "0.1.0"
 dependencies = [
  "drizzle_core",
  "drizzle_rs",
- "futures-util",
  "libsql",
  "libsql-rusqlite 0.33.0",
  "mysql",

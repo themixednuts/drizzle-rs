@@ -207,7 +207,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             fn try_from(value: Option<T>) -> std::result::Result<Self, Self::Error> {
                 match value {
                     Some(inner) => inner.try_into().map_err(Into::into),
-                    None => Err(::drizzle_rs::error::DrizzleError::ConversionError("Cannot convert None to enum".to_string())),
+                    None => Err(::drizzle_rs::error::DrizzleError::Mapping("Cannot convert None to enum".to_string())),
                 }
             }
         }

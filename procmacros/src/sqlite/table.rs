@@ -493,7 +493,7 @@ fn generate_column_accessors(
         .map(|(info, zst)| {
         let name = info.ident;
         quote! {
-            #name: #zst::new()
+            #name: #zst
         }
     });
 
@@ -596,54 +596,11 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
             };
             
             {
-                let rusqlite_impl = if cfg!(feature = "rusqlite") {
-                    match info.column_type {
-                        crate::sqlite::field::SQLiteType::Integer => quote! {
-                            // rusqlite::FromSql and ToSql for integer enums
-                            impl ::rusqlite::types::FromSql for #value_type {
-                                fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
-                                    match value {
-                                        ::rusqlite::types::ValueRef::Integer(i) => {
-                                            Self::try_from(i).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                                        },
-                                        _ => Err(::rusqlite::types::FromSqlError::InvalidType),
-                                    }
-                                }
-                            }
-                            
-                            impl ::rusqlite::types::ToSql for #value_type {
-                                fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
-                                    let val: i64 = self.into();
-                                    Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Integer(val)))
-                                }
-                            }
-                        },
-                        crate::sqlite::field::SQLiteType::Text => quote! {
-                            // rusqlite::FromSql and ToSql for text enums
-                            impl ::rusqlite::types::FromSql for #value_type {
-                                fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
-                                    match value {
-                                        ::rusqlite::types::ValueRef::Text(s) => {
-                                            let s_str = ::std::str::from_utf8(s).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
-                                            Self::try_from(s_str).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                                        },
-                                        _ => Err(::rusqlite::types::FromSqlError::InvalidType),
-                                    }
-                                }
-                            }
-                            
-                            impl ::rusqlite::types::ToSql for #value_type {
-                                fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
-                                    let val: &str = self.into();
-                                    Ok(::rusqlite::types::ToSqlOutput::Borrowed(::rusqlite::types::ValueRef::Text(val.as_bytes())))
-                                }
-                            }
-                        },
-                        _ => quote! {}
-                    }
-                } else {
-                    quote! {}
-                };
+                #[cfg(feature = "rusqlite")]
+                let rusqlite_impl = rusqlite::generate_enum_impls(info)?;
+                
+                #[cfg(not(feature = "rusqlite"))]
+                let rusqlite_impl = quote!{};
 
                 quote! {
                     // Generate From implementations for enum values
@@ -682,7 +639,7 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
 
             impl #zst_ident {
                 pub const fn new() -> #zst_ident {
-                    #zst_ident {}
+                    #zst_ident
                 }
             }
 
@@ -746,7 +703,7 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
             {
                 fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                     use ::drizzle_rs::core::ToSQL;
-                    static INSTANCE: #zst_ident = #zst_ident::new();
+                    static INSTANCE: #zst_ident = #zst_ident;
 
                     INSTANCE.as_column().to_sql()
                 }
@@ -1332,63 +1289,7 @@ fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     // Generate rusqlite-specific implementations
     #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = if json_type_storage.is_empty() { 
-        vec![] 
-    } else {
-        json_type_storage.iter().map(|(_, (storage_type, info))| {
-            let struct_name = info.base_type;
-            let (from_impl, to_impl) = match storage_type {
-                SQLiteType::Text => (
-                    quote! {
-                        match value {
-                            rusqlite::types::ValueRef::Text(items) => serde_json::from_slice(items)
-                                .map_err(|_| rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(rusqlite::types::FromSqlError::InvalidType),
-                        }
-                    },
-                    quote! {
-                        let json = serde_json::to_string(self)
-                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Text(json)))
-                    }
-                ),
-                SQLiteType::Blob => (
-                    quote! {
-                        match value {
-                            rusqlite::types::ValueRef::Blob(items) => serde_json::from_slice(items)
-                                .map_err(|_| rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(rusqlite::types::FromSqlError::InvalidType),
-                        }
-                    },
-                    quote! {
-                        let json = serde_json::to_vec(self)
-                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Blob(json)))
-                    }
-                ),
-                _ => return Err(syn::Error::new_spanned(
-                    info.ident, 
-                    "JSON fields must use either TEXT or BLOB column types"
-                )),
-            };
-
-            Ok(quote! {
-                impl rusqlite::types::FromSql for #struct_name {
-                    fn column_result(
-                        value: rusqlite::types::ValueRef<'_>,
-                    ) -> rusqlite::types::FromSqlResult<Self> {
-                        #from_impl
-                    }
-                }
-
-                impl rusqlite::types::ToSql for #struct_name {
-                    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                        #to_impl
-                    }
-                }
-            })
-        }).collect::<Result<Vec<_>>>()?
-    };
+    let rusqlite_impls = rusqlite::generate_json_impls(&json_type_storage)?;
     
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls: Vec<TokenStream> = vec![];

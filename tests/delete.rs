@@ -1,5 +1,6 @@
 use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
 use drizzle_rs::prelude::*;
+use procmacros::FromRow;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 #[cfg(feature = "uuid")]

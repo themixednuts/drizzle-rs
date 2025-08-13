@@ -34,7 +34,7 @@ struct ComplexResult {
 }
 
 impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = rusqlite::Error;
+    type Error = ::rusqlite::Error;
 
     fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
         Ok(Self {

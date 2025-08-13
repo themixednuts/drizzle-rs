@@ -13,6 +13,15 @@ struct DerivedPartialSimple {
     name: String,
 }
 
+// Test FromRow with column mapping
+#[derive(FromRow, Debug, Default)]
+struct DerivedSimpleWithColumns {
+    #[column(Simple::id)]
+    table_id: i32,
+    #[column(Simple::name)]
+    table_name: String,
+}
+
 #[test]
 fn basic_insert_select() {
     let db = setup_db();
@@ -100,6 +109,25 @@ fn test_from_row_derive_with_simple_struct() {
         .unwrap();
 
     assert_eq!(result.name, "derive_test");
+}
+
+#[test]
+fn test_from_row_with_column_mapping() {
+    let db = setup_db();
+    let (drizzle, simple) = drizzle!(db, [Simple]);
+
+    let data = InsertSimple::default().with_id(42).with_name("column_test");
+    drizzle.insert(simple).values([data]).execute().unwrap();
+
+    // Test the column-mapped FromRow implementation
+    let result: DerivedSimpleWithColumns = drizzle
+        .select(DerivedSimpleWithColumns::default())
+        .from(simple)
+        .get()
+        .unwrap();
+
+    assert_eq!(result.table_id, 42);
+    assert_eq!(result.table_name, "column_test");
 }
 
 #[cfg(feature = "uuid")]

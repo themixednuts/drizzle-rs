@@ -1,6 +1,22 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Error, Fields, Result};
+use syn::{Data, DeriveInput, Error, Fields, Result, Meta, Field, Expr, ExprPath};
+
+/// Parse column reference from field attributes, looking for #[column(Table::field)]
+fn parse_column_reference(field: &Field) -> Option<ExprPath> {
+    for attr in &field.attrs {
+        if let Some(ident) = attr.path().get_ident() {
+            if ident == "column" {
+                if let Meta::List(meta_list) = &attr.meta {
+                    if let Ok(Expr::Path(expr_path)) = syn::parse2::<Expr>(meta_list.tokens.clone()) {
+                        return Some(expr_path);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 /// Generate a `TryFrom<&Row<'_>>` implementation for a struct using field name-based or index-based column access
 pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
@@ -35,7 +51,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
             }
         }).collect::<Vec<_>>()
     } else {
-        // For named structs, use field name-based access
+        // For named structs, use field name as the column alias
         fields.iter().map(|field| {
             let field_name = field.ident.as_ref().unwrap();
             let field_name_str = field_name.to_string();
@@ -73,5 +89,56 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         }
     };
 
-    Ok(impl_block)
+    // Generate ToSQL implementation for FromRow structs
+    let tosql_impl = if is_tuple {
+        // For tuple structs, can't easily generate ToSQL as we don't have field names
+        quote! {}
+    } else {
+        let column_specs = fields.iter().map(|field| {
+            let field_name = field.ident.as_ref().unwrap();
+            let field_name_str = field_name.to_string();
+            
+            // Check for column reference attribute
+            if let Some(column_ref) = parse_column_reference(field) {
+                // Use the column reference with alias
+                quote! {
+                    columns.push(#column_ref.to_sql().alias(#field_name_str));
+                }
+            } else {
+                // Fallback to field name as raw SQL
+                quote! {
+                    columns.push(::drizzle_rs::core::SQL::raw(#field_name_str));
+                }
+            }
+        }).collect::<Vec<_>>();
+
+        quote! {
+            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
+                fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                    let mut columns = Vec::new();
+                    #(#column_specs)*
+                    ::drizzle_rs::core::SQL::join(columns, ", ")
+                }
+            }
+            
+            impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
+                fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
+                    // This is a simplified implementation since we don't have access to table info
+                    // In practice, FromRow structs used with .select() will typically be generated
+                    // by the table macro which provides proper column info
+                    Box::new([])
+                }
+                
+                fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                    // FromRow structs are primarily for result mapping, not value generation
+                    ::drizzle_rs::core::SQL::empty()
+                }
+            }
+        }
+    };
+    
+    Ok(quote! {
+        #impl_block
+        #tosql_impl
+    })
 }
