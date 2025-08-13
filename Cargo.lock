@@ -468,6 +468,7 @@ version = "0.1.0"
 dependencies = [
  "compact_str",
  "frunk",
+ "libsql",
  "paste",
  "rusqlite",
  "serde",

@@ -5,6 +5,9 @@ pub mod rusqlite;
 #[cfg(feature = "turso")]
 pub mod turso;
 
+#[cfg(feature = "libsql")]
+pub mod libsql;
+
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use paste::paste;
@@ -75,6 +78,9 @@ pub use rusqlite::Drizzle;
 
 #[cfg(feature = "turso")]
 pub use turso::Drizzle;
+
+#[cfg(feature = "libsql")]
+pub use libsql::Drizzle;
 
 pub struct PreparedDrizzle<'a, Schema, Builder, State> {
     drizzle: DrizzleBuilder<'a, Schema, Builder, State>,

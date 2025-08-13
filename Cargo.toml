@@ -53,8 +53,8 @@ uuid = { version = "1.16.0", features = ["v4", "serde"] }
 
 # Add dev-dependencies for tests
 [dev-dependencies]
-drizzle_rs = { workspace = true, features = ["rusqlite", "uuid", "serde"] }
-procmacros = { workspace = true, features = ["rusqlite"] }
+drizzle_rs = { workspace = true, features = ["libsql", "uuid", "serde"] }
+procmacros = { workspace = true, features = ["libsql"] }
 rand = { workspace = true }
 tokio = { workspace = true }
 # futures-util = { workspace = true }
@@ -76,7 +76,7 @@ turso = [
   "procmacros/turso",
   "drizzle_core/turso",
 ]
-libsql = ["dep:libsql", "sqlite/libsql", "sqlite", "procmacros/libsql"]
+libsql = ["dep:libsql", "sqlite/libsql", "sqlite", "procmacros/libsql", "drizzle_core/libsql"]
 libsql-rusqlite = [
   "dep:libsql-rusqlite",
   "sqlite/libsql-rusqlite",

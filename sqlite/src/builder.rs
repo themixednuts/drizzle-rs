@@ -21,6 +21,9 @@ pub mod rusqlite;
 #[cfg(feature = "turso")]
 pub mod turso;
 
+#[cfg(feature = "libsql")]
+pub mod libsql;
+
 
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
