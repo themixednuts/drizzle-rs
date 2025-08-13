@@ -62,31 +62,140 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         }).collect::<Vec<_>>()
     };
 
-    // Generate the implementation based on struct type
-    let impl_block = if is_tuple {
-        quote! {
-            impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
-                type Error = ::rusqlite::Error;
+    // Generate implementations for all drivers
+    let mut impl_blocks = Vec::new();
+    
+    // Rusqlite implementation
+    #[cfg(feature = "rusqlite")]
+    {
+        let rusqlite_impl = if is_tuple {
+            quote! {
+                impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
+                    type Error = ::rusqlite::Error;
 
-                fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                    Ok(Self(
-                        #(#field_assignments)*
-                    ))
+                    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self(
+                            #(#field_assignments)*
+                        ))
+                    }
                 }
             }
-        }
-    } else {
-        quote! {
-            impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
-                type Error = ::rusqlite::Error;
+        } else {
+            quote! {
+                impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
+                    type Error = ::rusqlite::Error;
 
-                fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                    Ok(Self {
-                        #(#field_assignments)*
-                    })
+                    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self {
+                            #(#field_assignments)*
+                        })
+                    }
                 }
             }
-        }
+        };
+        impl_blocks.push(rusqlite_impl);
+    }
+    
+    // Turso implementation
+    #[cfg(feature = "turso")]
+    {
+        let turso_field_assignments = if is_tuple {
+            // For tuple structs, use index-based access
+            fields.iter().enumerate().map(|(idx, _field)| {
+                quote! {
+                    row.get_value(#idx)?.as_text().unwrap_or_default().parse()?,
+                }
+            }).collect::<Vec<_>>()
+        } else {
+            // For named structs, still use index-based access (turso doesn't support name-based)
+            fields.iter().enumerate().map(|(idx, field)| {
+                let field_name = field.ident.as_ref().unwrap();
+                quote! {
+                    #field_name: row.get_value(#idx)?.as_text().unwrap_or_default().parse()?,
+                }
+            }).collect::<Vec<_>>()
+        };
+        
+        let turso_impl = if is_tuple {
+            quote! {
+                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
+                    type Error = ::drizzle_rs::error::DrizzleError;
+
+                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self(
+                            #(#turso_field_assignments)*
+                        ))
+                    }
+                }
+            }
+        } else {
+            quote! {
+                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
+                    type Error = ::drizzle_rs::error::DrizzleError;
+
+                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self {
+                            #(#turso_field_assignments)*
+                        })
+                    }
+                }
+            }
+        };
+        impl_blocks.push(turso_impl);
+    }
+    
+    // Libsql implementation
+    #[cfg(feature = "libsql")]
+    {
+        let libsql_field_assignments = if is_tuple {
+            // For tuple structs, use index-based access
+            fields.iter().enumerate().map(|(idx, _field)| {
+                let idx = idx as i32; // libsql uses i32 for indices
+                quote! {
+                    row.get_value(#idx)?.as_text().unwrap_or_default().parse()?,
+                }
+            }).collect::<Vec<_>>()
+        } else {
+            // For named structs, still use index-based access (libsql doesn't support name-based)
+            fields.iter().enumerate().map(|(idx, field)| {
+                let idx = idx as i32; // libsql uses i32 for indices
+                let field_name = field.ident.as_ref().unwrap();
+                quote! {
+                    #field_name: row.get_value(#idx)?.as_text().unwrap_or_default().parse()?,
+                }
+            }).collect::<Vec<_>>()
+        };
+        
+        let libsql_impl = if is_tuple {
+            quote! {
+                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
+                    type Error = ::drizzle_rs::error::DrizzleError;
+
+                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self(
+                            #(#libsql_field_assignments)*
+                        ))
+                    }
+                }
+            }
+        } else {
+            quote! {
+                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
+                    type Error = ::drizzle_rs::error::DrizzleError;
+
+                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self {
+                            #(#libsql_field_assignments)*
+                        })
+                    }
+                }
+            }
+        };
+        impl_blocks.push(libsql_impl);
+    }
+    
+    let impl_block = quote! {
+        #(#impl_blocks)*
     };
 
     // Generate ToSQL implementation for FromRow structs
