@@ -13,14 +13,12 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
     } = ctx;
     let (select, update, partial) = field_infos
         .iter()
-        .map(|info| {
-            let name = &info.ident;
-            let column = &info.column_name;
-
+        .enumerate()
+        .map(|(i, info)| {
             Ok((
-                generate_field_from_row(info)?,
-                generate_field_from_row(info)?,
-                quote! { #name: row.get(#column).unwrap_or_default(), },
+                generate_field_from_row(i, info)?,
+                generate_field_from_row(i, info)?,
+                generate_field_from_row(i, info)?,
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
@@ -75,9 +73,18 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 }
 
 /// Handles both standard types and conditional JSON deserialization for turso.
-fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let name = info.ident;
-    let column_name = &info.column_name;
+    let base_type = info.base_type;
+
+    let column_type = match info.column_type {
+        crate::sqlite::field::SQLiteType::Integer => quote! { as_integer() },
+        crate::sqlite::field::SQLiteType::Text => quote! { as_text() },
+        crate::sqlite::field::SQLiteType::Blob => quote! { as_blob() },
+        crate::sqlite::field::SQLiteType::Real => quote! { as_real() },
+        crate::sqlite::field::SQLiteType::Numeric => quote! { as_integer() },
+        crate::sqlite::field::SQLiteType::Any => quote! { as_text() },
+    };
 
     if info.is_json && !cfg!(feature = "serde") {
         return Err(Error::new_spanned(
@@ -87,21 +94,21 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     } else if info.is_uuid {
         // Handle UUIDs as BLOB for turso - use row.get() for type-safe conversion
         Ok(quote! {
-            #name: row.get(#column_name)?,
+            #name: row.get_value(#idx)?.as_blob().unwrap_or_default(),
         })
     } else if info.is_json {
         // Handle JSON fields with serde - get as string then deserialize
         Ok(quote! {
             #name: {
-                let json_str: String = row.get(#column_name)?;
+                let json_str: String = row.get_value(#idx)?.as_text().unwrap_or_default();
                 serde_json::from_str(&json_str)
                     .map_err(|e| turso::Error::Other(format!("JSON parse error: {}", e)))?
             },
         })
     } else {
         // Standard field types - use turso's type-safe get method
-        Ok(quote! {
-            #name: row.get(#column_name)?,
-        })
+        Ok(
+            quote! { #name: row.get_value(#idx)?.#column_type.cloned().unwrap_or_default() as #base_type, },
+        )
     }
 }

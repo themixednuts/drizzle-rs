@@ -1,5 +1,3 @@
-#[cfg(feature = "rusqlite")]
-use drizzle_core::ParamBind;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use paste::paste;

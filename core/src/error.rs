@@ -34,6 +34,26 @@ pub enum DrizzleError {
     #[error("Parameter conversion error: {0}")]
     ParameterError(String),
 
+    /// Integer conversion error
+    #[error("Integer conversion error: {0}")]
+    TryFromInt(#[from] std::num::TryFromIntError),
+
+    /// Parse int error
+    #[error("Parse int error: {0}")]
+    ParseInt(#[from] std::num::ParseIntError),
+
+    /// Parse float error
+    #[error("Parse float error: {0}")]
+    ParseFloat(#[from] std::num::ParseFloatError),
+
+    /// Parse bool error
+    #[error("Parse bool error: {0}")]
+    ParseBool(#[from] std::str::ParseBoolError),
+
+    /// Type conversion error
+    #[error("Type conversion error: {0}")]
+    ConversionError(String),
+
     /// Generic error
     #[error("Database error: {0}")]
     Other(String),
@@ -42,6 +62,11 @@ pub enum DrizzleError {
     #[cfg(feature = "rusqlite")]
     #[error("Rusqlite error: {0}")]
     Rusqlite(#[from] rusqlite::Error),
+
+    /// Rusqlite specific errors
+    #[cfg(feature = "turso")]
+    #[error("Turso error: {0}")]
+    Turso(#[from] turso::Error),
 }
 
 /// Result type for database operations
