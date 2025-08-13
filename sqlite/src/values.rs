@@ -7,6 +7,7 @@ use drizzle_core::{SQL, error::DrizzleError};
 use rusqlite::types::FromSql;
 #[cfg(feature = "turso")]
 use turso::IntoValue;
+#[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 use std::borrow::Cow;
@@ -226,6 +227,32 @@ impl<'a> From<&SQLiteValue<'a>> for turso::Value {
             SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
             SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
             SQLiteValue::Null => turso::Value::Null,
+        }
+    }
+}
+
+#[cfg(feature = "libsql")]
+impl<'a> From<SQLiteValue<'a>> for libsql::Value {
+    fn from(value: SQLiteValue<'a>) -> Self {
+        match value {
+            SQLiteValue::Integer(i) => libsql::Value::Integer(i),
+            SQLiteValue::Real(r) => libsql::Value::Real(r),
+            SQLiteValue::Text(cow) => libsql::Value::Text(cow.to_string()),
+            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.to_vec()),
+            SQLiteValue::Null => libsql::Value::Null,
+        }
+    }
+}
+
+#[cfg(feature = "libsql")]
+impl<'a> From<&SQLiteValue<'a>> for libsql::Value {
+    fn from(value: &SQLiteValue<'a>) -> Self {
+        match value {
+            SQLiteValue::Integer(i) => libsql::Value::Integer(*i),
+            SQLiteValue::Real(r) => libsql::Value::Real(*r),
+            SQLiteValue::Text(cow) => libsql::Value::Text(cow.to_string()),
+            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.to_vec()),
+            SQLiteValue::Null => libsql::Value::Null,
         }
     }
 }

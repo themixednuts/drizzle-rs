@@ -61,14 +61,10 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
-    // Generate IntoValue implementations for enums
-    let enum_impls = generate_enum_into_value_impls(ctx)?;
-
     Ok(quote! {
         #select_model_try_from_impl
         #partial_select_model_try_from_impl
         #update_model_try_from_impl
-        #enum_impls
     })
 }
 
@@ -297,62 +293,49 @@ fn needs_reference_type(base_type_str: &str) -> bool {
     base_type_str.starts_with('&')
 }
 
-/// Generate IntoValue implementations for enum fields
-fn generate_enum_into_value_impls(ctx: &MacroContext) -> Result<TokenStream> {
-    let enum_fields: Vec<_> = ctx.field_infos.iter().filter(|info| info.is_enum).collect();
-    
-    if enum_fields.is_empty() {
-        return Ok(quote!());
+/// Generate turso enum implementations (IntoValue) - per field approach
+pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
+    if !info.is_enum {
+        return Ok(quote!{});
     }
 
-    let mut enum_impls = Vec::new();
+    let value_type = info.base_type;
     
-    // Keep track of processed enum types to avoid duplicates
-    let mut processed_types = std::collections::HashSet::new();
-    
-    for info in enum_fields {
-        let value_type = &info.base_type;
-        let type_str = value_type.to_token_stream().to_string();
-        
-        // Skip if we've already processed this enum type
-        if processed_types.contains(&type_str) {
-            continue;
-        }
-        processed_types.insert(type_str);
-        
-        let impl_code = match info.column_type {
-            crate::sqlite::field::SQLiteType::Integer => {
-                quote! {
-                    impl turso::IntoValue for #value_type {
-                        fn into_value(self) -> turso::Result<turso::Value> {
-                            let integer: i64 = self.into();
-                            Ok(turso::Value::Integer(integer))
-                        }
-                    }
+    match info.column_type {
+        crate::sqlite::field::SQLiteType::Integer => Ok(quote! {
+            // turso::IntoValue for integer enums
+            impl turso::IntoValue for #value_type {
+                fn into_value(self) -> turso::Result<turso::Value> {
+                    let integer: i64 = self.into();
+                    Ok(turso::Value::Integer(integer))
                 }
-            },
-            crate::sqlite::field::SQLiteType::Text => {
-                quote! {
-                    impl turso::IntoValue for #value_type {
-                        fn into_value(self) -> turso::Result<turso::Value> {
-                            let text: &str = self.into();
-                            Ok(turso::Value::Text(text.to_owned()))
-                        }
-                    }
-                }
-            },
-            _ => {
-                return Err(Error::new_spanned(
-                    info.ident,
-                    "Enum fields are only supported with INTEGER or TEXT column types for turso",
-                ));
             }
-        };
-        
-        enum_impls.push(impl_code);
+            
+            impl turso::IntoValue for &#value_type {
+                fn into_value(self) -> turso::Result<turso::Value> {
+                    let integer: i64 = (*self).into();
+                    Ok(turso::Value::Integer(integer))
+                }
+            }
+        }),
+        crate::sqlite::field::SQLiteType::Text => Ok(quote! {
+            // turso::IntoValue for text enums
+            impl turso::IntoValue for #value_type {
+                fn into_value(self) -> turso::Result<turso::Value> {
+                    Ok(turso::Value::Text(self.to_string()))
+                }
+            }
+            
+            impl turso::IntoValue for &#value_type {
+                fn into_value(self) -> turso::Result<turso::Value> {
+                    Ok(turso::Value::Text(self.to_string()))
+                }
+            }
+        }),
+        _ => Err(syn::Error::new_spanned(
+            info.ident, 
+            "Enum is only supported in text or integer column types"
+        )),
     }
-
-    Ok(quote! {
-        #(#enum_impls)*
-    })
 }
+

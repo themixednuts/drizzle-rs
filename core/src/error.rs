@@ -68,6 +68,11 @@ pub enum DrizzleError {
     #[error("Turso error: {0}")]
     Turso(#[from] turso::Error),
 
+    /// LibSQL specific errors
+    #[cfg(feature = "libsql")]
+    #[error("LibSQL error: {0}")]
+    LibSQL(#[from] libsql::Error),
+
     /// UUID parsing error
     #[cfg(feature = "uuid")]
     #[error("UUID error: {0}")]

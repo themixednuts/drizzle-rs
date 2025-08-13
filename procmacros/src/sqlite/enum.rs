@@ -350,7 +350,5 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
-
-
     })
 }
