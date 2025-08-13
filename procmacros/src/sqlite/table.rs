@@ -4,6 +4,9 @@ pub mod rusqlite;
 #[cfg(feature = "turso")]
 pub mod turso;
 
+#[cfg(feature = "libsql")]
+pub mod libsql;
+
 use super::field::FieldInfo;
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
@@ -602,6 +605,18 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
                 #[cfg(not(feature = "rusqlite"))]
                 let rusqlite_impl = quote!{};
 
+                #[cfg(feature = "turso")]
+                let turso_impl = turso::generate_enum_impls(info)?;
+                
+                #[cfg(not(feature = "turso"))]
+                let turso_impl = quote!{};
+
+                #[cfg(feature = "libsql")]
+                let libsql_impl = libsql::generate_enum_impls(info)?;
+                
+                #[cfg(not(feature = "libsql"))]
+                let libsql_impl = quote!{};
+
                 quote! {
                     // Generate From implementations for enum values
                     impl<'a> ::std::convert::From<#value_type> for ::drizzle_rs::sqlite::SQLiteValue<'a> {
@@ -624,8 +639,10 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
                     }
                     
 
-                    // Include rusqlite implementations
+                    // Include driver-specific implementations
                     #rusqlite_impl
+                    #turso_impl
+                    #libsql_impl
                 }
             }
         } else {
@@ -900,41 +917,48 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         #[derive(Debug, Clone, PartialEq, Default)]
         #struct_vis struct #select_model_ident { #(#select_fields,)* }
         
-        // Partial Select Model - all fields are optional for selective querying
-        #[derive(Debug, Clone, PartialEq, Default)]
-        #struct_vis struct #select_model_partial_ident { #(#partial_select_fields,)* }
+        // Partial Select Model - feature gated for drivers that support column-based access
+        #[cfg(not(any(feature = "libsql", feature = "turso")))]
+        {
+            // Partial Select Model - all fields are optional for selective querying
+            #[derive(Debug, Clone, PartialEq, Default)]
+            #struct_vis struct #select_model_partial_ident { #(#partial_select_fields,)* }
 
-        impl #select_model_partial_ident {
-            // Convenience methods for setting fields
-            #(#partial_convenience_methods)*
-        }
+            impl #select_model_partial_ident {
+                // Convenience methods for setting fields
+                #(#partial_convenience_methods)*
+            }
 
-        // Implement SQLPartial trait for SelectModel
-        impl<'a> ::drizzle_rs::core::SQLPartial<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_ident {
-            type Partial = #select_model_partial_ident;
-        }
-        
-        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial_ident {
-            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                unimplemented!()
-                // Only include columns that are Some() for selective querying
-                // let mut selected_columns = Vec::new();
-                // #(
-                //     if self.#select_field_names.is_some() {
-                //         selected_columns.push(#select_column_names);
-                //     }
-                // )*
-                
-                // if selected_columns.is_empty() {
-                //     unimplemented!()
-                //     // If no fields selected, default to all columns
-                //     // const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
-                //     // ::drizzle_rs::core::SQL::join(ALL_COLUMNS, ", ")
-                // } else {
-                //     ::drizzle_rs::core::SQL::join(&selected_columns, ", ")
-                // }
+            // Implement SQLPartial trait for SelectModel
+            impl<'a> ::drizzle_rs::core::SQLPartial<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_ident {
+                type Partial = #select_model_partial_ident;
+            }
+            
+            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial_ident {
+                fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                    unimplemented!()
+                    // Only include columns that are Some() for selective querying
+                    // let mut selected_columns = Vec::new();
+                    // #(
+                    //     if self.#select_field_names.is_some() {
+                    //         selected_columns.push(#select_column_names);
+                    //     }
+                    // )*
+                    
+                    // if selected_columns.is_empty() {
+                    //         unimplemented!()
+                    //         // If no fields selected, default to all columns
+                    //         // const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
+                    //         // ::drizzle_rs::core::SQL::join(ALL_COLUMNS, ", ")
+                    // } else {
+                    //     ::drizzle_rs::core::SQL::join(&selected_columns, ", ")
+                    // }
+                }
             }
         }
+        
+        // For libsql and turso: partial select models are disabled due to index-based access limitations
+        // Use full select model or specific column tuples instead
         impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_ident {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                 unimplemented!()
@@ -1400,6 +1424,12 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     #[cfg(not(feature = "turso"))]
     let turso_impls = quote!();
 
+    #[cfg(feature = "libsql")]
+    let libsql_impls = libsql::generate_libsql_impls(&ctx)?;
+
+    #[cfg(not(feature = "libsql"))]
+    let libsql_impls = quote!();
+
     // Generate compile-time validation for default literals
     let default_validations = generate_default_validations(&field_infos);
 
@@ -1422,5 +1452,6 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         #json_impls
         #rusqlite_impls
         #turso_impls
+        #libsql_impls
     })
 }
