@@ -47,7 +47,7 @@ let all_users: Vec<SelectUsers> = db
 let user: SelectUsers = db
     .select(())
     .from(users)
-    .where_(users.email.eq("alice@example.com"))
+    .r#where(eq(users.email, "alice@example.com"))
     .get()?;
 
 // Partial selection with FromRow
@@ -123,8 +123,8 @@ struct Example {
 }
 
 // Insert usage
-InsertExample::new(1, "John".to_string()) // Required fields only
-    .with_email("john@example.com".to_string()) // Optional fields
+InsertExample::new(1, "John") // Required fields only
+    .with_email("john@example.com") // Optional fields
     .with_age(25)
 ```
 
