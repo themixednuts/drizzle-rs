@@ -3,7 +3,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{Error, Result};
 
-/// Generate TryFrom implementations for turso::Row for a table's models
+/// Generate TryFrom implementations for ::turso::Row for a table's models
 pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let MacroContext {
         field_infos,
@@ -24,10 +24,10 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&turso::Row> for #select_model_ident {
+        impl ::std::convert::TryFrom<&::turso::Row> for #select_model_ident {
             type Error = ::drizzle_rs::error::DrizzleError;
 
-            fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#select)*
                 })
@@ -37,11 +37,12 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
+    #[cfg(not(any(feature = "libsql", feature = "turso")))]
     let partial_select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&turso::Row> for #partial_ident {
+        impl ::std::convert::TryFrom<&::turso::Row> for #partial_ident {
             type Error = ::drizzle_rs::error::DrizzleError;
 
-            fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#partial)*
                 })
@@ -49,11 +50,14 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
+    #[cfg(any(feature = "libsql", feature = "turso"))]
+    let partial_select_model_try_from_impl = quote! {};
+
     let update_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&turso::Row> for #update_model_ident {
+        impl ::std::convert::TryFrom<&::turso::Row> for #update_model_ident {
             type Error = ::drizzle_rs::error::DrizzleError;
 
-            fn try_from(row: &turso::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#update)*
                 })
@@ -293,49 +297,101 @@ fn needs_reference_type(base_type_str: &str) -> bool {
     base_type_str.starts_with('&')
 }
 
+/// Generate turso JSON implementations (IntoValue) - per JSON type approach
+pub(crate) fn generate_json_impls(json_type_storage: &std::collections::HashMap<String, (crate::sqlite::field::SQLiteType, &FieldInfo)>) -> Result<Vec<TokenStream>> {
+    if json_type_storage.is_empty() { 
+        return Ok(vec![]);
+    }
+    
+    json_type_storage.iter().map(|(_, (storage_type, info))| {
+        let struct_name = info.base_type;
+        let (into_value_impl) = match storage_type {
+            crate::sqlite::field::SQLiteType::Text => quote! {
+                impl ::turso::IntoValue for #struct_name {
+                    fn into_value(self) -> ::turso::Result<::turso::Value> {
+                        let json = serde_json::to_string(&self)
+                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
+                        Ok(::turso::Value::Text(json))
+                    }
+                }
+
+                impl ::turso::IntoValue for &#struct_name {
+                    fn into_value(self) -> ::turso::Result<::turso::Value> {
+                        let json = serde_json::to_string(self)
+                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
+                        Ok(::turso::Value::Text(json))
+                    }
+                }
+            },
+            crate::sqlite::field::SQLiteType::Blob => quote! {
+                impl ::turso::IntoValue for #struct_name {
+                    fn into_value(self) -> ::turso::Result<::turso::Value> {
+                        let json = serde_json::to_vec(&self)
+                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
+                        Ok(::turso::Value::Blob(json))
+                    }
+                }
+
+                impl ::turso::IntoValue for &#struct_name {
+                    fn into_value(self) -> ::turso::Result<::turso::Value> {
+                        let json = serde_json::to_vec(self)
+                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
+                        Ok(::turso::Value::Blob(json))
+                    }
+                }
+            },
+            _ => return Err(syn::Error::new_spanned(
+                info.ident, 
+                "JSON fields must use either TEXT or BLOB column types"
+            )),
+        };
+
+        Ok(into_value_impl)
+    }).collect::<Result<Vec<_>>>()
+}
+
 /// Generate turso enum implementations (IntoValue) - per field approach
 pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     if !info.is_enum {
-        return Ok(quote!{});
+        return Ok(quote! {});
     }
 
     let value_type = info.base_type;
-    
+
     match info.column_type {
         crate::sqlite::field::SQLiteType::Integer => Ok(quote! {
-            // turso::IntoValue for integer enums
-            impl turso::IntoValue for #value_type {
-                fn into_value(self) -> turso::Result<turso::Value> {
+            // ::turso::IntoValue for integer enums
+            impl ::turso::IntoValue for #value_type {
+                fn into_value(self) -> ::turso::Result<::turso::Value> {
                     let integer: i64 = self.into();
-                    Ok(turso::Value::Integer(integer))
+                    Ok(::turso::Value::Integer(integer))
                 }
             }
-            
-            impl turso::IntoValue for &#value_type {
-                fn into_value(self) -> turso::Result<turso::Value> {
-                    let integer: i64 = (*self).into();
-                    Ok(turso::Value::Integer(integer))
+
+            impl ::turso::IntoValue for &#value_type {
+                fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    let integer: i64 = (*self).clone().into();
+                    Ok(::turso::Value::Integer(integer))
                 }
             }
         }),
         crate::sqlite::field::SQLiteType::Text => Ok(quote! {
-            // turso::IntoValue for text enums
-            impl turso::IntoValue for #value_type {
-                fn into_value(self) -> turso::Result<turso::Value> {
-                    Ok(turso::Value::Text(self.to_string()))
+            // ::turso::IntoValue for text enums
+            impl ::turso::IntoValue for #value_type {
+                fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    Ok(::turso::Value::Text(self.to_string()))
                 }
             }
-            
-            impl turso::IntoValue for &#value_type {
-                fn into_value(self) -> turso::Result<turso::Value> {
-                    Ok(turso::Value::Text(self.to_string()))
+
+            impl ::turso::IntoValue for &#value_type {
+                fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    Ok(::turso::Value::Text(self.to_string()))
                 }
             }
         }),
         _ => Err(syn::Error::new_spanned(
-            info.ident, 
-            "Enum is only supported in text or integer column types"
+            info.ident,
+            "Enum is only supported in text or integer column types",
         )),
     }
 }
-

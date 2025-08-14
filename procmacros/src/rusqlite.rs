@@ -1,1 +1,1 @@
-pub mod from_row;
+// Rusqlite FromRow implementation is integrated directly into fromrow.rs

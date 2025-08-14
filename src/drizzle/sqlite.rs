@@ -8,10 +8,14 @@ pub mod turso;
 #[cfg(feature = "libsql")]
 pub mod libsql;
 
+#[cfg(feature = "sqlite")]
+use drizzle_core::SQL;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use paste::paste;
 use std::marker::PhantomData;
+#[cfg(feature = "sqlite")]
+use std::ops::Deref;
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
@@ -93,7 +97,6 @@ impl<'a, Schema, Builder, State> std::fmt::Display for PreparedDrizzle<'a, Schem
     }
 }
 
-
 //------------------------------------------------------------------------------
 // DrizzleBuilder - Builder with Type State Pattern
 //------------------------------------------------------------------------------
@@ -108,7 +111,6 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
 //------------------------------------------------------------------------------
 // Drizzle Query Building Methods
 //------------------------------------------------------------------------------
-
 
 //------------------------------------------------------------------------------
 // SELECT Builder Implementation
@@ -488,7 +490,7 @@ where
     /// Adds RETURNING clause
     pub fn returning(
         self,
-        columns: Vec<drizzle_core::SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
@@ -520,7 +522,7 @@ impl<'a, Schema, Table>
     /// Adds RETURNING clause after ON CONFLICT
     pub fn returning(
         self,
-        columns: Vec<drizzle_core::SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
@@ -637,4 +639,3 @@ where
         self.builder.to_sql()
     }
 }
-

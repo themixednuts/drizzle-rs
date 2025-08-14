@@ -1,3 +1,5 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use drizzle_rs::prelude::*;
 use rusqlite::Connection;
@@ -119,7 +121,8 @@ fn drizzle_rs_select(c: &mut Criterion) {
 
                 // Insert test data
                 for i in 0..100 {
-                    let data = InsertUser::new(format!("User {}", i), format!("user{}@example.com", i));
+                    let data =
+                        InsertUser::new(format!("User {}", i), format!("user{}@example.com", i));
                     db.insert(users).values([data]).execute().unwrap();
                 }
                 (db, users)

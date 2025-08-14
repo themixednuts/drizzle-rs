@@ -15,8 +15,8 @@ pub mod core {
     pub use drizzle_core::{Param, ParamBind, SQL, SQLComparable, ToSQL};
 
     // Core expression functions & macros
+    pub use drizzle_core::SQLSchemaType;
     pub use drizzle_core::expressions::conditions::*;
-    pub use drizzle_core::{SQLSchemaType, columns};
 }
 
 // SQLite specific components
@@ -71,7 +71,7 @@ pub mod prelude {
     pub use sqlite::builder::QueryBuilder;
 
     // Proc Macros (essential for schema definition)
-    pub use procmacros::{drizzle, qb};
+    pub use procmacros::{FromRow, drizzle, qb};
 
     // Dialect-specific components (gated)
     #[cfg(feature = "sqlite")]
@@ -89,6 +89,7 @@ pub mod prelude {
     // #[cfg(feature = "mysql")] pub use procmacros::{MySQLEnum, MySQLTable};
 }
 
+#[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod tests {
     use drizzle_rs::prelude::*;

@@ -912,14 +912,9 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         );
     }
 
-    Ok(quote! {
-        // Select Model
-        #[derive(Debug, Clone, PartialEq, Default)]
-        #struct_vis struct #select_model_ident { #(#select_fields,)* }
-        
-        // Partial Select Model - feature gated for drivers that support column-based access
-        #[cfg(not(any(feature = "libsql", feature = "turso")))]
-        {
+    // Partial Select Model - feature gated for drivers that support column-based access
+    #[cfg(not(any(feature = "libsql", feature = "turso")))]
+    let partial_impl = quote! {
             // Partial Select Model - all fields are optional for selective querying
             #[derive(Debug, Clone, PartialEq, Default)]
             #struct_vis struct #select_model_partial_ident { #(#partial_select_fields,)* }
@@ -955,8 +950,17 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
                     // }
                 }
             }
-        }
-        
+      
+    }; 
+    #[cfg(any(feature = "libsql", feature = "turso"))]
+    let partial_impl = quote! {};
+
+
+    Ok(quote! {
+        // Select Model
+        #[derive(Debug, Clone, PartialEq, Default)]
+        #struct_vis struct #select_model_ident { #(#select_fields,)* }
+
         // For libsql and turso: partial select models are disabled due to index-based access limitations
         // Use full select model or specific column tuples instead
         impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_ident {
@@ -967,6 +971,8 @@ fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
                 // ::drizzle_rs::core::SQL::join(COLUMN_NAMES, ", ")
             }
         }
+        
+        #partial_impl
     })
 }
 
@@ -1175,6 +1181,23 @@ fn generate_model_trait_impls(ctx: &MacroContext, _column_zst_idents: &[Ident]) 
         let name = info.ident;
         update_field_names.push(name);
     }
+    #[cfg(not(any(feature = "libsql", feature = "turso")))]
+    let partial_impl = quote! {
+            impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial {
+            fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
+                // For partial select model, return all columns (same as other models)
+                static INSTANCE: #struct_ident = #struct_ident::new();
+                INSTANCE.columns()
+            }
+
+            fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+                ::drizzle_rs::core::SQL::empty()
+            }
+        }
+    };
+
+    #[cfg(any(feature = "libsql", feature = "turso"))]
+    let partial_impl = quote! {};
 
     Ok(quote! {
         // SQLModel implementations
@@ -1208,18 +1231,8 @@ fn generate_model_trait_impls(ctx: &MacroContext, _column_zst_idents: &[Ident]) 
                 ::drizzle_rs::core::SQL::parameters(values)
             }
         }
+        #partial_impl
         
-        impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
-                // For partial select model, return all columns (same as other models)
-                static INSTANCE: #struct_ident = #struct_ident::new();
-                INSTANCE.columns()
-            }
-
-            fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                ::drizzle_rs::core::SQL::empty()
-            }
-        }
     })
 }
 
@@ -1318,9 +1331,25 @@ fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls: Vec<TokenStream> = vec![];
 
+    // Generate turso-specific implementations
+    #[cfg(feature = "turso")]
+    let turso_json_impls = turso::generate_json_impls(&json_type_storage)?;
+    
+    #[cfg(not(feature = "turso"))]
+    let turso_json_impls: Vec<TokenStream> = vec![];
+
+    // Generate libsql-specific implementations
+    #[cfg(feature = "libsql")]
+    let libsql_json_impls = libsql::generate_json_impls(&json_type_storage)?;
+    
+    #[cfg(not(feature = "libsql"))]
+    let libsql_json_impls: Vec<TokenStream> = vec![];
+
     let json_types_impl = quote! {
         #(#core_impls)*
         #(#rusqlite_impls)*
+        #(#turso_json_impls)*
+        #(#libsql_json_impls)*
     };
 
     Ok(json_types_impl)

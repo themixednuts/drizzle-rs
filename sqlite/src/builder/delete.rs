@@ -1,5 +1,5 @@
 use crate::values::SQLiteValue;
-use drizzle_core::SQL;
+use drizzle_core::{SQL, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -56,7 +56,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// Adds a RETURNING clause to the query
     pub fn returning(
         self,
-        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
@@ -76,7 +76,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
     pub fn returning(
         self,
-        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {

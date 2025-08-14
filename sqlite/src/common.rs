@@ -132,6 +132,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 // Tests
 //------------------------------------------------------------------------------
 
+#[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod tests {
     use drizzle_rs::prelude::*;

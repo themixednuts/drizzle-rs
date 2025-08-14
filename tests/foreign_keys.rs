@@ -1,3 +1,4 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle_rs::prelude::*;
 mod common;
 

@@ -12,7 +12,7 @@
 //! ## Example Usage
 //!
 //! ```rust
-//! # use drizzle_rs::prelude::*;
+//! # use procmacros::SQLiteTable;
 //! // Define your schema
 //! #[SQLiteTable(name = "users")]
 //! struct Users {
@@ -54,7 +54,7 @@ use syn::parse_macro_input;
 /// # Syntax
 ///
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::{SQLiteTable, drizzle};
 /// # #[SQLiteTable] struct Table1 { #[integer(primary)] id: i32 }
 /// # #[SQLiteTable] struct Table2 { #[integer(primary)] id: i32 }
 /// # #[SQLiteTable] struct Table { #[integer(primary)] id: i32 }
@@ -75,7 +75,7 @@ use syn::parse_macro_input;
 ///
 /// ## Single Table
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::{SQLiteTable, drizzle};
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary)]
@@ -95,7 +95,7 @@ use syn::parse_macro_input;
 ///
 /// ## Multiple Tables
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::{SQLiteTable, drizzle};
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary)]
@@ -154,7 +154,7 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// ## Text Storage (Variant Names)
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::{SQLiteEnum, SQLiteTable};
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum UserRole {
 ///     #[default]
@@ -174,7 +174,7 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// ## Integer Storage (Discriminants)
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::{SQLiteEnum, SQLiteTable};
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
 ///     #[default]
@@ -276,7 +276,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Basic Table
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::SQLiteTable;
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary, autoincrement)]
@@ -292,7 +292,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Table with Defaults
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::SQLiteTable;
 /// #[SQLiteTable(name = "posts", strict)]
 /// struct Posts {
 ///     #[integer(primary, autoincrement)]
@@ -308,7 +308,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Enums and JSON
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::{SQLiteEnum, SQLiteTable};
 /// # use serde::{Serialize, Deserialize};
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Role {
@@ -344,7 +344,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// Use `Option<T>` for nullable fields, or `T` for NOT NULL constraints:
 ///
 /// ```rust
-/// # use drizzle_rs::prelude::*;
+/// # use procmacros::SQLiteTable;
 /// #[SQLiteTable]
 /// struct Example {
 ///     #[integer(primary)]

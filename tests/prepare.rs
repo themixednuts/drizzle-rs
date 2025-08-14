@@ -1,3 +1,4 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle_core::{SQL, SQLChunk, ToSQL, prepare_render};
 use drizzle_rs::{
     core::{and, eq},

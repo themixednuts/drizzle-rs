@@ -1,5 +1,5 @@
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, SQLTable};
+use drizzle_core::{SQL, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -83,7 +83,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// Adds a RETURNING clause and transitions to the ReturningSet state
     pub fn returning(
         self,
-        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
@@ -103,7 +103,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
     pub fn returning(
         self,
-        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {

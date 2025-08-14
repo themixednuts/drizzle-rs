@@ -346,8 +346,15 @@ impl<'a, V: SQLParam + std::fmt::Debug> std::fmt::Debug for SQLChunk<'a, V> {
             SQLChunk::Param(param) => f.debug_tuple("Param").field(param).finish(),
             SQLChunk::SQL(_) => f.debug_tuple("SQL").field(&"<nested>").finish(),
             SQLChunk::Table(table) => f.debug_tuple("Table").field(&table.name()).finish(),
-            SQLChunk::Column(column) => f.debug_tuple("Column").field(&format!("{}.{}", column.table().name(), column.name())).finish(),
-            SQLChunk::Alias { alias, .. } => f.debug_struct("Alias").field("alias", alias).field("chunk", &"<nested>").finish(),
+            SQLChunk::Column(column) => f
+                .debug_tuple("Column")
+                .field(&format!("{}.{}", column.table().name(), column.name()))
+                .finish(),
+            SQLChunk::Alias { alias, .. } => f
+                .debug_struct("Alias")
+                .field("alias", alias)
+                .field("chunk", &"<nested>")
+                .finish(),
             SQLChunk::Subquery(_) => f.debug_tuple("Subquery").field(&"<nested>").finish(),
         }
     }
@@ -439,6 +446,12 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
     pub fn table<'b>(table: &'b dyn SQLTableInfo) -> SQL<'b, V> {
         SQL {
             chunks: smallvec![SQLChunk::table(table)],
+        }
+    }
+
+    pub fn column<'b>(column: &'b dyn SQLColumnInfo) -> SQL<'b, V> {
+        SQL {
+            chunks: smallvec![SQLChunk::column(column)],
         }
     }
 
@@ -1064,20 +1077,38 @@ where
     }
 }
 
+impl<'a, V, T, const N: usize> ToSQL<'a, V> for &[T; N]
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+    }
+}
+
 // Implement ToSQL for SQLTableInfo and SQLColumnInfo trait objects
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'a dyn SQLTableInfo {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL {
-            chunks: smallvec![SQLChunk::table(*self)],
-        }
+        SQL::table(*self)
     }
 }
 
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'a dyn SQLColumnInfo {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL {
-            chunks: smallvec![SQLChunk::column(*self)],
-        }
+        SQL::column(*self)
+    }
+}
+
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'a dyn SQLColumnInfo]> {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::join(self.iter().map(|&v| SQL::column(v)), ", ")
+    }
+}
+
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'a dyn SQLTableInfo]> {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::join(self.iter().map(|&v| SQL::table(v)), ", ")
     }
 }
 
@@ -1195,16 +1226,6 @@ pub mod placeholders {
     pub const fn dollar<'a>(name: &'a str) -> Placeholder<'a> {
         Placeholder::with_style(name, PlaceholderStyle::Dollar)
     }
-}
-
-#[macro_export]
-macro_rules! columns {
-    () => {
-        ["*".to_sql()]
-    };
-    ($($column:expr),+ $(,)?) => {
-        [$($column.to_sql()),+]
-    };
 }
 
 #[macro_export]

@@ -183,6 +183,17 @@ fn wrap_optional(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> To
         }
     }
 }
+fn wrap_some(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> TokenStream {
+    if is_optional {
+        quote! {
+            #name: Some(#inner),
+        }
+    } else {
+        quote! {
+            #name: #inner,
+        }
+    }
+}
 
 /// Handle UUID fields
 fn handle_uuid_field(
@@ -191,9 +202,18 @@ fn handle_uuid_field(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
+    let into = if is_optional {
+        quote! { .into() }
+    } else {
+        quote! {}
+    };
     let accessor = match info.column_type {
-        crate::sqlite::field::SQLiteType::Blob => quote!(row.get_value(#idx)?.as_blob()),
-        crate::sqlite::field::SQLiteType::Text => quote!(row.get_value(#idx)?.as_text()),
+        crate::sqlite::field::SQLiteType::Blob => {
+            quote!(row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into)
+        }
+        crate::sqlite::field::SQLiteType::Text => {
+            quote!(row.get::<String>(#idx).map(|v| ::uuid::Uuid::parse_str(&v))??#into)
+        }
         _ => {
             return Err(Error::new_spanned(
                 info.ident,
@@ -202,17 +222,7 @@ fn handle_uuid_field(
         }
     };
 
-    let converter = match info.column_type {
-        crate::sqlite::field::SQLiteType::Blob => {
-            |v: TokenStream| quote!(#v.map(|v| uuid::Uuid::from_slice(v)).transpose()?)
-        }
-        crate::sqlite::field::SQLiteType::Text => {
-            |v: TokenStream| quote!(#v.map(|v| uuid::Uuid::parse_str(v)).transpose()?)
-        }
-        _ => unreachable!(),
-    };
-
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    Ok(wrap_some(accessor, name, is_optional))
 }
 
 /// Handle integer fields
@@ -290,6 +300,73 @@ fn handle_blob_field(
     Ok(wrap_optional(converter(accessor), name, is_optional))
 }
 
+/// Generate libsql JSON implementations (Into<libsql::Value>) - per JSON type approach
+pub(crate) fn generate_json_impls(
+    json_type_storage: &std::collections::HashMap<
+        String,
+        (crate::sqlite::field::SQLiteType, &FieldInfo),
+    >,
+) -> Result<Vec<TokenStream>> {
+    if json_type_storage.is_empty() {
+        return Ok(vec![]);
+    }
+
+    json_type_storage
+        .iter()
+        .map(|(_, (storage_type, info))| {
+            let struct_name = info.base_type;
+            let (into_value_impl) = match storage_type {
+                crate::sqlite::field::SQLiteType::Text => quote! {
+                    impl From<#struct_name> for ::libsql::Value {
+                        fn from(value: #struct_name) -> Self {
+                            match serde_json::to_string(&value) {
+                                Ok(json) => ::libsql::Value::Text(json),
+                                Err(_) => ::libsql::Value::Null,
+                            }
+                        }
+                    }
+
+                    impl From<&#struct_name> for ::libsql::Value {
+                        fn from(value: &#struct_name) -> Self {
+                            match serde_json::to_string(value) {
+                                Ok(json) => ::libsql::Value::Text(json),
+                                Err(_) => ::libsql::Value::Null,
+                            }
+                        }
+                    }
+                },
+                crate::sqlite::field::SQLiteType::Blob => quote! {
+                    impl From<#struct_name> for ::libsql::Value {
+                        fn from(value: #struct_name) -> Self {
+                            match serde_json::to_vec(&value) {
+                                Ok(json) => ::libsql::Value::Blob(json),
+                                Err(_) => ::libsql::Value::Null,
+                            }
+                        }
+                    }
+
+                    impl From<&#struct_name> for ::libsql::Value {
+                        fn from(value: &#struct_name) -> Self {
+                            match serde_json::to_vec(value) {
+                                Ok(json) => ::libsql::Value::Blob(json),
+                                Err(_) => ::libsql::Value::Null,
+                            }
+                        }
+                    }
+                },
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        info.ident,
+                        "JSON fields must use either TEXT or BLOB column types",
+                    ));
+                }
+            };
+
+            Ok(into_value_impl)
+        })
+        .collect::<Result<Vec<_>>>()
+}
+
 /// Generate libsql enum implementations (Into<libsql::Value>) - per field approach
 pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     if !info.is_enum {
@@ -310,7 +387,7 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
 
             impl From<&#value_type> for ::libsql::Value {
                 fn from(value: &#value_type) -> Self {
-                    let integer: i64 = (*value).into();
+                    let integer: i64 = (*value).clone().into();
                     ::libsql::Value::Integer(integer)
                 }
             }

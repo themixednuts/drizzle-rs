@@ -1,3 +1,4 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, InsertComplex, InsertSimple, Post, Simple};
 use drizzle_core::OrderBy;
 use drizzle_rs::prelude::*;

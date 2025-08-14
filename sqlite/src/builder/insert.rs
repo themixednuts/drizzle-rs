@@ -2,6 +2,7 @@ use crate::values::SQLiteValue;
 use drizzle_core::{SQL, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::ops::Deref;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
@@ -179,7 +180,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// Adds a RETURNING clause and transitions to ReturningSet state
     pub fn returning(
         self,
-        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
@@ -199,7 +200,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     /// Adds a RETURNING clause after ON CONFLICT
     pub fn returning(
         self,
-        columns: Vec<SQL<'a, SQLiteValue<'a>>>,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {

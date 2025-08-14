@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{common::Join, values::SQLiteValue};
 use drizzle_core::{
     SQL, SQLTable, ToSQL, helpers as core_helpers,
@@ -15,7 +17,11 @@ where
     V: SQLParam + 'a,
 {
     // For INSERT statements, we need just column names, not fully qualified names
-    let joined_names = columns.iter().map(|col| col.name()).collect::<Vec<_>>().join(", ");
+    let joined_names = columns
+        .iter()
+        .map(|col| col.name())
+        .collect::<Vec<_>>()
+        .join(", ");
     SQL::raw(joined_names)
 }
 
@@ -192,18 +198,17 @@ where
     V: SQLParam + 'a,
 {
     let mut rows_iter = rows.into_iter();
-    
+
     match rows_iter.next() {
         None => SQL::raw("VALUES"),
         Some(first_row) => {
             let rows_vec: Vec<_> = std::iter::once(first_row).chain(rows_iter).collect();
-            
-            // Group rows by their column patterns (handles both single and multiple rows)
+
             SQL::join(
                 group_rows_by_columns(&rows_vec)
                     .into_iter()
                     .map(|(columns, batch_rows)| generate_batch_insert(columns, batch_rows)),
-                "; "
+                "; ",
             )
         }
     }
@@ -270,19 +275,7 @@ where
 /// Helper function to create a RETURNING clause - SQLite specific
 pub(crate) fn returning<'a, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
-    I: IntoIterator<Item = SQL<'a, SQLiteValue<'a>>>,
+    I: ToSQL<'a, SQLiteValue<'a>>,
 {
-    let sql = SQL::raw("RETURNING");
-    let mut columns_iter = columns.into_iter();
-
-    match columns_iter.next() {
-        None => sql.append_raw("*"),
-        Some(first_col) => {
-            let mut result = sql.append(first_col);
-            for col in columns_iter {
-                result = result.append_raw(", ").append(col);
-            }
-            result
-        }
-    }
+    SQL::raw("RETURNING").append(columns.to_sql())
 }

@@ -8,7 +8,6 @@ A type-safe SQL query builder for Rust inspired by Drizzle ORM.
 - **SQLite Support**: Multiple SQLite drivers (rusqlite, turso, libsql)
 - **Schema-First**: Define your database schema with Rust structs and derive macros
 - **Query Builder**: Fluent API for building complex SQL queries
-- **Zero-Cost Abstractions**: Minimal runtime overhead with compile-time optimizations
 
 ## Quick Start
 
@@ -145,8 +144,8 @@ struct Posts {
     id: Uuid,
     
     // Option 2: Store UUID as string (36 characters) - human readable
-    // #[text(primary, default_fn = || Uuid::new_v4().to_string())]
-    // id: String,
+    #[text(primary, default_fn = || Uuid::new_v4().to_string())]
+    id: String,
     
     #[text]
     title: String,
@@ -192,33 +191,3 @@ struct Users {
     config: Option<UserMetadata>,
 }
 ```
-
-## SQLite Drivers
-
-```toml
-[dependencies]
-# For local SQLite files (stable)
-drizzle_rs = { version = "0.1", features = ["rusqlite"] }
-
-# For libSQL (local + remote)
-drizzle_rs = { version = "0.1", features = ["libsql"] }
-
-# For Turso (alpha driver)
-drizzle_rs = { version = "0.1", features = ["turso"] }
-
-# With additional features
-drizzle_rs = { version = "0.1", features = ["rusqlite", "uuid", "serde"] }
-```
-
-## Benefits
-
-- **Compile-time error checking** - catch schema mismatches before runtime
-- **IDE autocompletion** for columns, tables, and generated types
-- **Refactoring safety** - rename columns and get compile errors where they're used
-- **Type-safe queries** - no string-based SQL, all generated from typed constructs
-- **Zero runtime overhead** - compile-time code generation with minimal abstractions
-- **Flexible nullability** - use `Option<T>` vs `T` to control NULL constraints
-
-## License
-
-MIT

@@ -1,3 +1,4 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{
     Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
     PostCategory,

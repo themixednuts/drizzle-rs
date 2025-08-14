@@ -1,3 +1,4 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;

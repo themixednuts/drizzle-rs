@@ -1,3 +1,5 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+
 use drizzle_rs::prelude::*;
 #[cfg(feature = "libsql")]
 use libsql::{Builder, Connection, Value};

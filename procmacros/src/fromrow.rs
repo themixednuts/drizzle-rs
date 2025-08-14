@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
 
 /// Parse column reference from field attributes, looking for #[column(Table::field)]
@@ -161,7 +161,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         impl_blocks.push(turso_impl);
     }
 
-    // Libsql implementation
+    // Libsql implementation - use simple .get() calls
     #[cfg(feature = "libsql")]
     {
         let libsql_field_assignments = if is_tuple {
@@ -170,23 +170,62 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 .iter()
                 .enumerate()
                 .map(|(idx, field)| {
-                    let idx = idx as i32; // libsql uses i32 for indices
                     let field_type_str = field.ty.to_token_stream().to_string();
-                    let extraction = crate::sqlite::row_helpers::generate_libsql_value_extraction(idx, &field_type_str);
-                    quote! {
-                        #extraction,
+                    let is_optional = field_type_str.contains("Option");
+                    let into = if is_optional { quote!{ .into() }} else { quote!{} };
+
+                    let idx = idx as i32;
+                    
+                    // Special handling for Uuid from [u8;16]
+                    if field_type_str.contains("Uuid") {
+                        quote! {
+                            row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into,
+                        }
+
+
+                    } else if field_type_str.contains("f32") {
+                        quote! {
+                            row.get::<f64>(#idx).map(|v| v as f32)?#into,
+                        }
+                    } else if field_type_str.contains("i8") || field_type_str.contains("i16") {
+                        quote! {
+                            row.get::<i64>(#idx).map(|v| v.try_into())??#into,
+                        }
+                    }
+                    else {
+                        quote! {
+                            row.get(#idx)?,
+                        }
                     }
                 })
                 .collect::<Vec<_>>()
         } else {
             // For named structs, still use index-based access (libsql doesn't support name-based)
             fields.iter().enumerate().map(|(idx, field)| {
-                let idx = idx as i32; // libsql uses i32 for indices
                 let field_name = field.ident.as_ref().unwrap();
                 let field_type_str = field.ty.to_token_stream().to_string();
-                let extraction = crate::sqlite::row_helpers::generate_libsql_value_extraction(idx, &field_type_str);
-                quote! {
-                    #field_name: #extraction,
+                let idx = idx as i32;
+                    let is_optional = field_type_str.contains("Option");
+                    let into = if is_optional { quote!{ .into() } } else { quote!{} };
+                
+                // Special handling for Uuid from [u8;16]
+                if field_type_str.contains("Uuid") {
+                    quote! {
+                        #field_name: row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into,
+                    }
+                } else if field_type_str.contains("f32") {
+                    quote! {
+                        #field_name: row.get::<f64>(#idx).map(|v| v as f32)?#into,
+                    }
+                } else if field_type_str.contains("i8") || field_type_str.contains("i16") {
+                    quote! {
+                        #field_name: row.get::<i64>(#idx).map(|v| v.try_into())??#into,
+                    }
+                }
+                else {
+                    quote! {
+                        #field_name: row.get(#idx)?,
+                    }
                 }
             }).collect::<Vec<_>>()
         };

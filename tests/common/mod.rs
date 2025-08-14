@@ -1,3 +1,5 @@
+#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+
 mod rusqlite;
 #[cfg(feature = "rusqlite")]
 pub use rusqlite::*;
@@ -13,6 +15,8 @@ pub use libsql::*;
 pub mod helpers;
 
 use drizzle_rs::prelude::*;
+
+#[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 // JSON struct types for testing JSON serialization features
