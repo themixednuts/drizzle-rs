@@ -1,16 +1,16 @@
 //! # Drizzle RS Procedural Macros
 //!
 //! This crate provides the procedural macros for Drizzle RS, a type-safe SQL query builder for Rust.
-//! 
+//!
 //! ## Core Macros
-//! 
+//!
 //! - [`drizzle!`] - Initialize a Drizzle instance with database connection and schemas
 //! - [`SQLiteTable`] - Define SQLite table schemas with type safety
 //! - [`SQLiteEnum`] - Define enums that can be stored in SQLite
 //! - [`FromRow`] - Derive automatic row-to-struct conversion
-//! 
+//!
 //! ## Example Usage
-//! 
+//!
 //! ```rust
 //! # use drizzle_rs::prelude::*;
 //! // Define your schema
@@ -30,6 +30,7 @@
 extern crate proc_macro;
 
 mod drizzle;
+mod fromrow;
 mod qb;
 mod schema;
 mod utils;
@@ -65,7 +66,7 @@ use syn::parse_macro_input;
 /// let (drizzle_instance, table_handles) = drizzle!(connection1, [Table1, Table2]);
 /// // Single table with array syntax (returns single table)
 /// let (drizzle_instance, single_table) = drizzle!(connection2, [Table]);
-/// // Single table without array syntax (returns single table) 
+/// // Single table without array syntax (returns single table)
 /// let (drizzle_instance, single_table) = drizzle!(connection3, Table);
 /// # }
 /// ```
@@ -82,7 +83,7 @@ use syn::parse_macro_input;
 ///     #[text]
 ///     name: String,
 /// }
-/// 
+///
 /// # fn main() {
 /// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
 /// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
@@ -102,7 +103,7 @@ use syn::parse_macro_input;
 ///     #[text]
 ///     name: String,
 /// }
-/// 
+///
 /// #[SQLiteTable(name = "posts")]
 /// struct Posts {
 ///     #[integer(primary)]
@@ -112,7 +113,7 @@ use syn::parse_macro_input;
 ///     #[integer(references = Users::id)]
 ///     user_id: i32,
 /// }
-/// 
+///
 /// # fn main() {
 /// # let connection = rusqlite::Connection::open_in_memory().unwrap();
 /// let (db, (users, posts)) = drizzle!(connection, [Users, Posts]);
@@ -158,7 +159,7 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// enum UserRole {
 ///     #[default]
 ///     User,      // Stored as "User"
-///     Admin,     // Stored as "Admin" 
+///     Admin,     // Stored as "Admin"
 ///     Moderator, // Stored as "Moderator"
 /// }
 ///
@@ -310,10 +311,10 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// # use drizzle_rs::prelude::*;
 /// # use serde::{Serialize, Deserialize};
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
-/// enum Role { 
+/// enum Role {
 ///     #[default]
-///     User, 
-///     Admin 
+///     User,
+///     Admin
 /// }
 ///
 /// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -408,12 +409,11 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     }
 /// }
 /// ```
-#[cfg(feature = "rusqlite")]
 #[proc_macro_derive(FromRow, attributes(column))]
 pub fn from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::rusqlite::from_row::generate_from_row_impl(input) {
+    match crate::fromrow::generate_from_row_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
