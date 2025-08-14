@@ -1,29 +1,15 @@
 use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;
-use rusqlite::Row;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 mod common;
 
-#[derive(Debug)]
+#[derive(FromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
-}
-
-impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = drizzle_rs::error::DrizzleError;
-
-    fn try_from(
-        row: &Row<'_>,
-    ) -> std::result::Result<SimpleResult, drizzle_rs::error::DrizzleError> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    }
 }
 
 #[cfg(not(feature = "uuid"))]
@@ -37,7 +23,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(Debug)]
+#[derive(FromRow, Debug)]
 struct ComplexResult {
     id: Uuid,
     name: String,
@@ -46,93 +32,71 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = drizzle_rs::error::DrizzleError;
-
-    fn try_from(
-        row: &Row<'_>,
-    ) -> std::result::Result<ComplexResult, drizzle_rs::error::DrizzleError> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            email: row.get(2)?,
-            age: row.get(3)?,
-            description: row.get(4)?,
-        })
-    }
-}
-
-#[test]
-fn simple_insert() {
-    let db = setup_db();
+#[tokio::test]
+async fn simple_insert() {
+    let db = setup_test_db!();
     let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Simple record
-    let data = InsertSimple::default().with_name("test");
-    let result = drizzle.insert(simple).values([data]).execute();
+    let data = InsertSimple::new("test");
+    let result = drizzle_exec!(drizzle.insert(simple).values([data]).execute());
 
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 1);
+    assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
-    let results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "test"))
-        .all()
-        .unwrap();
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "test"))
+            .all()
+    );
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 }
 
-#[test]
-fn complex_insert() {
-    let db = setup_db();
+#[tokio::test]
+async fn complex_insert() {
+    let db = setup_test_db!();
     let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Complex record with various field types
     #[cfg(not(feature = "uuid"))]
-    let data = InsertComplex::default()
-        .with_name("complex_user")
+    let data = InsertComplex::new("complex_user", true, common::Role::User)
         .with_email("test@example.com".to_string())
         .with_age(25)
         .with_score(95.5)
-        .with_active(true)
-        .with_role(common::Role::User)
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
     #[cfg(feature = "uuid")]
-    let data = InsertComplex::default()
+    let data = InsertComplex::new("complex_user", true, common::Role::User)
         .with_id(uuid::Uuid::new_v4())
-        .with_name("complex_user")
         .with_email("test@example.com".to_string())
         .with_age(25)
         .with_score(95.5)
-        .with_active(true)
-        .with_role(common::Role::User)
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
-    let result = drizzle.insert(complex).values([data]).execute();
+    let result = drizzle_exec!(drizzle.insert(complex).values([data]).execute());
 
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 1);
+    assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
-    let results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age,
-            Complex::description,
-        ])
-        .from(complex)
-        .r#where(eq(Complex::name, "complex_user"))
-        .all()
-        .unwrap();
+    let results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((
+                complex.id,
+                complex.name,
+                complex.email,
+                complex.age,
+                complex.description,
+            ))
+            .from(complex)
+            .r#where(eq(Complex::name, "complex_user"))
+            .all()
+    );
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "complex_user");
@@ -141,58 +105,50 @@ fn complex_insert() {
     assert_eq!(results[0].description, Some("Test description".to_string()));
 }
 
-#[test]
-fn conflict_resolution() {
-    let db = setup_db();
+#[tokio::test]
+async fn conflict_resolution() {
+    let db = setup_test_db!();
     let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert initial Simple record
-    let initial_data = InsertSimple::default()
-        .with_id(1)
-        .with_name("conflict_test");
-    drizzle
-        .insert(simple)
-        .values([initial_data])
-        .execute()
-        .unwrap();
+    let initial_data = InsertSimple::new("conflict_test").with_id(1);
+
+    drizzle_exec!(drizzle.insert(simple).values([initial_data]).execute());
 
     // Try to insert duplicate - should conflict and be ignored
-    let duplicate_data = InsertSimple::default()
-        .with_id(1)
-        .with_name("conflict_test");
-    let result = drizzle
-        .insert(simple)
-        .values([duplicate_data])
-        .on_conflict(Conflict::default())
-        .execute();
+    let duplicate_data = InsertSimple::new("conflict_test").with_id(1);
+    let result = drizzle_exec!(
+        drizzle
+            .insert(simple)
+            .values([duplicate_data])
+            .on_conflict(Conflict::default())
+            .execute()
+    );
 
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0); // No rows affected due to conflict
+    assert_eq!(result, 0); // No rows affected due to conflict
 
     // Verify only one record exists
-    let results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "conflict_test"))
-        .all()
-        .unwrap();
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "conflict_test"))
+            .all()
+    );
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "conflict_test");
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[test]
-fn feature_gated_insert() {
-    let db = setup_db();
+#[tokio::test]
+async fn feature_gated_insert() {
+    let db = setup_test_db!();
     let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert Complex record using feature-gated fields
-    let data = InsertComplex::default()
+    let data = InsertComplex::new("feature_test", true, common::Role::User)
         .with_id(uuid::Uuid::new_v4())
-        .with_name("feature_test")
-        .with_active(true)
-        .with_role(common::Role::User)
         .with_metadata(common::UserMetadata {
             preferences: vec!["dark_mode".to_string()],
             last_login: Some("2023-01-01".to_string()),
@@ -204,24 +160,24 @@ fn feature_gated_insert() {
             settings: std::collections::HashMap::new(),
         });
 
-    let result = drizzle.insert(complex).values([data]).execute();
+    let result = drizzle_exec!(drizzle.insert(complex).values([data]).execute());
 
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 1);
+    assert_eq!(result, 1);
 
     // Verify insertion
-    let results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age,
-            Complex::description,
-        ])
-        .from(complex)
-        .r#where(eq(Complex::name, "feature_test"))
-        .all()
-        .unwrap();
+    let results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((
+                complex.id,
+                complex.name,
+                complex.email,
+                complex.age,
+                complex.description,
+            ))
+            .from(complex)
+            .r#where(eq(complex.name, "feature_test"))
+            .all()
+    );
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_test");

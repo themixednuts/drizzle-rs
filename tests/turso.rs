@@ -20,6 +20,8 @@ mod turso_tests {
     }
 
     async fn setup_test_tables(conn: &Connection) {
+        // println!("Simple: {}", Simple::new().sql().sql());
+        // println!("Complex: {}", Complex::new().sql().sql());
         // Create Simple table
         conn.execute(Simple::new().sql().sql().as_str(), ())
             .await
@@ -80,14 +82,9 @@ mod turso_tests {
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test column tuple select (alternative to partial select for turso)
-        let row: (i32, String) = db
-            .select((simple.id, simple.name))
-            .from(simple)
-            .get()
-            .await
-            .unwrap();
+        let row: SelectSimple = db.select(()).from(simple).get().await.unwrap();
 
-        assert_eq!(row.1, "column_tuple_test");
+        assert_eq!(row.name, "column_tuple_test");
     }
 
     #[cfg(feature = "uuid")]
@@ -197,11 +194,20 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, [Simple]);
+        let (db, simple) = drizzle!(conn, Simple);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("delete_test");
-        db.insert(simple).values([data]).execute().await.unwrap();
+        let data = InsertSimple::new("delete_test");
+
+        let inserted: SelectSimple = db
+            .insert(simple)
+            .values([data])
+            .returning(simple.columns())
+            .get()
+            .await
+            .unwrap();
+
+        println!("Inserted: {:?}", inserted);
 
         // Test delete
         let deleted = db

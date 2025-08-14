@@ -1,4 +1,4 @@
-use common::{Complex, InsertComplex, InsertSimple, Post, Simple, setup_db};
+use common::{Complex, InsertComplex, InsertSimple, Post, Simple};
 use drizzle_core::OrderBy;
 use drizzle_rs::prelude::*;
 use procmacros::FromRow;
@@ -35,127 +35,113 @@ struct JoinResult {
     title: String,
 }
 
-#[test]
-fn simple_select_with_conditions() {
-    let db = setup_db();
+#[tokio::test]
+async fn simple_select_with_conditions() {
+    let db = setup_test_db!();
     let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert test data
     let test_data = vec![
-        InsertSimple::default().with_name("alpha"),
-        InsertSimple::default().with_name("beta"),
-        InsertSimple::default().with_name("gamma"),
-        InsertSimple::default().with_name("delta"),
+        InsertSimple::new("alpha"),
+        InsertSimple::new("beta"),
+        InsertSimple::new("gamma"),
+        InsertSimple::new("delta"),
     ];
 
-    drizzle.insert(simple).values(test_data).execute().unwrap();
+    drizzle_exec!(drizzle.insert(simple).values(test_data).execute());
 
     // Test WHERE condition
-    let where_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "beta"))
-        .all()
-        .unwrap();
+    let where_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "beta"))
+            .all()
+    );
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
 
     // Test ORDER BY with LIMIT
-    let ordered_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .order_by(vec![(Simple::name, OrderBy::Asc)])
-        .limit(2)
-        .all()
-        .unwrap();
+    let ordered_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .order_by([(simple.name, OrderBy::Asc)])
+            .limit(2)
+            .all()
+    );
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
     assert_eq!(ordered_results[1].name, "beta");
 
     // Test LIMIT with OFFSET
-    let offset_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .order_by(vec![(Simple::name, OrderBy::Asc)])
-        .limit(2)
-        .offset(2)
-        .all()
-        .unwrap();
+    let offset_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .order_by([(simple.name, OrderBy::Asc)])
+            .limit(2)
+            .offset(2)
+            .all()
+    );
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
     assert_eq!(offset_results[1].name, "gamma");
 }
 
-#[test]
-fn complex_select_with_conditions() {
-    let db = setup_db();
+#[tokio::test]
+async fn complex_select_with_conditions() {
+    let db = setup_test_db!();
     let (drizzle, (_, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
-    let test_data = vec![
-        InsertComplex::default()
-            .with_name("young")
+    let test_data = [
+        InsertComplex::new("young", true, common::Role::User)
             .with_email("young@test.com".to_string())
-            .with_age(20)
-            .with_active(true)
-            .with_role(common::Role::User),
-        InsertComplex::default()
-            .with_name("middle")
+            .with_age(20),
+        InsertComplex::new("middle", true, common::Role::User)
             .with_email("middle@test.com".to_string())
-            .with_age(35)
-            .with_active(true)
-            .with_role(common::Role::User),
-        InsertComplex::default()
-            .with_name("old")
+            .with_age(35),
+        InsertComplex::new("old", true, common::Role::User)
             .with_email("old@test.com".to_string())
-            .with_age(50)
-            .with_active(true)
-            .with_role(common::Role::User),
+            .with_age(50),
     ];
 
     #[cfg(feature = "uuid")]
-    let test_data = vec![
-        InsertComplex::default()
+    let test_data = [
+        InsertComplex::new("young", true, common::Role::User)
             .with_id(uuid::Uuid::new_v4())
-            .with_name("young")
             .with_email("young@test.com".to_string())
-            .with_age(20)
-            .with_active(true)
-            .with_role(common::Role::User),
-        InsertComplex::default()
+            .with_age(20),
+        InsertComplex::new("middle", true, common::Role::User)
             .with_id(uuid::Uuid::new_v4())
-            .with_name("middle")
             .with_email("middle@test.com".to_string())
-            .with_age(35)
-            .with_active(true)
-            .with_role(common::Role::User),
-        InsertComplex::default()
+            .with_age(35),
+        InsertComplex::new("old", true, common::Role::User)
             .with_id(uuid::Uuid::new_v4())
-            .with_name("old")
             .with_email("old@test.com".to_string())
-            .with_age(50)
-            .with_active(true)
-            .with_role(common::Role::User),
+            .with_age(50),
     ];
 
-    drizzle.insert(complex).values(test_data).execute().unwrap();
+    // println!("Test data: {:?}", test_data);
+    let stmt = drizzle.insert(complex).values(test_data);
+    // let sql = stmt.to_sql();
+    // println!("SQL {sql}");
+
+    drizzle_exec!(stmt.execute());
 
     // Test complex WHERE with GT condition
-    let gt_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .r#where(gt(Complex::age, 25))
-        .all()
-        .unwrap();
+    let gt_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .r#where(gt(complex.age, 25))
+            .all()
+    );
 
     assert_eq!(gt_results.len(), 2);
     let names: Vec<String> = gt_results.iter().map(|r| r.name.clone()).collect();
@@ -163,17 +149,13 @@ fn complex_select_with_conditions() {
     assert!(names.contains(&"old".to_string()));
 
     // Test complex WHERE with range conditions (AND logic)
-    let range_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .r#where(and([gte(Complex::age, 25), lt(Complex::age, 45)]))
-        .all()
-        .unwrap();
+    let range_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .r#where(and([gte(complex.age, 25), lt(complex.age, 45)]))
+            .all()
+    );
 
     assert_eq!(range_results.len(), 1);
     assert_eq!(range_results[0].name, "middle");
@@ -181,18 +163,15 @@ fn complex_select_with_conditions() {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[test]
-fn feature_gated_select() {
-    let db = setup_db();
+#[tokio::test]
+async fn feature_gated_select() {
+    let db = setup_test_db!();
     let (drizzle, (_, complex, _)) = drizzle!(db, [Simple, Complex, Post]);
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();
-    let data = InsertComplex::default()
+    let data = InsertComplex::new("feature_user", true, common::Role::User)
         .with_id(test_id)
-        .with_name("feature_user")
-        .with_active(true)
-        .with_role(common::Role::User)
         .with_metadata(common::UserMetadata {
             preferences: vec!["admin_panel".to_string()],
             last_login: Some("2023-12-01".to_string()),
@@ -204,36 +183,28 @@ fn feature_gated_select() {
             settings: std::collections::HashMap::new(),
         });
 
-    drizzle.insert(complex).values([data]).execute().unwrap();
+    drizzle_exec!(drizzle.insert(complex).values([data]).execute());
 
     // Query using UUID field
-    let uuid_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .r#where(eq(Complex::id, test_id))
-        .all()
-        .unwrap();
+    let uuid_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .r#where(eq(complex.id, test_id))
+            .all()
+    );
 
     assert_eq!(uuid_results.len(), 1);
     assert_eq!(uuid_results[0].name, "feature_user");
 
     // Query using name to verify metadata exists (can't easily verify content without custom result type)
-    let metadata_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .r#where(eq(Complex::name, "feature_user"))
-        .all()
-        .unwrap();
+    let metadata_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .r#where(eq(complex.name, "feature_user"))
+            .all()
+    );
 
     assert_eq!(metadata_results.len(), 1);
     assert_eq!(metadata_results[0].name, "feature_user");

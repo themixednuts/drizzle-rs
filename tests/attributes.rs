@@ -1,10 +1,12 @@
 use drizzle_rs::prelude::*;
+#[cfg(feature = "libsql")]
+use libsql::{Builder, Connection, Value};
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "turso")]
-use turso::Connection;
+use turso::{Builder, Connection, Value};
 
 // Test all SQLite column types
 #[SQLiteTable(name = "all_types")]
@@ -84,7 +86,7 @@ struct RuntimeDefaults {
 }
 
 // Test enums with different storage types
-#[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+#[derive(SQLiteEnum, Default, Clone, PartialEq, Debug, Copy)]
 enum Priority {
     Low = 1,
     #[default]
@@ -92,7 +94,7 @@ enum Priority {
     High = 3,
 }
 
-#[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+#[derive(SQLiteEnum, Default, Clone, PartialEq, Debug, Copy)]
 enum TaskStatus {
     #[default]
     Todo,
@@ -209,10 +211,10 @@ fn setup_test_db() -> Connection {
     conn
 }
 
-#[cfg(feature = "turso")]
+#[cfg(any(feature = "turso", feature = "libsql"))]
 // Helper functions for setup
 async fn setup_test_db() -> Connection {
-    let db = turso::Builder::new_local(":memory:")
+    let db = Builder::new_local(":memory:")
         .build()
         .await
         .expect("build db");
@@ -265,7 +267,7 @@ async fn setup_test_db() -> Connection {
 async fn test_all_column_types() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, all_types) = drizzle!(conn, [AllTypes]);
@@ -280,7 +282,7 @@ async fn test_all_column_types() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(all_types).values([test_data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(all_types)
         .values([test_data])
@@ -294,7 +296,7 @@ async fn test_all_column_types() {
     let query = "SELECT * FROM all_types WHERE id = 1";
     #[cfg(feature = "rusqlite")]
     let mut stmt = db.conn().prepare(query).unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let mut stmt = db.conn().prepare(query).await.unwrap();
 
     #[cfg(feature = "rusqlite")]
@@ -310,8 +312,8 @@ async fn test_all_column_types() {
         })
         .unwrap();
 
-    #[cfg(feature = "turso")]
-    let mut row = stmt.query(()).await.unwrap();
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    let mut rows = stmt.query(()).await.unwrap();
 
     #[cfg(feature = "rusqlite")]
     {
@@ -322,21 +324,21 @@ async fn test_all_column_types() {
         assert_eq!(row.4, true);
     }
 
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
-        while let Some(row) = row.next().await.unwrap() {
-            assert_eq!(row.get_value(0).unwrap().as_text().unwrap(), "test text");
+        while let Some(row) = rows.next().await.unwrap() {
+            assert_eq!(row.get_value(1).unwrap().as_text().unwrap(), "test text");
             assert_eq!(
-                row.get_value(1).unwrap().as_integer().cloned().unwrap(),
+                row.get_value(2).unwrap().as_integer().cloned().unwrap(),
                 123
             );
-            assert_eq!(row.get_value(2).unwrap().as_real().cloned().unwrap(), 45.67);
+            assert_eq!(row.get_value(3).unwrap().as_real().cloned().unwrap(), 45.67);
             assert_eq!(
-                row.get_value(3).unwrap().as_blob().cloned().unwrap(),
+                row.get_value(4).unwrap().as_blob().cloned().unwrap(),
                 vec![1, 2, 3, 4, 5]
             );
             assert_eq!(
-                row.get_value(4)
+                row.get_value(5)
                     .unwrap()
                     .as_integer()
                     .map(|&v| v != 0)
@@ -351,7 +353,7 @@ async fn test_all_column_types() {
 async fn test_primary_key_autoincrement() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, pk_table) = drizzle!(conn, [PrimaryKeyVariations]);
@@ -365,7 +367,7 @@ async fn test_primary_key_autoincrement() {
         db.insert(pk_table).values([data1]).execute().unwrap();
         db.insert(pk_table).values([data2]).execute().unwrap();
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         db.insert(pk_table).values([data1]).execute().await.unwrap();
         db.insert(pk_table).values([data2]).execute().await.unwrap();
@@ -388,7 +390,7 @@ async fn test_primary_key_autoincrement() {
         assert_eq!(rows[0], (1, "first".to_string()));
         assert_eq!(rows[1], (2, "second".to_string()));
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -410,7 +412,7 @@ async fn test_primary_key_autoincrement() {
 async fn test_manual_primary_key() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, manual_pk) = drizzle!(conn, [ManualPrimaryKey]);
@@ -421,7 +423,7 @@ async fn test_manual_primary_key() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(manual_pk).values([data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db.insert(manual_pk).values([data]).execute().await.unwrap();
 
     assert_eq!(result, 1);
@@ -440,7 +442,7 @@ async fn test_manual_primary_key() {
         assert_eq!(row.0, "custom_id_123");
         assert_eq!(row.1, "Test description");
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -458,7 +460,7 @@ async fn test_manual_primary_key() {
 async fn test_unique_constraints() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, unique_table) = drizzle!(conn, [UniqueFields]);
@@ -471,7 +473,7 @@ async fn test_unique_constraints() {
 
     #[cfg(feature = "rusqlite")]
     let result1 = db.insert(unique_table).values([data1]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result1 = db
         .insert(unique_table)
         .values([data1])
@@ -488,7 +490,7 @@ async fn test_unique_constraints() {
 
     #[cfg(feature = "rusqlite")]
     let result2 = db.insert(unique_table).values([data2]).execute();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result2 = db.insert(unique_table).values([data2]).execute().await;
 
     assert!(result2.is_err()); // Should fail due to unique constraint
@@ -498,7 +500,7 @@ async fn test_unique_constraints() {
 async fn test_compile_time_defaults() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, defaults_table) = drizzle!(conn, [CompileTimeDefaults]);
@@ -508,7 +510,7 @@ async fn test_compile_time_defaults() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(defaults_table).values([data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(defaults_table)
         .values([data])
@@ -541,7 +543,7 @@ async fn test_compile_time_defaults() {
         assert_eq!(row.3, true);
         assert_eq!(row.4, "pending");
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -571,7 +573,7 @@ async fn test_compile_time_defaults() {
 async fn test_runtime_defaults() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, runtime_table) = drizzle!(conn, [RuntimeDefaults]);
@@ -581,7 +583,7 @@ async fn test_runtime_defaults() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(runtime_table).values([data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(runtime_table)
         .values([data])
@@ -610,7 +612,7 @@ async fn test_runtime_defaults() {
         assert_eq!(row.1, 100); // Closure returns 100
         assert_eq!(row.2, "test");
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -631,7 +633,7 @@ async fn test_runtime_defaults() {
 async fn test_enum_storage_types() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, enum_table) = drizzle!(conn, [EnumFields]);
@@ -644,7 +646,7 @@ async fn test_enum_storage_types() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(enum_table).values([data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(enum_table)
         .values([data])
@@ -675,7 +677,7 @@ async fn test_enum_storage_types() {
         assert_eq!(row.2, "integer"); // integer(enum) stores as INTEGER
         assert_eq!(row.3, "text"); // text(enum) stores as TEXT
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -699,7 +701,7 @@ async fn test_enum_storage_types() {
 async fn test_json_storage_types() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, json_table) = drizzle!(conn, [JsonFields]);
@@ -716,7 +718,7 @@ async fn test_json_storage_types() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(json_table).values([data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(json_table)
         .values([data])
@@ -737,7 +739,7 @@ async fn test_json_storage_types() {
 
         assert_eq!(row, "text"); // text(json) stores as TEXT
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -754,7 +756,7 @@ async fn test_json_storage_types() {
 async fn test_uuid_primary_key_with_default_fn() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, uuid_table) = drizzle!(conn, [UuidFields]);
@@ -764,7 +766,7 @@ async fn test_uuid_primary_key_with_default_fn() {
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(uuid_table).values([data]).execute().unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(uuid_table)
         .values([data])
@@ -789,7 +791,7 @@ async fn test_uuid_primary_key_with_default_fn() {
         // Verify it's a valid UUID (not nil)
         assert_ne!(row.0, uuid::Uuid::nil());
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -811,7 +813,7 @@ async fn test_uuid_primary_key_with_default_fn() {
 async fn test_nullable_vs_non_nullable() {
     #[cfg(feature = "rusqlite")]
     let conn = setup_test_db();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
     let (db, nullable_table) = drizzle!(conn, [NullableTest]);
@@ -828,7 +830,7 @@ async fn test_nullable_vs_non_nullable() {
         .values([minimal_data])
         .execute()
         .unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(nullable_table)
         .values([minimal_data])
@@ -855,7 +857,7 @@ async fn test_nullable_vs_non_nullable() {
         .values([full_data])
         .execute()
         .unwrap();
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .insert(nullable_table)
         .values([full_data])
@@ -894,7 +896,7 @@ async fn test_nullable_vs_non_nullable() {
         assert_eq!(rows[1].1, Some("optional text".to_string()));
         assert_eq!(rows[1].2, Some(789));
     }
-    #[cfg(feature = "turso")]
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     {
         let mut stmt = db.conn().prepare(query).await.unwrap();
         let mut rows = stmt.query(()).await.unwrap();
@@ -903,11 +905,11 @@ async fn test_nullable_vs_non_nullable() {
         while let Some(row) = rows.next().await.unwrap() {
             let required_text = row.get_value(0).unwrap().as_text().cloned().unwrap();
             let optional_text = match row.get_value(1).unwrap() {
-                turso::Value::Null => None,
+                Value::Null => None,
                 val => Some(val.as_text().cloned().unwrap()),
             };
             let optional_int = match row.get_value(2).unwrap() {
-                turso::Value::Null => None,
+                Value::Null => None,
                 val => Some(val.as_integer().cloned().unwrap()),
             };
             results.push((required_text, optional_text, optional_int));

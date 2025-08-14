@@ -1,4 +1,4 @@
-use common::{Complex, InsertComplex, InsertSimple, Simple, UpdateComplex, UpdateSimple, setup_db};
+use common::{Complex, InsertComplex, InsertSimple, Simple, UpdateComplex, UpdateSimple};
 use drizzle_rs::prelude::*;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
@@ -7,23 +7,10 @@ use uuid::Uuid;
 
 mod common;
 
-#[derive(Debug)]
+#[derive(FromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
-}
-
-impl TryFrom<&Row<'_>> for SimpleResult {
-    type Error = drizzle_rs::error::DrizzleError;
-
-    fn try_from(
-        row: &Row<'_>,
-    ) -> std::result::Result<SimpleResult, drizzle_rs::error::DrizzleError> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    }
 }
 
 #[cfg(not(feature = "uuid"))]
@@ -37,7 +24,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(Debug)]
+#[derive(FromRow, Debug)]
 struct ComplexResult {
     id: Uuid, // UUID stored as string
     name: String,
@@ -46,91 +33,59 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = drizzle_rs::error::DrizzleError;
-
-    fn try_from(
-        row: &Row<'_>,
-    ) -> std::result::Result<ComplexResult, drizzle_rs::error::DrizzleError> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            email: row.get(2)?,
-            age: row.get(3)?,
-            description: row.get(4)?,
-        })
-    }
-}
-
-#[test]
-fn end_to_end_workflow() {
-    let db = setup_db();
+#[tokio::test]
+async fn end_to_end_workflow() {
+    let db = setup_test_db!();
     let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
 
-    // === PHASE 1: INSERT ===
-
     // Insert Simple record
-    let simple_insert = InsertSimple::default().with_name("test_simple");
-    let simple_rows = drizzle
-        .insert(simple)
-        .values([simple_insert])
-        .execute()
-        .unwrap();
+    let simple_insert = InsertSimple::new("test_simple");
+    let simple_rows = drizzle_exec!(drizzle.insert(simple).values([simple_insert]).execute());
     assert_eq!(simple_rows, 1);
 
     // Insert Complex record
     #[cfg(not(feature = "uuid"))]
-    let complex_insert = InsertComplex::default()
-        .with_name("test_complex")
+    let complex_insert = InsertComplex::new("test_complex", true, common::Role::User)
         .with_email("test@example.com".to_string())
         .with_age(25)
-        .with_active(true)
-        .with_role(common::Role::User)
         .with_description("A test record".to_string());
 
     #[cfg(feature = "uuid")]
-    let complex_insert = InsertComplex::default()
+    let complex_insert = InsertComplex::new("test_complex", true, common::Role::User)
         .with_id(uuid::Uuid::new_v4())
-        .with_name("test_complex")
         .with_email("test@example.com".to_string())
         .with_age(25)
-        .with_active(true)
-        .with_role(common::Role::User)
         .with_description("A test record".to_string());
 
-    let complex_rows = drizzle
-        .insert(complex)
-        .values([complex_insert])
-        .execute()
-        .unwrap();
+    let complex_rows = drizzle_exec!(drizzle.insert(complex).values([complex_insert]).execute());
     assert_eq!(complex_rows, 1);
 
-    // === PHASE 2: VERIFY INSERTION ===
-
     // Verify Simple record was inserted
-    let simple_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "test_simple"))
-        .all()
-        .unwrap();
+    let simple_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "test_simple"))
+            .all()
+    );
 
     assert_eq!(simple_results.len(), 1);
     assert_eq!(simple_results[0].name, "test_simple");
 
     // Verify Complex record was inserted
-    let complex_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age,
-            Complex::description,
-        ])
-        .from(complex)
-        .r#where(eq(Complex::name, "test_complex"))
-        .all()
-        .unwrap();
+    let complex_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((
+                complex.id,
+                complex.name,
+                complex.email,
+                complex.age,
+                complex.description,
+            ))
+            .from(complex)
+            .r#where(eq(complex.name, "test_complex"))
+            .all()
+    );
 
     assert_eq!(complex_results.len(), 1);
     assert_eq!(complex_results[0].name, "test_complex");
@@ -144,67 +99,69 @@ fn end_to_end_workflow() {
         Some("A test record".to_string())
     );
 
-    // === PHASE 3: UPDATE ===
-
+    // TODO fix Update models, they need a new function for required, and use Insert's null/omit handling
     // Update Simple record
-    let simple_update_rows = drizzle
-        .update(simple)
-        .set(UpdateSimple::default().with_name("updated_simple"))
-        .r#where(eq(Simple::name, "test_simple"))
-        .execute()
-        .unwrap();
+    let simple_update_rows = drizzle_exec!(
+        drizzle
+            .update(simple)
+            .set(UpdateSimple::default().with_name("updated_simple"))
+            .r#where(eq(Simple::name, "test_simple"))
+            .execute()
+    );
     assert_eq!(simple_update_rows, 1);
 
     // Update Complex record
-    let complex_update_rows = drizzle
-        .update(complex)
-        .set(
-            UpdateComplex::default()
-                .with_email("updated@example.com".to_string())
-                .with_age(30)
-                .with_description("Updated description".to_string()),
-        )
-        .r#where(eq(Complex::name, "test_complex"))
-        .execute()
-        .unwrap();
+    let complex_update_rows = drizzle_exec!(
+        drizzle
+            .update(complex)
+            .set(
+                UpdateComplex::default()
+                    .with_email("updated@example.com".to_string())
+                    .with_age(30)
+                    .with_description("Updated description".to_string()),
+            )
+            .r#where(eq(Complex::name, "test_complex"))
+            .execute()
+    );
     assert_eq!(complex_update_rows, 1);
 
-    // === PHASE 4: VERIFY UPDATES ===
-
     // Verify Simple record was updated
-    let updated_simple_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "updated_simple"))
-        .all()
-        .unwrap();
+    let updated_simple_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "updated_simple"))
+            .all()
+    );
 
     assert_eq!(updated_simple_results.len(), 1);
     assert_eq!(updated_simple_results[0].name, "updated_simple");
 
     // Verify old Simple record name is gone
-    let old_simple_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "test_simple"))
-        .all()
-        .unwrap();
+    let old_simple_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "test_simple"))
+            .all()
+    );
 
     assert_eq!(old_simple_results.len(), 0);
 
     // Verify Complex record was updated
-    let updated_complex_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age,
-            Complex::description,
-        ])
-        .from(complex)
-        .r#where(eq(Complex::name, "test_complex"))
-        .all()
-        .unwrap();
+    let updated_complex_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((
+                complex.id,
+                complex.name,
+                complex.email,
+                complex.age,
+                complex.description,
+            ))
+            .from(complex)
+            .r#where(eq(complex.name, "test_complex"))
+            .all()
+    );
 
     assert_eq!(updated_complex_results.len(), 1);
     assert_eq!(
@@ -217,47 +174,43 @@ fn end_to_end_workflow() {
         Some("Updated description".to_string())
     );
 
-    // === PHASE 5: DELETE ===
-
     // Delete Simple record
-    let simple_delete_rows = drizzle
-        .delete(simple)
-        .r#where(eq(Simple::name, "updated_simple"))
-        .execute()
-        .unwrap();
+    let simple_delete_rows = drizzle_exec!(
+        drizzle
+            .delete(simple)
+            .r#where(eq(simple.name, "updated_simple"))
+            .execute()
+    );
     assert_eq!(simple_delete_rows, 1);
 
     // Delete Complex record
-    let complex_delete_rows = drizzle
-        .delete(complex)
-        .r#where(eq(Complex::name, "test_complex"))
-        .execute()
-        .unwrap();
+    let complex_delete_rows = drizzle_exec!(
+        drizzle
+            .delete(complex)
+            .r#where(eq(complex.name, "test_complex"))
+            .execute()
+    );
     assert_eq!(complex_delete_rows, 1);
 
-    // === PHASE 6: VERIFY DELETION ===
-
     // Verify Simple record was deleted
-    let deleted_simple_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .all()
-        .unwrap();
+    let deleted_simple_results: Vec<SimpleResult> =
+        drizzle_exec!(drizzle.select((simple.id, simple.name)).from(simple).all());
 
     assert_eq!(deleted_simple_results.len(), 0);
 
     // Verify Complex record was deleted
-    let deleted_complex_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age,
-            Complex::description,
-        ])
-        .from(complex)
-        .all()
-        .unwrap();
+    let deleted_complex_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((
+                complex.id,
+                complex.name,
+                complex.email,
+                complex.age,
+                complex.description,
+            ))
+            .from(complex)
+            .all()
+    );
 
     assert_eq!(deleted_complex_results.len(), 0);
 }

@@ -1,11 +1,11 @@
-use common::{Complex, Simple, setup_db};
+use common::{Complex, Simple};
 use drizzle_rs::prelude::*;
 
 mod common;
 
-#[test]
-fn test_simple_select_all_sql_generation() {
-    let db = setup_db();
+#[tokio::test]
+async fn test_simple_select_all_sql_generation() {
+    let db = setup_test_db!();
     let (drizzle, simple) = drizzle!(db, [Simple]);
 
     let query = drizzle.select(()).from(simple);
@@ -31,9 +31,9 @@ fn test_simple_select_all_sql_generation() {
     }
 }
 
-#[test]
-fn test_complex_select_all_sql_generation() {
-    let db = setup_db();
+#[tokio::test]
+async fn test_complex_select_all_sql_generation() {
+    let db = setup_test_db!();
     let (drizzle, complex) = drizzle!(db, [Complex]);
 
     // Test select(()).from(complex) - should generate all complex table columns
@@ -62,9 +62,9 @@ fn test_complex_select_all_sql_generation() {
     }
 }
 
-#[test]
-fn test_select_all_with_where_clause() {
-    let db = setup_db();
+#[tokio::test]
+async fn test_select_all_with_where_clause() {
+    let db = setup_test_db!();
     let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
 
     // Test select(()).from(table).where(...) - should still work with qualified columns
@@ -94,16 +94,14 @@ fn test_select_all_with_where_clause() {
     );
 }
 
-#[test]
-fn test_select_specific_columns_vs_select_all() {
-    let db = setup_db();
+#[tokio::test]
+async fn test_select_specific_columns_vs_select_all() {
+    let db = setup_test_db!();
     let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
 
     // Compare select(()) vs select(columns![...])
     let select_all_query = drizzle.select(()).from(simple);
-    let select_specific_query = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple);
+    let select_specific_query = drizzle.select((simple.id, simple.name)).from(simple);
 
     let select_all_sql = select_all_query.to_sql().sql();
     let select_specific_sql = select_specific_query.to_sql().sql();

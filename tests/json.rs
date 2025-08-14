@@ -1,8 +1,11 @@
-#[cfg(all(feature = "rusqlite", feature = "sqlite", feature = "serde"))]
+// #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+
+mod common;
+
 use drizzle_rs::prelude::*;
-use rusqlite::Row;
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use sqlite::conditions::json_extract;
+#[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
@@ -12,21 +15,10 @@ pub struct Profile {
     interests: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(FromRow, Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct UserResult {
     id: Uuid,
     age: i64,
-}
-
-impl TryFrom<&Row<'_>> for UserResult {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<UserResult, rusqlite::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            age: row.get(1)?,
-        })
-    }
 }
 
 #[SQLiteTable(name = "json_users", strict)]
@@ -39,11 +31,11 @@ struct JsonUser {
     profile: Profile,
 }
 
-#[test]
-fn json_storage() {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
+#[tokio::test]
+async fn json_storage() {
+    let conn = setup_test_db!();
 
-    conn.execute(JsonUser::SQL.sql().as_str(), []).unwrap();
+    exec_sql!(conn, JsonUser::SQL.sql().as_str(), db_params!());
 
     let profile = Profile {
         age: 30,
@@ -52,20 +44,26 @@ fn json_storage() {
     };
 
     let id = Uuid::new_v4();
-    conn.execute(
-        "INSERT INTO json_users (id, email, profile) VALUES (?, ?, ?)",
-        rusqlite::params![id, "john@test.com", profile],
-    )
-    .unwrap();
 
     let (db, jsonuser) = drizzle!(conn, [JsonUser]);
+    drizzle_exec!(
+        db.insert(jsonuser)
+            .values([InsertJsonUser::new(id, "john@test.com", profile)])
+            .execute()
+    );
 
     let stmt = db
-        .select((jsonuser.id, json_extract(jsonuser.profile, "age")))
+        .select((
+            jsonuser.id,
+            drizzle_rs::sqlite::conditions::json_extract(jsonuser.profile, "age").alias("age"),
+        ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let user: UserResult = stmt.get().unwrap();
+    // let sql = stmt.to_sql();
+    // println!("{sql}");
+
+    let user: UserResult = drizzle_exec!(stmt.get());
 
     assert_eq!(user.id, id);
     assert_eq!(user.age, 30);

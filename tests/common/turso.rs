@@ -1,10 +1,13 @@
 #![cfg(feature = "turso")]
 
 use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
+use drizzle_core::SQLSchema;
 use rand::seq::IndexedRandom;
 #[cfg(feature = "turso")]
 use turso::Connection;
-use turso::{Builder, IntoValue};
+#[cfg(feature = "uuid")]
+use turso::params;
+use turso::{Builder, IntoValue, params_from_iter};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -54,8 +57,8 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
     ];
     for _ in 0..rows {
         let name = simple_names.choose(&mut rng).unwrap();
-        #[cfg(feature = "rusqlite")]
-        conn.execute("INSERT INTO simple (name) VALUES (?1)", [&name])
+        conn.execute("INSERT INTO simple (name) VALUES (?1)", [*name])
+            .await
             .expect("Failed to insert into simple");
     }
 
@@ -106,8 +109,8 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
             "#,
             turso::params![
                 id.as_bytes(),
-                name,
-                email,
+                name.clone(),
+                email.clone(),
                 age,
                 score,
                 active,
@@ -131,16 +134,16 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
                 id, name, email, age, score, active, description, data_blob, created_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
-            turso::params![
-                id,
-                name,
-                email,
+            params![
+                id.as_bytes(),
+                name.clone(),
+                email.clone(),
                 age,
                 score,
                 active,
-                Some("Generated user"),
-                Some(vec![rng.random_range(0..=255), rng.random_range(0..=255)]),
-                Some("2025-08-11T12:00:00Z"),
+                "Generated user",
+                vec![rng.random_range(0..=255), rng.random_range(0..=255)],
+                "2025-08-11T12:00:00Z",
             ],
         )
         .await
@@ -179,7 +182,7 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
             let author_id = complex_ids.choose(&mut rng).unwrap();
             conn.execute(
                 "INSERT INTO posts (title, content, author_id, published, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                turso::params![title, content, Some(author_id.as_bytes().to_vec()), published, created_at],
+                turso::params![title.clone(), content.clone(), Some(author_id.as_bytes().to_vec()), published, created_at.clone()],
             ).await.unwrap();
         }
 
@@ -188,7 +191,7 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
             let author_id = complex_ids.choose(&mut rng).unwrap();
             conn.execute(
                 "INSERT INTO posts (title, content, author_id, published, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                turso::params![title, content, Some(author_id), published, created_at],
+                turso::params![title.clone(), content.clone(), author_id.as_bytes(), published, created_at.clone()],
             ).await.unwrap();
         }
     }

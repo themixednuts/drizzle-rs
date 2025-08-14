@@ -2,10 +2,9 @@ mod common;
 
 #[cfg(feature = "libsql")]
 mod libsql_tests {
+    use super::common::{Complex, InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
     use drizzle_rs::prelude::*;
     use libsql::{Builder, Connection};
-
-    use crate::common::{Complex, InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
 
     // Helper function to create a libsql connection for testing
     async fn setup_libsql_connection() -> Connection {
@@ -65,6 +64,9 @@ mod libsql_tests {
         assert_eq!(row.name, "single_row_test");
     }
 
+    #[derive(FromRow, Default)]
+    struct SimplePartial(i32, String);
+
     #[tokio::test]
     async fn test_libsql_column_tuple_select() {
         let conn = setup_libsql_connection().await;
@@ -73,11 +75,11 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("column_tuple_test");
+        let data = InsertSimple::new("column_tuple_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test column tuple select (alternative to partial select for libsql)
-        let row: (i32, String) = db
+        let row: SimplePartial = db
             .select((simple.id, simple.name))
             .from(simple)
             .get()

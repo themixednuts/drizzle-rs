@@ -73,44 +73,49 @@ fn test_placeholder_styles() {
     // Parameters contain placeholder name internally
 }
 
-#[test]
-fn test_parameter_integration_with_query_builder() {
-    let db = setup_db();
+#[tokio::test]
+async fn test_parameter_integration_with_query_builder() {
+    #[derive(FromRow, Default)]
+    struct SimpleResult(String);
+    let db = setup_test_db!();
     let (drizzle, simple) = drizzle!(db, [Simple]);
 
     // Insert test data
     let test_data = vec![
-        InsertSimple::default().with_name("alice"),
-        InsertSimple::default().with_name("bob"),
-        InsertSimple::default().with_name("charlie"),
+        InsertSimple::new("alice"),
+        InsertSimple::new("bob"),
+        InsertSimple::new("charlie"),
     ];
-    drizzle.insert(simple).values(test_data).execute().unwrap();
+    drizzle_exec!(drizzle.insert(simple).values(test_data).execute());
 
     // Test that normal query builder still works (this uses internal parameter binding)
-    let results = drizzle
-        .select(columns![Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "alice"))
-        .all::<(String,)>()
-        .unwrap();
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, "alice"))
+            .all()
+    );
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "alice");
 
     // Test multiple parameter conditions using multiple queries
-    let alice_results = drizzle
-        .select(columns![Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "alice"))
-        .all::<(String,)>()
-        .unwrap();
+    let alice_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, "alice"))
+            .all()
+    );
 
-    let bob_results = drizzle
-        .select(columns![Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "bob"))
-        .all::<(String,)>()
-        .unwrap();
+    let bob_results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, "bob"))
+            .all()
+    );
 
     assert_eq!(alice_results.len(), 1);
     assert_eq!(bob_results.len(), 1);

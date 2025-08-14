@@ -79,11 +79,11 @@ struct FloatTest {
 #[cfg(feature = "rusqlite")]
 fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
-    
+
     conn.execute(TypeTest::SQL.sql().as_str(), []).unwrap();
     conn.execute(IntegerTest::SQL.sql().as_str(), []).unwrap();
     conn.execute(FloatTest::SQL.sql().as_str(), []).unwrap();
-    
+
     conn
 }
 
@@ -94,11 +94,17 @@ async fn setup_test_db() -> Connection {
         .await
         .expect("build db");
     let conn = db.connect().expect("connect to db");
-    
-    conn.execute(TypeTest::SQL.sql().as_str(), ()).await.unwrap();
-    conn.execute(IntegerTest::SQL.sql().as_str(), ()).await.unwrap();
-    conn.execute(FloatTest::SQL.sql().as_str(), ()).await.unwrap();
-    
+
+    conn.execute(TypeTest::SQL.sql().as_str(), ())
+        .await
+        .unwrap();
+    conn.execute(IntegerTest::SQL.sql().as_str(), ())
+        .await
+        .unwrap();
+    conn.execute(FloatTest::SQL.sql().as_str(), ())
+        .await
+        .unwrap();
+
     conn
 }
 
@@ -122,7 +128,11 @@ async fn test_fromrow_with_all_data_types() {
     #[cfg(feature = "rusqlite")]
     db.insert(type_test).values([test_data]).execute().unwrap();
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(type_test).values([test_data]).execute().await.unwrap();
+    db.insert(type_test)
+        .values([test_data])
+        .execute()
+        .await
+        .unwrap();
 
     // Test FromRow with all data types
     #[cfg(feature = "rusqlite")]
@@ -159,9 +169,16 @@ async fn test_fromrow_with_integer_sizes() {
         .with_tiny_num(100i8);
 
     #[cfg(feature = "rusqlite")]
-    db.insert(integer_test).values([test_data]).execute().unwrap();
+    db.insert(integer_test)
+        .values([test_data])
+        .execute()
+        .unwrap();
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(integer_test).values([test_data]).execute().await.unwrap();
+    db.insert(integer_test)
+        .values([test_data])
+        .execute()
+        .await
+        .unwrap();
 
     // Test FromRow with different integer types
     #[cfg(feature = "rusqlite")]
@@ -192,12 +209,16 @@ async fn test_fromrow_with_float_types() {
     // Insert test data with different float types
     let test_data = InsertFloatTest::default()
         .with_precise(3.141592653589793) // High precision f64
-        .with_compact(2.718f32);         // f32
+        .with_compact(2.718f32); // f32
 
     #[cfg(feature = "rusqlite")]
     db.insert(float_test).values([test_data]).execute().unwrap();
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(float_test).values([test_data]).execute().await.unwrap();
+    db.insert(float_test)
+        .values([test_data])
+        .execute()
+        .await
+        .unwrap();
 
     // Test FromRow with different float types
     #[cfg(feature = "rusqlite")]
@@ -235,7 +256,11 @@ async fn test_fromrow_type_conversion_edge_cases() {
     #[cfg(feature = "rusqlite")]
     db.insert(type_test).values([test_data]).execute().unwrap();
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(type_test).values([test_data]).execute().await.unwrap();
+    db.insert(type_test)
+        .values([test_data])
+        .execute()
+        .await
+        .unwrap();
 
     // Test FromRow with edge case values
     #[cfg(feature = "rusqlite")]

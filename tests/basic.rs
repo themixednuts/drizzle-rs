@@ -1,14 +1,13 @@
-use common::{Complex, InsertComplex, InsertSimple, SelectSimple, Simple, setup_db};
-use drizzle_core::sql;
+use common::{Complex, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, Simple};
 use drizzle_rs::prelude::*;
-use procmacros::FromRow;
 
+#[cfg(feature = "rusqlite")]
 use crate::common::PartialSelectSimple;
 
 mod common;
 
 // Test the new FromRow derive macro
-#[derive(FromRow, Debug)]
+#[derive(FromRow, Debug, Default)]
 struct DerivedPartialSimple {
     name: String,
 }
@@ -22,105 +21,107 @@ struct DerivedSimpleWithColumns {
     table_name: String,
 }
 
-#[test]
-fn basic_insert_select() {
-    let db = setup_db();
-    let (db, simple) = drizzle!(db, [Simple]);
+#[tokio::test]
+async fn basic_insert_select() {
+    let conn = setup_test_db!();
+    let (db, simple) = drizzle!(conn, [Simple]);
 
     let data = InsertSimple::default().with_name("test");
-    let inserted = db.insert(simple).values([data]).execute().unwrap();
-
+    let inserted = drizzle_exec!(db.insert(simple).values([data]).execute());
     assert_eq!(inserted, 1);
 
-    let selected: Vec<SelectSimple> = db.select(()).from(simple).all().unwrap();
-
+    let selected: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
     assert!(selected.len() > 0);
     assert_eq!(selected[0].name, "test");
 
-    let row: PartialSelectSimple = db.select(simple.name).from(simple).get().unwrap();
-
-    assert_eq!(row.name, Some("test".into()));
+    #[cfg(feature = "rusqlite")]
+    {
+        let row: PartialSelectSimple = drizzle_exec!(db.select(simple.name).from(simple).get());
+        assert_eq!(row.name, Some("test".into()));
+    }
 
     // Test the new FromRow derive macro
-    let derived_row: DerivedPartialSimple = db.select(simple.name).from(simple).get().unwrap();
-
+    let derived_row: DerivedPartialSimple =
+        drizzle_exec!(db.select(simple.name).from(simple).get());
     assert_eq!(derived_row.name, "test");
 }
 
 #[cfg(feature = "uuid")]
-#[test]
-fn multiple_tables() {
-    use common::SelectComplex;
+#[tokio::test]
+async fn multiple_tables() {
+    let conn = setup_test_db!();
+    let (drizzle, (simple, complex)) = drizzle!(conn, [Simple, Complex]);
 
-    use crate::common::{PartialSelectComplex, Role};
-
-    let db = setup_db();
-    let (drizzle, (simple, complex)) = drizzle!(db, [Simple, Complex]);
-
-    drizzle
-        .insert(simple)
-        .values([InsertSimple::default().with_id(1).with_name("simple")])
-        .execute()
-        .unwrap();
+    let inserted = drizzle_exec!(
+        drizzle
+            .insert(simple)
+            .values([InsertSimple::default().with_id(1).with_name("simple")])
+            .execute()
+    );
 
     let complex_data = InsertComplex::default()
         .with_name("complex")
         .with_active(true)
         .with_role(Role::User);
 
-    drizzle
-        .insert(complex)
-        .values([complex_data])
-        .execute()
-        .unwrap();
+    let inserted = drizzle_exec!(drizzle.insert(complex).values([complex_data]).execute());
 
-    let simple: SelectSimple = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .get()
-        .unwrap();
+    let simple: SelectSimple =
+        drizzle_exec!(drizzle.select((simple.id, simple.name)).from(simple).get());
 
-    let sql: Vec<SelectComplex> = drizzle.select(()).from(complex).all().unwrap();
+    let sql: Vec<SelectComplex> = drizzle_exec!(drizzle.select(()).from(complex).all());
     println!("{sql:?}");
 
-    let complex: PartialSelectComplex = drizzle
-        .select(sql![[complex.id, complex.name]])
-        .from(complex)
-        .get()
-        .unwrap();
+    #[cfg(feature = "rusqlite")]
+    {
+        use crate::common::PartialSelectComplex;
+        let complex: PartialSelectComplex = drizzle_exec!(
+            drizzle
+                .select((complex.id, complex.name))
+                .from(complex)
+                .get()
+        );
+        assert_eq!(complex.name, Some("complex".into()));
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    {
+        let complex: SelectComplex = drizzle_exec!(drizzle.select(()).from(complex).get());
+        assert_eq!(complex.name, "complex");
+    }
 
     assert_eq!(simple.name, "simple");
-    assert_eq!(complex.name, Some("complex".into()));
 }
 
-#[test]
-fn test_from_row_derive_with_simple_struct() {
-    let db = setup_db();
-    let (drizzle, simple) = drizzle!(db, [Simple]);
+#[tokio::test]
+async fn test_from_row_derive_with_simple_struct() {
+    let conn = setup_test_db!();
+    let (drizzle, simple) = drizzle!(conn, [Simple]);
 
-    let data = InsertSimple::default().with_name("derive_test");
-    drizzle.insert(simple).values([data]).execute().unwrap();
+    let data = InsertSimple::new("derive_test");
+    drizzle_exec!(drizzle.insert(simple).values([data]).execute());
 
     // Test the derived implementation
-    let result: DerivedPartialSimple = drizzle.select(simple.id).from(simple).get().unwrap();
-
+    let result: DerivedPartialSimple =
+        drizzle_exec!(drizzle.select(simple.name).from(simple).get());
     assert_eq!(result.name, "derive_test");
 }
 
-#[test]
-fn test_from_row_with_column_mapping() {
-    let db = setup_db();
-    let (drizzle, simple) = drizzle!(db, [Simple]);
+#[tokio::test]
+async fn test_from_row_with_column_mapping() {
+    let conn = setup_test_db!();
+    let (drizzle, simple) = drizzle!(conn, [Simple]);
 
     let data = InsertSimple::new("column_test").with_id(42);
-    drizzle.insert(simple).values([data]).execute().unwrap();
+    drizzle_exec!(drizzle.insert(simple).values([data]).execute());
 
     // Test the column-mapped FromRow implementation
-    let result: DerivedSimpleWithColumns = drizzle
-        .select(DerivedSimpleWithColumns::default())
-        .from(simple)
-        .get()
-        .unwrap();
+    let result: DerivedSimpleWithColumns = drizzle_exec!(
+        drizzle
+            .select(DerivedSimpleWithColumns::default())
+            .from(simple)
+            .get()
+    );
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
@@ -136,13 +137,13 @@ fn debug_schema() {
 }
 
 #[cfg(feature = "uuid")]
-#[test]
-fn debug_uuid_storage() {
+#[tokio::test]
+async fn debug_uuid_storage() {
+    use crate::common::Role;
     use uuid::Uuid;
 
-    use crate::common::Role;
-    let db = setup_db();
-    let (drizzle, complex) = drizzle!(db, [Complex]);
+    let conn = setup_test_db!();
+    let (drizzle, complex) = drizzle!(conn, [Complex]);
 
     let select_sql = drizzle.select(complex.id).from(complex).to_sql();
     println!("SelectSQL {select_sql:?}");
@@ -162,18 +163,25 @@ fn debug_uuid_storage() {
         .with_role(Role::User);
     println!("InsertCoplex SQL: {:?}", complex_data.to_sql());
 
-    drizzle
-        .insert(complex)
-        .values([complex_data])
-        .execute()
-        .unwrap();
+    drizzle_exec!(drizzle.insert(complex).values([complex_data]).execute());
 
     // Check what's actually in the database using raw SQL
     let query = "SELECT typeof(id) as id_type FROM complex LIMIT 1";
-    let mut stmt = drizzle.conn().prepare(query).unwrap();
-    let id_type: String = stmt
-        .query_row([], |row| Ok(row.get::<_, String>(0)?))
-        .unwrap();
+    let mut stmt = prepare_stmt!(drizzle.conn(), query);
 
-    println!("Database ID type: {}", id_type);
+    #[cfg(feature = "rusqlite")]
+    {
+        let id_type: String = stmt
+            .query_row([], |row| Ok(row.get::<_, String>(0)?))
+            .unwrap();
+        println!("Database ID type: {}", id_type);
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    {
+        query_row!(stmt, db_params!(), |row| {
+            let id_type = row_get!(row, 0, String);
+            println!("Database ID type: {}", id_type);
+        });
+    }
 }

@@ -1,6 +1,5 @@
-use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
+use common::{Complex, InsertComplex, InsertSimple, Simple};
 use drizzle_rs::prelude::*;
-use procmacros::FromRow;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 #[cfg(feature = "uuid")]
@@ -24,7 +23,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct ComplexResult {
     id: Uuid,
     name: String,
@@ -32,75 +31,57 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-impl TryFrom<&Row<'_>> for ComplexResult {
-    type Error = drizzle_rs::error::DrizzleError;
-
-    fn try_from(row: &Row<'_>) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            email: row.get(2)?,
-            age: row.get(3)?,
-        })
-    }
-}
-
-#[test]
-fn simple_delete() {
-    let db = setup_db();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
+#[tokio::test]
+async fn simple_delete() {
+    let db = setup_test_db!();
+    let (db, (simple, ..)) = drizzle!(db, [Simple, Complex]);
 
     // Insert test records
     let test_data = vec![
-        InsertSimple::default().with_name("delete_me"),
-        InsertSimple::default().with_name("keep_me"),
-        InsertSimple::default().with_name("delete_me"),
+        InsertSimple::new("delete_me"),
+        InsertSimple::new("keep_me"),
+        InsertSimple::new("delete_me"),
     ];
 
-    let insert_result = drizzle.insert(simple).values(test_data).execute().unwrap();
+    let insert_result = drizzle_exec!(db.insert(simple).values(test_data).execute());
     assert_eq!(insert_result, 3);
 
     // Verify initial state
-    let initial_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .all()
-        .unwrap();
+    let initial_results: Vec<SimpleResult> =
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
     assert_eq!(initial_results.len(), 3);
 
     // Delete records with specific condition
-    let delete_result = drizzle
-        .delete(simple)
-        .r#where(eq(Simple::name, "delete_me"))
-        .execute()
-        .unwrap();
+    let delete_result = drizzle_exec!(
+        db.delete(simple)
+            .r#where(eq(simple.name, "delete_me"))
+            .execute()
+    );
+
     assert_eq!(delete_result, 2); // Should delete 2 records
 
     // Verify deletion - should only have "keep_me" left
-    let remaining_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .all()
-        .unwrap();
+    let remaining_results: Vec<SimpleResult> =
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
 
     assert_eq!(remaining_results.len(), 1);
     assert_eq!(remaining_results[0].name, "keep_me");
 
     // Verify deleted records are gone
-    let deleted_results: Vec<SimpleResult> = drizzle
-        .select(columns![Simple::id, Simple::name])
-        .from(simple)
-        .r#where(eq(Simple::name, "delete_me"))
-        .all()
-        .unwrap();
+    let deleted_results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(Simple::name, "delete_me"))
+            .all()
+    );
 
     assert_eq!(deleted_results.len(), 0);
 }
 
 #[cfg(feature = "uuid")]
-#[test]
-fn feature_gated_delete() {
-    let db = setup_db();
+#[tokio::test]
+async fn feature_gated_delete() {
+    let db = setup_test_db!();
     let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
 
     // Insert test records with UUIDs
@@ -108,74 +89,57 @@ fn feature_gated_delete() {
     let test_id_2 = uuid::Uuid::new_v4();
 
     let test_data = vec![
-        InsertComplex::default()
+        InsertComplex::new("delete_user", true, common::Role::User)
             .with_id(test_id_1)
-            .with_name("delete_user")
             .with_email("delete@example.com".to_string())
-            .with_age(25)
-            .with_active(true)
-            .with_role(common::Role::User),
-        InsertComplex::default()
+            .with_age(25),
+        InsertComplex::new("keep_user", true, common::Role::User)
             .with_id(test_id_2)
-            .with_name("keep_user")
             .with_email("keep@example.com".to_string())
-            .with_age(35)
-            .with_active(true)
-            .with_role(common::Role::User),
+            .with_age(35),
     ];
 
-    let insert_result = drizzle.insert(complex).values(test_data).execute().unwrap();
+    let insert_result = drizzle_exec!(drizzle.insert(complex).values(test_data).execute());
     assert_eq!(insert_result, 2);
 
     // Verify initial state
-    let initial_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .all()
-        .unwrap();
+    let initial_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .all()
+    );
     assert_eq!(initial_results.len(), 2);
 
     // Delete specific record using UUID primary key
-    let delete_result = drizzle
-        .delete(complex)
-        .r#where(eq(Complex::id, test_id_1))
-        .execute()
-        .unwrap();
+    let delete_result = drizzle_exec!(
+        drizzle
+            .delete(complex)
+            .r#where(eq(complex.id, test_id_1))
+            .execute()
+    );
     assert_eq!(delete_result, 1);
 
     // Verify deletion - should only have keep_user left
-    let remaining_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .all()
-        .unwrap();
+    let remaining_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .all()
+    );
 
     assert_eq!(remaining_results.len(), 1);
     assert_eq!(remaining_results[0].name, "keep_user");
     assert_eq!(remaining_results[0].id, test_id_2);
 
     // Verify specific UUID record is gone
-    let deleted_results: Vec<ComplexResult> = drizzle
-        .select(columns![
-            Complex::id,
-            Complex::name,
-            Complex::email,
-            Complex::age
-        ])
-        .from(complex)
-        .r#where(eq(Complex::id, test_id_1.to_string()))
-        .all()
-        .unwrap();
+    let deleted_results: Vec<ComplexResult> = drizzle_exec!(
+        drizzle
+            .select((complex.id, complex.name, complex.email, complex.age))
+            .from(complex)
+            .r#where(eq(complex.id, test_id_1.to_string()))
+            .all()
+    );
 
     assert_eq!(deleted_results.len(), 0);
 }

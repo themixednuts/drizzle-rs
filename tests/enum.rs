@@ -1,3 +1,4 @@
+mod common;
 use drizzle_rs::prelude::*;
 use procmacros::FromRow;
 
@@ -75,50 +76,40 @@ struct UserAccountResult {
     status: i32,  // INTEGER representation
 }
 
-#[test]
-fn test_enum_database_roundtrip() {
-    use rusqlite::Connection;
+#[tokio::test]
+async fn test_enum_database_roundtrip() {
+    let conn = setup_test_db!();
 
     // Setup database
-    let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
     let (db, user_account) = drizzle!(conn, [UserAccount]);
     // Create table
     println!("CREATE TABLE SQL: {}", UserAccount::SQL);
-    db.execute(UserAccount::SQL)
-        .expect("Failed to create user_account table");
+
+    drizzle_try!(db.execute(UserAccount::SQL)).expect("Failed to create user_account table");
 
     // Insert test data with different enum values
     let test_users = vec![
-        InsertUserAccount::default()
-            .with_name("guest_user".to_string())
-            .with_role(UserRole::Guest)
-            .with_status(AccountStatus::Inactive),
-        InsertUserAccount::default()
-            .with_name("member_user".to_string())
-            .with_role(UserRole::Member)
-            .with_status(AccountStatus::Active),
-        InsertUserAccount::default()
-            .with_name("admin_user".to_string())
-            .with_role(UserRole::Admin)
-            .with_status(AccountStatus::Suspended),
+        InsertUserAccount::new("guest_user", UserRole::Guest, AccountStatus::Inactive),
+        InsertUserAccount::new("member_user", UserRole::Member, AccountStatus::Active),
+        InsertUserAccount::new("admin_user", UserRole::Admin, AccountStatus::Suspended),
     ];
 
     let insert_result = db.insert(user_account).values(test_users);
     let sql = insert_result.to_sql();
     println!("{sql}");
-    assert_eq!(insert_result.execute().unwrap(), 3);
+    assert_eq!(drizzle_exec!(insert_result.execute()), 3);
 
     // Select and verify the data
-    let results: Vec<UserAccountResult> = db
-        .select(columns![
-            UserAccount::id,
-            UserAccount::name,
-            UserAccount::role,
-            UserAccount::status
-        ])
+    let results: Vec<UserAccountResult> = drizzle_exec!(
+        db.select((
+            user_account.id,
+            user_account.name,
+            user_account.role,
+            user_account.status,
+        ))
         .from(user_account)
         .all()
-        .unwrap();
+    );
 
     assert_eq!(results.len(), 3);
 
@@ -138,33 +129,33 @@ fn test_enum_database_roundtrip() {
     assert_eq!(admin.status, -1); // Suspended = -1
 
     // Test filtering by enum values
-    let admin_users: Vec<UserAccountResult> = db
-        .select(columns![
-            UserAccount::id,
-            UserAccount::name,
-            UserAccount::role,
-            UserAccount::status
-        ])
+    let admin_users: Vec<UserAccountResult> = drizzle_exec!(
+        db.select((
+            user_account.id,
+            user_account.name,
+            user_account.role,
+            user_account.status
+        ))
         .from(user_account)
         .r#where(eq(UserAccount::role, UserRole::Admin))
         .all()
-        .unwrap();
+    );
 
     assert_eq!(admin_users.len(), 1);
     assert_eq!(admin_users[0].name, "admin_user");
 
     // Test filtering by integer enum
-    let suspended_users: Vec<UserAccountResult> = db
-        .select(columns![
-            UserAccount::id,
-            UserAccount::name,
-            UserAccount::role,
-            UserAccount::status
-        ])
+    let suspended_users: Vec<UserAccountResult> = drizzle_exec!(
+        db.select((
+            user_account.id,
+            user_account.name,
+            user_account.role,
+            user_account.status
+        ))
         .from(user_account)
         .r#where(eq(UserAccount::status, AccountStatus::Suspended))
         .all()
-        .unwrap();
+    );
 
     assert_eq!(suspended_users.len(), 1);
     assert_eq!(suspended_users[0].name, "admin_user");

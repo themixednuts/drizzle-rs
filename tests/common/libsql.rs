@@ -1,14 +1,17 @@
 #![cfg(feature = "libsql")]
 
 use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
-use rand::seq::IndexedRandom;
 #[cfg(feature = "libsql")]
 use libsql::{Builder, Connection};
+use rand::seq::IndexedRandom;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 pub async fn setup_db() -> Connection {
-    let db = Builder::new_local(":memory:").build().await.expect("Failed to create in-memory database");
+    let db = Builder::new_local(":memory:")
+        .build()
+        .await
+        .expect("Failed to create in-memory database");
     let conn = db.connect().expect("Failed to connect to database");
     create_tables(&conn).await;
     conn
@@ -54,9 +57,12 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
     ];
     for _ in 0..rows {
         let name = simple_names.choose(&mut rng).unwrap();
-        conn.execute("INSERT INTO simple (name) VALUES (?1)", libsql::params![name])
-            .await
-            .expect("Failed to insert into simple");
+        conn.execute(
+            "INSERT INTO simple (name) VALUES (?1)",
+            libsql::params![name],
+        )
+        .await
+        .expect("Failed to insert into simple");
     }
 
     // --- Complex table ---

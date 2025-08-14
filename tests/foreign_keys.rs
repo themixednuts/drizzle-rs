@@ -35,29 +35,31 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_foreign_key_impl() {
-        let conn = setup_db();
+    #[tokio::test]
+    async fn test_foreign_key_impl() {
+        let conn = setup_test_db!();
         let (db, (user, post)) = drizzle!(conn, [Complex, Post]);
 
         let id = Uuid::new_v4();
 
-        db.insert(user)
-            .values([InsertComplex::new("John", false, common::Role::User).with_id(id)])
-            .execute()
-            .expect("insert user john");
+        drizzle_exec!(
+            db.insert(user)
+                .values([InsertComplex::new("John", false, common::Role::User).with_id(id)])
+                .execute()
+        );
 
-        db.insert(post)
-            .values([InsertPost::new("test", true).with_author_id(id)])
-            .execute()
-            .expect("insert post");
+        drizzle_exec!(
+            db.insert(post)
+                .values([InsertPost::new("test", true).with_author_id(id)])
+                .execute()
+        );
 
-        let row: SelectPost = db
-            .select(())
-            .from(post)
-            .r#where(eq(post.author_id, id))
-            .get()
-            .expect("select post");
+        let row: SelectPost = drizzle_exec!(
+            db.select(())
+                .from(post)
+                .r#where(eq(post.author_id, id))
+                .get()
+        );
 
         assert_eq!(row.author_id, Some(id));
     }

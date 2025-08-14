@@ -10,12 +10,10 @@ mod libsql;
 #[cfg(feature = "libsql")]
 pub use libsql::*;
 
+pub mod helpers;
+
 use drizzle_rs::prelude::*;
 use uuid::Uuid;
-
-// Import libsql types for macro expansion
-#[cfg(feature = "libsql")]
-use ::libsql::{Row, Value};
 
 // JSON struct types for testing JSON serialization features
 #[cfg(feature = "serde")]

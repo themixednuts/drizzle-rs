@@ -1,5 +1,5 @@
 /// Simplified test helpers that eliminate code duplication across database drivers
-/// 
+///
 /// This module provides macros and helpers that make it easy to write tests that work
 /// across rusqlite, turso, and libsql without duplicating code.
 
@@ -11,6 +11,7 @@ macro_rules! setup_test_db {
         let conn = crate::common::setup_db();
         #[cfg(any(feature = "turso", feature = "libsql"))]
         let conn = crate::common::setup_db().await;
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         conn
     }};
 }
@@ -23,6 +24,7 @@ macro_rules! drizzle_exec {
         let result = $operation.unwrap();
         #[cfg(any(feature = "turso", feature = "libsql"))]
         let result = $operation.await.unwrap();
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         result
     }};
 }
@@ -35,6 +37,7 @@ macro_rules! drizzle_try {
         let result = $operation;
         #[cfg(any(feature = "turso", feature = "libsql"))]
         let result = $operation.await;
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         result
     }};
 }
@@ -47,6 +50,7 @@ macro_rules! prepare_stmt {
         let stmt = $conn.prepare($query).unwrap();
         #[cfg(any(feature = "turso", feature = "libsql"))]
         let stmt = $conn.prepare($query).await.unwrap();
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         stmt
     }};
 }
@@ -59,6 +63,7 @@ macro_rules! exec_sql {
         let result = $conn.execute($query, $params).unwrap();
         #[cfg(any(feature = "turso", feature = "libsql"))]
         let result = $conn.execute($query, $params).await.unwrap();
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         result
     }};
 }
@@ -68,10 +73,12 @@ macro_rules! exec_sql {
 macro_rules! query_row {
     ($stmt:expr, $params:expr, $mapper:expr) => {{
         #[cfg(feature = "rusqlite")]
-        let result = $stmt.query_row($params, |row| -> Result<(), rusqlite::Error> {
-            $mapper(row);
-            Ok(())
-        }).unwrap();
+        let result = $stmt
+            .query_row($params, |row| -> Result<(), rusqlite::Error> {
+                $mapper(row);
+                Ok(())
+            })
+            .unwrap();
         #[cfg(any(feature = "turso", feature = "libsql"))]
         let result = {
             let mut rows = $stmt.query($params).await.unwrap();
@@ -81,10 +88,10 @@ macro_rules! query_row {
                 panic!("No rows returned");
             }
         };
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         result
     }};
 }
-
 
 /// Helper for creating database parameters that work across drivers
 pub struct DbParams;
@@ -95,19 +102,19 @@ impl DbParams {
     pub fn rusqlite<T: rusqlite::ToSql>(params: &[T]) -> &[T] {
         params
     }
-    
+
     /// Create parameters for libsql/turso
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn libsql(params: Vec<libsql::Value>) -> Vec<libsql::Value> {
         params
     }
-    
+
     /// Create empty parameters
     #[cfg(feature = "rusqlite")]
     pub fn empty_rusqlite() -> [&'static str; 0] {
         []
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn empty_libsql() -> () {
         ()
@@ -124,6 +131,7 @@ macro_rules! db_params {
         let params = ();
         #[cfg(feature = "libsql")]
         let params = ();
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         params
     }};
     ($($param:expr),*) => {{
@@ -133,6 +141,7 @@ macro_rules! db_params {
         let params = turso::params![$($param),*];
         #[cfg(feature = "libsql")]
         let params = libsql::params![$($param),*];
+        #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
         params
     }};
 }
@@ -146,65 +155,89 @@ impl RowHelper {
     pub fn get_string(row: &rusqlite::Row, index: usize) -> String {
         row.get::<_, String>(index).unwrap()
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn get_string(row: &libsql::Row, index: usize) -> String {
-        row.get_value(index as i32).unwrap().as_text().unwrap().to_string()
+        row.get_value(index as i32)
+            .unwrap()
+            .as_text()
+            .unwrap()
+            .to_string()
     }
-    
+
     /// Extract integer value from row at index
     #[cfg(feature = "rusqlite")]
     pub fn get_i32(row: &rusqlite::Row, index: usize) -> i32 {
         row.get::<_, i32>(index).unwrap()
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn get_i32(row: &libsql::Row, index: usize) -> i32 {
-        row.get_value(index as i32).unwrap().as_integer().unwrap().clone() as i32
+        row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .unwrap()
+            .clone() as i32
     }
-    
+
     /// Extract i64 value from row at index
     #[cfg(feature = "rusqlite")]
     pub fn get_i64(row: &rusqlite::Row, index: usize) -> i64 {
         row.get::<_, i64>(index).unwrap()
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn get_i64(row: &libsql::Row, index: usize) -> i64 {
-        row.get_value(index as i32).unwrap().as_integer().unwrap().clone()
+        row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .unwrap()
+            .clone()
     }
-    
+
     /// Extract f64 value from row at index
     #[cfg(feature = "rusqlite")]
     pub fn get_f64(row: &rusqlite::Row, index: usize) -> f64 {
         row.get::<_, f64>(index).unwrap()
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn get_f64(row: &libsql::Row, index: usize) -> f64 {
-        row.get_value(index as i32).unwrap().as_real().unwrap().clone()
+        row.get_value(index as i32)
+            .unwrap()
+            .as_real()
+            .unwrap()
+            .clone()
     }
-    
+
     /// Extract bool value from row at index
     #[cfg(feature = "rusqlite")]
     pub fn get_bool(row: &rusqlite::Row, index: usize) -> bool {
         row.get::<_, bool>(index).unwrap()
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn get_bool(row: &libsql::Row, index: usize) -> bool {
-        row.get_value(index as i32).unwrap().as_integer().map(|&v| v != 0).unwrap()
+        row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .map(|&v| v != 0)
+            .unwrap()
     }
-    
+
     /// Extract Vec<u8> value from row at index
     #[cfg(feature = "rusqlite")]
     pub fn get_blob(row: &rusqlite::Row, index: usize) -> Vec<u8> {
         row.get::<_, Vec<u8>>(index).unwrap()
     }
-    
+
     #[cfg(any(feature = "turso", feature = "libsql"))]
     pub fn get_blob(row: &libsql::Row, index: usize) -> Vec<u8> {
-        row.get_value(index as i32).unwrap().as_blob().unwrap().clone()
+        row.get_value(index as i32)
+            .unwrap()
+            .as_blob()
+            .unwrap()
+            .clone()
     }
 }
 

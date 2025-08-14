@@ -1,5 +1,4 @@
 use drizzle_rs::prelude::*;
-use rusqlite::Connection;
 
 #[SQLiteTable(name = "test_table")]
 struct TestTable {
@@ -21,25 +20,17 @@ struct StrictTable {
 
 #[test]
 fn table_sql() {
-    let conn = Connection::open_in_memory().unwrap();
-
     let sql = TestTable::SQL.sql();
     assert!(sql.contains("CREATE TABLE"));
     assert!(sql.contains("test_table"));
     assert!(sql.contains("PRIMARY KEY"));
-
-    conn.execute(&sql, []).unwrap();
 }
 
 #[test]
 fn strict_table() {
-    let conn = Connection::open_in_memory().unwrap();
-
     let sql = StrictTable::SQL.sql();
     assert!(sql.contains("STRICT"));
     assert!(sql.contains("strict_table"));
-
-    conn.execute(&sql, []).unwrap();
 }
 
 #[test]

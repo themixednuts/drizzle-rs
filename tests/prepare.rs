@@ -1,25 +1,25 @@
-use common::setup_db;
 use drizzle_core::{SQL, SQLChunk, ToSQL, prepare_render};
 use drizzle_rs::{
     core::{and, eq},
     sqlite::{SQLiteValue, params},
 };
-use procmacros::drizzle;
+use procmacros::{FromRow, drizzle};
 
-use crate::common::{Complex, PartialSelectSimple, Simple};
+use crate::common::{Complex, InsertSimple, Simple};
 
 mod common;
 
-#[test]
-fn test_prepare_with_placeholder() {
-    let conn = setup_db();
+#[tokio::test]
+async fn test_prepare_with_placeholder() {
+    let conn = setup_test_db!();
     // Insert specific test data instead of using random seed
-    conn.execute("INSERT INTO simple (name) VALUES (?1)", ["Alice"])
-        .expect("Failed to insert test data");
-    conn.execute("INSERT INTO simple (name) VALUES (?1)", ["Bob"])
-        .expect("Failed to insert test data");
 
     let (db, (simple, _complex)) = drizzle!(conn, [Simple, Complex]);
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
+            .execute()
+    );
 
     // Test prepare with simple raw SQL and placeholder
     let prepared_sql = db
@@ -30,11 +30,16 @@ fn test_prepare_with_placeholder() {
 
     println!("{prepared_sql}");
 
-    let result: Vec<PartialSelectSimple> = prepared_sql.all(params![{name: "Alice"}]).unwrap();
+    #[derive(FromRow, Default)]
+    struct PartialSimple {
+        name: String,
+    }
+
+    let result: Vec<PartialSimple> = drizzle_exec!(prepared_sql.all(params![{name: "Alice"}]));
 
     // Verify we have the right parameter count and value
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].name, Some("Alice".into()));
+    assert_eq!(result[0].name, "Alice");
 }
 
 #[test]
