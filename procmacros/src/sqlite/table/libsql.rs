@@ -37,6 +37,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
+    #[cfg(not(any(feature = "libsql", feature = "turso")))]
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #partial_ident {
             type Error = ::drizzle_rs::error::DrizzleError;
@@ -48,6 +49,9 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
             }
         }
     };
+
+    #[cfg(any(feature = "libsql", feature = "turso"))]
+    let partial_select_model_try_from_impl = quote! {};
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #update_model_ident {
@@ -229,7 +233,7 @@ fn handle_integer_field(
     } else if info.is_enum || is_not_i64 {
         |v: TokenStream| quote!(#v.map(|&v| v.try_into()).transpose()?)
     } else {
-        |v: TokenStream| quote!(#v)
+        |v: TokenStream| quote!(#v.copied())
     };
 
     Ok(wrap_optional(converter(accessor), name, is_optional))
@@ -264,7 +268,7 @@ fn handle_real_field(
     let accessor = quote!(row.get_value(#idx)?.as_real());
 
     let converter = if base_type_str.contains("f32") {
-        |v: TokenStream| quote!(#v.map(|&v| v.try_into()).transpose()?)
+        |v: TokenStream| quote!(#v.map(|&v| v as f32))
     } else {
         |v: TokenStream| quote!(#v.cloned())
     };
@@ -286,15 +290,14 @@ fn handle_blob_field(
     Ok(wrap_optional(converter(accessor), name, is_optional))
 }
 
-
 /// Generate libsql enum implementations (Into<libsql::Value>) - per field approach
 pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     if !info.is_enum {
-        return Ok(quote!{});
+        return Ok(quote! {});
     }
 
     let value_type = info.base_type;
-    
+
     match info.column_type {
         crate::sqlite::field::SQLiteType::Integer => Ok(quote! {
             // ::libsql::Value for integer enums
@@ -304,13 +307,28 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
                     ::libsql::Value::Integer(integer)
                 }
             }
-            
+
             impl From<&#value_type> for ::libsql::Value {
                 fn from(value: &#value_type) -> Self {
                     let integer: i64 = (*value).into();
                     ::libsql::Value::Integer(integer)
                 }
             }
+
+            // // IntoValue trait for libsql params! macro
+            // impl ::libsql::params::IntoValue for #value_type {
+            //     fn into_value(self) -> ::libsql::Result<::libsql::Value> {
+            //         let integer: i64 = self.into();
+            //         Ok(::libsql::Value::Integer(integer))
+            //     }
+            // }
+
+            // impl ::libsql::params::IntoValue for &#value_type {
+            //     fn into_value(self) -> ::libsql::Result<::libsql::Value> {
+            //         let integer: i64 = (*self).into();
+            //         Ok(::libsql::Value::Integer(integer))
+            //     }
+            // }
         }),
         crate::sqlite::field::SQLiteType::Text => Ok(quote! {
             // ::libsql::Value for text enums
@@ -319,16 +337,31 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
                     ::libsql::Value::Text(value.to_string())
                 }
             }
-            
+
             impl From<&#value_type> for ::libsql::Value {
                 fn from(value: &#value_type) -> Self {
                     ::libsql::Value::Text(value.to_string())
                 }
             }
+
+            // // IntoValue trait for libsql params! macro
+            // impl ::libsql::params::IntoValue for #value_type {
+            //     fn into_value(self) -> ::libsql::Result<::libsql::Value> {
+            //         let text: String = self.into();
+            //         Ok(::libsql::Value::Text(text))
+            //     }
+            // }
+
+            // impl ::libsql::params::IntoValue for &#value_type {
+            //     fn into_value(self) -> ::libsql::Result<::libsql::Value> {
+            //         let text: String = (*self).into();
+            //         Ok(::libsql::Value::Text(text))
+            //     }
+            // }
         }),
         _ => Err(syn::Error::new_spanned(
-            info.ident, 
-            "Enum is only supported in text or integer column types"
+            info.ident,
+            "Enum is only supported in text or integer column types",
         )),
     }
 }
