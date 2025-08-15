@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{common::Join, values::SQLiteValue};
 use drizzle_core::{
     SQL, SQLTable, ToSQL, helpers as core_helpers,
@@ -197,15 +195,15 @@ where
     Table: SQLTable<'a, V>,
     V: SQLParam + 'a,
 {
-    let mut rows_iter = rows.into_iter();
+    let mut iter = rows.into_iter();
 
-    match rows_iter.next() {
+    match iter.next() {
         None => SQL::raw("VALUES"),
-        Some(first_row) => {
-            let rows_vec: Vec<_> = std::iter::once(first_row).chain(rows_iter).collect();
+        Some(row) => {
+            let rows: Box<_> = std::iter::once(row).chain(iter).collect();
 
             SQL::join(
-                group_rows_by_columns(&rows_vec)
+                group_rows_by_columns(&rows)
                     .into_iter()
                     .map(|(columns, batch_rows)| generate_batch_insert(columns, batch_rows)),
                 "; ",

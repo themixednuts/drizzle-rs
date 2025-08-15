@@ -2,7 +2,6 @@ use crate::values::SQLiteValue;
 use drizzle_core::{SQL, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::Deref;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
@@ -107,9 +106,9 @@ where
         self,
         values: impl IntoIterator<Item = Table::Insert>,
     ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table> {
-        let values_sql = crate::helpers::values::<'a, Table, SQLiteValue>(values);
+        let sql = crate::helpers::values::<'a, Table, SQLiteValue>(values);
         InsertBuilder {
-            sql: self.sql.append(values_sql),
+            sql: self.sql.append(sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

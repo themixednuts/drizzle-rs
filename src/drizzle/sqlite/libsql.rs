@@ -16,7 +16,7 @@ use sqlite::{
     },
 };
 
-use crate::drizzle::sqlite::{DrizzleBuilder, PreparedDrizzle};
+use crate::drizzle::sqlite::DrizzleBuilder;
 
 /// Drizzle instance that provides access to the database and query builder.
 #[derive(Debug)]
@@ -165,92 +165,19 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-impl<'a, S, State, T> PreparedDrizzle<'a, S, SelectBuilder<'a, S, State, T>, State>
+
+// Generic execution methods for all ExecutableState QueryBuilders (LibSQL)
+#[cfg(feature = "libsql")]
+impl<'a, S, Schema, State, Table> DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
-    pub async fn all<R>(
-        self,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
-    ) -> drizzle_core::error::Result<Vec<R>>
-    where
-        R: for<'r> TryFrom<&'r libsql::Row>,
-        for<'r> <R as TryFrom<&'r libsql::Row>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-    {
-        // Bind parameters to pre-rendered SQL
-        let (sql_str, sql_params) = self.sql.bind(params);
-        
-        // Convert to libsql values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
-
-        // Execute with connection
-        let conn = &self.drizzle.drizzle.conn;
-        let mut rows = conn
-            .query(&sql_str, libsql_params)
-            .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?;
-
-        let mut results = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?
-        {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-
-        Ok(results)
+    /// Runs the query and returns the number of affected rows
+    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+        self.builder.execute(&self.drizzle.conn).await
     }
 
-    pub async fn get<R>(
-        self,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
-    ) -> drizzle_core::error::Result<R>
-    where
-        R: for<'r> TryFrom<&'r libsql::Row>,
-        for<'r> <R as TryFrom<&'r libsql::Row>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-    {
-        // Bind parameters to pre-rendered SQL
-        let (sql_str, sql_params) = self.sql.bind(params);
-        
-        // Convert to libsql values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
-
-        // Execute with connection
-        let conn = &self.drizzle.drizzle.conn;
-        let mut rows = conn
-            .query(&sql_str, libsql_params)
-            .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?;
-
-        if let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))?
-        {
-            R::try_from(&row).map_err(Into::into)
-        } else {
-            Err(drizzle_core::error::DrizzleError::Other("No rows returned".to_string()))
-        }
-    }
-}
-
-// Execution Methods for LibSQL
-
-// Add execution methods for SELECT - LibSQL
-impl<'a, S, State, T> DrizzleBuilder<'a, S, SelectBuilder<'a, S, State, T>, State>
-where
-    State: builder::ExecutableState,
-{
+    /// Runs the query and returns all matching rows (for SELECT queries)
     pub async fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r libsql::Row>,
@@ -259,6 +186,7 @@ where
         self.builder.all(&self.drizzle.conn).await
     }
 
+    /// Runs the query and returns a single row (for SELECT queries)
     pub async fn get<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r libsql::Row>,
@@ -266,120 +194,5 @@ where
     {
         self.builder.get(&self.drizzle.conn).await
     }
-
-    pub fn prepare(self) -> PreparedDrizzle<'a, S, SelectBuilder<'a, S, State, T>, State> {
-        use drizzle_core::prepare_render;
-        let prepared_sql = prepare_render(self.builder.sql.clone());
-
-        PreparedDrizzle {
-            drizzle: self,
-            sql: prepared_sql,
-        }
-    }
 }
 
-// Add execution methods for INSERT - ValuesSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, InsertBuilder<'a, S, insert::InsertValuesSet, T>, insert::InsertValuesSet>
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for INSERT - ReturningSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        InsertBuilder<'a, S, insert::InsertReturningSet, T>,
-        insert::InsertReturningSet,
-    >
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for INSERT - OnConflictSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        InsertBuilder<'a, S, insert::InsertOnConflictSet, T>,
-        insert::InsertOnConflictSet,
-    >
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for UPDATE - SetClauseSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        UpdateBuilder<'a, S, update::UpdateSetClauseSet, T>,
-        update::UpdateSetClauseSet,
-    >
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for UPDATE - WhereSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, UpdateBuilder<'a, S, update::UpdateWhereSet, T>, update::UpdateWhereSet>
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for UPDATE - ReturningSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        UpdateBuilder<'a, S, update::UpdateReturningSet, T>,
-        update::UpdateReturningSet,
-    >
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for DELETE - Initial state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteInitial, T>, delete::DeleteInitial>
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for DELETE - WhereSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteWhereSet, T>, delete::DeleteWhereSet>
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}
-
-// Add execution methods for DELETE - ReturningSet state - LibSQL
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        DeleteBuilder<'a, S, delete::DeleteReturningSet, T>,
-        delete::DeleteReturningSet,
-    >
-{
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        self.builder.execute(&self.drizzle.conn).await
-    }
-}

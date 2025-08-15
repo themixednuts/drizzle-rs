@@ -1,4 +1,3 @@
-use drizzle_core::ParamBind;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use rusqlite::{Connection, params_from_iter};
@@ -16,7 +15,7 @@ use sqlite::{
     },
 };
 
-use crate::drizzle::sqlite::{DrizzleBuilder, PreparedDrizzle};
+use crate::drizzle::sqlite::DrizzleBuilder;
 
 /// Drizzle instance that provides access to the database and query builder.
 #[derive(Debug)]
@@ -155,71 +154,21 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-impl<'a, S, State, T> PreparedDrizzle<'a, S, SelectBuilder<'a, S, State, T>, State>
-where
-    State: builder::ExecutableState,
-{
-    pub fn all<R>(
-        self,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
-    ) -> drizzle_core::error::Result<Vec<R>>
-    where
-        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-    {
-        use ::rusqlite::params_from_iter;
-
-        // Bind parameters to pre-rendered SQL
-        let (sql_str, sql_params) = self.sql.bind(params);
-
-        // Execute with connection
-        let conn = &self.drizzle.drizzle.conn;
-        let mut stmt = conn.prepare(&sql_str)?;
-
-        let rows = stmt.query_map(params_from_iter(sql_params), |row| {
-            Ok(R::try_from(row).map_err(Into::into))
-        })?;
-
-        let mut results = Vec::new();
-        for row in rows {
-            results.push(row??);
-        }
-
-        Ok(results)
-    }
-
-    pub fn get<R>(
-        self,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
-    ) -> drizzle_core::error::Result<R>
-    where
-        R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-    {
-        use ::rusqlite::params_from_iter;
-
-        // Bind parameters to pre-rendered SQL
-        let (sql_str, sql_params) = self.sql.bind(params);
-
-        // Execute with connection
-        let conn = &self.drizzle.drizzle.conn;
-        let mut stmt = conn.prepare(&sql_str)?;
-
-        stmt.query_row(params_from_iter(sql_params), |row| {
-            Ok(R::try_from(row).map_err(Into::into))
-        })?
-    }
-}
-
 // Execution Methods for RusQLite
 
-// Add execution methods for SELECT - SelectWhereSet state
-impl<'a, S, State, T> DrizzleBuilder<'a, S, SelectBuilder<'a, S, State, T>, State>
+// Rusqlite-specific execution methods for all ExecutableState QueryBuilders
+#[cfg(feature = "rusqlite")]
+impl<'a, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
+    /// Runs the query and returns the number of affected rows
+    pub fn execute(self) -> drizzle_core::error::Result<usize> {
+        self.builder.execute(&self.drizzle.conn)
+    }
+
+    /// Runs the query and returns all matching rows (for SELECT queries)
     pub fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
@@ -229,6 +178,7 @@ where
         self.builder.all(&self.drizzle.conn)
     }
 
+    /// Runs the query and returns a single row (for SELECT queries)
     pub fn get<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
@@ -236,121 +186,5 @@ where
             Into<drizzle_core::error::DrizzleError>,
     {
         self.builder.get(&self.drizzle.conn)
-    }
-
-    pub fn prepare(self) -> PreparedDrizzle<'a, S, SelectBuilder<'a, S, State, T>, State> {
-        use drizzle_core::prepare_render;
-        let prepared_sql = prepare_render(self.builder.sql.clone());
-
-        PreparedDrizzle {
-            drizzle: self,
-            sql: prepared_sql,
-        }
-    }
-}
-
-// Add execution methods for INSERT - ValuesSet state
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, InsertBuilder<'a, S, insert::InsertValuesSet, T>, insert::InsertValuesSet>
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for INSERT - ReturningSet state
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        InsertBuilder<'a, S, insert::InsertReturningSet, T>,
-        insert::InsertReturningSet,
-    >
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for INSERT - OnConflictSet state
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        InsertBuilder<'a, S, insert::InsertOnConflictSet, T>,
-        insert::InsertOnConflictSet,
-    >
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for UPDATE - SetClauseSet state
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        UpdateBuilder<'a, S, update::UpdateSetClauseSet, T>,
-        update::UpdateSetClauseSet,
-    >
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for UPDATE - WhereSet state
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, UpdateBuilder<'a, S, update::UpdateWhereSet, T>, update::UpdateWhereSet>
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for UPDATE - ReturningSet state
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        UpdateBuilder<'a, S, update::UpdateReturningSet, T>,
-        update::UpdateReturningSet,
-    >
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for DELETE - Initial state
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteInitial, T>, delete::DeleteInitial>
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for DELETE - WhereSet state
-impl<'a, S, T>
-    DrizzleBuilder<'a, S, DeleteBuilder<'a, S, delete::DeleteWhereSet, T>, delete::DeleteWhereSet>
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
-    }
-}
-
-// Add execution methods for DELETE - ReturningSet state
-impl<'a, S, T>
-    DrizzleBuilder<
-        'a,
-        S,
-        DeleteBuilder<'a, S, delete::DeleteReturningSet, T>,
-        delete::DeleteReturningSet,
-    >
-{
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
     }
 }
