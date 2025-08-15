@@ -1,6 +1,7 @@
 pub mod error;
 pub mod expressions;
 pub mod helpers;
+pub mod prepared;
 pub mod traits;
 
 use compact_str::{CompactString, ToCompactString};
@@ -69,16 +70,16 @@ pub enum PlaceholderStyle {
 
 /// A SQL parameter placeholder.
 #[derive(Default, Debug, Clone, Hash, Copy, PartialEq, Eq)]
-pub struct Placeholder<'a> {
+pub struct Placeholder {
     /// The name of the parameter.
-    pub name: Option<&'a str>,
+    pub name: Option<&'static str>,
     /// The style of the placeholder.
     pub style: PlaceholderStyle,
 }
 
-impl<'a> Placeholder<'a> {
+impl Placeholder {
     /// Creates a new placeholder with the given name and style.
-    pub const fn with_style(name: &'a str, style: PlaceholderStyle) -> Self {
+    pub const fn with_style(name: &'static str, style: PlaceholderStyle) -> Self {
         Placeholder {
             name: Some(name),
             style,
@@ -86,17 +87,17 @@ impl<'a> Placeholder<'a> {
     }
 
     /// Creates a new colon-style placeholder.
-    pub const fn colon(name: &'a str) -> Self {
+    pub const fn colon(name: &'static str) -> Self {
         Self::with_style(name, PlaceholderStyle::Colon)
     }
 
     /// Creates a new at-sign-style placeholder.
-    pub const fn at(name: &'a str) -> Self {
+    pub const fn at(name: &'static str) -> Self {
         Self::with_style(name, PlaceholderStyle::AtSign)
     }
 
     /// Creates a new dollar-style placeholder.
-    pub const fn dollar(name: &'a str) -> Self {
+    pub const fn dollar(name: &'static str) -> Self {
         Self::with_style(name, PlaceholderStyle::Dollar)
     }
 
@@ -109,7 +110,7 @@ impl<'a> Placeholder<'a> {
     }
 }
 
-impl<'a> fmt::Display for Placeholder<'a> {
+impl fmt::Display for Placeholder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.style {
             PlaceholderStyle::Colon => write!(f, ":{}", self.name.unwrap_or_default()),
@@ -125,9 +126,59 @@ impl<'a> fmt::Display for Placeholder<'a> {
 #[derive(Debug, Clone)]
 pub struct Param<'a, V: SQLParam> {
     /// The placeholder to use in the SQL
-    pub placeholder: Placeholder<'a>,
+    pub placeholder: Placeholder,
     /// The value to bind
     pub value: Option<Cow<'a, V>>,
+}
+
+impl<'a, V: SQLParam> Param<'a, V> {
+    pub fn new(placeholder: Placeholder, value: Option<Cow<'a, V>>) -> Self {
+        Self { placeholder, value }
+    }
+}
+
+impl<'a, V: SQLParam> From<OwnedParam<V>> for Param<'a, V> {
+    fn from(value: OwnedParam<V>) -> Self {
+        Self {
+            placeholder: value.placeholder,
+            value: value.value.map(|v| Cow::Owned(v)),
+        }
+    }
+}
+
+impl<'a, V: SQLParam> From<&'a OwnedParam<V>> for Param<'a, V> {
+    fn from(value: &'a OwnedParam<V>) -> Self {
+        Self {
+            placeholder: value.placeholder,
+            value: value.value.as_ref().map(|v| Cow::Borrowed(v)),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedParam<V: SQLParam> {
+    /// The placeholder to use in the SQL
+    pub placeholder: Placeholder,
+    /// The value to bind
+    pub value: Option<V>,
+}
+
+impl<'a, V: SQLParam> From<Param<'a, V>> for OwnedParam<V> {
+    fn from(value: Param<'a, V>) -> Self {
+        Self {
+            placeholder: value.placeholder,
+            value: value.value.map(|v| v.into_owned()),
+        }
+    }
+}
+
+impl<'a, V: SQLParam> From<&Param<'a, V>> for OwnedParam<V> {
+    fn from(value: &Param<'a, V>) -> Self {
+        Self {
+            placeholder: value.placeholder,
+            value: value.value.clone().map(|v| v.into_owned()),
+        }
+    }
 }
 
 impl<'a, T: SQLParam> Param<'a, T> {
@@ -139,8 +190,16 @@ impl<'a, T: SQLParam> Param<'a, T> {
         }
     }
 
+    /// Creates a new parameter with a specific placeholder and no value
+    pub const fn from_placeholder(placeholder: Placeholder) -> Self {
+        Self {
+            placeholder,
+            value: None,
+        }
+    }
+
     /// Creates a new parameter with a named placeholder (colon style)
-    pub const fn named(name: &'a str, value: T) -> Self {
+    pub const fn named(name: &'static str, value: T) -> Self {
         Self {
             placeholder: Placeholder::colon(name),
             value: Some(Cow::Owned(value)),
@@ -148,7 +207,7 @@ impl<'a, T: SQLParam> Param<'a, T> {
     }
 
     /// Creates a new parameter with a specific placeholder
-    pub const fn with_placeholder(placeholder: Placeholder<'a>, value: T) -> Self {
+    pub const fn with_placeholder(placeholder: Placeholder, value: T) -> Self {
         Self {
             placeholder,
             value: Some(Cow::Owned(value)),
@@ -156,6 +215,7 @@ impl<'a, T: SQLParam> Param<'a, T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ParamBind<'a, V: SQLParam> {
     pub name: &'a str,
     pub value: V,
@@ -164,85 +224,6 @@ pub struct ParamBind<'a, V: SQLParam> {
 impl<'a, V: SQLParam> ParamBind<'a, V> {
     pub const fn new(name: &'a str, value: V) -> Self {
         Self { name, value }
-    }
-}
-
-/// A pre-rendered SQL statement with parameter placeholders
-/// Structure: [text, param, text, param, text] where text segments
-/// are pre-rendered and params are placeholders to be bound later
-#[derive(Debug, Clone)]
-pub struct PreparedSQL<'a, V: SQLParam> {
-    /// Pre-rendered text segments
-    pub text_segments: Vec<CompactString>,
-    /// Parameter placeholders (in order)  
-    pub params: Vec<Param<'a, V>>,
-}
-
-impl<'a, V: SQLParam + std::fmt::Display> std::fmt::Display for PreparedSQL<'a, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_sql())
-    }
-}
-
-impl<'a, V: SQLParam> PreparedSQL<'a, V> {
-    /// Bind parameters and render final SQL string
-    pub fn bind(self, param_binds: impl IntoIterator<Item = ParamBind<'a, V>>) -> (String, Vec<V>) {
-        use std::collections::HashMap;
-
-        let param_map: HashMap<&str, V> =
-            param_binds.into_iter().map(|p| (p.name, p.value)).collect();
-
-        let mut sql = String::new();
-        let mut bound_params = Vec::new();
-
-        // Zip text segments with params: text[0], param[0], text[1], param[1], text[2]
-        for (i, text_segment) in self.text_segments.iter().enumerate() {
-            sql.push_str(text_segment);
-
-            // Add param if there's one at this position
-            if let Some(param) = self.params.get(i) {
-                if let Some(name) = param.placeholder.name {
-                    if let Some(value) = param_map.get(name) {
-                        bound_params.push(value.clone());
-                        sql.push_str(&param.placeholder.to_string());
-                    } else {
-                        // Parameter not found, keep placeholder
-                        sql.push_str(&param.placeholder.to_string());
-                    }
-                } else {
-                    // Positional parameter - use existing value if any
-                    if let Some(value) = &param.value {
-                        bound_params.push(value.as_ref().clone());
-                        sql.push_str(&param.placeholder.to_string());
-                    }
-                }
-            }
-        }
-
-        (sql, bound_params)
-    }
-}
-
-impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedSQL<'a, V> {
-    fn to_sql(&self) -> SQL<'a, V> {
-        // Calculate exact capacity needed: text_segments.len() + params.len()
-        let capacity = self.text_segments.len() + self.params.len();
-        let mut chunks = SmallVec::with_capacity(capacity);
-
-        // Interleave text segments and params: text[0], param[0], text[1], param[1], ..., text[n]
-        // Use iterators to avoid bounds checking and minimize allocations
-        let mut param_iter = self.params.iter();
-
-        for text_segment in &self.text_segments {
-            chunks.push(SQLChunk::Text(Cow::Owned(text_segment.clone())));
-
-            // Add corresponding param if available
-            if let Some(param) = param_iter.next() {
-                chunks.push(SQLChunk::Param(param.clone()));
-            }
-        }
-
-        SQL { chunks }
     }
 }
 
@@ -272,7 +253,7 @@ impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
     }
 
     /// Creates a parameter chunk with borrowed value and placeholder
-    pub const fn param(value: &'a V, placeholder: Placeholder<'a>) -> Self {
+    pub const fn param(value: &'a V, placeholder: Placeholder) -> Self {
         Self::Param(Param {
             value: Some(Cow::Borrowed(value)),
             placeholder: placeholder,
@@ -372,7 +353,7 @@ pub struct SQL<'a, V: SQLParam> {
 
 impl<'a, V: SQLParam + 'a> SQL<'a, V> {
     /// Const placeholder instances for zero-copy usage
-    const POSITIONAL_PLACEHOLDER: Placeholder<'a> = Placeholder::positional();
+    const POSITIONAL_PLACEHOLDER: Placeholder = Placeholder::positional();
 
     pub const fn new<'b>(chunks: [SQLChunk<'a, V>; 3]) -> SQL<'a, V> {
         SQL {
@@ -458,7 +439,7 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
     /// Creates a named placeholder without a value - for use in query building.
     /// Similar to drizzle-orm's sql.placeholder('name').
     /// The value will be bound later during execution.
-    pub fn placeholder(name: &'a str) -> Self
+    pub fn placeholder(name: &'static str) -> Self
     where
         V: Default,
     {
@@ -471,7 +452,7 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
     }
 
     /// Creates a named placeholder with a specific style.
-    pub fn placeholder_with_style(name: &'a str, style: PlaceholderStyle) -> Self
+    pub fn placeholder_with_style(name: &'static str, style: PlaceholderStyle) -> Self
     where
         V: Default,
     {
@@ -480,6 +461,16 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
                 value: None, // Temporary default value
                 placeholder: Placeholder::with_style(name, style),
             })],
+        }
+    }
+
+    /// Creates SQL from an existing Placeholder struct.
+    pub fn from_placeholder(placeholder: Placeholder) -> Self
+    where
+        V: Default,
+    {
+        Self {
+            chunks: smallvec![SQLChunk::Param(Param::from_placeholder(placeholder))],
         }
     }
 
@@ -866,100 +857,6 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
         }
     }
 }
-/// Pre-render SQL by processing chunks and separating text from parameters
-/// This preserves the original SQL pattern detection logic while creating a PreparedSQL
-/// that can be efficiently bound and executed multiple times
-pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedSQL<'a, V> {
-    let mut text_segments = Vec::new();
-    let mut params = Vec::new();
-    let mut current_text = CompactString::default();
-
-    // Process chunks with original pattern detection logic preserved
-    for (i, chunk) in sql.chunks.iter().enumerate() {
-        match chunk {
-            SQLChunk::Param(param) => {
-                // End current text segment and start a new one
-                text_segments.push(current_text);
-                current_text = CompactString::default();
-                params.push(param.clone());
-            }
-            SQLChunk::Text(text) if text.is_empty() => {
-                // Handle empty text - check for SELECT-FROM-TABLE pattern
-                if let Some(table) = sql.detect_pattern_at(i) {
-                    sql.write_qualified_columns(&mut current_text, table);
-                }
-            }
-            SQLChunk::Text(text) if text.trim().eq_ignore_ascii_case("SELECT") => {
-                // Check if this is a SELECT-FROM-TABLE pattern (SELECT with no columns)
-                if let Some(table) = sql.detect_select_from_table_pattern(i) {
-                    current_text.push_str("SELECT ");
-                    sql.write_qualified_columns(&mut current_text, table);
-                } else {
-                    current_text.push_str(text);
-                }
-            }
-            SQLChunk::Text(text) => {
-                current_text.push_str(text);
-            }
-            SQLChunk::Table(table) => {
-                current_text.push('"');
-                current_text.push_str(table.name());
-                current_text.push('"');
-            }
-            SQLChunk::Column(column) => {
-                current_text.push('"');
-                current_text.push_str(column.table().name());
-                current_text.push_str(r#"".""#);
-                current_text.push_str(column.name());
-                current_text.push('"');
-            }
-            SQLChunk::Alias { chunk, alias } => {
-                // Process the nested chunk first
-                sql.write_chunk(&mut current_text, chunk, i);
-                current_text.push_str(" AS ");
-                current_text.push_str(alias);
-            }
-            SQLChunk::Subquery(sql) => {
-                current_text.push('(');
-                current_text.push_str(&sql.sql());
-                current_text.push(')');
-            }
-            SQLChunk::SQL(nested_sql) => {
-                // Recursively process nested SQL
-                let nested_prepared = prepare_render(nested_sql.as_ref().clone());
-
-                // Merge the nested prepared SQL into current one
-                for (j, text_segment) in nested_prepared.text_segments.iter().enumerate() {
-                    if j == 0 {
-                        // First segment goes into current text
-                        current_text.push_str(text_segment);
-                    } else {
-                        // Subsequent segments create new text segments with params between
-                        if let Some(param) = nested_prepared.params.get(j - 1) {
-                            text_segments.push(current_text);
-                            current_text = CompactString::default();
-                            params.push(param.clone());
-                        }
-                        current_text.push_str(text_segment);
-                    }
-                }
-            }
-        }
-
-        // Add spacing between chunks if needed
-        if i + 1 < sql.chunks.len() && sql.needs_space(chunk, i) {
-            current_text.push(' ');
-        }
-    }
-
-    // Don't forget the final text segment
-    text_segments.push(current_text);
-
-    PreparedSQL {
-        text_segments,
-        params,
-    }
-}
 
 impl<'a, V: SQLParam> IntoIterator for SQL<'a, V> {
     type Item = SQLChunk<'a, V>;
@@ -1215,15 +1112,15 @@ where
 pub mod placeholders {
     use super::{Placeholder, PlaceholderStyle};
 
-    pub const fn colon<'a>(name: &'a str) -> Placeholder<'a> {
+    pub const fn colon(name: &'static str) -> Placeholder {
         Placeholder::with_style(name, PlaceholderStyle::Colon)
     }
 
-    pub const fn at<'a>(name: &'a str) -> Placeholder<'a> {
+    pub const fn at(name: &'static str) -> Placeholder {
         Placeholder::with_style(name, PlaceholderStyle::AtSign)
     }
 
-    pub const fn dollar<'a>(name: &'a str) -> Placeholder<'a> {
+    pub const fn dollar(name: &'static str) -> Placeholder {
         Placeholder::with_style(name, PlaceholderStyle::Dollar)
     }
 }
