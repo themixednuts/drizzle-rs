@@ -75,7 +75,7 @@ impl<'a> MacroContext<'a> {
         match model_type {
             ModelType::Insert => {
                 // All insert fields use InsertValue for three-state handling
-                quote!(::drizzle_rs::sqlite::InsertValue<#base_type>)
+                quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>)
             },
             ModelType::Update => quote!(Option<#base_type>),
             ModelType::PartialSelect => quote!(Option<#base_type>),
@@ -89,10 +89,15 @@ impl<'a> MacroContext<'a> {
         
         // Handle runtime function defaults (default_fn)  
         if let Some(f) = &field.default_fn {
-            return quote! { #name: ::drizzle_rs::sqlite::InsertValue::Value((#f)()) };
+            return quote! { #name: ((#f)()).into() };
         }
         
-        // Handle compile-time SQL defaults (default = literal) or any other case
+        // Handle compile-time literal defaults (default = "value")
+        if let Some(default_lit) = &field.default_value {
+            return quote! { #name: (#default_lit).into() };
+        }
+        
+        // Handle compile-time SQL defaults or any other case
         // Default to Omit so database can handle defaults
         quote! { #name: ::drizzle_rs::sqlite::InsertValue::Omit }
     }
@@ -107,7 +112,7 @@ impl<'a> MacroContext<'a> {
             quote! { val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null) }
         };
         
-        // Handle the three states of InsertValue
+        // Handle the three states of InsertValue (Omit, Null, Value)
         if field.default_fn.is_some() {
             // For runtime defaults, we always include the field (either default or user value)
             quote! {
@@ -118,7 +123,10 @@ impl<'a> MacroContext<'a> {
                         #value_conversion
                     },
                     ::drizzle_rs::sqlite::InsertValue::Null => ::drizzle_rs::sqlite::SQLiteValue::Null,
-                    ::drizzle_rs::sqlite::InsertValue::Value(val) => #value_conversion,
+                    ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                        // Values and placeholders are both handled as SQL
+                        continue; // Skip in ToSQL, handled in values() method
+                    },
                 }
             }
         } else {
@@ -130,7 +138,10 @@ impl<'a> MacroContext<'a> {
                         continue;
                     },
                     ::drizzle_rs::sqlite::InsertValue::Null => ::drizzle_rs::sqlite::SQLiteValue::Null,
-                    ::drizzle_rs::sqlite::InsertValue::Value(val) => #value_conversion,
+                    ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                        // Values and placeholders are both handled as SQL
+                        continue; // Skip in ToSQL, handled in values() method
+                    },
                 }
             }
         }
@@ -207,29 +218,42 @@ impl ConvenienceMethodGenerator {
         // Generate type-specific convenience methods using modern pattern matching
         match model_type {
             ModelType::Insert => {
-                // For insert models, use Into<InsertValue<T>> for clean API
+                // For insert models, accept any type that implements Into<InsertValue<T>>
+                // This allows both regular values (String, i32, etc.) and SQL objects to work
                 let type_string = base_type.to_token_stream().to_string();
                 match (field.is_uuid, type_string.as_str()) {
                     (true, _) => quote! {
-                        pub fn #method_name<V: Into<::drizzle_rs::sqlite::InsertValue<::uuid::Uuid>>>(mut self, value: V) -> Self {
+                        pub fn #method_name<V>(mut self, value: V) -> Self 
+                        where
+                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::uuid::Uuid>>
+                        {
                             #assignment
                             self
                         }
                     },
                     (_, s) if s.contains("String") => quote! {
-                        pub fn #method_name<V: Into<::drizzle_rs::sqlite::InsertValue<::std::string::String>>>(mut self, value: V) -> Self {
+                        pub fn #method_name<V>(mut self, value: V) -> Self 
+                        where
+                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>>
+                        {
                             #assignment
                             self
                         }
                     },
                     (_, s) if s.contains("Vec") && s.contains("u8") => quote! {
-                        pub fn #method_name<V: Into<::drizzle_rs::sqlite::InsertValue<::std::vec::Vec<u8>>>>(mut self, value: V) -> Self {
+                        pub fn #method_name<V>(mut self, value: V) -> Self 
+                        where
+                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
+                        {
                             #assignment
                             self
                         }
                     },
                     _ => quote! {
-                        pub fn #method_name<V: Into<::drizzle_rs::sqlite::InsertValue<#base_type>>>(mut self, value: V) -> Self {
+                        pub fn #method_name<V>(mut self, value: V) -> Self 
+                        where
+                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>>
+                        {
                             #assignment
                             self
                         }
@@ -284,23 +308,23 @@ impl ConstructorGenerator {
         let base_type = field.base_type;
         let type_string = base_type.to_token_stream().to_string();
 
-        // Required parameters - convert directly to InsertValue::Value
+        // Required parameters - convert using Into<InsertValue<...>> trait
         match (field.is_uuid, type_string.as_str()) {
             (true, _) => (
                 quote! { #field_name: impl Into<::uuid::Uuid> },
-                quote! { #field_name: ::drizzle_rs::sqlite::InsertValue::Value(#field_name.into()) }
+                quote! { #field_name: #field_name.into().into() }
             ),
             (false, s) if s.contains("String") => (
                 quote! { #field_name: impl Into<::std::string::String> },
-                quote! { #field_name: ::drizzle_rs::sqlite::InsertValue::Value(#field_name.into()) }
+                quote! { #field_name: #field_name.into().into() }
             ),
             (false, s) if s.contains("Vec") && s.contains("u8") => (
                 quote! { #field_name: impl Into<::std::vec::Vec<u8>> },
-                quote! { #field_name: ::drizzle_rs::sqlite::InsertValue::Value(#field_name.into()) }
+                quote! { #field_name: #field_name.into().into() }
             ),
             (false, _) => (
                 quote! { #field_name: #base_type },
-                quote! { #field_name: ::drizzle_rs::sqlite::InsertValue::Value(#field_name) }
+                quote! { #field_name: #field_name.into() }
             ),
         }
     }
@@ -800,7 +824,7 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
 
         impl<'a> ::drizzle_rs::core::SQLTable<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
             type Select = #select_model;
-            type Insert = #insert_model;
+            type Insert = #insert_model<'a>;
             type Update = #update_model;
         }
 
@@ -1025,18 +1049,18 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     Ok(quote! {
         // Insert Model
-        #[derive(Debug, Clone, PartialEq)]
-        pub struct #insert_model {
+        #[derive(Debug, Clone)]
+        pub struct #insert_model<'a> {
             #(#insert_fields,)*
         }
         
-        impl Default for #insert_model {
+        impl<'a> Default for #insert_model<'a> {
             fn default() -> Self { 
                 Self { #(#insert_default_fields,)* } 
             }
         }
         
-        impl #insert_model {
+        impl<'a> #insert_model<'a> {
             pub fn new(#(#required_constructor_params),*) -> Self {
                 Self {
                     #(#required_constructor_assignments,)*
@@ -1048,30 +1072,15 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
             #(#insert_convenience_methods)*
         }
         
-        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model {
+        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model<'a> {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                let mut values = Vec::new();
-                
-                // Process each field and add to values if not omitted
-                #(
-                    match &self.#insert_field_names {
-                        ::drizzle_rs::sqlite::InsertValue::Omit => {
-                            // Skip omitted fields - they won't be included in INSERT
-                        },
-                        ::drizzle_rs::sqlite::InsertValue::Null => {
-                            values.push(::drizzle_rs::sqlite::SQLiteValue::Null);
-                        },
-                        ::drizzle_rs::sqlite::InsertValue::Value(val) => {
-                            values.push(val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null));
-                        },
-                    }
-                )*
-                
-                ::drizzle_rs::core::SQL::parameters(values)
+                // For insert models, ToSQL delegates to the values() method
+                // which now handles mixed placeholders and values correctly
+                self.values()
             }
         }
 
-        impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model {
+        impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model<'a> {
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
                 // For insert model, return only non-omitted columns to match values()
                 static TABLE: #struct_ident = #struct_ident::new();
@@ -1079,11 +1088,14 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
                 let mut result_columns = Vec::new();
                 
                 #(
-                    if let ::drizzle_rs::sqlite::InsertValue::Omit = &self.#insert_field_names {
-                        // Skip omitted fields
-                    } else {
-                        // Include this column
-                        result_columns.push(all_columns[#insert_field_indices]);
+                    match &self.#insert_field_names {
+                        ::drizzle_rs::sqlite::InsertValue::Omit => {
+                            // Skip omitted fields
+                        }
+                        _ => {
+                            // Include this column (Value or Null)
+                            result_columns.push(all_columns[#insert_field_indices]);
+                        }
                     }
                 )*
                 
@@ -1091,7 +1103,9 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                let mut values = Vec::new();
+                use ::drizzle_rs::core::{SQL, Placeholder};
+                
+                let mut sql_parts = Vec::new();
                 
                 #(
                     match &self.#insert_field_names {
@@ -1099,15 +1113,15 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
                             // Skip omitted fields
                         }
                         ::drizzle_rs::sqlite::InsertValue::Null => {
-                            values.push(::drizzle_rs::sqlite::SQLiteValue::Null);
+                            sql_parts.push(SQL::parameter(::drizzle_rs::sqlite::SQLiteValue::Null));
                         }
-                        ::drizzle_rs::sqlite::InsertValue::Value(val) => {
-                            values.push(val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null));
+                        ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                            sql_parts.push(wrapper.sql.clone());
                         }
                     }
                 )*
                 
-                ::drizzle_rs::core::SQL::parameters(values)
+                SQL::join(sql_parts, ", ")
             }
         }
     })
