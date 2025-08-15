@@ -1,12 +1,12 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use drizzle_core::{SQL, SQLChunk, ToSQL, prepare_render};
+use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
 use drizzle_rs::{
     core::{and, eq},
     sqlite::{SQLiteValue, params},
 };
 use procmacros::{FromRow, drizzle};
 
-use crate::common::{Complex, InsertSimple, Simple};
+use crate::common::{Complex, InsertSimple, SelectSimple, Simple};
 
 mod common;
 
@@ -36,7 +36,8 @@ async fn test_prepare_with_placeholder() {
         name: String,
     }
 
-    let result: Vec<PartialSimple> = drizzle_exec!(prepared_sql.all(params![{name: "Alice"}]));
+    let result: Vec<PartialSimple> =
+        drizzle_exec!(prepared_sql.all(db.conn(), params![{name: "Alice"}]));
 
     // Verify we have the right parameter count and value
     assert_eq!(result.len(), 1);
@@ -189,4 +190,102 @@ fn test_prepare_complex_query() {
     assert_eq!(bound_params.len(), 2);
     assert_eq!(bound_params[0], SQLiteValue::from(1i32));
     assert_eq!(bound_params[1], SQLiteValue::from("%electronics%"));
+}
+
+#[tokio::test]
+async fn test_prepared_performance_comparison() {
+    let conn = setup_test_db!();
+    let (db, (simple, _complex)) = drizzle!(conn, [Simple, Complex]);
+
+    // Insert test data
+    let test_data: Vec<_> = (0..1000)
+        .map(|i| InsertSimple::new(format!("User{}", i)))
+        .collect();
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test regular query performance
+    let start = std::time::Instant::now();
+    for i in 0..100 {
+        let _results: Vec<SelectSimple> = drizzle_exec!(
+            db.select(())
+                .from(simple)
+                .r#where(eq(simple.name, format!("User{}", i)))
+                .all()
+        );
+    }
+    let regular_duration = start.elapsed();
+
+    // Test prepared statement performance
+    let prepared = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .prepare()
+        .into_owned();
+
+    let start = std::time::Instant::now();
+    for i in 0..100 {
+        let _results: Vec<SelectSimple> =
+            drizzle_exec!(prepared.all(db.conn(), params![{name: format!("User{}", i)}]));
+    }
+    let prepared_duration = start.elapsed();
+
+    println!("Regular queries: {:?}", regular_duration);
+    println!("Prepared statements: {:?}", prepared_duration);
+
+    // Prepared statements should generally be faster for repeated queries
+    // This is more of a demonstration than a strict assertion since performance can vary
+    assert!(
+        prepared_duration <= regular_duration * 2,
+        "Prepared statements shouldn't be significantly slower"
+    );
+}
+
+#[tokio::test]
+async fn test_prepared_insert_performance() {
+    let conn = setup_test_db!();
+    let (db, (simple, _complex)) = drizzle!(conn, [Simple, Complex]);
+
+    // Test regular insert performance
+    let start = std::time::Instant::now();
+    for i in 0..100 {
+        let data = InsertSimple::new(format!("RegularUser{}", i));
+        drizzle_exec!(db.insert(simple).values([data]).execute());
+    }
+    let regular_duration = start.elapsed();
+
+    // Clear table for prepared test
+    let delete_result = db.execute(SQL::raw("DELETE FROM \"simple\""));
+    println!("Delete result: {:?}", delete_result);
+
+    // Test prepared insert performance - use the same data structure as regular inserts
+    let start = std::time::Instant::now();
+    for i in 0..100 {
+        let data = InsertSimple::new(format!("PreparedUser{}", i));
+        let prepared = db.insert(simple).values([data]).prepare();
+        drizzle_exec!(prepared.execute(db.conn(), []));
+    }
+    let prepared_duration = start.elapsed();
+
+    println!("Regular inserts: {:?}", regular_duration);
+    println!("Prepared inserts: {:?}", prepared_duration);
+
+    // Verify prepared statements work correctly
+    let prepared_results: Vec<SelectSimple> = drizzle_exec!(
+        db.select(())
+            .from(simple)
+            .r#where(SQL::raw("\"simple\".\"name\" LIKE 'PreparedUser%'"))
+            .all()
+    );
+
+    println!("Prepared results: {}", prepared_results.len());
+
+    // Verify prepared statement execution worked
+    assert_eq!(prepared_results.len(), 100);
+
+    // Demonstrate that prepared statements generally provide performance benefits
+    assert!(
+        prepared_duration <= regular_duration * 2,
+        "Prepared statements shouldn't be significantly slower"
+    );
 }

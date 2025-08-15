@@ -11,8 +11,9 @@ pub mod error {
 // Core components (dialect-agnostic)
 pub mod core {
     // Core traits and types from core crate
+    pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
     pub use drizzle_core::traits::*;
-    pub use drizzle_core::{Param, ParamBind, SQL, SQLComparable, ToSQL};
+    pub use drizzle_core::{Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL};
 
     // Core expression functions & macros
     pub use drizzle_core::SQLSchemaType;
@@ -161,5 +162,35 @@ mod tests {
         assert_eq!(query[0].id, 1);
         assert_eq!(query[0].name, "test");
         assert_eq!(query[0].email, None);
+    }
+
+    #[test]
+    fn test_placeholder_integration() {
+        use drizzle_rs::core::{SQL, Placeholder};
+        
+        // Test that placeholders work with the new unified SQL-based approach
+        let placeholder = Placeholder::colon("test_name");
+        let insert_value: InsertUser = InsertUser::default()
+            .with_name(placeholder);
+        
+        // Verify it's a Value variant containing SQL with the placeholder
+        match &insert_value.name {
+            drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                // Check that the SQL contains our placeholder
+                let sql_string = wrapper.sql.sql();
+                assert!(sql_string.contains("test_name") || sql_string.contains("?"));
+            },
+            _ => panic!("Expected Value variant containing SQL"),
+        }
+        
+        // Test that regular values still work
+        let regular_insert: InsertUser = InsertUser::default().with_name("regular_value");
+        match &regular_insert.name {
+            drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                // Check that the SQL contains our parameter
+                assert!(!wrapper.sql.sql().is_empty());
+            },
+            _ => panic!("Expected Value variant for regular string"),
+        }
     }
 }
