@@ -8,19 +8,16 @@ pub mod turso;
 #[cfg(feature = "libsql")]
 pub mod libsql;
 
-#[cfg(feature = "sqlite")]
-use drizzle_core::SQL;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use paste::paste;
 use std::marker::PhantomData;
-#[cfg(feature = "sqlite")]
-use std::ops::Deref;
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
     SQLiteValue,
     builder::{
+        self, QueryBuilder,
         delete::{self, DeleteBuilder},
         insert::{self, InsertBuilder},
         select::{self, SelectBuilder},
@@ -86,17 +83,6 @@ pub use turso::Drizzle;
 #[cfg(feature = "libsql")]
 pub use libsql::Drizzle;
 
-pub struct PreparedDrizzle<'a, Schema, Builder, State> {
-    drizzle: DrizzleBuilder<'a, Schema, Builder, State>,
-    sql: drizzle_core::PreparedSQL<'a, SQLiteValue<'a>>,
-}
-
-impl<'a, Schema, Builder, State> std::fmt::Display for PreparedDrizzle<'a, Schema, Builder, State> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.sql)
-    }
-}
-
 //------------------------------------------------------------------------------
 // DrizzleBuilder - Builder with Type State Pattern
 //------------------------------------------------------------------------------
@@ -106,6 +92,17 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
     drizzle: &'a Drizzle<Schema>,
     builder: Builder,
     state: PhantomData<(Schema, State)>,
+}
+
+// Generic prepare method for all drivers
+impl<'a, S, Schema, State, Table> DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+where
+    State: builder::ExecutableState,
+{
+    /// Creates a prepared statement that can be executed multiple times
+    pub fn prepare(self) -> sqlite::builder::prepared::PreparedStatement<'a> {
+        self.builder.prepare()
+    }
 }
 
 //------------------------------------------------------------------------------
