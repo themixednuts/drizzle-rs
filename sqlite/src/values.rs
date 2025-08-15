@@ -1,7 +1,9 @@
 //! SQLite value conversion traits and types
 
-use drizzle_core::{SQL, error::DrizzleError};
+use drizzle_core::{Placeholder, SQL, SQLParam, ToSQL, error::DrizzleError};
 
+mod owned;
+pub use owned::OwnedSQLiteValue;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::types::FromSql;
@@ -11,57 +13,88 @@ use turso::IntoValue;
 use uuid::Uuid;
 
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 //------------------------------------------------------------------------------
-// InsertValue Definition - Three-state value for inserts
+// InsertValue Definition - SQL-based value for inserts
 //------------------------------------------------------------------------------
 
-/// Represents a value for INSERT operations that can be omitted, null, or a specific value
-#[derive(Debug, Clone, PartialEq)]
-pub enum InsertValue<T> {
+/// Wrapper for SQL with type information
+#[derive(Debug, Clone)]
+pub struct ValueWrapper<'a, V: SQLParam, T> {
+    pub sql: SQL<'a, V>,
+    pub _phantom: PhantomData<T>,
+}
+
+impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
+    pub const fn new(sql: SQL<'a, V>) -> Self {
+        Self {
+            sql,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+/// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
+#[derive(Debug, Clone)]
+pub enum InsertValue<'a, V: SQLParam, T> {
     /// Omit this column from the INSERT (use database default)
     Omit,
     /// Explicitly insert NULL
     Null,
-    /// Insert this specific value
-    Value(T),
+    /// Insert a SQL expression (value, placeholder, etc.)
+    Value(ValueWrapper<'a, V, T>),
 }
 
-impl<T> Default for InsertValue<T> {
+impl<'a, V: SQLParam, T> Default for InsertValue<'a, V, T> {
     fn default() -> Self {
         Self::Omit
     }
 }
 
-// Automatic conversion from T to InsertValue<T>
-impl<T> From<T> for InsertValue<T> {
+// Conversion implementations for SQLiteValue-based InsertValue
+
+// Generic conversion from any type T to InsertValue (for same type T)
+impl<'a, T> From<T> for InsertValue<'a, SQLiteValue<'a>, T>
+where
+    T: TryInto<SQLiteValue<'a>>,
+    T::Error: std::fmt::Debug,
+{
     fn from(value: T) -> Self {
-        InsertValue::Value(value)
+        let sqlite_value: SQLiteValue<'a> = value.try_into().unwrap_or_else(|_| SQLiteValue::Null);
+        InsertValue::Value(ValueWrapper::new(SQL::parameter(sqlite_value)))
     }
 }
 
-// Conversion from Option<T>
-impl<T> From<Option<T>> for InsertValue<T> {
+// Specific conversions for field type mismatches
+impl<'a> From<&'a str> for InsertValue<'a, SQLiteValue<'a>, String> {
+    fn from(value: &'a str) -> Self {
+        let sqlite_value: SQLiteValue<'a> = value.into();
+        InsertValue::Value(ValueWrapper::new(SQL::parameter(sqlite_value)))
+    }
+}
+
+// Placeholder can be used with any field type T
+impl<'a, T> From<Placeholder> for InsertValue<'a, SQLiteValue<'a>, T> {
+    fn from(placeholder: Placeholder) -> Self {
+        InsertValue::Value(ValueWrapper::new(SQL::from_placeholder(placeholder)))
+    }
+}
+
+// Option conversion
+impl<'a, T> From<Option<T>> for InsertValue<'a, SQLiteValue<'a>, T>
+where
+    T: TryInto<SQLiteValue<'a>>,
+    T::Error: std::fmt::Debug,
+{
     fn from(value: Option<T>) -> Self {
         match value {
-            Some(v) => InsertValue::Value(v),
-            None => InsertValue::Omit, // Use database default when None
-        }
-    }
-}
-
-// String-specific InsertValue conversions
-impl From<&str> for InsertValue<String> {
-    fn from(value: &str) -> Self {
-        InsertValue::Value(value.to_string())
-    }
-}
-
-impl From<Option<&str>> for InsertValue<String> {
-    fn from(value: Option<&str>) -> Self {
-        match value {
-            Some(s) => InsertValue::Value(s.to_string()),
-            None => InsertValue::Omit, // Use database default when None
+            Some(v) => {
+                let sqlite_value: SQLiteValue<'a> =
+                    v.try_into().unwrap_or_else(|_| SQLiteValue::Null);
+                InsertValue::Value(ValueWrapper::new(SQL::parameter(sqlite_value)))
+            }
+            None => InsertValue::Omit,
         }
     }
 }
@@ -84,6 +117,17 @@ pub enum SQLiteValue<'a> {
     /// NULL value
     #[default]
     Null,
+}
+impl<'a> From<OwnedSQLiteValue> for SQLiteValue<'a> {
+    fn from(value: OwnedSQLiteValue) -> Self {
+        match value {
+            OwnedSQLiteValue::Integer(f) => SQLiteValue::Integer(f),
+            OwnedSQLiteValue::Real(r) => SQLiteValue::Real(r),
+            OwnedSQLiteValue::Text(v) => SQLiteValue::Text(Cow::Owned(v)),
+            OwnedSQLiteValue::Blob(v) => SQLiteValue::Blob(Cow::Owned(v.into())),
+            OwnedSQLiteValue::Null => SQLiteValue::Null,
+        }
+    }
 }
 
 impl<'a> std::fmt::Display for SQLiteValue<'a> {
