@@ -44,6 +44,7 @@ pub(crate) fn generate_schema(input: TokenStream) -> syn::Result<TokenStream> {
         // Add IsInSchema implementations for each type
         let is_in_schema_impls = types.iter().map(|ty| {
             quote! {
+                #[allow(non_local_definitions)]
                 impl ::drizzle_rs::core::IsInSchema<#schema_ident> for #ty {}
             }
         });
@@ -57,6 +58,25 @@ pub(crate) fn generate_schema(input: TokenStream) -> syn::Result<TokenStream> {
         }
     };
     Ok(output)
+}
+
+/// Generate schema implementation for a user-provided schema type
+pub(crate) fn generate_schema_for_type(schema_expr: &syn::Expr, tables_tokens: TokenStream) -> syn::Result<TokenStream> {
+    // Parse the table types from the tokens
+    let types = parse_schema_input(tables_tokens)?;
+    
+    // Generate IsInSchema implementations for each type with the user-provided schema
+    let is_in_schema_impls = types.iter().map(|ty| {
+        quote! {
+            #[allow(non_local_definitions)]
+            impl ::drizzle_rs::core::IsInSchema<#schema_expr> for #ty {}
+        }
+    });
+    
+    // Return just the trait implementations (the schema struct should already exist)
+    Ok(quote! {
+        #(#is_in_schema_impls)*
+    })
 }
 
 /// Parse the input as an optional array of table types

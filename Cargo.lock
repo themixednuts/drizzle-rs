@@ -604,6 +604,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "drizzle_core",
+ "drizzle_rs",
  "libsql",
  "libsql-rusqlite 0.33.0",
  "mysql",

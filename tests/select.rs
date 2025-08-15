@@ -38,8 +38,9 @@ struct JoinResult {
 
 #[tokio::test]
 async fn simple_select_with_conditions() {
+    pub struct Schema;
     let db = setup_test_db!();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex, Post], Schema);
 
     // Insert test data
     let test_data = vec![
@@ -95,8 +96,9 @@ async fn simple_select_with_conditions() {
 
 #[tokio::test]
 async fn complex_select_with_conditions() {
+    pub struct Schema;
     let db = setup_test_db!();
-    let (drizzle, (_, complex, ..)) = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (_, complex, ..)) = drizzle!(db, [Simple, Complex, Post], Schema);
 
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -166,8 +168,9 @@ async fn complex_select_with_conditions() {
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[tokio::test]
 async fn feature_gated_select() {
+    pub struct Schema;
     let db = setup_test_db!();
-    let (drizzle, (_, complex, _)) = drizzle!(db, [Simple, Complex, Post]);
+    let (drizzle, (_, complex, _)) = drizzle!(db, [Simple, Complex, Post], Schema);
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();
