@@ -691,26 +691,25 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
             }
 
             impl ::drizzle_rs::core::SQLColumnInfo for #zst_ident {
-
                 fn name(&self) -> &str {
-                    Self::NAME
+                    <Self as ::drizzle_rs::core::SQLSchema<'_, &'static str, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::NAME
                 }
                 fn r#type(&self) -> &str {
-                    Self::TYPE
+                    <Self as ::drizzle_rs::core::SQLSchema<'_, &'static str, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::TYPE
                 }
                 fn is_primary_key(&self) -> bool {
-                    Self::PRIMARY_KEY
+                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::PRIMARY_KEY
                 }
                 fn is_not_null(&self) -> bool {
-                    Self::NOT_NULL
+                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::NOT_NULL
                 }
                 fn is_unique(&self) -> bool {
-                    Self::UNIQUE
+                    <Self as ::drizzle_rs::core::SQLColumn<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::UNIQUE
                 }
                 fn has_default(&self) -> bool {
                     #has_default
                 }
-                fn table(&self) -> &dyn SQLTableInfo {
+                fn table(&self) -> &dyn ::drizzle_rs::core::SQLTableInfo {
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
@@ -743,10 +742,8 @@ fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStrea
             impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #zst_ident
             {
                 fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                    use ::drizzle_rs::core::ToSQL;
                     static INSTANCE: #zst_ident = #zst_ident;
-
-                    INSTANCE.as_column().to_sql()
+                    ::drizzle_rs::core::SQL::column(&INSTANCE)
                 }
             }
 
@@ -831,15 +828,15 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
 
         impl ::drizzle_rs::core::SQLTableInfo for #struct_ident {
             fn name(&self) -> &str {
-                Self::NAME
+                <Self as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::NAME
             }
             fn r#type(&self) -> ::drizzle_rs::core::SQLSchemaType {
-                Self::TYPE
+                <Self as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::TYPE
             }
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
                 #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
             
-                Box::new([#(#column_zst_idents.as_column(),)*])
+                Box::new([#(::drizzle_rs::core::AsColumnInfo::as_column(&#column_zst_idents),)*])
             }
             fn strict(&self) -> bool {
                 #strict
@@ -852,7 +849,7 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
         impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                INSTANCE.as_table().to_sql()
+                ::drizzle_rs::core::SQL::table(&INSTANCE)
             }
         }
 
@@ -1078,7 +1075,7 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
             fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                 // For insert models, ToSQL delegates to the values() method
                 // which now handles mixed placeholders and values correctly
-                self.values()
+                ::drizzle_rs::core::SQLModel::values(self)
             }
         }
 
@@ -1086,7 +1083,7 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
                 // For insert model, return only non-omitted columns to match values()
                 static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = TABLE.columns();
+                let all_columns = ::drizzle_rs::core::SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
                 
                 #(
@@ -1105,7 +1102,6 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
-                use ::drizzle_rs::core::{SQL, Placeholder};
                 
                 let mut sql_parts = Vec::new();
                 
@@ -1115,7 +1111,7 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
                             // Skip omitted fields
                         }
                         ::drizzle_rs::sqlite::InsertValue::Null => {
-                            sql_parts.push(SQL::parameter(::drizzle_rs::sqlite::SQLiteValue::Null));
+                            sql_parts.push(::drizzle_rs::core::SQL::parameter(::drizzle_rs::sqlite::SQLiteValue::Null));
                         }
                         ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
@@ -1123,7 +1119,7 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
                     }
                 )*
                 
-                SQL::join(sql_parts, ", ")
+                ::drizzle_rs::core::SQL::join(sql_parts, ", ")
             }
         }
     })

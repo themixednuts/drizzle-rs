@@ -83,35 +83,6 @@ pub use turso::Drizzle;
 #[cfg(feature = "libsql")]
 pub use libsql::Drizzle;
 
-pub trait DrizzleMarker<Schema> {
-    fn insert<'a, Table: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<Schema>>(
-        &'a self,
-        table: Table,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
-        insert::InsertInitial,
-    >;
-}
-
-impl<Schema> DrizzleMarker<Schema> for Drizzle<Schema> {
-    fn insert<'a, Table>(
-        &'a self,
-        table: Table,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
-        insert::InsertInitial,
-    >
-    where
-        Table: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<Schema>,
-    {
-        self.insert(table)
-    }
-}
-
 //------------------------------------------------------------------------------
 // DrizzleBuilder - Builder with Type State Pattern
 //------------------------------------------------------------------------------

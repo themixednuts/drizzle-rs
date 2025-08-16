@@ -12,7 +12,8 @@
 //! ## Example Usage
 //!
 //! ```rust
-//! # use procmacros::SQLiteTable;
+//! use drizzle_rs::prelude::*;
+//! 
 //! // Define your schema
 //! #[SQLiteTable(name = "users")]
 //! struct Users {
@@ -55,20 +56,38 @@ use syn::parse_macro_input;
 /// # Syntax
 ///
 /// ```rust
-/// # use procmacros::{SQLiteTable, drizzle};
-/// # #[SQLiteTable] struct Table1 { #[integer(primary)] id: i32 }
-/// # #[SQLiteTable] struct Table2 { #[integer(primary)] id: i32 }
-/// # #[SQLiteTable] struct Table { #[integer(primary)] id: i32 }
-/// # fn main() {
-/// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
-/// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
-/// # let connection3 = rusqlite::Connection::open_in_memory().unwrap();
+/// use drizzle_rs::prelude::*;
+/// 
+/// #[SQLiteTable] 
+/// struct Table1 { 
+///     #[integer(primary)] 
+///     id: i32 
+/// }
+/// 
+/// #[SQLiteTable] 
+/// struct Table2 { 
+///     #[integer(primary)] 
+///     id: i32 
+/// }
+/// 
+/// #[SQLiteTable] 
+/// struct Table { 
+///     #[integer(primary)] 
+///     id: i32 
+/// }
+/// 
+/// # fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
+/// let connection1 = rusqlite::Connection::open_in_memory()?;
+/// let connection2 = rusqlite::Connection::open_in_memory()?;
+/// let connection3 = rusqlite::Connection::open_in_memory()?;
+/// 
 /// // Multiple tables (returns tuple)
 /// let (drizzle_instance, table_handles) = drizzle!(connection1, [Table1, Table2]);
 /// // Single table with array syntax (returns single table)
 /// let (drizzle_instance, single_table) = drizzle!(connection2, [Table]);
 /// // Single table without array syntax (returns single table)
 /// let (drizzle_instance, single_table) = drizzle!(connection3, Table);
+/// # Ok(())
 /// # }
 /// ```
 ///
@@ -76,7 +95,8 @@ use syn::parse_macro_input;
 ///
 /// ## Single Table
 /// ```rust
-/// # use procmacros::{SQLiteTable, drizzle};
+/// use drizzle_rs::prelude::*;
+/// 
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary)]
@@ -85,18 +105,22 @@ use syn::parse_macro_input;
 ///     name: String,
 /// }
 ///
-/// # fn main() {
-/// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
-/// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
+/// # fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
+/// let connection1 = rusqlite::Connection::open_in_memory()?;
+/// let connection2 = rusqlite::Connection::open_in_memory()?;
+/// 
 /// // Both syntaxes are equivalent for single tables:
 /// let (db, users) = drizzle!(connection1, [Users]);
 /// let (db, users) = drizzle!(connection2, Users);
+/// # Ok(())
 /// # }
 /// ```
 ///
 /// ## Multiple Tables
 /// ```rust
-/// # use procmacros::{SQLiteTable, drizzle};
+/// use drizzle_rs::prelude::*;
+/// use drizzle_rs::error::DrizzleError;
+/// 
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary)]
@@ -115,9 +139,10 @@ use syn::parse_macro_input;
 ///     user_id: i32,
 /// }
 ///
-/// # fn main() {
-/// # let connection = rusqlite::Connection::open_in_memory().unwrap();
+/// # fn main() -> Result<(), DrizzleError> {
+/// let connection = rusqlite::Connection::open_in_memory()?;
 /// let (db, (users, posts)) = drizzle!(connection, [Users, Posts]);
+/// # Ok(())
 /// # }
 /// ```
 #[proc_macro]
@@ -155,7 +180,8 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// ## Text Storage (Variant Names)
 /// ```rust
-/// # use procmacros::{SQLiteEnum, SQLiteTable};
+/// use drizzle_rs::prelude::*;
+/// 
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum UserRole {
 ///     #[default]
@@ -175,7 +201,8 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// ## Integer Storage (Discriminants)
 /// ```rust
-/// # use procmacros::{SQLiteEnum, SQLiteTable};
+/// use drizzle_rs::prelude::*;
+/// 
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
 ///     #[default]
@@ -277,7 +304,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Basic Table
 /// ```rust
-/// # use procmacros::SQLiteTable;
+/// use drizzle_rs::prelude::*;
+/// 
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary, autoincrement)]
@@ -293,7 +321,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Table with Defaults
 /// ```rust
-/// # use procmacros::SQLiteTable;
+/// use drizzle_rs::prelude::*;
+/// 
 /// #[SQLiteTable(name = "posts", strict)]
 /// struct Posts {
 ///     #[integer(primary, autoincrement)]
@@ -309,8 +338,9 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Enums and JSON
 /// ```rust
-/// # use procmacros::{SQLiteEnum, SQLiteTable};
-/// # use serde::{Serialize, Deserialize};
+/// use drizzle_rs::prelude::*;
+/// use serde::{Serialize, Deserialize};
+/// 
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Role {
 ///     #[default]
@@ -345,7 +375,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// Use `Option<T>` for nullable fields, or `T` for NOT NULL constraints:
 ///
 /// ```rust
-/// # use procmacros::SQLiteTable;
+/// use drizzle_rs::prelude::*;
+/// 
 /// #[SQLiteTable]
 /// struct Example {
 ///     #[integer(primary)]
@@ -428,15 +459,11 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// 
 /// # Syntax
 /// ```rust
-/// # use procmacros::sql;
-/// # struct users;
-/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for users {
-/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
-/// #         drizzle_core::SQL::text("users")
-/// #     }
-/// # }
-/// # let users = users;
-/// # let posts = users;
+/// # use drizzle_rs::{sql, prelude::*};
+/// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
+/// # #[SQLiteTable] struct Posts { #[integer(primary)] id: i32, #[integer] author: i32 }
+/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
+/// # let (db, (users, posts)) = drizzle!(conn, [Users, Posts]);
 /// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
 /// ```
 /// 
@@ -444,40 +471,28 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// 
 /// ## Basic Usage
 /// ```rust
-/// # use procmacros::sql;
-/// # struct users;
-/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for users {
-/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
-/// #         drizzle_core::SQL::text("users")
-/// #     }
-/// # }
-/// # let users = users;
+/// # use drizzle_rs::{sql, prelude::*};
+/// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
+/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
+/// # let (db, users) = drizzle!(conn, Users);
 /// let query = sql!("SELECT * FROM {users}");
 /// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
 /// ```
 /// 
 /// ## Multiple Expressions
 /// ```rust
-/// # use procmacros::sql;
-/// # struct users; struct posts;
-/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for users {
-/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
-/// #         drizzle_core::SQL::text("users")
-/// #     }
-/// # }
-/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for posts {
-/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
-/// #         drizzle_core::SQL::text("posts")
-/// #     }
-/// # }
-/// # let users = users; let posts = posts;
+/// # use drizzle_rs::{sql, prelude::*};
+/// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
+/// # #[SQLiteTable] struct Posts { #[integer(primary)] id: i32, #[integer] author: i32 }
+/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
+/// # let (db, (users, posts)) = drizzle!(conn, [Users, Posts]);
 /// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
 /// ```
 /// 
 /// ## Escaped Braces
 /// Use `{{` and `}}` for literal braces in the SQL:
 /// ```rust
-/// # use procmacros::sql;
+/// # use drizzle_rs::{sql, prelude::*};
 /// let query = sql!("SELECT JSON_OBJECT('key', {{value}}) FROM table");
 /// // Generates: SQL::text("SELECT JSON_OBJECT('key', {value}) FROM table")
 /// ```

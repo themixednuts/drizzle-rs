@@ -117,7 +117,7 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
 
     if segments.is_empty() {
         return Ok(quote! {
-            drizzle_core::SQL::empty()
+            ::drizzle_rs::core::SQL::empty()
         });
     }
 
@@ -129,7 +129,7 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
             SqlSegment::Text(text) => {
                 if !text.is_empty() {
                     segment_tokens.push(quote! {
-                        drizzle_core::SQL::text(#text)
+                        ::drizzle_rs::core::SQL::text(#text)
                     });
                 }
             }
@@ -143,7 +143,7 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
                 })?;
 
                 segment_tokens.push(quote! {
-                    drizzle_core::ToSQL::to_sql(&#expr)
+                    ::drizzle_rs::core::ToSQL::to_sql(&#expr)
                 });
             }
         }
@@ -190,7 +190,8 @@ mod tests {
     #[test]
     fn test_parse_multiple_expressions() {
         let segments = parse_template("SELECT {column} FROM {table} WHERE {condition}").unwrap();
-        assert_eq!(segments.len(), 5);
+        println!("Segments: {:#?}", segments);
+        assert_eq!(segments.len(), 6);
 
         match &segments[0] {
             SqlSegment::Text(text) => assert_eq!(text, "SELECT "),
@@ -199,6 +200,26 @@ mod tests {
 
         match &segments[1] {
             SqlSegment::Expression(expr) => assert_eq!(expr, "column"),
+            _ => panic!("Expected expression segment"),
+        }
+
+        match &segments[2] {
+            SqlSegment::Text(text) => assert_eq!(text, " FROM "),
+            _ => panic!("Expected text segment"),
+        }
+
+        match &segments[3] {
+            SqlSegment::Expression(expr) => assert_eq!(expr, "table"),
+            _ => panic!("Expected expression segment"),
+        }
+
+        match &segments[4] {
+            SqlSegment::Text(text) => assert_eq!(text, " WHERE "),
+            _ => panic!("Expected text segment"),
+        }
+
+        match &segments[5] {
+            SqlSegment::Expression(expr) => assert_eq!(expr, "condition"),
             _ => panic!("Expected expression segment"),
         }
     }
@@ -217,10 +238,26 @@ mod tests {
     #[test]
     fn test_parse_nested_braces() {
         let segments = parse_template("SELECT {func({inner})} FROM {table}").unwrap();
-        assert_eq!(segments.len(), 3);
+        println!("Nested segments: {:#?}", segments);
+        assert_eq!(segments.len(), 4);
+
+        match &segments[0] {
+            SqlSegment::Text(text) => assert_eq!(text, "SELECT "),
+            _ => panic!("Expected text segment"),
+        }
 
         match &segments[1] {
             SqlSegment::Expression(expr) => assert_eq!(expr, "func({inner})"),
+            _ => panic!("Expected expression segment"),
+        }
+
+        match &segments[2] {
+            SqlSegment::Text(text) => assert_eq!(text, " FROM "),
+            _ => panic!("Expected text segment"),
+        }
+
+        match &segments[3] {
+            SqlSegment::Expression(expr) => assert_eq!(expr, "table"),
             _ => panic!("Expected expression segment"),
         }
     }

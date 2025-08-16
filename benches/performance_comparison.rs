@@ -1,7 +1,7 @@
 // #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use drizzle_rs::{DrizzleMarker, prelude::*};
+use drizzle_rs::prelude::*;
 use rusqlite::Connection;
 use std::hint::black_box;
 
@@ -211,9 +211,9 @@ fn bulk_insert(c: &mut Criterion) {
                         )
                     })
                     .collect();
-                db.insert(users).values(data)
+                (db, users, data)
             },
-            |builder| builder.execute().unwrap(),
+            |(db, users, data)| db.insert(users).values(data).execute().unwrap(),
             BatchSize::SmallInput,
         );
     });

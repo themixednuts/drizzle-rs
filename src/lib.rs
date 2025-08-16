@@ -1,9 +1,8 @@
 extern crate self as drizzle_rs;
 
 mod drizzle;
-pub use drizzle::sqlite::DrizzleMarker;
 pub use drizzle_core::error::Result;
-pub use procmacros::{drizzle, qb};
+pub use procmacros::{drizzle, qb, sql};
 
 pub mod error {
     pub use drizzle_core::error::DrizzleError;
