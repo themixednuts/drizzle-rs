@@ -1,4 +1,5 @@
 use drizzle_core::ToSQL;
+use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use rusqlite::{Connection, params_from_iter};
 use std::marker::PhantomData;
@@ -149,6 +150,57 @@ impl<Schema> Drizzle<Schema> {
         let params = query.params();
 
         self.conn.execute(&sql, params_from_iter(params))
+    }
+
+    /// Runs the query and returns all matching rows (for SELECT queries)
+    pub fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    where
+        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
+        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = query.to_sql();
+        let sql_str = sql.sql();
+
+        let params = sql.params();
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql_str)
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        let rows = stmt.query_map(params_from_iter(params), |row| {
+            Ok(R::try_from(row).map_err(Into::into))
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row??);
+        }
+
+        Ok(results)
+    }
+
+    /// Runs the query and returns a single row (for SELECT queries)
+    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    where
+        R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
+        for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = query.to_sql();
+        let sql_str = sql.sql();
+
+        // Get parameters and handle potential errors from IntoParams
+        let params = sql.params();
+
+        let mut stmt = self.conn.prepare(&sql_str)?;
+
+        stmt.query_row(params_from_iter(params), |row| {
+            Ok(R::try_from(row).map_err(Into::into))
+        })?
     }
 }
 
