@@ -18,7 +18,7 @@ heck = { version = "0.5.0" }
 paste = { workspace = true }
 
 [dev-dependencies]
-drizzle_rs = { workspace = true }
+drizzle_rs = { workspace = true, features = ["rusqlite", "uuid", "serde"] }
 rusqlite = { workspace = true }
 uuid = { workspace = true }
 serde = { workspace = true }

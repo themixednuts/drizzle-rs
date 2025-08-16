@@ -1,6 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, Simple};
-use drizzle_rs::prelude::*;
+use drizzle_rs::{error::DrizzleError, prelude::*};
+use procmacros::sql;
+
+use crate::common::{InsertSimple, SelectSimple};
 
 mod common;
 
@@ -119,4 +122,30 @@ async fn test_select_specific_columns_vs_select_all() {
     // Both should have FROM clause
     assert!(select_all_sql.contains(r#"FROM "simple""#));
     assert!(select_specific_sql.contains(r#"FROM "simple""#));
+}
+
+#[test]
+fn test_sql_macro() -> Result<(), DrizzleError> {
+    let db = setup_test_db!();
+    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let id = 4;
+    drizzle
+        .insert(simple)
+        .values([InsertSimple::new("test").with_id(id)])
+        .execute()?;
+
+    let query = sql!(SELECT * FROM {simple} where {simple.id} = {id});
+    let sql = query.sql();
+    let params = query.params();
+
+    assert_eq!(sql, r#"SELECT * FROM "simple" where "simple"."id" = ?"#);
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
+
+    let results: Vec<SelectSimple> = drizzle.all(query)?;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, id);
+    assert_eq!(results[0].name, "test");
+
+    Ok(())
 }
