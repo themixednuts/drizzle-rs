@@ -211,7 +211,7 @@ impl From<&OwnedSQLiteValue> for libsql::Value {
 }
 
 // Implement core traits required by Drizzle
-impl drizzle_core::traits::SQLParam for OwnedSQLiteValue {}
+impl SQLParam for OwnedSQLiteValue {}
 
 impl From<OwnedSQLiteValue> for SQL<'_, OwnedSQLiteValue> {
     fn from(value: OwnedSQLiteValue) -> Self {

@@ -22,34 +22,29 @@ use std::marker::PhantomData;
 /// Wrapper for SQL with type information
 #[derive(Debug, Clone)]
 pub struct ValueWrapper<'a, V: SQLParam, T> {
-    pub sql: SQL<'a, V>,
+    pub value: SQL<'a, V>,
     pub _phantom: PhantomData<T>,
 }
 
 impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
-    pub const fn new(sql: SQL<'a, V>) -> Self {
-        Self {
-            sql,
+    pub const fn new<U>(value: SQL<'a, V>) -> ValueWrapper<'a, V, U> {
+        ValueWrapper {
+            value,
             _phantom: PhantomData,
         }
     }
 }
 
 /// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum InsertValue<'a, V: SQLParam, T> {
     /// Omit this column from the INSERT (use database default)
+    #[default]
     Omit,
     /// Explicitly insert NULL
     Null,
     /// Insert a SQL expression (value, placeholder, etc.)
     Value(ValueWrapper<'a, V, T>),
-}
-
-impl<'a, V: SQLParam, T> Default for InsertValue<'a, V, T> {
-    fn default() -> Self {
-        Self::Omit
-    }
 }
 
 // Conversion implementations for SQLiteValue-based InsertValue
@@ -58,41 +53,44 @@ impl<'a, V: SQLParam, T> Default for InsertValue<'a, V, T> {
 impl<'a, T> From<T> for InsertValue<'a, SQLiteValue<'a>, T>
 where
     T: TryInto<SQLiteValue<'a>>,
-    T::Error: std::fmt::Debug,
 {
     fn from(value: T) -> Self {
-        let sqlite_value: SQLiteValue<'a> = value.try_into().unwrap_or_else(|_| SQLiteValue::Null);
-        InsertValue::Value(ValueWrapper::new(SQL::parameter(sqlite_value)))
+        let sql = value
+            .try_into()
+            .map(|v: SQLiteValue<'a>| SQL::from(v))
+            .unwrap_or_else(|_| SQL::from(SQLiteValue::Null));
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }
 
-// Specific conversions for field type mismatches
-impl<'a> From<&'a str> for InsertValue<'a, SQLiteValue<'a>, String> {
-    fn from(value: &'a str) -> Self {
-        let sqlite_value: SQLiteValue<'a> = value.into();
-        InsertValue::Value(ValueWrapper::new(SQL::parameter(sqlite_value)))
+// Specific conversion for &str to String InsertValue
+impl<'a> From<&str> for InsertValue<'a, SQLiteValue<'a>, String> {
+    fn from(value: &str) -> Self {
+        let sqlite_value = SQL::parameter(Cow::Owned(SQLiteValue::from(value.to_string())));
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, String>::new(sqlite_value))
     }
 }
 
-// Placeholder can be used with any field type T
+// Placeholder conversion for OwnedSQLiteValue
 impl<'a, T> From<Placeholder> for InsertValue<'a, SQLiteValue<'a>, T> {
     fn from(placeholder: Placeholder) -> Self {
-        InsertValue::Value(ValueWrapper::new(SQL::from_placeholder(placeholder)))
+        // For now, placeholders become Null values in owned context
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
+            SQL::from_placeholder(placeholder),
+        ))
     }
 }
 
-// Option conversion
+// Option conversion for OwnedSQLiteValue
 impl<'a, T> From<Option<T>> for InsertValue<'a, SQLiteValue<'a>, T>
 where
-    T: TryInto<SQLiteValue<'a>>,
-    T::Error: std::fmt::Debug,
+    T: ToSQL<'a, SQLiteValue<'a>>,
 {
     fn from(value: Option<T>) -> Self {
         match value {
             Some(v) => {
-                let sqlite_value: SQLiteValue<'a> =
-                    v.try_into().unwrap_or_else(|_| SQLiteValue::Null);
-                InsertValue::Value(ValueWrapper::new(SQL::parameter(sqlite_value)))
+                let sql = v.to_sql();
+                InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
             }
             None => InsertValue::Omit,
         }

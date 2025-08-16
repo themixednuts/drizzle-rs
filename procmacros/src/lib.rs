@@ -33,6 +33,7 @@ mod drizzle;
 mod fromrow;
 mod qb;
 mod schema;
+mod sql;
 mod utils;
 
 #[cfg(feature = "sqlite")]
@@ -416,5 +417,80 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
     match crate::fromrow::generate_from_row_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// A procedural macro for building SQL queries with embedded expressions.
+///
+/// This macro parses a SQL template string and generates type-safe SQL code by:
+/// - Converting literal text to `SQL::text()` calls
+/// - Converting expressions in `{braces}` to `.to_sql()` calls on the expression
+/// 
+/// # Syntax
+/// ```rust
+/// # use procmacros::sql;
+/// # struct users;
+/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for users {
+/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
+/// #         drizzle_core::SQL::text("users")
+/// #     }
+/// # }
+/// # let users = users;
+/// # let posts = users;
+/// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
+/// ```
+/// 
+/// # Examples
+/// 
+/// ## Basic Usage
+/// ```rust
+/// # use procmacros::sql;
+/// # struct users;
+/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for users {
+/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
+/// #         drizzle_core::SQL::text("users")
+/// #     }
+/// # }
+/// # let users = users;
+/// let query = sql!("SELECT * FROM {users}");
+/// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
+/// ```
+/// 
+/// ## Multiple Expressions
+/// ```rust
+/// # use procmacros::sql;
+/// # struct users; struct posts;
+/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for users {
+/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
+/// #         drizzle_core::SQL::text("users")
+/// #     }
+/// # }
+/// # impl drizzle_core::ToSQL<'static, drizzle_core::SQLiteValue> for posts {
+/// #     fn to_sql(&self) -> drizzle_core::SQL<'static, drizzle_core::SQLiteValue> {
+/// #         drizzle_core::SQL::text("posts")
+/// #     }
+/// # }
+/// # let users = users; let posts = posts;
+/// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
+/// ```
+/// 
+/// ## Escaped Braces
+/// Use `{{` and `}}` for literal braces in the SQL:
+/// ```rust
+/// # use procmacros::sql;
+/// let query = sql!("SELECT JSON_OBJECT('key', {{value}}) FROM table");
+/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {value}) FROM table")
+/// ```
+///
+/// # Requirements
+/// 
+/// All expressions within `{braces}` must implement `ToSQL<'a, V>` trait.
+#[proc_macro]
+pub fn sql(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as crate::sql::SqlInput);
+    
+    match crate::sql::sql_impl(input) {
+        Ok(output) => output.into(),
+        Err(err) => err.into_compile_error().into(),
     }
 }

@@ -69,7 +69,7 @@ async fn simple_select_with_conditions() {
         drizzle
             .select((simple.id, simple.name))
             .from(simple)
-            .order_by([(simple.name, OrderBy::Asc)])
+            .order_by([OrderBy::asc(simple.name)])
             .limit(2)
             .all()
     );
@@ -83,7 +83,7 @@ async fn simple_select_with_conditions() {
         drizzle
             .select((simple.id, simple.name))
             .from(simple)
-            .order_by([(simple.name, OrderBy::Asc)])
+            .order_by([OrderBy::asc(simple.name)])
             .limit(2)
             .offset(2)
             .all()

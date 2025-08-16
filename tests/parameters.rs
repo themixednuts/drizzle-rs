@@ -74,6 +74,86 @@ fn test_placeholder_styles() {
     // Parameters contain placeholder name internally
 }
 
+#[cfg(all(feature = "rusqlite", feature = "serde", feature = "uuid"))]
+#[tokio::test]
+async fn test_insert_with_placeholders() {
+    use drizzle_core::SQL;
+    use sqlite::{InsertValue, SQLiteValue, values::ValueWrapper};
+    
+    let db = setup_test_db!();
+    let (drizzle, simple) = drizzle!(db, [Simple]);
+
+    // Create insert model with explicit placeholders
+    let mut insert_data = InsertSimple::new("placeholder_test");
+    
+    // Replace the name field with an explicit placeholder
+    insert_data.name = InsertValue::Value(
+        ValueWrapper::<SQLiteValue, String>::new(SQL::placeholder("user_name"))
+    );
+
+    // Insert the data (should preserve the placeholder in the SQL)
+    let insert_result = drizzle.insert(simple).values([insert_data]);
+    
+    // Check that the generated SQL contains the placeholder
+    let sql_string = insert_result.to_sql().sql();
+    println!("Generated SQL: {}", sql_string);
+    
+    // The SQL should contain the named placeholder
+    assert!(sql_string.contains(":user_name"), "SQL should contain the :user_name placeholder");
+    
+    // Test that parameters are correctly preserved
+    let sql = insert_result.to_sql();
+    let params = sql.params();
+    assert!(params.is_empty(), "Should have no bound parameters since we used a placeholder");
+}
+
+#[cfg(all(feature = "rusqlite", feature = "serde", feature = "uuid"))]
+#[tokio::test]
+async fn test_insert_with_placeholders_execute_and_retrieve() {
+    use drizzle_core::{SQL, prepared::prepare_render};
+    use sqlite::{InsertValue, SQLiteValue, values::ValueWrapper, params};
+    
+    #[derive(FromRow, Debug)]
+    struct SimpleResult {
+        id: i32,
+        name: String,
+    }
+    
+    let db = setup_test_db!();
+    let (drizzle, simple) = drizzle!(db, [Simple]);
+
+    // Create insert model with explicit placeholders
+    let mut insert_data = InsertSimple::new("placeholder_test");
+    
+    // Replace the name field with an explicit placeholder
+    insert_data.name = InsertValue::Value(
+        ValueWrapper::<SQLiteValue, String>::new(SQL::placeholder("user_name"))
+    );
+
+    // Prepare the insert statement and execute it with bound parameters
+    let prepared_insert = drizzle.insert(simple).values([insert_data]).prepare();
+    
+    // Execute the prepared insert with bound parameters
+    let row_count = drizzle_exec!(prepared_insert.execute(drizzle.conn(), params![
+        {user_name: "Alice"}
+    ]));
+    assert_eq!(row_count, 1, "Should have inserted one row");
+    
+    // Retrieve the data to verify it was inserted correctly
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        drizzle
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "Alice"))
+            .all()
+    );
+    
+    assert_eq!(results.len(), 1, "Should have found one result");
+    assert_eq!(results[0].name, "Alice", "Name should match the bound placeholder value");
+    
+    println!("Successfully inserted and retrieved: {:?}", results[0]);
+}
+
 #[tokio::test]
 async fn test_parameter_integration_with_query_builder() {
     #[derive(FromRow, Default)]

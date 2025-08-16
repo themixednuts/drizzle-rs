@@ -74,7 +74,7 @@ impl<'a> MacroContext<'a> {
         let base_type = field.base_type;
         match model_type {
             ModelType::Insert => {
-                // All insert fields use InsertValue for three-state handling
+                // All insert fields use InsertValue for three-state handling with owned data
                 quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>)
             },
             ModelType::Update => quote!(Option<#base_type>),
@@ -828,6 +828,7 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
             type Update = #update_model;
         }
 
+
         impl ::drizzle_rs::core::SQLTableInfo for #struct_ident {
             fn name(&self) -> &str {
                 Self::NAME
@@ -854,6 +855,7 @@ fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Resu
                 INSTANCE.as_table().to_sql()
             }
         }
+
     })
 }
 
@@ -1116,7 +1118,7 @@ fn generate_insert_model(ctx: &MacroContext) -> Result<TokenStream> {
                             sql_parts.push(SQL::parameter(::drizzle_rs::sqlite::SQLiteValue::Null));
                         }
                         ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
-                            sql_parts.push(wrapper.sql.clone());
+                            sql_parts.push(wrapper.value.clone());
                         }
                     }
                 )*
@@ -1476,10 +1478,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     // Generate compile-time validation for default literals
     let default_validations = generate_default_validations(&field_infos);
 
-    // -------------------
-    // 3. Assembly Phase
-    // -------------------
-    Ok(quote! {
+    let expanded =quote! {
         // Compile-time validation for default literals
         #default_validations
 
@@ -1496,5 +1495,8 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         #rusqlite_impls
         #turso_impls
         #libsql_impls
-    })
+    }; 
+
+    // eprintln!("{expanded}");
+    Ok(expanded)
 }

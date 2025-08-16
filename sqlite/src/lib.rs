@@ -28,7 +28,7 @@ pub mod prelude {
     pub use ::rusqlite::types::ToSql;
 }
 
-pub use self::values::{InsertValue, SQLiteValue};
+pub use self::values::{InsertValue, SQLiteValue, OwnedSQLiteValue};
 
 /// SQLite transaction types
 #[derive(Debug, Clone, Copy)]

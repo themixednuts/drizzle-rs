@@ -1,4 +1,4 @@
-use crate::{common::Join, values::SQLiteValue};
+use crate::{OwnedSQLiteValue, common::Join, values::SQLiteValue};
 use drizzle_core::{
     SQL, SQLTable, ToSQL, helpers as core_helpers,
     traits::{SQLColumnInfo, SQLModel, SQLParam},
@@ -10,7 +10,7 @@ pub(crate) use core_helpers::{
 };
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a, V>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, V>
+fn columns_info_to_sql<'a, 'b, V>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
@@ -23,10 +23,10 @@ where
     SQL::raw(joined_names)
 }
 
-fn join_internal<'a, T, V>(table: T, join: Join, condition: SQL<'a, V>) -> SQL<'a, V>
+fn join_internal<'a, T, Value>(table: T, join: Join, condition: SQL<'a, Value>) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     let sql = join.to_sql();
     let sql = sql.append_raw(" ");
@@ -36,144 +36,180 @@ where
 }
 
 /// Helper function to create a JOIN clause using table generic
-pub fn natural_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_join<'a, T, Value>(table: T, condition: SQL<'a, Value>) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     join_internal(table, Join::default().natural(), condition)
 }
 
 /// Helper function to create a JOIN clause using table generic
-pub fn join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn join<'a, T, Value>(table: T, condition: SQL<'a, Value>) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     join_internal(table, Join::default(), condition)
 }
 
-pub fn natural_left_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_left_join<'a, T, Value>(table: T, condition: SQL<'a, Value>) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().left(), condition)
 }
 
 /// Helper function to create a LEFT JOIN clause using table generic
-pub fn left_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn left_join<'a, T, TableValue>(table: T, condition: SQL<'a, TableValue>) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().left(), condition)
 }
 
-pub fn left_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn left_outer_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().left().outer(), condition)
 }
 
-pub fn natural_left_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_left_outer_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().left().outer(), condition)
 }
 
-pub fn natural_right_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_right_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().right(), condition)
 }
 
 /// Helper function to create a RIGHT JOIN clause using table generic
-pub fn right_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn right_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().right(), condition)
 }
 
-pub fn right_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn right_outer_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().right().outer(), condition)
 }
 
-pub fn natural_right_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_right_outer_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().right().outer(), condition)
 }
 
-pub fn natural_full_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_full_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().full(), condition)
 }
 
 /// Helper function to create a FULL JOIN clause using table generic
-pub fn full_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn full_join<'a, T, TableValue>(table: T, condition: SQL<'a, TableValue>) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().full(), condition)
 }
 
-pub fn full_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn full_outer_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().full().outer(), condition)
 }
 
-pub fn natural_full_outer_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_full_outer_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().full().outer(), condition)
 }
 
-pub fn natural_inner_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn natural_inner_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().natural().inner(), condition)
 }
 
 /// Helper function to create an INNER JOIN clause using table generic
-pub fn inner_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn inner_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().inner(), condition)
 }
 
 /// Helper function to create a CROSS JOIN clause using table generic
-pub fn cross_join<'a, T, V>(table: T, condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn cross_join<'a, T, TableValue>(
+    table: T,
+    condition: SQL<'a, TableValue>,
+) -> SQL<'a, TableValue>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, TableValue>,
+    TableValue: SQLParam + 'a,
 {
     join_internal(table, Join::new().cross(), condition)
 }
@@ -188,12 +224,11 @@ where
 
 /// Helper function to create VALUES clause for INSERT with smart batching
 /// Groups rows by their column patterns and generates separate batch INSERT statements
-pub(crate) fn values<'a, Table, V>(
-    rows: impl IntoIterator<Item = <Table as SQLTable<'a, V>>::Insert>,
-) -> SQL<'a, V>
+pub(crate) fn values<'a, Table>(
+    rows: impl IntoIterator<Item = <Table as SQLTable<'a, SQLiteValue<'a>>>::Insert>,
+) -> SQL<'a, SQLiteValue<'a>>
 where
-    Table: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    Table: SQLTable<'a, SQLiteValue<'a>>,
 {
     let mut iter = rows.into_iter();
 
@@ -271,7 +306,7 @@ where
 }
 
 /// Helper function to create a RETURNING clause - SQLite specific
-pub(crate) fn returning<'a, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
+pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
     I: ToSQL<'a, SQLiteValue<'a>>,
 {

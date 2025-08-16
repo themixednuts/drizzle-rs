@@ -1,5 +1,3 @@
-#[cfg(feature = "rusqlite")]
-use crate::SQLiteValue;
 use crate::builder::{ExecutableState, QueryBuilder};
 use drizzle_core::ParamBind;
 use drizzle_core::error::{DrizzleError, Result};
@@ -10,7 +8,7 @@ where
     State: ExecutableState,
 {
     /// Runs the query and returns the number of affected rows
-    pub fn execute(&self, conn: &Connection) -> Result<usize> {
+    pub fn execute(self, conn: &Connection) -> Result<usize> {
         let sql = self.sql.sql();
 
         // Get parameters and handle potential errors from IntoParams

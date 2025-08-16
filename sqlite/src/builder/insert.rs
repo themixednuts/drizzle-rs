@@ -1,5 +1,5 @@
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, SQLTable, ToSQL};
+use drizzle_core::{SQL, SQLModel, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -99,14 +99,14 @@ pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
     Table: SQLTable<'a, SQLiteValue<'a>>,
-    Table::Insert: ToSQL<'a, SQLiteValue<'a>>,
+    Table::Insert: SQLModel<'a, SQLiteValue<'a>>,
 {
     /// Sets values to insert and transitions to ValuesSet state
-    pub fn values(
-        self,
-        values: impl IntoIterator<Item = Table::Insert>,
-    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table> {
-        let sql = crate::helpers::values::<'a, Table, SQLiteValue>(values);
+    pub fn values<I>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        I: IntoIterator<Item = Table::Insert>,
+    {
+        let sql = crate::helpers::values::<'a, Table>(values);
         InsertBuilder {
             sql: self.sql.append(sql),
             schema: PhantomData,

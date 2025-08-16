@@ -49,11 +49,10 @@ where
 /// Helper function to create an ORDER BY clause
 pub fn order_by<'a, T, V>(expressions: T) -> SQL<'a, V>
 where
-    T: crate::traits::OrderByTuple<'a, V>,
+    T: ToSQL<'a, V>,
     V: SQLParam + 'a,
 {
-    let sql = SQL::raw("ORDER BY");
-    sql.append(expressions.to_order_by_sql())
+    SQL::raw("ORDER BY").append(expressions.to_sql())
 }
 
 /// Helper function to create a LIMIT clause

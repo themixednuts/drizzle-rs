@@ -1,4 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use std::marker::PhantomData;
+
 use common::{Complex, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, Simple};
 use drizzle_rs::prelude::*;
 

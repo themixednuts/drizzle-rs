@@ -1,7 +1,7 @@
 use crate::helpers;
 use crate::values::SQLiteValue;
 use drizzle_core::traits::{IsInSchema, SQLTable};
-use drizzle_core::{OrderBy, SQL, ToSQL};
+use drizzle_core::{SQL, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -231,13 +231,12 @@ where
     }
 
     /// Sorts the query results
-    pub fn order_by<TSQL, TIter>(
+    pub fn order_by<TOrderBy>(
         self,
-        expressions: TIter,
+        expressions: TOrderBy,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TSQL: ToSQL<'a, SQLiteValue<'a>>,
-        TIter: IntoIterator<Item = (TSQL, OrderBy)>,
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -266,13 +265,12 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         }
     }
     /// Sorts the query results
-    pub fn order_by<TSQL, TIter>(
+    pub fn order_by<TOrderBy>(
         self,
-        expressions: TIter,
+        expressions: TOrderBy,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TSQL: ToSQL<'a, SQLiteValue<'a>>,
-        TIter: IntoIterator<Item = (TSQL, OrderBy)>,
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -316,9 +314,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     }
 
     /// Adds an ORDER BY clause after a WHERE
-    pub fn order_by<TI>(self, expressions: TI) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TI: IntoIterator<Item = (SQL<'a, SQLiteValue<'a>>, OrderBy)>,
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -358,10 +356,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     }
 
     /// Adds an ORDER BY clause after GROUP BY
-    pub fn order_by(
-        self,
-        expressions: Vec<(SQL<'a, SQLiteValue<'a>>, OrderBy)>,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T> {
+    pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    where
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
+    {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
             schema: PhantomData,

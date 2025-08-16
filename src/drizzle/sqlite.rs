@@ -83,6 +83,35 @@ pub use turso::Drizzle;
 #[cfg(feature = "libsql")]
 pub use libsql::Drizzle;
 
+pub trait DrizzleMarker<Schema> {
+    fn insert<'a, Table: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<Schema>>(
+        &'a self,
+        table: Table,
+    ) -> DrizzleBuilder<
+        'a,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
+        insert::InsertInitial,
+    >;
+}
+
+impl<Schema> DrizzleMarker<Schema> for Drizzle<Schema> {
+    fn insert<'a, Table>(
+        &'a self,
+        table: Table,
+    ) -> DrizzleBuilder<
+        'a,
+        Schema,
+        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
+        insert::InsertInitial,
+    >
+    where
+        Table: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<Schema>,
+    {
+        self.insert(table)
+    }
+}
+
 //------------------------------------------------------------------------------
 // DrizzleBuilder - Builder with Type State Pattern
 //------------------------------------------------------------------------------
@@ -95,7 +124,8 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
 }
 
 // Generic prepare method for all drivers
-impl<'a, S, Schema, State, Table> DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
@@ -188,9 +218,9 @@ where
         }
     }
 
-    pub fn order_by<TSQL, TIter>(
+    pub fn order_by<TOrderBy>(
         self,
-        expressions: TIter,
+        expressions: TOrderBy,
     ) -> DrizzleBuilder<
         'a,
         Schema,
@@ -198,8 +228,7 @@ where
         select::SelectOrderSet,
     >
     where
-        TSQL: ToSQL<'a, SQLiteValue<'a>>,
-        TIter: IntoIterator<Item = (TSQL, drizzle_core::OrderBy)>,
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.order_by(expressions);
         DrizzleBuilder {
@@ -259,9 +288,9 @@ where
             state: PhantomData,
         }
     }
-    pub fn order_by<TSQL, TIter>(
+    pub fn order_by<TOrderBy>(
         self,
-        expressions: TIter,
+        expressions: TOrderBy,
     ) -> DrizzleBuilder<
         'a,
         Schema,
@@ -269,8 +298,7 @@ where
         select::SelectOrderSet,
     >
     where
-        TSQL: ToSQL<'a, SQLiteValue<'a>>,
-        TIter: IntoIterator<Item = (TSQL, drizzle_core::OrderBy)>,
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.order_by(expressions);
         DrizzleBuilder {
@@ -331,9 +359,9 @@ where
         }
     }
 
-    pub fn order_by<TI>(
+    pub fn order_by<TOrderBy>(
         self,
-        expressions: TI,
+        expressions: TOrderBy,
     ) -> DrizzleBuilder<
         'a,
         Schema,
@@ -341,12 +369,7 @@ where
         select::SelectOrderSet,
     >
     where
-        TI: IntoIterator<
-            Item = (
-                drizzle_core::SQL<'a, SQLiteValue<'a>>,
-                drizzle_core::OrderBy,
-            ),
-        >,
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.order_by(expressions);
         DrizzleBuilder {

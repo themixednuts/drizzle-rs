@@ -45,6 +45,26 @@ pub enum OrderBy {
     Desc,
 }
 
+impl OrderBy {
+    /// Creates an ascending ORDER BY clause: "column ASC"
+    pub fn asc<'a, V, T>(column: T) -> SQL<'a, V>
+    where
+        V: SQLParam + 'a,
+        T: ToSQL<'a, V>,
+    {
+        column.to_sql().append(Self::Asc.to_sql())
+    }
+
+    /// Creates a descending ORDER BY clause: "column DESC"
+    pub fn desc<'a, V, T>(column: T) -> SQL<'a, V>
+    where
+        V: SQLParam + 'a,
+        T: ToSQL<'a, V>,
+    {
+        column.to_sql().append(Self::Desc.to_sql())
+    }
+}
+
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for OrderBy {
     fn to_sql(&self) -> SQL<'a, V> {
         let sql_str = match self {

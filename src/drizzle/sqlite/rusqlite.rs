@@ -51,17 +51,17 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates a SELECT query builder.
     #[cfg(feature = "sqlite")]
-    pub fn select<'a, T>(
+    pub fn select<'a, 'b, T>(
         &'a self,
         query: T,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        SelectBuilder<'a, Schema, select::SelectInitial>,
+        SelectBuilder<'b, Schema, select::SelectInitial>,
         select::SelectInitial,
     >
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'b, SQLiteValue<'b>>,
     {
         use sqlite::builder::QueryBuilder;
 
@@ -76,20 +76,18 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates an INSERT query builder.
     #[cfg(feature = "sqlite")]
-    pub fn insert<'a, T>(
+    pub fn insert<'a, Table>(
         &'a self,
-        table: T,
+        table: Table,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        InsertBuilder<'a, Schema, insert::InsertInitial, T>,
+        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
         insert::InsertInitial,
     >
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>> + 'a,
+        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
-        use sqlite::builder::QueryBuilder;
-
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
             drizzle: self,
@@ -100,17 +98,17 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates an UPDATE query builder.
     #[cfg(feature = "sqlite")]
-    pub fn update<'a, T>(
+    pub fn update<'a, Table>(
         &'a self,
-        table: T,
+        table: Table,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, update::UpdateInitial, T>,
+        UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
         update::UpdateInitial,
     >
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {

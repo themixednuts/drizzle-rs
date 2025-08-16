@@ -1,7 +1,7 @@
 use std::any::Any;
 mod tuple;
 
-use crate::{OrderBy, SQL, SQLSchemaType, ToSQL};
+use crate::{SQL, SQLSchemaType, ToSQL};
 
 /// A marker trait for types that can be used as SQL parameters.
 ///
@@ -263,54 +263,4 @@ pub trait SQLIndex<'a, Value: SQLParam + 'a>: ToSQL<'a, Value> {
     }
 }
 
-/// Trait for tuples that can be used in ORDER BY clauses with heterogeneous column and direction pairs
-pub trait OrderByTuple<'a, V>
-where
-    V: SQLParam + 'a,
-{
-    fn to_order_by_sql(&self) -> SQL<'a, V>;
-}
-
-// Implementations for arrays and slices
-impl<'a, V, T, const N: usize> OrderByTuple<'a, V> for [(T, OrderBy); N]
-where
-    V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
-{
-    fn to_order_by_sql(&self) -> SQL<'a, V> {
-        SQL::join(
-            self.iter()
-                .map(|(column, direction)| column.to_sql().append(direction.to_sql())),
-            ", ",
-        )
-    }
-}
-
-impl<'a, V, T> OrderByTuple<'a, V> for &[(T, OrderBy)]
-where
-    V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
-{
-    fn to_order_by_sql(&self) -> SQL<'a, V> {
-        SQL::join(
-            self.iter()
-                .map(|(column, direction)| column.to_sql().append(direction.to_sql())),
-            ", ",
-        )
-    }
-}
-
-impl<'a, V, T> OrderByTuple<'a, V> for Vec<(T, OrderBy)>
-where
-    V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
-{
-    fn to_order_by_sql(&self) -> SQL<'a, V> {
-        SQL::join(
-            self.iter()
-                .map(|(column, direction)| column.to_sql().append(direction.to_sql())),
-            ", ",
-        )
-    }
-}
 

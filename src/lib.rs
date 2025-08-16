@@ -1,6 +1,7 @@
 extern crate self as drizzle_rs;
 
 mod drizzle;
+pub use drizzle::sqlite::DrizzleMarker;
 pub use drizzle_core::error::Result;
 pub use procmacros::{drizzle, qb};
 
@@ -13,10 +14,10 @@ pub mod core {
     // Core traits and types from core crate
     pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
     pub use drizzle_core::traits::*;
-    pub use drizzle_core::{Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL};
+    pub use drizzle_core::{
+        OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, SQLSchemaType, ToSQL,
+    };
 
-    // Core expression functions & macros
-    pub use drizzle_core::SQLSchemaType;
     pub use drizzle_core::expressions::conditions::*;
 }
 
@@ -31,7 +32,7 @@ pub mod sqlite {
     pub use sqlite::builder;
     pub use sqlite::conditions;
     pub use sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
-    pub use sqlite::values::{InsertValue, SQLiteValue};
+    pub use sqlite::values::{InsertValue, OwnedSQLiteValue, SQLiteValue, ValueWrapper};
     pub use sqlite::{SQLiteTransactionType, params};
 
     // Re-export rusqlite specific functionality when the feature is enabled
@@ -166,30 +167,29 @@ mod tests {
 
     #[test]
     fn test_placeholder_integration() {
-        use drizzle_rs::core::{SQL, Placeholder};
-        
+        use drizzle_rs::core::Placeholder;
+
         // Test that placeholders work with the new unified SQL-based approach
         let placeholder = Placeholder::colon("test_name");
-        let insert_value: InsertUser = InsertUser::default()
-            .with_name(placeholder);
-        
+        let insert_value: InsertUser = InsertUser::default().with_name(placeholder);
+
         // Verify it's a Value variant containing SQL with the placeholder
         match &insert_value.name {
             drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
                 // Check that the SQL contains our placeholder
-                let sql_string = wrapper.sql.sql();
+                let sql_string = wrapper.value.sql();
                 assert!(sql_string.contains("test_name") || sql_string.contains("?"));
-            },
+            }
             _ => panic!("Expected Value variant containing SQL"),
         }
-        
+
         // Test that regular values still work
         let regular_insert: InsertUser = InsertUser::default().with_name("regular_value");
         match &regular_insert.name {
             drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
                 // Check that the SQL contains our parameter
-                assert!(!wrapper.sql.sql().is_empty());
-            },
+                assert!(!wrapper.value.sql().is_empty());
+            }
             _ => panic!("Expected Value variant for regular string"),
         }
     }
