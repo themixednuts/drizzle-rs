@@ -3,7 +3,6 @@ use common::{
     Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
     PostCategory,
 };
-use drizzle_core::{OrderBy, sql};
 use drizzle_rs::prelude::*;
 use procmacros::FromRow;
 use std::array;
@@ -79,10 +78,7 @@ async fn simple_inner_join() {
             .select(AuthorPostResult::default())
             .from(complex)
             .inner_join(post, eq(complex.id, post.author_id))
-            .order_by(sql![
-                (complex.name, OrderBy::Asc),
-                (post.title, OrderBy::Asc)
-            ])
+            .order_by(((complex.name, OrderBy::Asc), (post.title, OrderBy::Asc)))
             .all()
     );
 
@@ -177,10 +173,7 @@ async fn many_to_many_join() {
         .from(post)
         .join(postcategory, eq(post.id, postcategory.post_id))
         .join(category, eq(postcategory.category_id, category.id))
-        .order_by(sql![
-            (post.title, OrderBy::Asc),
-            (category.name, OrderBy::Asc)
-        ]);
+        .order_by(((post.title, OrderBy::Asc), (category.name, OrderBy::Asc)));
     let sql = join_smt.to_sql().sql();
 
     println!("{sql:?}");
@@ -222,10 +215,7 @@ async fn many_to_many_join() {
             .join(postcategory, eq(post.id, postcategory.post_id))
             .join(category, eq(postcategory.category_id, category.id))
             .r#where(eq(post.published, true))
-            .order_by(sql![
-                (post.title, OrderBy::Asc),
-                (category.name, OrderBy::Asc)
-            ])
+            .order_by(((post.title, OrderBy::Asc), (category.name, OrderBy::Asc)))
             .all()
     );
 
