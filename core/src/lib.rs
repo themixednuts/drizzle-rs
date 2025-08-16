@@ -234,9 +234,9 @@ pub enum SQLChunk<'a, V: SQLParam + 'a> {
     Param(Param<'a, V>),
     SQL(Box<SQL<'a, V>>),
     /// A table reference that can render itself with proper schema/alias handling
-    Table(&'a dyn SQLTableInfo),
+    Table(&'static dyn SQLTableInfo),
     /// A column reference that can render itself with proper table qualification
-    Column(&'a dyn SQLColumnInfo),
+    Column(&'static dyn SQLColumnInfo),
     /// An alias wrapping any SQL chunk: "chunk AS alias"
     Alias {
         chunk: Box<SQLChunk<'a, V>>,
@@ -246,6 +246,35 @@ pub enum SQLChunk<'a, V: SQLParam + 'a> {
     Subquery(Box<SQL<'a, V>>),
 }
 
+pub enum OwnedSQLChunk<V: SQLParam> {
+    Text(CompactString),
+    Param(OwnedParam<V>),
+    SQL(Box<OwnedSQL<V>>),
+    Table(&'static dyn SQLTableInfo),
+    Column(&'static dyn SQLColumnInfo),
+    Alias {
+        chunk: Box<OwnedSQLChunk<V>>,
+        alias: CompactString,
+    },
+    Subquery(Box<OwnedSQL<V>>),
+}
+
+impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
+    fn from(value: SQLChunk<'a, V>) -> Self {
+        match value {
+            SQLChunk::Text(cow) => Self::Text(cow.into_owned()),
+            SQLChunk::Param(param) => Self::Param(param.into()),
+            SQLChunk::SQL(sql) => Self::SQL(Box::new((*sql).into())),
+            SQLChunk::Table(sqltable_info) => Self::Table(sqltable_info),
+            SQLChunk::Column(sqlcolumn_info) => Self::Column(sqlcolumn_info),
+            SQLChunk::Alias { chunk, alias } => Self::Alias {
+                chunk: Box::new((*chunk).into()),
+                alias,
+            },
+            SQLChunk::Subquery(sql) => Self::Subquery(Box::new((*sql).into())),
+        }
+    }
+}
 impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
     /// Creates a text chunk from a borrowed string - zero allocation
     pub const fn text(text: &'static str) -> Self {
@@ -266,12 +295,12 @@ impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
     }
 
     /// Creates a table chunk
-    pub const fn table(table: &'a dyn SQLTableInfo) -> Self {
+    pub const fn table(table: &'static dyn SQLTableInfo) -> Self {
         Self::Table(table)
     }
 
     /// Creates a column chunk
-    pub const fn column(column: &'a dyn SQLColumnInfo) -> Self {
+    pub const fn column(column: &'static dyn SQLColumnInfo) -> Self {
         Self::Column(column)
     }
 
@@ -345,13 +374,31 @@ impl<'a, V: SQLParam + std::fmt::Debug> std::fmt::Debug for SQLChunk<'a, V> {
 ///
 /// This type is used to build SQL statements with proper parameter handling.
 /// It keeps track of both the SQL text and the parameters to be bound.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SQL<'a, V: SQLParam> {
     /// The chunks that make up this SQL statement or fragment.
     pub chunks: SmallVec<[SQLChunk<'a, V>; 3]>,
 }
 
-impl<'a, V: SQLParam + 'a> SQL<'a, V> {
+pub struct OwnedSQL<V: SQLParam> {
+    pub chunks: SmallVec<[OwnedSQLChunk<V>; 3]>,
+}
+
+impl<'a, V: SQLParam> From<SQL<'a, V>> for OwnedSQL<V> {
+    fn from(value: SQL<'a, V>) -> Self {
+        Self {
+            chunks: value.chunks.iter().map(|v| v.clone().into()).collect(),
+        }
+    }
+}
+
+impl<V: SQLParam> ToSQL<'static, V> for OwnedSQL<V> {
+    fn to_sql(&self) -> SQL<'static, V> {
+        SQL::from(self)
+    }
+}
+
+impl<'a, V: SQLParam> SQL<'a, V> {
     /// Const placeholder instances for zero-copy usage
     const POSITIONAL_PLACEHOLDER: Placeholder = Placeholder::positional();
 
@@ -366,6 +413,10 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
         SQL {
             chunks: SmallVec::new_const(),
         }
+    }
+
+    pub fn into_owned(&self) -> OwnedSQL<V> {
+        OwnedSQL::from(self.clone())
     }
 
     /// Helper to create const SQL
@@ -424,13 +475,13 @@ impl<'a, V: SQLParam + 'a> SQL<'a, V> {
     }
 
     /// Creates a new SQL fragment representing a table.
-    pub fn table<'b>(table: &'b dyn SQLTableInfo) -> SQL<'b, V> {
+    pub fn table(table: &'static dyn SQLTableInfo) -> SQL<'a, V> {
         SQL {
             chunks: smallvec![SQLChunk::table(table)],
         }
     }
 
-    pub fn column<'b>(column: &'b dyn SQLColumnInfo) -> SQL<'b, V> {
+    pub fn column(column: &'static dyn SQLColumnInfo) -> SQL<'a, V> {
         SQL {
             chunks: smallvec![SQLChunk::column(column)],
         }
@@ -935,15 +986,6 @@ impl<'a, V: SQLParam + std::fmt::Display> Display for SQL<'a, V> {
     }
 }
 
-impl<'a, V: SQLParam + std::fmt::Debug> std::fmt::Debug for SQL<'a, V> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SQL")
-            .field("sql", &self.sql())
-            .field("chunk_count", &self.chunks.len())
-            .finish()
-    }
-}
-
 impl<'a, V, T> ToSQL<'a, V> for Vec<T>
 where
     V: SQLParam + 'a,
@@ -985,25 +1027,25 @@ where
 }
 
 // Implement ToSQL for SQLTableInfo and SQLColumnInfo trait objects
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'a dyn SQLTableInfo {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'static dyn SQLTableInfo {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::table(*self)
     }
 }
 
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'a dyn SQLColumnInfo {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'static dyn SQLColumnInfo {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::column(*self)
     }
 }
 
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'a dyn SQLColumnInfo]> {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'static dyn SQLColumnInfo]> {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::join(self.iter().map(|&v| SQL::column(v)), ", ")
     }
 }
 
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'a dyn SQLTableInfo]> {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'static dyn SQLTableInfo]> {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::join(self.iter().map(|&v| SQL::table(v)), ", ")
     }
@@ -1125,85 +1167,46 @@ pub mod placeholders {
     }
 }
 
-#[macro_export]
-macro_rules! sql {
-    // String template pattern: sql!("SELECT {} FROM {}", col, table)
-    ($template:literal, $($arg:expr),+ $(,)?) => {
-        {
-            let template_str = $template;
-            let mut parts = template_str.split("{}");
-            let args = vec![$($arg.to_sql()),+];
+// /// A generic alias wrapper for tables that maintains type information through PhantomData
+// #[derive(Debug, Clone, Copy, Default)]
+// pub struct Alias<T = ()> {
+//     name: &'static str,
+//     _phantom: std::marker::PhantomData<T>,
+// }
 
-            let mut result = $crate::SQL::raw(parts.next().unwrap_or(""));
-            for (i, part) in parts.enumerate() {
-                if i < args.len() {
-                    result = result.append(args[i].clone());
-                }
-                if !part.is_empty() {
-                    result = result.append_raw(part);
-                }
-            }
-            result
-        }
-    };
+// impl<T> Alias<T> {
+//     /// Creates a new table alias instance
+//     pub const fn new(name: &'static str) -> Self {
+//         Self {
+//             name,
+//             _phantom: std::marker::PhantomData,
+//         }
+//     }
+// }
 
-    // Tuple array pattern: sql!([(col1, OrderBy::Asc), (col2, OrderBy::Desc)])
-    ($(($first:expr, $sec:expr)),*) => {
-        {
-            [$(($first.to_sql(), $sec)),*]
-        }
-    };
+// impl<T> traits::SQLAlias for Alias<T> {
+//     fn alias(&self) -> &'static str {
+//         self.name
+//     }
+// }
 
-    // Array pattern: sql!([col1, col2, col3]) -> [col1.to_sql(), col2.to_sql(), col3.to_sql()]
-    ([$($item:expr),+ $(,)?]) => {
-        [$($item.to_sql()),+]
-    };
-    // Single value pattern: sql!("hello") -> SQL::parameter("hello")
-    ($value:literal) => {
-       $value.to_sql()
-    };
-}
-
-/// A generic alias wrapper for tables that maintains type information through PhantomData
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Alias<T = ()> {
-    name: &'static str,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T> Alias<T> {
-    /// Creates a new table alias instance
-    pub const fn new(name: &'static str) -> Self {
-        Self {
-            name,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<T> traits::SQLAlias for Alias<T> {
-    fn alias(&self) -> &'static str {
-        self.name
-    }
-}
-
-impl<'a, T, V> ToSQL<'a, V> for Alias<T>
-where
-    T: traits::SQLTable<'a, V>,
-    V: traits::SQLParam + 'a,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        let table = T::default();
-        let static_table: &'a dyn traits::SQLTableInfo =
-            unsafe { std::mem::transmute(&table as &dyn traits::SQLTableInfo) };
-        SQL {
-            chunks: smallvec![SQLChunk::Alias {
-                chunk: Box::new(SQLChunk::table(static_table)),
-                alias: CompactString::const_new(self.name),
-            }],
-        }
-    }
-}
+// impl<'a, T, TableValue> ToSQL<'a, TableValue> for Alias<T>
+// where
+//     T: traits::SQLTable<'a, 'a, TableValue, TableValue>,
+//     TableValue: traits::SQLParam + 'a,
+// {
+//     fn to_sql(&self) -> SQL<'a, TableValue> {
+//         let table = T::default();
+//         let static_table: &'a dyn traits::SQLTableInfo =
+//             unsafe { std::mem::transmute(&table as &dyn traits::SQLTableInfo) };
+//         SQL {
+//             chunks: smallvec![SQLChunk::Alias {
+//                 chunk: Box::new(SQLChunk::table(static_table)),
+//                 alias: CompactString::const_new(self.name),
+//             }],
+//         }
+//     }
+// }
 
 /// Creates an aliased table that can be used in joins and queries
 /// Usage: alias!(User, "u") creates an alias of the User table with alias "u"
