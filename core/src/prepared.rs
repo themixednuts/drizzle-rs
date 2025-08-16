@@ -175,7 +175,7 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
         }
 
         // Add spacing between chunks if needed
-        if i + 1 < sql.chunks.len() && sql.needs_space(chunk, i) {
+        if sql.needs_space(i) {
             current_text.push(' ');
         }
     }

@@ -400,6 +400,12 @@ pub struct SQL<'a, V: SQLParam> {
     pub chunks: SmallVec<[SQLChunk<'a, V>; 3]>,
 }
 
+impl<'a, V: SQLParam> ToSQL<'a, V> for &SQL<'a, V> {
+    fn to_sql(&self) -> SQL<'a, V> {
+        (*self).clone()
+    }
+}
+
 pub struct OwnedSQL<V: SQLParam> {
     pub chunks: SmallVec<[OwnedSQLChunk<V>; 3]>,
 }
@@ -665,12 +671,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Zero-allocation SQL writing to existing buffer
     fn write_sql(&self, buf: &mut CompactString) {
-        for (i, chunk) in self.chunks.iter().enumerate() {
-            self.write_chunk(buf, chunk, i);
+        for i in 0..self.chunks.len() {
+            self.write_chunk(buf, &self.chunks[i], i);
 
-            if i + 1 < self.chunks.len() && self.needs_space(chunk, i) {
+            if self.needs_space(i) {
                 buf.push(' ');
             }
         }
@@ -810,14 +815,43 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             + self.chunks.len()
     }
 
-    /// Check if space needed between chunks
-    fn needs_space(&self, chunk: &SQLChunk<'a, V>, index: usize) -> bool {
-        let current_no_space = matches!(chunk, SQLChunk::Text(t) if t.ends_with(['(', ',', ' ']));
-        let next_no_space = matches!(
-            self.chunks.get(index + 1),
-            Some(SQLChunk::Text(t)) if t.starts_with([')', ',', ' '])
-        );
-        !current_no_space && !next_no_space
+    fn needs_space(&self, index: usize) -> bool {
+        if index + 1 >= self.chunks.len() {
+            return false;
+        }
+
+        let current = &self.chunks[index];
+        let next = &self.chunks[index + 1];
+
+        fn ends_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
+            match chunk {
+                SQLChunk::Text(t) => {
+                    let last = t.chars().last().unwrap_or(' ');
+                    !last.is_whitespace() && !['(', ',', '.', ')'].contains(&last)
+                }
+                SQLChunk::Table(_)
+                | SQLChunk::Column(_)
+                | SQLChunk::Param(_)
+                | SQLChunk::Alias { .. } => true,
+                _ => false,
+            }
+        }
+
+        fn starts_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
+            match chunk {
+                SQLChunk::Text(t) => {
+                    let first = t.chars().next().unwrap_or(' ');
+                    !first.is_whitespace() && !['(', ',', '.', ')'].contains(&first)
+                }
+                SQLChunk::Table(_)
+                | SQLChunk::Column(_)
+                | SQLChunk::Param(_)
+                | SQLChunk::Alias { .. } => true,
+                _ => false,
+            }
+        }
+
+        ends_word(current) && starts_word(next)
     }
 
     /// Returns references to parameter values from this SQL fragment in the correct order.
