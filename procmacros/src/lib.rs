@@ -13,7 +13,7 @@
 //!
 //! ```rust
 //! use drizzle_rs::prelude::*;
-//! 
+//!
 //! // Define your schema
 //! #[SQLiteTable(name = "users")]
 //! struct Users {
@@ -57,30 +57,30 @@ use syn::parse_macro_input;
 ///
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
-/// #[SQLiteTable] 
-/// struct Table1 { 
-///     #[integer(primary)] 
-///     id: i32 
+///
+/// #[SQLiteTable]
+/// struct Table1 {
+///     #[integer(primary)]
+///     id: i32
 /// }
-/// 
-/// #[SQLiteTable] 
-/// struct Table2 { 
-///     #[integer(primary)] 
-///     id: i32 
+///
+/// #[SQLiteTable]
+/// struct Table2 {
+///     #[integer(primary)]
+///     id: i32
 /// }
-/// 
-/// #[SQLiteTable] 
-/// struct Table { 
-///     #[integer(primary)] 
-///     id: i32 
+///
+/// #[SQLiteTable]
+/// struct Table {
+///     #[integer(primary)]
+///     id: i32
 /// }
-/// 
+///
 /// # fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
 /// let connection1 = rusqlite::Connection::open_in_memory()?;
 /// let connection2 = rusqlite::Connection::open_in_memory()?;
 /// let connection3 = rusqlite::Connection::open_in_memory()?;
-/// 
+///
 /// // Multiple tables (returns tuple)
 /// let (drizzle_instance, table_handles) = drizzle!(connection1, [Table1, Table2]);
 /// // Single table with array syntax (returns single table)
@@ -96,7 +96,7 @@ use syn::parse_macro_input;
 /// ## Single Table
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
+///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary)]
@@ -108,7 +108,7 @@ use syn::parse_macro_input;
 /// # fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
 /// let connection1 = rusqlite::Connection::open_in_memory()?;
 /// let connection2 = rusqlite::Connection::open_in_memory()?;
-/// 
+///
 /// // Both syntaxes are equivalent for single tables:
 /// let (db, users) = drizzle!(connection1, [Users]);
 /// let (db, users) = drizzle!(connection2, Users);
@@ -120,7 +120,7 @@ use syn::parse_macro_input;
 /// ```rust
 /// use drizzle_rs::prelude::*;
 /// use drizzle_rs::error::DrizzleError;
-/// 
+///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary)]
@@ -181,7 +181,7 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// ## Text Storage (Variant Names)
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
+///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum UserRole {
 ///     #[default]
@@ -202,7 +202,7 @@ pub fn qb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// ## Integer Storage (Discriminants)
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
+///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
 ///     #[default]
@@ -305,7 +305,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Table
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
+///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[integer(primary, autoincrement)]
@@ -322,7 +322,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Table with Defaults
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
+///
 /// #[SQLiteTable(name = "posts", strict)]
 /// struct Posts {
 ///     #[integer(primary, autoincrement)]
@@ -340,7 +340,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ```rust
 /// use drizzle_rs::prelude::*;
 /// use serde::{Serialize, Deserialize};
-/// 
+///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Role {
 ///     #[default]
@@ -376,7 +376,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ```rust
 /// use drizzle_rs::prelude::*;
-/// 
+///
 /// #[SQLiteTable]
 /// struct Example {
 ///     #[integer(primary)]
@@ -456,7 +456,7 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// This macro parses a SQL template string and generates type-safe SQL code by:
 /// - Converting literal text to `SQL::text()` calls
 /// - Converting expressions in `{braces}` to `.to_sql()` calls on the expression
-/// 
+///
 /// # Syntax
 /// ```rust
 /// # use drizzle_rs::{sql, prelude::*};
@@ -466,9 +466,9 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// # let (db, (users, posts)) = drizzle!(conn, [Users, Posts]);
 /// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
 /// ```
-/// 
+///
 /// # Examples
-/// 
+///
 /// ## Basic Usage
 /// ```rust
 /// # use drizzle_rs::{sql, prelude::*};
@@ -478,7 +478,7 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// let query = sql!("SELECT * FROM {users}");
 /// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
 /// ```
-/// 
+///
 /// ## Multiple Expressions
 /// ```rust
 /// # use drizzle_rs::{sql, prelude::*};
@@ -486,24 +486,28 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// # #[SQLiteTable] struct Posts { #[integer(primary)] id: i32, #[integer] author: i32 }
 /// # let conn = rusqlite::Connection::open_in_memory().unwrap();
 /// # let (db, (users, posts)) = drizzle!(conn, [Users, Posts]);
-/// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
+/// let query = sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author}");
 /// ```
-/// 
+///
 /// ## Escaped Braces
 /// Use `{{` and `}}` for literal braces in the SQL:
 /// ```rust
 /// # use drizzle_rs::{sql, prelude::*};
-/// let query = sql!("SELECT JSON_OBJECT('key', {{value}}) FROM table");
+/// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
+/// # #[SQLiteTable] struct Posts { #[integer(primary)] id: i32, #[integer] author: i32 }
+/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
+/// # let (db, (users, posts)) = drizzle!(conn, [Users, Posts]);
+///   let query = sql!("SELECT JSON_OBJECT('key', {{users.id}}) FROM {users}");
 /// // Generates: SQL::text("SELECT JSON_OBJECT('key', {value}) FROM table")
 /// ```
 ///
 /// # Requirements
-/// 
+///
 /// All expressions within `{braces}` must implement `ToSQL<'a, V>` trait.
 #[proc_macro]
 pub fn sql(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as crate::sql::SqlInput);
-    
+
     match crate::sql::sql_impl(input) {
         Ok(output) => output.into(),
         Err(err) => err.into_compile_error().into(),
