@@ -453,18 +453,42 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 
 /// A procedural macro for building SQL queries with embedded expressions.
 ///
-/// This macro parses a SQL template string and generates type-safe SQL code by:
+/// This macro supports three different syntax forms:
+/// 1. **String literal syntax**: `sql!("SELECT * FROM {table}")`
+/// 2. **Token stream syntax**: `sql!(SELECT * FROM {table})` (preserves LSP hover support)
+/// 3. **Printf-style syntax**: `sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)`
+///
+/// The macro parses SQL templates and generates type-safe SQL code by:
 /// - Converting literal text to `SQL::text()` calls
 /// - Converting expressions in `{braces}` to `.to_sql()` calls on the expression
 ///
-/// # Syntax
+/// # Syntax Forms
+/// 
+/// ## String Literal Syntax
 /// ```rust
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
-/// # #[SQLiteTable] struct Posts { #[integer(primary)] id: i32, #[integer] author: i32 }
 /// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, (users, posts)) = drizzle!(conn, [Users, Posts]);
-/// let query = sql!("SELECT * FROM {users} WHERE {users}.id = {posts}.author");
+/// # let (db, users) = drizzle!(conn, Users);
+/// let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
+/// ```
+///
+/// ## Token Stream Syntax (Preserves LSP Hover)
+/// ```rust
+/// # use drizzle_rs::{sql, prelude::*};
+/// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
+/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
+/// # let (db, users) = drizzle!(conn, Users);
+/// let query = sql!(SELECT * FROM {users} WHERE {users.id} = 42);
+/// ```
+///
+/// ## Printf-Style Syntax
+/// ```rust
+/// # use drizzle_rs::{sql, prelude::*};
+/// # #[SQLiteTable] struct Users { #[integer(primary)] id: i32 }
+/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
+/// # let (db, users) = drizzle!(conn, Users);
+/// let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
 /// ```
 ///
 /// # Examples

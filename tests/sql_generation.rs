@@ -149,3 +149,53 @@ fn test_sql_macro() -> Result<(), DrizzleError> {
 
     Ok(())
 }
+
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[tokio::test]
+async fn test_sql_printf_style() -> Result<(), DrizzleError> {
+    let db = setup_test_db!();
+    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let id = 5;
+    let name = "printf_test";
+    
+    drizzle
+        .insert(simple)
+        .values([InsertSimple::new(name).with_id(id)])
+        .execute()?;
+
+    // Test printf-style syntax: sql!("template", arg1, arg2, ...)
+    let query = sql!("SELECT * FROM {} WHERE {} = {}", simple, simple.id, id);
+    let sql = query.sql();
+    let params = query.params();
+
+    assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
+
+    Ok(())
+}
+
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[tokio::test]
+async fn test_sql_mixed_named_positional() -> Result<(), DrizzleError> {
+    let db = setup_test_db!();
+    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let id = 6;
+    let name = "mixed_test";
+    
+    drizzle
+        .insert(simple)
+        .values([InsertSimple::new(name).with_id(id)])
+        .execute()?;
+
+    // Test mixing positional {} and named {simple.id} expressions
+    let query = sql!("SELECT * FROM {} WHERE {simple.id} = {}", simple, id);
+    let sql = query.sql();
+    let params = query.params();
+
+    assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
+
+    Ok(())
+}

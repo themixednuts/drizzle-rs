@@ -11,6 +11,11 @@ pub enum SqlInput {
     StringLiteral(LitStr),
     /// Token stream input: sql!(SELECT * FROM {table})
     TokenStream(TokenStream),
+    /// Printf-style input: sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)
+    Printf {
+        template: LitStr,
+        args: Vec<Expr>,
+    },
 }
 
 impl Parse for SqlInput {
@@ -18,7 +23,30 @@ impl Parse for SqlInput {
         // Try to parse as string literal first
         if input.peek(LitStr) {
             let template = input.parse::<LitStr>()?;
-            Ok(SqlInput::StringLiteral(template))
+            
+            // Check if there are comma-separated arguments after the template
+            if input.peek(syn::Token![,]) {
+                input.parse::<syn::Token![,]>()?; // consume comma
+                
+                let mut args = Vec::new();
+                
+                // Parse first argument
+                if !input.is_empty() {
+                    args.push(input.parse::<Expr>()?);
+                    
+                    // Parse remaining arguments
+                    while input.peek(syn::Token![,]) {
+                        input.parse::<syn::Token![,]>()?; // consume comma
+                        if !input.is_empty() {
+                            args.push(input.parse::<Expr>()?);
+                        }
+                    }
+                }
+                
+                Ok(SqlInput::Printf { template, args })
+            } else {
+                Ok(SqlInput::StringLiteral(template))
+            }
         } else {
             // Parse the rest as a token stream
             let tokens: TokenStream = input.parse()?;
@@ -106,10 +134,12 @@ fn parse_token_stream(tokens: TokenStream) -> Result<Vec<SqlSegment>> {
 }
 
 /// Parse the template string into text and expression segments
-fn parse_template(template: &str) -> Result<Vec<SqlSegment>> {
+/// If `positional_args` is provided, empty braces {} will be replaced with the arguments
+fn parse_template_with_args(template: &str, positional_args: Option<&[Expr]>) -> Result<Vec<SqlSegment>> {
     let mut segments = Vec::new();
     let mut chars = template.chars().peekable();
     let mut current_text = String::new();
+    let mut arg_index = 0;
 
     while let Some(ch) = chars.next() {
         match ch {
@@ -155,22 +185,34 @@ fn parse_template(template: &str) -> Result<Vec<SqlSegment>> {
                     ));
                 }
 
+                // Handle empty braces for positional arguments
                 if expr_content.is_empty() {
-                    return Err(syn::Error::new(
-                        Span::call_site(),
-                        "Empty expression in SQL template",
-                    ));
+                    if let Some(args) = positional_args {
+                        if arg_index >= args.len() {
+                            return Err(syn::Error::new(
+                                Span::call_site(),
+                                format!("Not enough arguments provided. Expected at least {}, got {}", arg_index + 1, args.len()),
+                            ));
+                        }
+                        segments.push(SqlSegment::Expression(args[arg_index].clone()));
+                        arg_index += 1;
+                    } else {
+                        return Err(syn::Error::new(
+                            Span::call_site(),
+                            "Empty expression in SQL template",
+                        ));
+                    }
+                } else {
+                    // Named expression - parse it
+                    let expr: Expr = syn::parse_str(&expr_content).map_err(|e| {
+                        syn::Error::new(
+                            Span::call_site(),
+                            format!("Invalid expression in SQL template: {}", e),
+                        )
+                    })?;
+                    
+                    segments.push(SqlSegment::Expression(expr));
                 }
-
-                // Parse the expression string as a Rust expression
-                let expr: Expr = syn::parse_str(&expr_content).map_err(|e| {
-                    syn::Error::new(
-                        Span::call_site(),
-                        format!("Invalid expression in SQL template: {}", e),
-                    )
-                })?;
-                
-                segments.push(SqlSegment::Expression(expr));
             }
             '}' => {
                 // Check for escaped brace }}
@@ -194,7 +236,22 @@ fn parse_template(template: &str) -> Result<Vec<SqlSegment>> {
         segments.push(SqlSegment::Text(current_text));
     }
 
+    // Check if we used all positional arguments
+    if let Some(args) = positional_args {
+        if arg_index != args.len() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                format!("Too many arguments provided. Expected {}, got {}", arg_index, args.len()),
+            ));
+        }
+    }
+
     Ok(segments)
+}
+
+/// Parse the template string into text and expression segments (convenience wrapper)
+fn parse_template(template: &str) -> Result<Vec<SqlSegment>> {
+    parse_template_with_args(template, None)
 }
 
 /// Generate the TokenStream for the sql! macro implementation
@@ -206,6 +263,10 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
         }
         SqlInput::TokenStream(tokens) => {
             parse_token_stream(tokens)?
+        }
+        SqlInput::Printf { template, args } => {
+            let template_str = template.value();
+            parse_template_with_args(&template_str, Some(&args))?
         }
     };
 
@@ -457,6 +518,145 @@ mod tests {
                 (SqlSegment::Expression(_), SqlSegment::Expression(_)) => {}, // Both are expressions  
                 _ => panic!("Segment types don't match"),
             }
+        }
+    }
+
+    #[test]
+    fn test_parse_printf_style() {
+        use syn::parse_str;
+        
+        // Test printf-style parsing
+        let args = vec![
+            parse_str::<Expr>("table").unwrap(),
+            parse_str::<Expr>("table.id").unwrap(),
+            parse_str::<Expr>("42").unwrap(),
+        ];
+        
+        let segments = parse_template_with_args("SELECT * FROM {} WHERE {} = {}", Some(&args)).unwrap();
+        assert_eq!(segments.len(), 6);
+        
+        match &segments[0] {
+            SqlSegment::Text(text) => assert_eq!(text, "SELECT * FROM "),
+            _ => panic!("Expected text segment"),
+        }
+        
+        match &segments[1] {
+            SqlSegment::Expression(expr) => {
+                if let Expr::Path(path) = expr {
+                    assert_eq!(path.path.segments[0].ident.to_string(), "table");
+                } else {
+                    panic!("Expected path expression");
+                }
+            },
+            _ => panic!("Expected expression segment"),
+        }
+        
+        match &segments[2] {
+            SqlSegment::Text(text) => assert_eq!(text, " WHERE "),
+            _ => panic!("Expected text segment"),
+        }
+        
+        match &segments[3] {
+            SqlSegment::Expression(expr) => {
+                // This should be table.id field access
+                matches!(expr, Expr::Field(_));
+            },
+            _ => panic!("Expected expression segment"),
+        }
+        
+        match &segments[4] {
+            SqlSegment::Text(text) => assert_eq!(text, " = "),
+            _ => panic!("Expected text segment"),
+        }
+        
+        match &segments[5] {
+            SqlSegment::Expression(expr) => {
+                if let Expr::Lit(lit) = expr {
+                    if let syn::Lit::Int(int_lit) = &lit.lit {
+                        assert_eq!(int_lit.base10_digits(), "42");
+                    } else {
+                        panic!("Expected integer literal");
+                    }
+                } else {
+                    panic!("Expected literal expression");
+                }
+            },
+            _ => panic!("Expected expression segment"),
+        }
+    }
+
+    #[test]
+    fn test_printf_argument_count_validation() {
+        use syn::parse_str;
+        
+        // Test too few arguments
+        let args = vec![parse_str::<Expr>("table").unwrap()];
+        let result = parse_template_with_args("SELECT * FROM {} WHERE {} = {}", Some(&args));
+        assert!(result.is_err());
+        
+        // Test too many arguments
+        let args = vec![
+            parse_str::<Expr>("table").unwrap(),
+            parse_str::<Expr>("column").unwrap(),
+            parse_str::<Expr>("value").unwrap(),
+            parse_str::<Expr>("extra").unwrap(),
+        ];
+        let result = parse_template_with_args("SELECT * FROM {} WHERE {} = {}", Some(&args));
+        assert!(result.is_err());
+        
+        // Test exact match should work
+        let args = vec![
+            parse_str::<Expr>("table").unwrap(),
+            parse_str::<Expr>("column").unwrap(),
+            parse_str::<Expr>("value").unwrap(),
+        ];
+        let result = parse_template_with_args("SELECT * FROM {} WHERE {} = {}", Some(&args));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mixed_named_and_positional() {
+        use syn::parse_str;
+        
+        // Test mixing named expressions and positional arguments
+        let args = vec![
+            parse_str::<Expr>("users").unwrap(),
+            parse_str::<Expr>("42").unwrap(),
+        ];
+        
+        let segments = parse_template_with_args("SELECT * FROM {} WHERE {id} = {}", Some(&args)).unwrap();
+        assert_eq!(segments.len(), 6);
+        
+        // First {} should be replaced with "users"
+        match &segments[1] {
+            SqlSegment::Expression(expr) => {
+                if let Expr::Path(path) = expr {
+                    assert_eq!(path.path.segments[0].ident.to_string(), "users");
+                }
+            },
+            _ => panic!("Expected expression segment"),
+        }
+        
+        // {id} should be parsed as named expression
+        match &segments[3] {
+            SqlSegment::Expression(expr) => {
+                if let Expr::Path(path) = expr {
+                    assert_eq!(path.path.segments[0].ident.to_string(), "id");
+                }
+            },
+            _ => panic!("Expected expression segment"),
+        }
+        
+        // Second {} should be replaced with "42"
+        match &segments[5] {
+            SqlSegment::Expression(expr) => {
+                if let Expr::Lit(_) = expr {
+                    // This is the literal 42
+                } else {
+                    panic!("Expected literal expression");
+                }
+            },
+            _ => panic!("Expected expression segment"),
         }
     }
 }
