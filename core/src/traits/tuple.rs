@@ -1,4 +1,6 @@
-use crate::{SQL, SQLParam, ToSQL};
+use crate::{OrderBy, SQL, SQLParam, ToSQL};
+use crate::traits::OrderByTuple;
+
 // A macro to implement ColumnsTuple for tuples of various sizes.
 macro_rules! impl_tuple {
     ( $($len:literal, ($($T:ident - $idx:tt),*);)+ ) => {
@@ -12,6 +14,18 @@ macro_rules! impl_tuple {
                 {
                     fn to_sql(&self) -> SQL<'a, V> {
                         SQL::join([$(self.$idx.to_sql(),)*], ", ")
+                    }
+                }
+
+                impl<'a, V, $([<$T $idx>]),*> OrderByTuple<'a, V> for ($(([<$T $idx>], OrderBy),)*)
+                where
+                    V: SQLParam + 'a,
+                    $([<$T $idx>]: ToSQL<'a, V>,)*
+                {
+                    fn to_order_by_sql(&self) -> SQL<'a, V> {
+                        SQL::join([$(
+                            self.$idx.0.to_sql().append(self.$idx.1.to_sql())
+                        ,)*], ", ")
                     }
                 }
             }

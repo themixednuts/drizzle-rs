@@ -1,4 +1,4 @@
-use crate::{OrderBy, SQL, SQLTable, ToSQL, traits::SQLParam};
+use crate::{SQL, SQLTable, ToSQL, traits::SQLParam};
 
 /// Helper function to create a SELECT statement with the given columns
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
@@ -10,10 +10,10 @@ where
 }
 
 /// Helper function to create a FROM clause using table generic
-pub fn from<'a, T, V>(table: T) -> SQL<'a, V>
+pub fn from<'a, T, Value>(table: T) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     SQL::raw("FROM").append(&table)
 }
@@ -47,25 +47,13 @@ where
 }
 
 /// Helper function to create an ORDER BY clause
-pub fn order_by<'a, TSQL, T, V>(expressions: T) -> SQL<'a, V>
+pub fn order_by<'a, T, V>(expressions: T) -> SQL<'a, V>
 where
-    TSQL: ToSQL<'a, V>,
-    T: IntoIterator<Item = (TSQL, OrderBy)>,
+    T: crate::traits::OrderByTuple<'a, V>,
     V: SQLParam + 'a,
 {
     let sql = SQL::raw("ORDER BY");
-
-    sql.append(SQL::join(
-        expressions.into_iter().map(|(expr, direction)| {
-            let mut expr_sql = expr.to_sql();
-            expr_sql = expr_sql.append_raw(" ");
-            match direction {
-                OrderBy::Asc => expr_sql.append_raw("ASC"),
-                OrderBy::Desc => expr_sql.append_raw("DESC"),
-            }
-        }),
-        ", ",
-    ))
+    sql.append(expressions.to_order_by_sql())
 }
 
 /// Helper function to create a LIMIT clause
@@ -85,10 +73,10 @@ where
 }
 
 /// Helper function to create an UPDATE statement using table generic
-pub fn update<'a, T, V>(table: T) -> SQL<'a, V>
+pub fn update<'a, T, Value>(table: T) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     SQL::raw("UPDATE").append(&table)
 }
@@ -103,10 +91,10 @@ where
 }
 
 /// Helper function to create a DELETE FROM statement using table generic
-pub fn delete<'a, T, V>(table: T) -> SQL<'a, V>
+pub fn delete<'a, T, Value>(table: T) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, V>,
-    V: SQLParam + 'a,
+    T: SQLTable<'a, Value>,
+    Value: SQLParam + 'a,
 {
     SQL::raw("DELETE FROM").append(&table)
 }
