@@ -221,16 +221,26 @@ impl<Schema> Drizzle<Schema> {
         
         let transaction = Transaction::new(tx, tx_type);
         
-        let result = f(&transaction);
+        // Use catch_unwind to handle panics and ensure rollback
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
         
         match result {
-            Ok(value) => {
-                transaction.commit()?;
-                Ok(value)
+            Ok(callback_result) => {
+                match callback_result {
+                    Ok(value) => {
+                        transaction.commit()?;
+                        Ok(value)
+                    }
+                    Err(e) => {
+                        transaction.rollback()?;
+                        Err(e)
+                    }
+                }
             }
-            Err(e) => {
-                transaction.rollback()?;
-                Err(e)
+            Err(panic_payload) => {
+                // Rollback on panic and resume unwinding
+                let _ = transaction.rollback();
+                std::panic::resume_unwind(panic_payload);
             }
         }
     }
