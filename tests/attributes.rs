@@ -275,12 +275,7 @@ async fn test_all_column_types() {
     let (db, all_types) = drizzle!(conn, [AllTypes]);
 
     // Test insertion with all column types
-    let test_data = InsertAllTypes::default()
-        .with_text_field("test text".to_string())
-        .with_int_field(123)
-        .with_real_field(45.67)
-        .with_blob_field(vec![1, 2, 3, 4, 5])
-        .with_bool_field(true);
+    let test_data = InsertAllTypes::new("test text", 123, 45.67, [1, 2, 3, 4, 5], true);
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(all_types).values([test_data]).execute().unwrap();
@@ -361,8 +356,8 @@ async fn test_primary_key_autoincrement() {
     let (db, pk_table) = drizzle!(conn, [PrimaryKeyVariations]);
 
     // Insert multiple records to test autoincrement
-    let data1 = InsertPrimaryKeyVariations::default().with_name("first".to_string());
-    let data2 = InsertPrimaryKeyVariations::default().with_name("second".to_string());
+    let data1 = InsertPrimaryKeyVariations::new("first");
+    let data2 = InsertPrimaryKeyVariations::new("second");
 
     #[cfg(feature = "rusqlite")]
     {
@@ -419,9 +414,7 @@ async fn test_manual_primary_key() {
 
     let (db, manual_pk) = drizzle!(conn, [ManualPrimaryKey]);
 
-    let data = InsertManualPrimaryKey::default()
-        .with_manual_id("custom_id_123".to_string())
-        .with_description("Test description".to_string());
+    let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(manual_pk).values([data]).execute().unwrap();
@@ -468,10 +461,8 @@ async fn test_unique_constraints() {
     let (db, unique_table) = drizzle!(conn, [UniqueFields]);
 
     // Insert first record
-    let data1 = InsertUniqueFields::default()
-        .with_email("test@example.com".to_string())
-        .with_username("testuser".to_string())
-        .with_display_name("Test User".to_string());
+    let data1 =
+        InsertUniqueFields::new("test@example.com", "testuser").with_display_name("Test User");
 
     #[cfg(feature = "rusqlite")]
     let result1 = db.insert(unique_table).values([data1]).execute().unwrap();
@@ -486,9 +477,7 @@ async fn test_unique_constraints() {
     assert_eq!(result1, 1);
 
     // Try to insert duplicate email - should fail
-    let data2 = InsertUniqueFields::default()
-        .with_email("test@example.com".to_string()) // Duplicate email
-        .with_username("different_user".to_string());
+    let data2 = InsertUniqueFields::new("test@example.com", "different_user");
 
     #[cfg(feature = "rusqlite")]
     let result2 = db.insert(unique_table).values([data2]).execute();
@@ -508,7 +497,7 @@ async fn test_compile_time_defaults() {
     let (db, defaults_table) = drizzle!(conn, [CompileTimeDefaults]);
 
     // Insert with minimal data - defaults should be used
-    let data = InsertCompileTimeDefaults::default();
+    let data = InsertCompileTimeDefaults::new();
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(defaults_table).values([data]).execute().unwrap();
@@ -581,7 +570,7 @@ async fn test_runtime_defaults() {
     let (db, runtime_table) = drizzle!(conn, [RuntimeDefaults]);
 
     // Insert with minimal data - runtime defaults should be used
-    let data = InsertRuntimeDefaults::default().with_name("test".to_string());
+    let data = InsertRuntimeDefaults::new("test");
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(runtime_table).values([data]).execute().unwrap();
@@ -641,10 +630,7 @@ async fn test_enum_storage_types() {
     let (db, enum_table) = drizzle!(conn, [EnumFields]);
 
     // Test different enum storage types
-    let data = InsertEnumFields::default()
-        .with_priority(Priority::High)
-        .with_status(TaskStatus::InProgress)
-        .with_description("Test task".to_string());
+    let data = InsertEnumFields::new(Priority::High, TaskStatus::InProgress, "Test task");
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(enum_table).values([data]).execute().unwrap();
@@ -713,10 +699,7 @@ async fn test_json_storage_types() {
         message: "Hello JSON".to_string(),
     };
 
-    let data = InsertJsonFields::default()
-        .with_text_json(json_data.clone())
-        // .with_blob_json(json_data.clone())
-        .with_regular_text("regular".to_string());
+    let data = InsertJsonFields::new("regular").with_text_json(json_data);
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(json_table).values([data]).execute().unwrap();
@@ -764,7 +747,7 @@ async fn test_uuid_primary_key_with_default_fn() {
     let (db, uuid_table) = drizzle!(conn, [UuidFields]);
 
     // Insert without specifying UUID - default_fn should generate one
-    let data = InsertUuidFields::default().with_name("uuid test".to_string());
+    let data = InsertUuidFields::new("uuid test");
 
     #[cfg(feature = "rusqlite")]
     let result = db.insert(uuid_table).values([data]).execute().unwrap();
@@ -821,10 +804,7 @@ async fn test_nullable_vs_non_nullable() {
     let (db, nullable_table) = drizzle!(conn, [NullableTest]);
 
     // Test 1: Insert with all required fields, no optional fields
-    let minimal_data = InsertNullableTest::default()
-        .with_required_text("required".to_string())
-        .with_required_int(123)
-        .with_required_bool(true);
+    let minimal_data = InsertNullableTest::new("required", 123, true);
 
     #[cfg(feature = "rusqlite")]
     let result = db
@@ -843,14 +823,11 @@ async fn test_nullable_vs_non_nullable() {
     assert_eq!(result, 1);
 
     // Test 2: Insert with all fields populated
-    let full_data = InsertNullableTest::default()
-        .with_required_text("full".to_string())
-        .with_required_int(456)
-        .with_required_bool(false)
-        .with_optional_text("optional text".to_string())
+    let full_data = InsertNullableTest::new("full", 456, false)
+        .with_optional_text("optional text")
         .with_optional_int(789)
         .with_optional_real(12.34)
-        .with_optional_blob(vec![9, 8, 7])
+        .with_optional_blob([9, 8, 7])
         .with_optional_bool(true);
 
     #[cfg(feature = "rusqlite")]
@@ -958,45 +935,5 @@ fn test_schema_generation() {
     println!("UuidFields SQL: {}", UuidFields::SQL.to_sql().sql());
 
     // Just verify they all compile and don't panic
-    assert!(true);
-}
-
-#[test]
-fn test_insert_update_models_generation() {
-    // Verify that Insert and Update models are generated for all table types
-    let _insert_all_types = InsertAllTypes::default();
-    let _update_all_types = UpdateAllTypes::default();
-
-    let _insert_pk = InsertPrimaryKeyVariations::default();
-    let _update_pk = UpdatePrimaryKeyVariations::default();
-
-    let _insert_unique = InsertUniqueFields::default();
-    let _update_unique = UpdateUniqueFields::default();
-
-    let _insert_defaults = InsertCompileTimeDefaults::default();
-    let _update_defaults = UpdateCompileTimeDefaults::default();
-
-    let _insert_runtime = InsertRuntimeDefaults::default();
-    let _update_runtime = UpdateRuntimeDefaults::default();
-
-    let _insert_enums = InsertEnumFields::default();
-    let _update_enums = UpdateEnumFields::default();
-
-    let _insert_nullable = InsertNullableTest::default();
-    let _update_nullable = UpdateNullableTest::default();
-
-    #[cfg(feature = "serde")]
-    {
-        let _insert_json = InsertJsonFields::default();
-        let _update_json = UpdateJsonFields::default();
-    }
-
-    #[cfg(feature = "uuid")]
-    {
-        let _insert_uuid = InsertUuidFields::default();
-        let _update_uuid = UpdateUuidFields::default();
-    }
-
-    // If this compiles, all model generation worked correctly
     assert!(true);
 }

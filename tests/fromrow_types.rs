@@ -119,12 +119,7 @@ async fn test_fromrow_with_all_data_types() {
     let (db, type_test) = drizzle!(conn, [TypeTest]);
 
     // Insert test data with all data types
-    let test_data = InsertTypeTest::default()
-        .with_name("test_user".to_string())
-        .with_age(25)
-        .with_score(98.5)
-        .with_active(true)
-        .with_data(vec![1, 2, 3, 4, 5]);
+    let test_data = InsertTypeTest::new("test_user", 25, 98.5, true, [1, 2, 3, 4, 5]);
 
     #[cfg(feature = "rusqlite")]
     db.insert(type_test).values([test_data]).execute().unwrap();
@@ -164,10 +159,7 @@ async fn test_fromrow_with_integer_sizes() {
     let (db, integer_test) = drizzle!(conn, [IntegerTest]);
 
     // Insert test data with different integer sizes
-    let test_data = InsertIntegerTest::default()
-        .with_big_num(9223372036854775806i64) // Near i64 max
-        .with_small_num(32000i16)
-        .with_tiny_num(100i8);
+    let test_data = InsertIntegerTest::new(9223372036854775806i64, 32000i16, 100i8);
 
     #[cfg(feature = "rusqlite")]
     db.insert(integer_test)
@@ -208,9 +200,7 @@ async fn test_fromrow_with_float_types() {
     let (db, float_test) = drizzle!(conn, [FloatTest]);
 
     // Insert test data with different float types
-    let test_data = InsertFloatTest::default()
-        .with_precise(3.141592653589793) // High precision f64
-        .with_compact(2.718f32); // f32
+    let test_data = InsertFloatTest::new(3.141592653589793, 2.718f32);
 
     #[cfg(feature = "rusqlite")]
     db.insert(float_test).values([test_data]).execute().unwrap();
@@ -247,12 +237,7 @@ async fn test_fromrow_type_conversion_edge_cases() {
     let (db, type_test) = drizzle!(conn, [TypeTest]);
 
     // Insert test data with edge case values
-    let test_data = InsertTypeTest::default()
-        .with_name("edge_case".to_string())
-        .with_age(0) // Zero value
-        .with_score(0.0) // Zero float
-        .with_active(false) // False boolean (stored as 0)
-        .with_data(vec![]); // Empty blob
+    let test_data = InsertTypeTest::new("edge_case", 0, 0.0, false, []);
 
     #[cfg(feature = "rusqlite")]
     db.insert(type_test).values([test_data]).execute().unwrap();

@@ -157,7 +157,7 @@ async fn test_sql_printf_style() -> Result<(), DrizzleError> {
     let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
     let id = 5;
     let name = "printf_test";
-    
+
     drizzle
         .insert(simple)
         .values([InsertSimple::new(name).with_id(id)])
@@ -182,7 +182,7 @@ async fn test_sql_mixed_named_positional() -> Result<(), DrizzleError> {
     let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
     let id = 6;
     let name = "mixed_test";
-    
+
     drizzle
         .insert(simple)
         .values([InsertSimple::new(name).with_id(id)])
