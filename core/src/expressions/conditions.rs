@@ -11,9 +11,7 @@ where
     L: ToSQL<'a, V>,
     R: ToSQL<'a, V>,
 {
-    left.to_sql()
-        .append_raw(operator)
-        .append(right.to_sql())
+    left.to_sql().append_raw(operator).append(right.to_sql())
 }
 
 pub fn eq<'a, V, L, R>(left: L, right: R) -> SQL<'a, V>
@@ -80,7 +78,7 @@ where
 {
     let left_sql = left.to_sql();
     let mut values_iter = values.into_iter();
-    
+
     match values_iter.next() {
         None => left_sql.append_raw("IN (NULL)"),
         Some(first_value) => {
@@ -103,7 +101,7 @@ where
 {
     let left_sql = left.to_sql();
     let mut values_iter = values.into_iter();
-    
+
     match values_iter.next() {
         None => left_sql.append_raw("NOT IN (NULL)"),
         Some(first_value) => {
@@ -241,7 +239,7 @@ where
 {
     let left_sql = left.to_sql();
     let mut values_iter = values.into_iter();
-    
+
     match values_iter.next() {
         None => left_sql.append_raw("IN (NULL)"),
         Some(first_value) => {
@@ -264,7 +262,7 @@ where
 {
     let left_sql = left.to_sql();
     let mut values_iter = values.into_iter();
-    
+
     match values_iter.next() {
         None => left_sql.append_raw("NOT IN (NULL)"),
         Some(first_value) => {
@@ -284,7 +282,7 @@ where
     T: IntoIterator<Item = SQL<'a, V>>,
 {
     let mut iter = conditions.into_iter();
-    
+
     match iter.next() {
         None => SQL::empty(), // No conditions = empty
         Some(first) => {
@@ -312,7 +310,7 @@ where
     T: IntoIterator<Item = SQL<'a, V>>,
 {
     let mut iter = conditions.into_iter();
-    
+
     match iter.next() {
         None => SQL::empty(), // No conditions = empty
         Some(first) => {
