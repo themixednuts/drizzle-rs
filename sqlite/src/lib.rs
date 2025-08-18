@@ -28,7 +28,7 @@ pub mod prelude {
     pub use ::rusqlite::types::ToSql;
 }
 
-pub use self::values::{InsertValue, SQLiteValue, OwnedSQLiteValue};
+pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
 
 /// SQLite transaction types
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +39,29 @@ pub enum SQLiteTransactionType {
     Immediate,
     /// An exclusive transaction acquires an EXCLUSIVE lock immediately
     Exclusive,
+}
+
+#[cfg(feature = "rusqlite")]
+impl From<SQLiteTransactionType> for ::rusqlite::TransactionBehavior {
+    fn from(tx_type: SQLiteTransactionType) -> Self {
+        match tx_type {
+            SQLiteTransactionType::Deferred => ::rusqlite::TransactionBehavior::Deferred,
+            SQLiteTransactionType::Immediate => ::rusqlite::TransactionBehavior::Immediate,
+            SQLiteTransactionType::Exclusive => ::rusqlite::TransactionBehavior::Exclusive,
+        }
+    }
+}
+
+#[cfg(feature = "rusqlite")]
+impl From<::rusqlite::TransactionBehavior> for SQLiteTransactionType {
+    fn from(behavior: ::rusqlite::TransactionBehavior) -> Self {
+        match behavior {
+            ::rusqlite::TransactionBehavior::Deferred => SQLiteTransactionType::Deferred,
+            ::rusqlite::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
+            ::rusqlite::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
+            _ => SQLiteTransactionType::Deferred, // Default for any future variants
+        }
+    }
 }
 
 /// Creates an array of SQL parameters for binding values to placeholders.

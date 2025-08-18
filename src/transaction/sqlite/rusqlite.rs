@@ -1,7 +1,7 @@
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::{params_from_iter};
 use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
@@ -16,52 +16,46 @@ use sqlite::{
     },
 };
 
-use crate::drizzle::sqlite::DrizzleBuilder;
-use crate::transaction::sqlite::rusqlite::Transaction;
+use crate::transaction::sqlite::TransactionBuilder;
 
-/// Drizzle instance that provides access to the database and query builder.
+/// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
-pub struct Drizzle<Schema = ()> {
-    conn: Connection,
+pub struct Transaction<'conn, Schema = ()> {
+    tx: rusqlite::Transaction<'conn>,
+    tx_type: SQLiteTransactionType,
     _schema: PhantomData<Schema>,
 }
 
-impl Drizzle {
-    #[inline]
-    pub const fn new<S>(conn: Connection) -> Drizzle<S> {
-        Drizzle {
-            conn,
+impl<'conn, Schema> Transaction<'conn, Schema> {
+    /// Creates a new transaction wrapper
+    pub(crate) fn new(tx: rusqlite::Transaction<'conn>, tx_type: SQLiteTransactionType) -> Self {
+        Self {
+            tx,
+            tx_type,
             _schema: PhantomData,
         }
     }
-}
 
-impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
+    /// Gets a reference to the underlying transaction
     #[inline]
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-impl<Schema> Drizzle<Schema> {
-    /// Gets a reference to the underlying connection
-    #[inline]
-    pub fn conn(&self) -> &Connection {
-        &self.conn
+    pub fn inner(&self) -> &rusqlite::Transaction<'conn> {
+        &self.tx
     }
 
+    /// Gets the transaction type
     #[inline]
-    pub fn mut_conn(&mut self) -> &mut Connection {
-        &mut self.conn
+    pub fn tx_type(&self) -> SQLiteTransactionType {
+        self.tx_type
     }
 
-    /// Creates a SELECT query builder.
+    /// Creates a SELECT query builder within the transaction
     #[cfg(feature = "sqlite")]
     pub fn select<'a, 'b, T>(
         &'a self,
         query: T,
-    ) -> DrizzleBuilder<
+    ) -> TransactionBuilder<
         'a,
+        'conn,
         Schema,
         SelectBuilder<'b, Schema, select::SelectInitial>,
         select::SelectInitial,
@@ -73,20 +67,21 @@ impl<Schema> Drizzle<Schema> {
 
         let builder = QueryBuilder::new::<Schema>().select(query);
 
-        DrizzleBuilder {
-            drizzle: self,
+        TransactionBuilder {
+            transaction: self,
             builder,
             state: PhantomData,
         }
     }
 
-    /// Creates an INSERT query builder.
+    /// Creates an INSERT query builder within the transaction
     #[cfg(feature = "sqlite")]
     pub fn insert<'a, Table>(
         &'a self,
         table: Table,
-    ) -> DrizzleBuilder<
+    ) -> TransactionBuilder<
         'a,
+        'conn,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
         insert::InsertInitial,
@@ -95,20 +90,21 @@ impl<Schema> Drizzle<Schema> {
         Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
-        DrizzleBuilder {
-            drizzle: self,
+        TransactionBuilder {
+            transaction: self,
             builder,
             state: PhantomData,
         }
     }
 
-    /// Creates an UPDATE query builder.
+    /// Creates an UPDATE query builder within the transaction
     #[cfg(feature = "sqlite")]
     pub fn update<'a, Table>(
         &'a self,
         table: Table,
-    ) -> DrizzleBuilder<
+    ) -> TransactionBuilder<
         'a,
+        'conn,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
         update::UpdateInitial,
@@ -117,20 +113,21 @@ impl<Schema> Drizzle<Schema> {
         Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
-        DrizzleBuilder {
-            drizzle: self,
+        TransactionBuilder {
+            transaction: self,
             builder,
             state: PhantomData,
         }
     }
 
-    /// Creates a DELETE query builder.
+    /// Creates a DELETE query builder within the transaction
     #[cfg(feature = "sqlite")]
     pub fn delete<'a, T>(
         &'a self,
         table: T,
-    ) -> DrizzleBuilder<
+    ) -> TransactionBuilder<
         'a,
+        'conn,
         Schema,
         DeleteBuilder<'a, Schema, delete::DeleteInitial, T>,
         delete::DeleteInitial,
@@ -139,13 +136,14 @@ impl<Schema> Drizzle<Schema> {
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
-        DrizzleBuilder {
-            drizzle: self,
+        TransactionBuilder {
+            transaction: self,
             builder,
             state: PhantomData,
         }
     }
 
+    /// Executes a raw query within the transaction
     pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -154,10 +152,10 @@ impl<Schema> Drizzle<Schema> {
         let sql = query.sql();
         let params = query.params();
 
-        self.conn.execute(&sql, params_from_iter(params))
+        self.tx.execute(&sql, params_from_iter(params))
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
+    /// Runs a query and returns all matching rows within the transaction
     pub fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
@@ -171,7 +169,7 @@ impl<Schema> Drizzle<Schema> {
         let params = sql.params();
 
         let mut stmt = self
-            .conn
+            .tx
             .prepare(&sql_str)
             .map_err(|e| DrizzleError::Other(e.to_string()))?;
 
@@ -187,7 +185,7 @@ impl<Schema> Drizzle<Schema> {
         Ok(results)
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
+    /// Runs a query and returns a single row within the transaction
     pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
@@ -198,56 +196,38 @@ impl<Schema> Drizzle<Schema> {
         let sql = query.to_sql();
         let sql_str = sql.sql();
 
-        // Get parameters and handle potential errors from IntoParams
         let params = sql.params();
 
-        let mut stmt = self.conn.prepare(&sql_str)?;
+        let mut stmt = self.tx.prepare(&sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {
             Ok(R::try_from(row).map_err(Into::into))
         })?
     }
 
-    /// Executes a transaction with the given callback
-    pub fn transaction<F, R>(&mut self, tx_type: SQLiteTransactionType, f: F) -> drizzle_core::error::Result<R>
-    where
-        F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
-    {
-        let tx = if matches!(tx_type, SQLiteTransactionType::Deferred) {
-            self.conn.transaction()?
-        } else {
-            self.conn.transaction_with_behavior(tx_type.into())?
-        };
-        
-        let transaction = Transaction::new(tx, tx_type);
-        
-        let result = f(&transaction);
-        
-        match result {
-            Ok(value) => {
-                transaction.commit()?;
-                Ok(value)
-            }
-            Err(e) => {
-                transaction.rollback()?;
-                Err(e)
-            }
-        }
+    /// Commits the transaction
+    pub fn commit(self) -> rusqlite::Result<()> {
+        self.tx.commit()
+    }
+
+    /// Rolls back the transaction
+    pub fn rollback(self) -> rusqlite::Result<()> {
+        self.tx.rollback()
     }
 }
 
-// Execution Methods for RusQLite
-
-// Rusqlite-specific execution methods for all ExecutableState QueryBuilders
+// Rusqlite-specific execution methods for all ExecutableState QueryBuilders in transactions
 #[cfg(feature = "rusqlite")]
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, 'conn, S, Schema, State, Table>
+    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
     /// Runs the query and returns the number of affected rows
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
+        let sql = self.builder.sql.sql();
+        let params = self.builder.sql.params();
+        Ok(self.transaction.tx.execute(&sql, params_from_iter(params))?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -257,7 +237,26 @@ where
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        self.builder.all(&self.drizzle.conn)
+        let sql = &self.builder.sql;
+        let sql_str = sql.sql();
+        let params = sql.params();
+
+        let mut stmt = self.transaction.tx
+            .prepare(&sql_str)
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params_from_iter(params), |row| {
+                Ok(R::try_from(row).map_err(Into::into))
+            })
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row??);
+        }
+
+        Ok(results)
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -267,6 +266,14 @@ where
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        self.builder.get(&self.drizzle.conn)
+        let sql = &self.builder.sql;
+        let sql_str = sql.sql();
+        let params = sql.params();
+
+        let mut stmt = self.transaction.tx.prepare(&sql_str)?;
+
+        stmt.query_row(params_from_iter(params), |row| {
+            Ok(R::try_from(row).map_err(Into::into))
+        })?
     }
 }
