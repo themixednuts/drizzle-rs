@@ -26,6 +26,7 @@ pub struct Drizzle<Schema = ()> {
 }
 
 impl Drizzle {
+    #[inline]
     pub const fn new<S>(conn: Connection) -> Drizzle<S> {
         Drizzle {
             conn,
@@ -35,6 +36,7 @@ impl Drizzle {
 }
 
 impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
+    #[inline]
     fn as_ref(&self) -> &Self {
         self
     }
@@ -42,10 +44,12 @@ impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
 
 impl<Schema> Drizzle<Schema> {
     /// Gets a reference to the underlying connection
+    #[inline]
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
+    #[inline]
     pub fn mut_conn(&mut self) -> &mut Connection {
         &mut self.conn
     }
@@ -152,11 +156,7 @@ impl<Schema> Drizzle<Schema> {
     {
         let query = query.to_sql();
         let sql = query.sql();
-        let params: Vec<libsql::Value> = query
-            .params()
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let params: Vec<libsql::Value> = query.params().into_iter().map(|p| p.into()).collect();
 
         self.conn
             .execute(&sql, params)
@@ -165,10 +165,10 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-
 // Generic execution methods for all ExecutableState QueryBuilders (LibSQL)
 #[cfg(feature = "libsql")]
-impl<'a, S, Schema, State, Table> DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
@@ -195,4 +195,3 @@ where
         self.builder.get(&self.drizzle.conn).await
     }
 }
-

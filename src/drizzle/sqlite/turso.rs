@@ -26,6 +26,7 @@ pub struct Drizzle<Schema = ()> {
 }
 
 impl Drizzle {
+    #[inline]
     pub const fn new<S>(conn: Connection) -> Drizzle<S> {
         Drizzle {
             conn,
@@ -35,6 +36,7 @@ impl Drizzle {
 }
 
 impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
+    #[inline]
     fn as_ref(&self) -> &Self {
         self
     }
@@ -42,10 +44,12 @@ impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
 
 impl<Schema> Drizzle<Schema> {
     /// Gets a reference to the underlying connection
+    #[inline]
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
+    #[inline]
     pub fn mut_conn(&mut self) -> &mut Connection {
         &mut self.conn
     }

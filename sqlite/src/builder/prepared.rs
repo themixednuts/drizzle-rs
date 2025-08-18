@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use drizzle_core::{
-    OwnedParam, Param, ParamBind,
+    OwnedParam, Param,
     prepared::{
         PreparedStatement as CorePreparedStatement,
         owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,

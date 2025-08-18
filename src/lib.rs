@@ -145,7 +145,7 @@ mod tests {
 
         let result = db
             .insert(user)
-            .values([InsertUser::default().with_name("test")])
+            .values([InsertUser::new("test").with_name("test")])
             .on_conflict(Conflict::default())
             .execute()
             .expect("Should have inserted");
@@ -170,7 +170,7 @@ mod tests {
 
         // Test that placeholders work with the new unified SQL-based approach
         let placeholder = Placeholder::colon("test_name");
-        let insert_value: InsertUser = InsertUser::default().with_name(placeholder);
+        let insert_value: InsertUser<'_, _> = InsertUser::new(placeholder);
 
         // Verify it's a Value variant containing SQL with the placeholder
         match &insert_value.name {
@@ -183,7 +183,7 @@ mod tests {
         }
 
         // Test that regular values still work
-        let regular_insert: InsertUser = InsertUser::default().with_name("regular_value");
+        let regular_insert: InsertUser<'_, _> = InsertUser::new("regular_value");
         match &regular_insert.name {
             drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
                 // Check that the SQL contains our parameter
