@@ -1,6 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle_rs::prelude::*;
 
+mod common;
+
 #[cfg(feature = "libsql")]
 use libsql::{Builder, Connection};
 #[cfg(feature = "rusqlite")]
@@ -77,64 +79,18 @@ struct FloatTest {
     compact: f32,
 }
 
-#[cfg(feature = "rusqlite")]
-fn setup_test_db() -> Connection {
-    let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
-
-    conn.execute(TypeTest::SQL.sql().as_str(), []).unwrap();
-    conn.execute(IntegerTest::SQL.sql().as_str(), []).unwrap();
-    conn.execute(FloatTest::SQL.sql().as_str(), []).unwrap();
-
-    conn
-}
-
-#[cfg(any(feature = "turso", feature = "libsql"))]
-async fn setup_test_db() -> Connection {
-    let db = Builder::new_local(":memory:")
-        .build()
-        .await
-        .expect("build db");
-    let conn = db.connect().expect("connect to db");
-
-    conn.execute(TypeTest::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(IntegerTest::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(FloatTest::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-
-    conn
-}
 
 #[tokio::test]
 async fn test_fromrow_with_all_data_types() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
+    let conn = setup_test_db!();
     let (db, type_test) = drizzle!(conn, [TypeTest]);
 
     // Insert test data with all data types
     let test_data = InsertTypeTest::new("test_user", 25, 98.5, true, [1, 2, 3, 4, 5]);
-
-    #[cfg(feature = "rusqlite")]
-    db.insert(type_test).values([test_data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(type_test)
-        .values([test_data])
-        .execute()
-        .await
-        .unwrap();
+    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
     // Test FromRow with all data types
-    #[cfg(feature = "rusqlite")]
-    let result: AllDataTypes = db.select(()).from(type_test).get().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result: AllDataTypes = db.select(()).from(type_test).get().await.unwrap();
+    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test).get());
 
     let expected = AllDataTypes {
         id: 1,
@@ -151,33 +107,15 @@ async fn test_fromrow_with_all_data_types() {
 
 #[tokio::test]
 async fn test_fromrow_with_integer_sizes() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
+    let conn = setup_test_db!();
     let (db, integer_test) = drizzle!(conn, [IntegerTest]);
 
     // Insert test data with different integer sizes
     let test_data = InsertIntegerTest::new(9223372036854775806i64, 32000i16, 100i8);
-
-    #[cfg(feature = "rusqlite")]
-    db.insert(integer_test)
-        .values([test_data])
-        .execute()
-        .unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(integer_test)
-        .values([test_data])
-        .execute()
-        .await
-        .unwrap();
+    drizzle_exec!(db.insert(integer_test).values([test_data]).execute());
 
     // Test FromRow with different integer types
-    #[cfg(feature = "rusqlite")]
-    let result: IntegerTypes = db.select(()).from(integer_test).get().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result: IntegerTypes = db.select(()).from(integer_test).get().await.unwrap();
+    let result: IntegerTypes = drizzle_exec!(db.select(()).from(integer_test).get());
 
     let expected = IntegerTypes {
         id: 1,
@@ -192,30 +130,15 @@ async fn test_fromrow_with_integer_sizes() {
 
 #[tokio::test]
 async fn test_fromrow_with_float_types() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
+    let conn = setup_test_db!();
     let (db, float_test) = drizzle!(conn, [FloatTest]);
 
     // Insert test data with different float types
     let test_data = InsertFloatTest::new(3.141592653589793, 2.718f32);
-
-    #[cfg(feature = "rusqlite")]
-    db.insert(float_test).values([test_data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(float_test)
-        .values([test_data])
-        .execute()
-        .await
-        .unwrap();
+    drizzle_exec!(db.insert(float_test).values([test_data]).execute());
 
     // Test FromRow with different float types
-    #[cfg(feature = "rusqlite")]
-    let result: FloatTypes = db.select(()).from(float_test).get().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result: FloatTypes = db.select(()).from(float_test).get().await.unwrap();
+    let result: FloatTypes = drizzle_exec!(db.select(()).from(float_test).get());
 
     let expected = FloatTypes {
         id: 1,
@@ -229,30 +152,15 @@ async fn test_fromrow_with_float_types() {
 
 #[tokio::test]
 async fn test_fromrow_type_conversion_edge_cases() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
+    let conn = setup_test_db!();
     let (db, type_test) = drizzle!(conn, [TypeTest]);
 
     // Insert test data with edge case values
     let test_data = InsertTypeTest::new("edge_case", 0, 0.0, false, []);
-
-    #[cfg(feature = "rusqlite")]
-    db.insert(type_test).values([test_data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    db.insert(type_test)
-        .values([test_data])
-        .execute()
-        .await
-        .unwrap();
+    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
     // Test FromRow with edge case values
-    #[cfg(feature = "rusqlite")]
-    let result: AllDataTypes = db.select(()).from(type_test).get().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result: AllDataTypes = db.select(()).from(type_test).get().await.unwrap();
+    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test).get());
 
     let expected = AllDataTypes {
         id: 1,
@@ -265,4 +173,47 @@ async fn test_fromrow_type_conversion_edge_cases() {
 
     assert_eq!(result, expected);
     println!("✅ Edge cases test passed: {:?}", result);
+}
+
+// Test FromRow derive macro with partial selection
+#[derive(FromRow, Debug, Default)]
+struct DerivedPartialSimple {
+    name: String,
+}
+
+// Test FromRow with column mapping  
+#[derive(FromRow, Debug, Default)]
+struct DerivedSimpleWithColumns {
+    #[column(TypeTest::id)]
+    table_id: i32,
+    #[column(TypeTest::name)]
+    table_name: String,
+}
+
+#[tokio::test]
+async fn test_fromrow_derive_with_partial_selection() {
+    let conn = setup_test_db!();
+    let (db, type_test) = drizzle!(conn, [TypeTest]);
+
+    let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
+    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+
+    // Test the derived implementation with partial selection
+    let result: DerivedPartialSimple = drizzle_exec!(db.select(type_test.name).from(type_test).get());
+    assert_eq!(result.name, "derive_test");
+}
+
+#[tokio::test]
+async fn test_fromrow_with_column_mapping() {
+    let conn = setup_test_db!();
+    let (db, type_test) = drizzle!(conn, [TypeTest]);
+
+    let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
+    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+
+    // Test the column-mapped FromRow implementation
+    let result: DerivedSimpleWithColumns = drizzle_exec!(db.select(DerivedSimpleWithColumns::default()).from(type_test).get());
+
+    assert_eq!(result.table_id, 42);
+    assert_eq!(result.table_name, "column_test");
 }
