@@ -1,12 +1,12 @@
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
-use rusqlite::{params_from_iter};
+use rusqlite::params_from_iter;
 use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
-    SQLiteValue, SQLiteTransactionType,
+    SQLiteTransactionType, SQLiteValue,
     builder::{
         self, QueryBuilder,
         delete::{self, DeleteBuilder},
@@ -227,7 +227,10 @@ where
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
         let sql = self.builder.sql.sql();
         let params = self.builder.sql.params();
-        Ok(self.transaction.tx.execute(&sql, params_from_iter(params))?)
+        Ok(self
+            .transaction
+            .tx
+            .execute(&sql, params_from_iter(params))?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -241,7 +244,9 @@ where
         let sql_str = sql.sql();
         let params = sql.params();
 
-        let mut stmt = self.transaction.tx
+        let mut stmt = self
+            .transaction
+            .tx
             .prepare(&sql_str)
             .map_err(|e| DrizzleError::Other(e.to_string()))?;
 

@@ -27,7 +27,7 @@ pub mod sqlite {
     pub use super::drizzle::sqlite::Drizzle;
     pub use ::procmacros::SQLiteIndex;
     pub use sqlite::builder::QueryBuilder;
-    
+
     // Transaction support
     #[cfg(feature = "rusqlite")]
     pub use super::transaction::sqlite::rusqlite::Transaction;

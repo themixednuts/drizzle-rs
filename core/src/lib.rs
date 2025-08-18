@@ -834,14 +834,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
 
         let current = &self.chunks[index];
-        
+
         // Find next non-empty chunk
         let mut next_index = index + 1;
         let next = loop {
             if next_index >= self.chunks.len() {
                 return false;
             }
-            
+
             let candidate = &self.chunks[next_index];
             if let SQLChunk::Text(t) = candidate {
                 if t.is_empty() {
@@ -854,7 +854,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
         let ends_word = chunk_ends_word(current);
         let starts_word = chunk_starts_word(next);
-        
+
         ends_word && starts_word
     }
 
@@ -967,9 +967,11 @@ fn chunk_ends_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
             let last = t.chars().last().unwrap_or(' ');
             !last.is_whitespace() && !['(', ',', '.', ')'].contains(&last)
         }
-        SQLChunk::Table(_) | SQLChunk::Column(_) | SQLChunk::Param(_) | SQLChunk::Alias { .. } | SQLChunk::Subquery(_) => {
-            true
-        }
+        SQLChunk::Table(_)
+        | SQLChunk::Column(_)
+        | SQLChunk::Param(_)
+        | SQLChunk::Alias { .. }
+        | SQLChunk::Subquery(_) => true,
         _ => false,
     }
 }
@@ -981,9 +983,11 @@ fn chunk_starts_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
             let first = t.chars().next().unwrap_or(' ');
             !first.is_whitespace() && !['(', ',', ')', ';'].contains(&first)
         }
-        SQLChunk::Table(_) | SQLChunk::Column(_) | SQLChunk::Param(_) | SQLChunk::Alias { .. } | SQLChunk::Subquery(_) => {
-            true
-        }
+        SQLChunk::Table(_)
+        | SQLChunk::Column(_)
+        | SQLChunk::Param(_)
+        | SQLChunk::Alias { .. }
+        | SQLChunk::Subquery(_) => true,
         _ => false,
     }
 }

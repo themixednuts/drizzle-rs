@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
-    SQLiteValue, SQLiteTransactionType,
+    SQLiteTransactionType, SQLiteValue,
     builder::{
         self, QueryBuilder,
         delete::{self, DeleteBuilder},
@@ -209,7 +209,11 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Executes a transaction with the given callback
-    pub fn transaction<F, R>(&mut self, tx_type: SQLiteTransactionType, f: F) -> drizzle_core::error::Result<R>
+    pub fn transaction<F, R>(
+        &mut self,
+        tx_type: SQLiteTransactionType,
+        f: F,
+    ) -> drizzle_core::error::Result<R>
     where
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
@@ -218,25 +222,23 @@ impl<Schema> Drizzle<Schema> {
         } else {
             self.conn.transaction_with_behavior(tx_type.into())?
         };
-        
+
         let transaction = Transaction::new(tx, tx_type);
-        
+
         // Use catch_unwind to handle panics and ensure rollback
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
-        
+
         match result {
-            Ok(callback_result) => {
-                match callback_result {
-                    Ok(value) => {
-                        transaction.commit()?;
-                        Ok(value)
-                    }
-                    Err(e) => {
-                        transaction.rollback()?;
-                        Err(e)
-                    }
+            Ok(callback_result) => match callback_result {
+                Ok(value) => {
+                    transaction.commit()?;
+                    Ok(value)
                 }
-            }
+                Err(e) => {
+                    transaction.rollback()?;
+                    Err(e)
+                }
+            },
             Err(panic_payload) => {
                 // Rollback on panic and resume unwinding
                 let _ = transaction.rollback();
