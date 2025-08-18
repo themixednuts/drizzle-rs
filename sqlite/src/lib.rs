@@ -31,8 +31,9 @@ pub mod prelude {
 pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
 
 /// SQLite transaction types
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy)]
 pub enum SQLiteTransactionType {
+    #[default]
     /// A deferred transaction is the default - it does not acquire locks until needed
     Deferred,
     /// An immediate transaction acquires a RESERVED lock immediately
@@ -60,6 +61,31 @@ impl From<::rusqlite::TransactionBehavior> for SQLiteTransactionType {
             ::rusqlite::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
             ::rusqlite::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
             _ => SQLiteTransactionType::Deferred, // Default for any future variants
+        }
+    }
+}
+
+// Convert to libsql::TransactionBehavior
+#[cfg(feature = "libsql")]
+impl From<SQLiteTransactionType> for libsql::TransactionBehavior {
+    fn from(tx_type: SQLiteTransactionType) -> Self {
+        match tx_type {
+            SQLiteTransactionType::Deferred => libsql::TransactionBehavior::Deferred,
+            SQLiteTransactionType::Immediate => libsql::TransactionBehavior::Immediate,
+            SQLiteTransactionType::Exclusive => libsql::TransactionBehavior::Exclusive,
+        }
+    }
+}
+
+// Convert from libsql::TransactionBehavior
+#[cfg(feature = "libsql")]
+impl From<libsql::TransactionBehavior> for SQLiteTransactionType {
+    fn from(behavior: libsql::TransactionBehavior) -> Self {
+        match behavior {
+            libsql::TransactionBehavior::Deferred => SQLiteTransactionType::Deferred,
+            libsql::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
+            libsql::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
+            libsql::TransactionBehavior::ReadOnly => SQLiteTransactionType::Deferred, // Map ReadOnly to Deferred as closest equivalent
         }
     }
 }
