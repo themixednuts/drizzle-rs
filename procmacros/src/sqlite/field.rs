@@ -13,36 +13,36 @@ use syn::{
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SQLiteType {
     /// SQLite INTEGER type - stores signed integers up to 8 bytes.
-    /// 
+    ///
     /// See: <https://sqlite.org/datatype3.html#integer_datatype>
-    /// 
+    ///
     /// Supports: primary keys, autoincrement, enums (discriminant storage)
     Integer,
-    
+
     /// SQLite TEXT type - stores text in UTF-8, UTF-16BE, or UTF-16LE encoding.
     ///
     /// See: <https://sqlite.org/datatype3.html#text_datatype>
-    /// 
+    ///
     /// Supports: enums (variant name storage), JSON serialization
     Text,
-    
+
     /// SQLite BLOB type - stores binary data exactly as input.
     ///
     /// See: <https://sqlite.org/datatype3.html#blob_datatype>
-    /// 
+    ///
     /// Supports: JSON serialization, UUID storage
     Blob,
-    
+
     /// SQLite REAL type - stores floating point values as 8-byte IEEE floating point numbers.
     ///
     /// See: <https://sqlite.org/datatype3.html#real_datatype>
     Real,
-    
+
     /// SQLite NUMERIC type - stores values as INTEGER, REAL, or TEXT depending on the value.
     ///
     /// See: <https://sqlite.org/datatype3.html#numeric_datatype>
     Numeric,
-    
+
     /// SQLite ANY type - no type affinity, can store any type of data.
     ///
     /// See: <https://sqlite.org/datatype3.html#type_affinity>
@@ -82,7 +82,6 @@ impl SQLiteType {
             Self::Any => "ANY",
         }
     }
-
 
     /// Check if a flag is valid for this column type
     pub(crate) fn is_valid_flag(&self, flag: &str) -> bool {

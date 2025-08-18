@@ -46,6 +46,7 @@ pub(crate) fn generate_schema(input: TokenStream) -> syn::Result<TokenStream> {
             quote! {
                 #[allow(non_local_definitions)]
                 impl ::drizzle_rs::core::IsInSchema<#schema_ident> for #ty {}
+                #[allow(non_local_definitions)]
                 impl ::drizzle_rs::core::IsInSchema<#schema_ident> for &#ty {}
             }
         });
@@ -74,6 +75,7 @@ pub(crate) fn generate_schema_for_type(
         quote! {
             #[allow(non_local_definitions)]
             impl ::drizzle_rs::core::IsInSchema<#schema_expr> for #ty {}
+            #[allow(non_local_definitions)]
             impl ::drizzle_rs::core::IsInSchema<#schema_expr> for &#ty {}
         }
     });
