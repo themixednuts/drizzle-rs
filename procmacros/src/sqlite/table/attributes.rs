@@ -1,5 +1,5 @@
-use syn::{Meta, Result, parse::Parse};
 use syn::spanned::Spanned;
+use syn::{Meta, Result, parse::Parse};
 
 #[derive(Default)]
 pub struct TableAttributes {

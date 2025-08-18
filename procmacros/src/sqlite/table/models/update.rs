@@ -28,11 +28,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
         update_field_conversions.push(ctx.get_update_field_conversion(info));
 
         // Generate convenience methods
-        update_convenience_methods.push(generate_convenience_method(
-            info,
-            ModelType::Update,
-            ctx,
-        ));
+        update_convenience_methods.push(generate_convenience_method(info, ModelType::Update, ctx));
     }
 
     Ok(quote! {

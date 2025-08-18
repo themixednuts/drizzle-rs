@@ -124,15 +124,17 @@ async fn test_select_specific_columns_vs_select_all() {
     assert!(select_specific_sql.contains(r#"FROM "simple""#));
 }
 
-#[test]
-fn test_sql_macro() -> Result<(), DrizzleError> {
+#[tokio::test]
+async fn test_sql_macro() -> Result<(), DrizzleError> {
     let db = setup_test_db!();
     let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
     let id = 4;
-    drizzle
-        .insert(simple)
-        .values([InsertSimple::new("test").with_id(id)])
-        .execute()?;
+    drizzle_try!(
+        drizzle
+            .insert(simple)
+            .values([InsertSimple::new("test").with_id(id)])
+            .execute()
+    )?;
 
     let query = sql!(SELECT * FROM {simple} where {simple.id} = {id});
     let sql = query.sql();
@@ -142,7 +144,7 @@ fn test_sql_macro() -> Result<(), DrizzleError> {
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
 
-    let results: Vec<SelectSimple> = drizzle.all(query)?;
+    let results: Vec<SelectSimple> = drizzle_try!(drizzle.all(query))?;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, id);
     assert_eq!(results[0].name, "test");
@@ -158,10 +160,12 @@ async fn test_sql_printf_style() -> Result<(), DrizzleError> {
     let id = 5;
     let name = "printf_test";
 
-    drizzle
-        .insert(simple)
-        .values([InsertSimple::new(name).with_id(id)])
-        .execute()?;
+    drizzle_try!(
+        drizzle
+            .insert(simple)
+            .values([InsertSimple::new(name).with_id(id)])
+            .execute()
+    )?;
 
     // Test printf-style syntax: sql!("template", arg1, arg2, ...)
     let query = sql!("SELECT * FROM {} WHERE {} = {}", simple, simple.id, id);
@@ -183,10 +187,12 @@ async fn test_sql_mixed_named_positional() -> Result<(), DrizzleError> {
     let id = 6;
     let name = "mixed_test";
 
-    drizzle
-        .insert(simple)
-        .values([InsertSimple::new(name).with_id(id)])
-        .execute()?;
+    drizzle_try!(
+        drizzle
+            .insert(simple)
+            .values([InsertSimple::new(name).with_id(id)])
+            .execute()
+    )?;
 
     // Test mixing positional {} and named {simple.id} expressions
     let query = sql!("SELECT * FROM {} WHERE {simple.id} = {}", simple, id);

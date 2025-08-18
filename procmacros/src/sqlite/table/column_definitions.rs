@@ -6,7 +6,9 @@ use quote::{format_ident, quote};
 use syn::Result;
 
 /// Generates the column ZSTs and their `SQLColumn` implementations.
-pub(crate) fn generate_column_definitions<'a>(ctx: &MacroContext<'a>) -> Result<(TokenStream, Vec<Ident>)> {
+pub(crate) fn generate_column_definitions<'a>(
+    ctx: &MacroContext<'a>,
+) -> Result<(TokenStream, Vec<Ident>)> {
     let mut all_column_code = TokenStream::new();
     let mut column_zst_idents = Vec::new();
     let MacroContext {
@@ -258,7 +260,10 @@ pub(crate) fn generate_column_accessors(
 }
 
 /// Generates the column fields for the table struct.
-pub(crate) fn generate_column_fields(ctx: &MacroContext, column_zst_idents: &[Ident]) -> Result<TokenStream> {
+pub(crate) fn generate_column_fields(
+    ctx: &MacroContext,
+    column_zst_idents: &[Ident],
+) -> Result<TokenStream> {
     let const_defs =
         ctx.field_infos
             .iter()

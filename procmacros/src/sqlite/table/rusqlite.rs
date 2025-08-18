@@ -174,7 +174,7 @@ pub(crate) fn generate_json_impls(
                 }
             ),
             _ => return Err(syn::Error::new_spanned(
-                info.ident, 
+                info.ident,
                 "JSON fields must use either TEXT or BLOB column types"
             )),
         };

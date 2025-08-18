@@ -255,7 +255,7 @@ async fn test_prepared_insert_performance() {
     let regular_duration = start.elapsed();
 
     // Clear table for prepared test
-    let delete_result = db.execute(SQL::raw("DELETE FROM \"simple\""));
+    let delete_result = drizzle_exec!(db.execute(SQL::raw("DELETE FROM \"simple\"")));
     println!("Delete result: {:?}", delete_result);
 
     // Test prepared insert performance - use the same data structure as regular inserts

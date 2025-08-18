@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::sqlite::field::FieldInfo;
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use std::collections::HashMap;
 use syn::Result;
 
@@ -79,7 +79,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                     Ok(::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
                 },
                 _ => return Err(syn::Error::new_spanned(
-                    info.ident, 
+                    info.ident,
                     "JSON fields must use either TEXT or BLOB column types"
                 )),
             };

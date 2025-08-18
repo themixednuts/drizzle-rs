@@ -60,7 +60,11 @@ impl<'a> MacroContext<'a> {
     }
 
     /// Gets the appropriate field type for a specific model
-    pub(crate) fn get_field_type_for_model(&self, field: &FieldInfo, model_type: ModelType) -> TokenStream {
+    pub(crate) fn get_field_type_for_model(
+        &self,
+        field: &FieldInfo,
+        model_type: ModelType,
+    ) -> TokenStream {
         let base_type = field.base_type;
         match model_type {
             ModelType::Insert => {

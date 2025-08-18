@@ -4,7 +4,11 @@ use quote::quote;
 use syn::Result;
 
 /// Generates the `SQLSchema` and `SQLTable` implementations.
-pub(crate) fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Ident], _required_fields_pattern: &[bool]) -> Result<TokenStream> {
+pub(crate) fn generate_table_impls(
+    ctx: &MacroContext,
+    column_zst_idents: &[Ident],
+    _required_fields_pattern: &[bool],
+) -> Result<TokenStream> {
     let MacroContext {
         strict,
         without_rowid,
@@ -62,7 +66,7 @@ pub(crate) fn generate_table_impls(ctx: &MacroContext, column_zst_idents: &[Iden
             #sql_method
         }
 
-        
+
         impl<'a> ::drizzle_rs::core::SQLTable<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident {
             type Select = #select_model;
             type Insert<T> = #insert_model<'a, T>;

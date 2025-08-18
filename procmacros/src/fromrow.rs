@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{ToTokens, quote};
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
 
 /// Parse column reference from field attributes, looking for #[column(Table::field)]
@@ -217,7 +217,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 let idx = idx as i32;
                     let is_optional = field_type_str.contains("Option");
                     let into = if is_optional { quote!{ .into() } } else { quote!{} };
-                
+
                 // Special handling for Uuid from [u8;16]
                 if field_type_str.contains("Uuid") {
                     quote! {

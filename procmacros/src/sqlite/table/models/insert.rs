@@ -2,32 +2,43 @@ use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::Result;
 
 /// Generates the Insert model with convenience methods and constructor
-pub(crate) fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool]) -> Result<TokenStream> {
+pub(crate) fn generate_insert_model(
+    ctx: &MacroContext,
+    required_fields_pattern: &[bool],
+) -> Result<TokenStream> {
     let insert_model = &ctx.insert_model_ident;
     let struct_ident = &ctx.struct_ident;
-    
-    // Convert bool slice to tuple literal for required fields pattern  
+
+    // Convert bool slice to tuple literal for required fields pattern
     let required_fields_pattern_literal = {
-        let pattern_values: Vec<_> = required_fields_pattern.iter().enumerate().map(|(i, &b)| {
-            let field_pascal_case = ctx.field_infos[i].ident.to_string().to_upper_camel_case();
-            if b { 
-                format_ident!("{}{}Set", ctx.struct_ident, field_pascal_case)
-            } else { 
-                format_ident!("{}{}NotSet", ctx.struct_ident, field_pascal_case)
-            }
-        }).collect();
+        let pattern_values: Vec<_> = required_fields_pattern
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| {
+                let field_pascal_case = ctx.field_infos[i].ident.to_string().to_upper_camel_case();
+                if b {
+                    format_ident!("{}{}Set", ctx.struct_ident, field_pascal_case)
+                } else {
+                    format_ident!("{}{}NotSet", ctx.struct_ident, field_pascal_case)
+                }
+            })
+            .collect();
         quote! { (#(#pattern_values),*) }
     };
-    
+
     // Generate tuple type with NotSet for each field
-    let empty_pattern_elements: Vec<_> = ctx.field_infos.iter().map(|info| {
-        let field_pascal_case = info.ident.to_string().to_upper_camel_case();
-        format_ident!("{}{}NotSet", ctx.struct_ident, field_pascal_case)
-    }).collect();
+    let empty_pattern_elements: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .map(|info| {
+            let field_pascal_case = info.ident.to_string().to_upper_camel_case();
+            format_ident!("{}{}NotSet", ctx.struct_ident, field_pascal_case)
+        })
+        .collect();
     let empty_pattern_tuple = quote! { (#(#empty_pattern_elements),*) };
 
     let mut insert_fields = Vec::new();
@@ -60,11 +71,7 @@ pub(crate) fn generate_insert_model(ctx: &MacroContext, required_fields_pattern:
         insert_field_indices.push(quote! { #field_index });
         insert_field_conversions.push(ctx.get_insert_field_conversion(info));
 
-        insert_convenience_methods.push(generate_convenience_method(
-            info,
-            ModelType::Insert,
-            ctx,
-        ));
+        insert_convenience_methods.push(generate_convenience_method(info, ModelType::Insert, ctx));
 
         // Generate constructor parameters only for required fields
         if !is_optional {
@@ -76,41 +83,44 @@ pub(crate) fn generate_insert_model(ctx: &MacroContext, required_fields_pattern:
             let (param, assignment) = match (info.is_uuid, type_string.as_str()) {
                 (true, _) => (
                     quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::uuid::Uuid>> },
-                    quote! { #field_name: #field_name.into() }
+                    quote! { #field_name: #field_name.into() },
                 ),
                 (_, s) if s.contains("String") => (
                     quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>> },
-                    quote! { #field_name: #field_name.into() }
+                    quote! { #field_name: #field_name.into() },
                 ),
                 (_, s) if s.contains("Vec") && s.contains("u8") => (
                     quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
-                    quote! { #field_name: #field_name.into() }
+                    quote! { #field_name: #field_name.into() },
                 ),
                 _ => (
                     quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>> },
-                    quote! { #field_name: #field_name.into() }
+                    quote! { #field_name: #field_name.into() },
                 ),
             };
-            
+
             required_constructor_params.push(param);
             required_constructor_assignments.push(assignment);
         }
     }
 
-
     // No longer need bit constants with array approach
 
     // Generate marker types for each field (e.g., UserNameSet, UserNameNotSet)
-    let field_marker_types: Vec<_> = ctx.field_infos.iter().map(|info| {
-        let field_pascal_case = info.ident.to_string().to_upper_camel_case();
-        let set_marker = format_ident!("{}{}Set", ctx.struct_ident, field_pascal_case);
-        let not_set_marker = format_ident!("{}{}NotSet", ctx.struct_ident, field_pascal_case);
-        
-        quote! {
-            pub struct #set_marker;
-            pub struct #not_set_marker;
-        }
-    }).collect();
+    let field_marker_types: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .map(|info| {
+            let field_pascal_case = info.ident.to_string().to_upper_camel_case();
+            let set_marker = format_ident!("{}{}Set", ctx.struct_ident, field_pascal_case);
+            let not_set_marker = format_ident!("{}{}NotSet", ctx.struct_ident, field_pascal_case);
+
+            quote! {
+                pub struct #set_marker;
+                pub struct #not_set_marker;
+            }
+        })
+        .collect();
 
     // Generate convenience methods using the original working approach, but with pattern tracking
     let convenience_methods_with_pattern: Vec<_> = ctx.field_infos.iter().enumerate().map(|(field_index, info)| {
@@ -119,7 +129,7 @@ pub(crate) fn generate_insert_model(ctx: &MacroContext, required_fields_pattern:
             let field_pascal_case = field_info.ident.to_string().to_upper_camel_case();
             format_ident!("{}{}", ctx.struct_ident, field_pascal_case)
         }).collect();
-        
+
         // Create return type pattern: this field becomes Set, others stay generic
         let return_pattern_generics: Vec<_> = ctx.field_infos.iter().enumerate().map(|(i, field_info)| {
             let field_pascal_case = field_info.ident.to_string().to_upper_camel_case();
@@ -205,7 +215,7 @@ pub(crate) fn generate_insert_model(ctx: &MacroContext, required_fields_pattern:
     Ok(quote! {
         // Generate marker types for each field
         #(#field_marker_types)*
-        
+
         // Insert Model with PhantomData pattern tracking
         #[derive(Debug, Clone)]
         pub struct #insert_model<'a, T = #empty_pattern_tuple> {
@@ -217,7 +227,7 @@ pub(crate) fn generate_insert_model(ctx: &MacroContext, required_fields_pattern:
             fn default() -> Self {
                 // For any pattern, default() creates an instance with default field values
                 // The pattern type T is preserved but all fields get default values
-                Self { 
+                Self {
                     #(#insert_default_fields,)*
                     _pattern: ::std::marker::PhantomData,
                 }

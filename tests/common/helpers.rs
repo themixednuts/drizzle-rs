@@ -117,3 +117,121 @@ macro_rules! db_params {
         params
     }};
 }
+
+/// Helper to extract values from database rows in a unified way
+pub struct RowHelper;
+
+impl RowHelper {
+    /// Extract string value from row at index
+    #[cfg(feature = "rusqlite")]
+    pub fn get_string(row: &rusqlite::Row, index: usize) -> String {
+        row.get::<_, String>(index).unwrap()
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    pub fn get_string(row: &libsql::Row, index: usize) -> String {
+        row.get_value(index as i32)
+            .unwrap()
+            .as_text()
+            .unwrap()
+            .to_string()
+    }
+
+    /// Extract integer value from row at index
+    #[cfg(feature = "rusqlite")]
+    pub fn get_i32(row: &rusqlite::Row, index: usize) -> i32 {
+        row.get::<_, i32>(index).unwrap()
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    pub fn get_i32(row: &libsql::Row, index: usize) -> i32 {
+        row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .unwrap()
+            .clone() as i32
+    }
+
+    /// Extract i64 value from row at index
+    #[cfg(feature = "rusqlite")]
+    pub fn get_i64(row: &rusqlite::Row, index: usize) -> i64 {
+        row.get::<_, i64>(index).unwrap()
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    pub fn get_i64(row: &libsql::Row, index: usize) -> i64 {
+        row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .unwrap()
+            .clone()
+    }
+
+    /// Extract f64 value from row at index
+    #[cfg(feature = "rusqlite")]
+    pub fn get_f64(row: &rusqlite::Row, index: usize) -> f64 {
+        row.get::<_, f64>(index).unwrap()
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    pub fn get_f64(row: &libsql::Row, index: usize) -> f64 {
+        row.get_value(index as i32)
+            .unwrap()
+            .as_real()
+            .unwrap()
+            .clone()
+    }
+
+    /// Extract bool value from row at index
+    #[cfg(feature = "rusqlite")]
+    pub fn get_bool(row: &rusqlite::Row, index: usize) -> bool {
+        row.get::<_, bool>(index).unwrap()
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    pub fn get_bool(row: &libsql::Row, index: usize) -> bool {
+        row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .map(|&v| v != 0)
+            .unwrap()
+    }
+
+    /// Extract Vec<u8> value from row at index
+    #[cfg(feature = "rusqlite")]
+    pub fn get_blob(row: &rusqlite::Row, index: usize) -> Vec<u8> {
+        row.get::<_, Vec<u8>>(index).unwrap()
+    }
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    pub fn get_blob(row: &libsql::Row, index: usize) -> Vec<u8> {
+        row.get_value(index as i32)
+            .unwrap()
+            .as_blob()
+            .unwrap()
+            .clone()
+    }
+}
+
+/// Macro to extract values from rows uniformly
+#[macro_export]
+macro_rules! row_get {
+    ($row:expr, $index:expr, String) => {
+        crate::common::helpers::RowHelper::get_string($row, $index)
+    };
+    ($row:expr, $index:expr, i32) => {
+        crate::common::helpers::RowHelper::get_i32($row, $index)
+    };
+    ($row:expr, $index:expr, i64) => {
+        crate::common::helpers::RowHelper::get_i64($row, $index)
+    };
+    ($row:expr, $index:expr, f64) => {
+        crate::common::helpers::RowHelper::get_f64($row, $index)
+    };
+    ($row:expr, $index:expr, bool) => {
+        crate::common::helpers::RowHelper::get_bool($row, $index)
+    };
+    ($row:expr, $index:expr, Vec<u8>) => {
+        crate::common::helpers::RowHelper::get_blob($row, $index)
+    };
+}

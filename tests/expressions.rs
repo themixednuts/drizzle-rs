@@ -233,13 +233,23 @@ async fn test_coalesce_expression() {
 
     // Insert data with separate operations since each has different column patterns
     // Users A and C: have email set
-    drizzle_exec!(db.insert(complex).values([
-        InsertComplex::new("User A", true, Role::User).with_email("user@example.com".to_string()),
-        InsertComplex::new("User C", true, Role::User).with_email("user3@example.com".to_string()),
-    ]).execute());
-    
+    drizzle_exec!(
+        db.insert(complex)
+            .values([
+                InsertComplex::new("User A", true, Role::User)
+                    .with_email("user@example.com".to_string()),
+                InsertComplex::new("User C", true, Role::User)
+                    .with_email("user3@example.com".to_string()),
+            ])
+            .execute()
+    );
+
     // User B: has no optional fields set
-    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User B", false, Role::Admin)]).execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User B", false, Role::Admin)])
+            .execute()
+    );
 
     // Test coalesce with email field (some null, some not)
     let result: Vec<CoalesceStringResult> = drizzle_exec!(
@@ -309,17 +319,25 @@ async fn test_complex_expressions() {
 
     // Insert data with separate operations since each has different column patterns
     // Users A and B: have both age and score set
-    drizzle_exec!(db.insert(complex).values([
-        InsertComplex::new("User A", true, Role::User)
-            .with_age(25)
-            .with_score(85.5),
-        InsertComplex::new("User B", false, Role::Admin)
-            .with_age(30)
-            .with_score(92.0),
-    ]).execute());
-    
+    drizzle_exec!(
+        db.insert(complex)
+            .values([
+                InsertComplex::new("User A", true, Role::User)
+                    .with_age(25)
+                    .with_score(85.5),
+                InsertComplex::new("User B", false, Role::Admin)
+                    .with_age(30)
+                    .with_score(92.0),
+            ])
+            .execute()
+    );
+
     // User C: has only score set
-    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User C", true, Role::User).with_score(78.3)]).execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User C", true, Role::User).with_score(78.3)])
+            .execute()
+    );
 
     // Test multiple expressions in one query
     let result: Vec<ComplexAggregateResult> = drizzle_exec!(
@@ -494,8 +512,14 @@ async fn test_multiple_aliases() {
 
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
+    #[derive(FromRow)]
+    struct ResultRow {
+        identifier: i32,
+        item_name: String,
+        total: i32,
+    }
     // Test multiple aliases in same query
-    let result: Vec<(i32, String, i32)> = drizzle_exec!(
+    let result: Vec<ResultRow> = drizzle_exec!(
         db.select((
             alias(simple.id, "identifier"),
             alias(simple.name, "item_name"),
@@ -504,4 +528,8 @@ async fn test_multiple_aliases() {
         .from(simple)
         .all()
     );
+
+    assert_eq!(result[0].identifier, 1);
+    assert_eq!(result[0].item_name, "Item A");
+    assert_eq!(result[0].total, 2);
 }

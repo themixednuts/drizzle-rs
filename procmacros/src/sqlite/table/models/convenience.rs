@@ -1,7 +1,7 @@
 use super::super::context::{MacroContext, ModelType};
 use crate::sqlite::field::FieldInfo;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 
 /// Generates a convenience method for a field based on its type
 pub(crate) fn generate_convenience_method(

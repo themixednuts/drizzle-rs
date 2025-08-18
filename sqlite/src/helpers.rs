@@ -229,7 +229,7 @@ where
     Table::Insert<T>: SQLModel<'a, SQLiteValue<'a>>,
 {
     let rows: Vec<_> = rows.into_iter().collect();
-    
+
     if rows.is_empty() {
         return SQL::raw("VALUES");
     }
@@ -237,24 +237,20 @@ where
     // Since all rows have the same PATTERN, they all have the same columns
     // Get column info from the first row (all rows will have the same columns)
     let columns_info = rows[0].columns();
-    
+
     // Check if this is a DEFAULT VALUES case (no columns)
     if columns_info.is_empty() {
         return SQL::raw("DEFAULT VALUES");
     }
 
     let columns_sql = columns_info_to_sql(&columns_info);
-    let value_clauses: Vec<_> = rows
-        .iter()
-        .map(|row| row.values().subquery())
-        .collect();
+    let value_clauses: Vec<_> = rows.iter().map(|row| row.values().subquery()).collect();
 
     columns_sql
         .subquery()
         .append_raw("VALUES")
         .append(SQL::join(value_clauses, ", "))
 }
-
 
 /// Helper function to create a RETURNING clause - SQLite specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>

@@ -360,10 +360,14 @@ async fn test_single_condition_logical_operations() {
     let (db, simple) = drizzle!(conn, [Simple]);
 
     // Insert test data - both have same pattern (both set id)
-    drizzle_exec!(db.insert(simple).values([
-        InsertSimple::new("Test").with_id(1),
-        InsertSimple::new("Other").with_id(2),
-    ]).execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values([
+                InsertSimple::new("Test").with_id(1),
+                InsertSimple::new("Other").with_id(2),
+            ])
+            .execute()
+    );
 
     // Test single condition in and() - should not add extra parentheses
     let result: Vec<SelectSimple> = drizzle_exec!(
@@ -386,11 +390,7 @@ async fn test_single_condition_logical_operations() {
     assert_eq!(result[0].name, "Other");
 
     // Test no condition (get all records)
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .all()
-    );
+    let result: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
     assert_eq!(result.len(), 2); // No condition should return all
 }
 
@@ -421,8 +421,8 @@ async fn test_string_operations() {
 #[cfg(all(feature = "sqlite", feature = "serde"))]
 #[tokio::test]
 async fn test_sqlite_json_conditions() {
-    use drizzle_rs::sqlite::conditions::*;
     use crate::common::UserMetadata;
+    use drizzle_rs::sqlite::conditions::*;
 
     let conn = setup_test_db!();
     let (db, complex) = drizzle!(conn, [Complex]);
@@ -434,13 +434,19 @@ async fn test_sqlite_json_conditions() {
         theme: "dark".to_string(),
     };
 
-    drizzle_exec!(db.insert(complex).values([
-        InsertComplex::new("User A", true, Role::User).with_metadata(metadata.clone()),
-    ]).execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values([
+                InsertComplex::new("User A", true, Role::User).with_metadata(metadata.clone()),
+            ])
+            .execute()
+    );
 
-    drizzle_exec!(db.insert(complex).values([
-        InsertComplex::new("User B", false, Role::Admin),
-    ]).execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User B", false, Role::Admin),])
+            .execute()
+    );
 
     // Test json_extract helper on the metadata field
     let result: Vec<JsonExtractResult> = drizzle_exec!(
