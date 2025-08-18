@@ -1,6 +1,6 @@
-use crate::builder::{QueryBuilder, ExecutableState};
-use drizzle_core::error::{DrizzleError, Result};
+use crate::builder::{ExecutableState, QueryBuilder};
 use drizzle_core::ParamBind;
+use drizzle_core::error::{DrizzleError, Result};
 use libsql::{Connection, Row};
 
 impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
@@ -10,12 +10,7 @@ where
     /// Runs the query and returns the number of affected rows
     pub async fn execute<'a>(&self, conn: &Connection) -> Result<u64> {
         let sql = self.sql.sql();
-        let params: Vec<libsql::Value> = self
-            .sql
-            .params()
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let params: Vec<libsql::Value> = self.sql.params().into_iter().map(|p| p.into()).collect();
 
         conn.execute(&sql, params)
             .await
@@ -112,14 +107,14 @@ impl<'a> crate::builder::prepared::PreparedStatement<'a> {
         params: impl IntoIterator<Item = ParamBind<'a, crate::SQLiteValue<'a>>>,
     ) -> Result<u64> {
         // Convert to owned params and bind to pre-rendered SQL
-        let owned_params = params.into_iter().map(|p| p.into_owned()).collect::<Vec<_>>();
+        let owned_params = params
+            .into_iter()
+            .map(|p| p.into_owned())
+            .collect::<Vec<_>>();
         let (sql_str, sql_params) = self.inner.sql.clone().bind(owned_params);
 
         // Convert to libsql Values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let libsql_params: Vec<libsql::Value> = sql_params.into_iter().map(|p| p.into()).collect();
 
         // Execute with connection
         conn.execute(&sql_str, libsql_params).await
@@ -136,14 +131,14 @@ impl<'a> crate::builder::prepared::PreparedStatement<'a> {
         for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
         // Convert to owned params and bind to pre-rendered SQL
-        let owned_params = params.into_iter().map(|p| p.into_owned()).collect::<Vec<_>>();
+        let owned_params = params
+            .into_iter()
+            .map(|p| p.into_owned())
+            .collect::<Vec<_>>();
         let (sql_str, sql_params) = self.inner.sql.clone().bind(owned_params);
 
         // Convert to libsql Values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let libsql_params: Vec<libsql::Value> = sql_params.into_iter().map(|p| p.into()).collect();
 
         // Execute with connection
         let mut rows = conn.query(&sql_str, libsql_params).await?;
@@ -168,14 +163,14 @@ impl<'a> crate::builder::prepared::PreparedStatement<'a> {
         for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
         // Convert to owned params and bind to pre-rendered SQL
-        let owned_params = params.into_iter().map(|p| p.into_owned()).collect::<Vec<_>>();
+        let owned_params = params
+            .into_iter()
+            .map(|p| p.into_owned())
+            .collect::<Vec<_>>();
         let (sql_str, sql_params) = self.inner.sql.clone().bind(owned_params);
 
         // Convert to libsql Values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let libsql_params: Vec<libsql::Value> = sql_params.into_iter().map(|p| p.into()).collect();
 
         // Execute with connection
         let mut rows = conn.query(&sql_str, libsql_params).await?;
@@ -198,14 +193,14 @@ impl crate::builder::prepared::OwnedPreparedStatement {
         params: impl IntoIterator<Item = drizzle_core::ParamBind<'a, crate::SQLiteValue<'a>>>,
     ) -> Result<u64> {
         // Convert to owned params and bind to pre-rendered SQL
-        let owned_params = params.into_iter().map(|p| p.into_owned()).collect::<Vec<_>>();
+        let owned_params = params
+            .into_iter()
+            .map(|p| p.into_owned())
+            .collect::<Vec<_>>();
         let (sql_str, sql_params) = self.inner.sql.clone().bind(owned_params);
 
         // Convert to libsql Values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let libsql_params: Vec<libsql::Value> = sql_params.into_iter().map(|p| p.into()).collect();
 
         // Execute with connection
         conn.execute(&sql_str, libsql_params).await
@@ -222,14 +217,14 @@ impl crate::builder::prepared::OwnedPreparedStatement {
         for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
         // Convert to owned params and bind to pre-rendered SQL
-        let owned_params = params.into_iter().map(|p| p.into_owned()).collect::<Vec<_>>();
+        let owned_params = params
+            .into_iter()
+            .map(|p| p.into_owned())
+            .collect::<Vec<_>>();
         let (sql_str, sql_params) = self.inner.sql.clone().bind(owned_params);
 
         // Convert to libsql Values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let libsql_params: Vec<libsql::Value> = sql_params.into_iter().map(|p| p.into()).collect();
 
         // Execute with connection
         let mut rows = conn.query(&sql_str, libsql_params).await?;
@@ -254,14 +249,14 @@ impl crate::builder::prepared::OwnedPreparedStatement {
         for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
         // Convert to owned params and bind to pre-rendered SQL
-        let owned_params = params.into_iter().map(|p| p.into_owned()).collect::<Vec<_>>();
+        let owned_params = params
+            .into_iter()
+            .map(|p| p.into_owned())
+            .collect::<Vec<_>>();
         let (sql_str, sql_params) = self.inner.sql.clone().bind(owned_params);
 
         // Convert to libsql Values
-        let libsql_params: Vec<libsql::Value> = sql_params
-            .into_iter()
-            .map(|p| p.into())
-            .collect();
+        let libsql_params: Vec<libsql::Value> = sql_params.into_iter().map(|p| p.into()).collect();
 
         // Execute with connection
         let mut rows = conn.query(&sql_str, libsql_params).await?;
