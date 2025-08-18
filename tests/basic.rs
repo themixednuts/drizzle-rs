@@ -1,5 +1,4 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use std::marker::PhantomData;
 
 use common::{Complex, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, Simple};
 use drizzle_rs::prelude::*;
@@ -29,7 +28,7 @@ async fn basic_insert_select() {
     let conn = setup_test_db!();
     let (db, simple) = drizzle!(conn, [Simple]);
 
-    let data = InsertSimple::default().with_name("test");
+    let data = InsertSimple::new("test");
     let inserted = drizzle_exec!(db.insert(simple).values([data]).execute());
     assert_eq!(inserted, 1);
 
@@ -55,19 +54,16 @@ async fn multiple_tables() {
     let conn = setup_test_db!();
     let (drizzle, (simple, complex)) = drizzle!(conn, [Simple, Complex]);
 
-    let inserted = drizzle_exec!(
+    let _inserted = drizzle_exec!(
         drizzle
             .insert(simple)
-            .values([InsertSimple::default().with_id(1).with_name("simple")])
+            .values([InsertSimple::new("simple").with_id(1)])
             .execute()
     );
 
-    let complex_data = InsertComplex::default()
-        .with_name("complex")
-        .with_active(true)
-        .with_role(Role::User);
+    let complex_data = InsertComplex::new("complex", true, Role::User);
 
-    let inserted = drizzle_exec!(drizzle.insert(complex).values([complex_data]).execute());
+    let _inserted = drizzle_exec!(drizzle.insert(complex).values([complex_data]).execute());
 
     let simple: SelectSimple =
         drizzle_exec!(drizzle.select((simple.id, simple.name)).from(simple).get());
@@ -160,10 +156,7 @@ async fn debug_uuid_storage() {
     println!("UUID as bytes: {:?}", test_uuid.as_bytes());
 
     // Insert using drizzle
-    let complex_data = InsertComplex::default()
-        .with_name("debug_test")
-        .with_active(false)
-        .with_role(Role::User);
+    let complex_data = InsertComplex::new("debug_test", false, Role::User);
     println!("InsertCoplex SQL: {:?}", complex_data.to_sql());
 
     drizzle_exec!(drizzle.insert(complex).values([complex_data]).execute());

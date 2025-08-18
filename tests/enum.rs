@@ -57,7 +57,7 @@ fn test_table_generation() {
     let table = UserAccount::new();
 
     // Test that we can create insert and update models
-    let insert_model = InsertUserAccount::default();
+    let insert_model = InsertUserAccount::new("test", UserRole::Member, AccountStatus::Suspended);
     let update_model = UpdateUserAccount::default();
 
     // Test convenience methods work with enums
