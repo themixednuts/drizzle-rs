@@ -1,10 +1,11 @@
 // #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use divan::{AllocProfiler, Bencher, black_box};
 use drizzle_rs::prelude::*;
-use procmacros::sql;
 use rusqlite::Connection;
-use std::hint::black_box;
+
+#[global_allocator]
+static ALLOC: AllocProfiler = AllocProfiler::system();
 
 // Schema structures for drizzle-rs
 #[SQLiteTable(name = "users")]
@@ -41,11 +42,14 @@ fn setup_drizzle() -> (drizzle_rs::sqlite::Drizzle<Schema>, User) {
 
     (db, users)
 }
-fn select(c: &mut Criterion) {
-    let mut group = c.benchmark_group("select");
-    group.bench_function("rusqlite", |b| {
-        b.iter_batched(
-            || {
+#[divan::bench_group]
+mod select {
+    use super::*;
+
+    #[divan::bench]
+    fn rusqlite(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
                 let conn = setup_raw_rusqlite();
                 for i in 0..100 {
                     conn.execute(
@@ -55,8 +59,8 @@ fn select(c: &mut Criterion) {
                     .unwrap();
                 }
                 conn
-            },
-            |conn| {
+            })
+            .bench_values(|conn| {
                 let mut stmt = conn
                     .prepare(r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#)
                     .unwrap();
@@ -73,87 +77,80 @@ fn select(c: &mut Criterion) {
 
                 let results: Vec<_> = rows.collect();
                 black_box(results);
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 
-    group.bench_function("drizzle_rs", |b| {
-        b.iter_batched(
-            || {
+    #[divan::bench]
+    fn drizzle_rs(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
                 let (db, users) = setup_drizzle();
                 let data = (0..100).map(|i| {
                     InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
                 });
                 db.insert(users).values(data).execute().unwrap();
                 (db, users)
-            },
-            |(db, users)| {
-                // Select all data
+            })
+            .bench_values(|(db, users)| {
                 let results: Vec<SelectUser> = db.select(()).from(users).all().unwrap();
                 black_box(results);
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 
-    group.bench_function("drizzle_rs_prepared", |b| {
-        b.iter_batched(
-            || {
+    #[divan::bench]
+    fn drizzle_rs_prepared(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
                 let (db, users) = setup_drizzle();
-                // Insert test data
                 let data = (0..100).map(|i| {
                     InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
                 });
 
                 db.insert(users).values(data).execute().unwrap();
-                // Create prepared select statement
                 let prepared = db.select(()).from(users).prepare().into_owned();
                 (db, prepared)
-            },
-            |(db, prepared)| {
+            })
+            .bench_values(|(db, prepared)| {
                 let results: Vec<SelectUser> = prepared.all(db.conn(), []).unwrap();
                 black_box(results);
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 }
 
-fn insert(c: &mut Criterion) {
-    let mut group = c.benchmark_group("insert");
-    group.bench_function("rusqlite", |b| {
-        b.iter_batched(
-            || setup_raw_rusqlite(),
-            |conn| {
+#[divan::bench_group]
+mod insert {
+    use super::*;
+
+    #[divan::bench]
+    fn rusqlite(bencher: Bencher) {
+        bencher
+            .with_inputs(|| setup_raw_rusqlite())
+            .bench_values(|conn| {
                 conn.execute(
                     "INSERT INTO users (name, email) VALUES (?1, ?2)",
                     [black_box("user"), black_box("user@example.com")],
                 )
                 .unwrap()
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 
-    group.bench_function("drizzle_rs", |b| {
-        b.iter_batched(
-            || setup_drizzle(),
-            |(db, user)| {
+    #[divan::bench]
+    fn drizzle_rs(bencher: Bencher) {
+        bencher
+            .with_inputs(|| setup_drizzle())
+            .bench_values(|(db, user)| {
                 db.insert(user)
                     .values([InsertUser::new("user", "user@example.com")])
                     .execute()
                     .unwrap()
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 
-    group.bench_function("drizzle_rs_prepared", |b| {
-        b.iter_batched(
-            || {
+    #[divan::bench]
+    fn drizzle_rs_prepared(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
                 let (db, users) = setup_drizzle();
-                // Create a prepared insert statement with placeholder values
                 let prepared = db
                     .insert(users)
                     .values([InsertUser::new("user", "user@example.com")])
@@ -161,24 +158,25 @@ fn insert(c: &mut Criterion) {
                     .into_owned();
 
                 (db, prepared)
-            },
-            |(db, prepared)| {
+            })
+            .bench_values(|(db, prepared)| {
                 prepared.execute(db.conn(), []).unwrap();
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 }
-fn bulk_insert(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bulk_insert");
-    group.bench_function("rusqlite", |b| {
-        b.iter_batched(
-            || {
+#[divan::bench_group]
+mod bulk_insert {
+
+    use super::*;
+
+    #[divan::bench]
+    fn rusqlite(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
                 let conn = setup_raw_rusqlite();
 
-                // Build a single INSERT statement with all 1000 rows
                 let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
-                let mut params: Vec<String> = Vec::with_capacity(2000); // 2 params per row
+                let mut params: Vec<String> = Vec::with_capacity(2000);
 
                 for i in 0..1000 {
                     if i > 0 {
@@ -190,38 +188,37 @@ fn bulk_insert(c: &mut Criterion) {
                 }
 
                 (conn, sql, params)
-            },
-            |(conn, sql, params)| {
+            })
+            .bench_values(|(conn, sql, params)| {
                 conn.execute(&sql, rusqlite::params_from_iter(params))
                     .unwrap();
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+    }
 
-    let (db, users) = setup_drizzle();
-    group.bench_function("drizzle_rs", |b| {
-        b.iter_batched(
-            || {
-                db.execute(sql!("DROP {users}")).expect("drop users");
-                let data: Vec<_> = (0..1000)
-                    .map(|i| {
-                        InsertUser::new(
-                            black_box(format!("User {}", i)),
-                            black_box(format!("user{}@example.com", i)),
-                        )
-                    })
-                    .collect();
-                (&db, &users, data)
-            },
-            |(db, users, data)| db.insert(*users).values(data).execute().unwrap(),
-            BatchSize::SmallInput,
-        );
-    });
+    // #[divan::bench]
+    // fn drizzle_rs(bencher: Bencher) {
+    //     bencher
+    //         .with_inputs(|| {
+    //             let (db, users) = setup_drizzle();
+    //             db.execute(sql!("DROP {users}")).expect("drop users");
+    //             db.execute(users.sql()).expect("recreate users table");
+    //             let data: Vec<_> = (0..1000)
+    //                 .map(|i| {
+    //                     InsertUser::new(
+    //                         black_box(format!("User {}", i)),
+    //                         black_box(format!("user{}@example.com", i)),
+    //                     )
+    //                 })
+    //                 .collect();
+    //             (db, users, data)
+    //         })
+    //         .bench_values(|(db, users, data)| db.insert(users).values(data.iter().map(|f|)).execute().unwrap());
+    // }
 
-    group.bench_function("drizzle_rs_prepared", |b| {
-        b.iter_batched(
-            || {
+    #[divan::bench]
+    fn drizzle_rs_prepared(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
                 let (db, users) = setup_drizzle();
 
                 let data: Vec<_> = (0..1000)
@@ -234,12 +231,11 @@ fn bulk_insert(c: &mut Criterion) {
                     .collect();
                 let prepared = db.insert(users).values(data).prepare().into_owned();
                 (db, prepared)
-            },
-            |(db, prepared)| prepared.execute(db.conn(), []).unwrap(),
-            BatchSize::SmallInput,
-        );
-    });
+            })
+            .bench_values(|(db, prepared)| prepared.execute(db.conn(), []).unwrap());
+    }
 }
 
-criterion_group!(benches, select, insert, bulk_insert);
-criterion_main!(benches);
+fn main() {
+    divan::main();
+}

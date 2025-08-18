@@ -57,7 +57,7 @@ drizzle_rs = { workspace = true, features = ["rusqlite", "uuid", "serde"] }
 procmacros = { workspace = true, features = ["rusqlite", "serde"] }
 rand = { workspace = true }
 tokio = { workspace = true }
-criterion = { version = "0.7", features = ["html_reports"] }
+divan = "0.1.21"
 
 [[bench]]
 name = "performance_comparison"
@@ -133,4 +133,10 @@ serde_json = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
 
 [profile.bench]
+debug = true
+
+[profile.test]
+debug = true
+
+[profile.dev]
 debug = true
