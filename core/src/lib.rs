@@ -480,7 +480,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     ///
     /// The string is treated as literal SQL text, not a parameter.
     pub fn raw<T: AsRef<str>>(sql: T) -> Self {
-        let sql = Cow::Owned(sql.as_ref().try_to_compact_string().unwrap_or_default());
+        let sql = Cow::Owned(sql.as_ref().to_compact_string());
 
         Self {
             chunks: smallvec![SQLChunk::Text(sql)],
@@ -554,8 +554,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Appends a raw string to this SQL fragment.
     ///
     /// The string is treated as literal SQL text, not a parameter.
-    pub fn append_raw(self, sql: impl AsRef<str>) -> Self {
-        self.append(SQL::raw(sql))
+    pub fn append_raw(mut self, sql: impl AsRef<str>) -> Self {
+        let text_chunk = SQLChunk::Text(Cow::Owned(sql.as_ref().to_compact_string()));
+        self.chunks.push(text_chunk);
+        self
     }
 
     /// Appends another SQL fragment to this one.
@@ -581,35 +583,43 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         T: IntoIterator,
         T::Item: ToSQL<'a, V>,
     {
-        let mut chunks = SmallVec::new();
-        let mut first = true;
+        let sqls: Vec<_> = sqls.into_iter().map(|sql| sql.to_sql()).collect();
 
-        for sql in sqls {
-            if !first {
-                chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(
-                    separator,
-                ))));
+        if sqls.is_empty() {
+            return SQL::empty();
+        }
+
+        if sqls.len() == 1 {
+            return sqls.into_iter().next().unwrap();
+        }
+
+        // Pre-calculate capacity: sum of all chunks + separators
+        let total_chunks =
+            sqls.iter().map(|sql| sql.chunks.len()).sum::<usize>() + (sqls.len() - 1);
+        let mut chunks = SmallVec::with_capacity(total_chunks);
+
+        let separator_chunk = SQLChunk::Text(Cow::Owned(CompactString::const_new(separator)));
+
+        for (i, sql) in sqls.into_iter().enumerate() {
+            if i > 0 {
+                chunks.push(separator_chunk.clone());
             }
-            first = false;
-
-            // Flatten nested SQL chunks to avoid deep nesting
-            let sql_chunks = sql.to_sql().chunks;
-            chunks.extend(sql_chunks);
+            chunks.extend(sql.chunks);
         }
 
         SQL { chunks }
     }
 
     /// Collects parameter references from a single chunk
-    fn collect_chunk_params<'b>(chunk: &'b SQLChunk<'a, V>) -> Vec<&'b V> {
+    fn collect_chunk_params<'b>(chunk: &'b SQLChunk<'a, V>, params_vec: &mut Vec<&'b V>) {
         match chunk {
             SQLChunk::Param(Param {
                 value: Some(value), ..
-            }) => vec![value.as_ref()],
-            SQLChunk::SQL(sql) => sql.params(),
-            SQLChunk::Alias { chunk, .. } => Self::collect_chunk_params(chunk),
-            SQLChunk::Subquery(sql) => sql.params(),
-            _ => vec![],
+            }) => params_vec.push(value.as_ref()),
+            SQLChunk::SQL(sql) => params_vec.extend(sql.params()),
+            SQLChunk::Alias { chunk, .. } => Self::collect_chunk_params(chunk, params_vec),
+            SQLChunk::Subquery(sql) => params_vec.extend(sql.params()),
+            _ => {}
         }
     }
 
@@ -800,19 +810,22 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Smart capacity estimation
     fn estimate_capacity(&self) -> usize {
-        self.chunks
+        let chunk_content_size: usize = self
+            .chunks
             .iter()
             .map(|chunk| match chunk {
                 SQLChunk::Text(t) => t.len(),
-                SQLChunk::Param { .. } => 1,
-                SQLChunk::SQL(sql) => sql.chunks.len() << 3, // * 8
-                SQLChunk::Table(t) => t.name().len() + 2,
-                SQLChunk::Column(c) => c.table().name().len() + c.name().len() + 5,
-                SQLChunk::Alias { alias, .. } => alias.len() + 4,
-                SQLChunk::Subquery(sql) => (sql.chunks.len() << 3) + 2,
+                SQLChunk::Param { .. } => 1, // Single placeholder character
+                SQLChunk::SQL(sql) => sql.chunks.len() * 8, // Average 8 chars per nested chunk
+                SQLChunk::Table(t) => t.name().len() + 2, // Quotes around table name
+                SQLChunk::Column(c) => c.table().name().len() + c.name().len() + 5, // "table"."column"
+                SQLChunk::Alias { alias, .. } => alias.len() + 4, // " AS " + alias
+                SQLChunk::Subquery(sql) => (sql.chunks.len() * 8) + 2, // Parentheses + content
             })
-            .sum::<usize>()
-            + self.chunks.len()
+            .sum();
+
+        // Add space for potential spaces between chunks
+        chunk_content_size + self.chunks.len()
     }
 
     fn needs_space(&self, index: usize) -> bool {
@@ -821,44 +834,35 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
 
         let current = &self.chunks[index];
-        let next = &self.chunks[index + 1];
-
-        fn ends_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
-            match chunk {
-                SQLChunk::Text(t) => {
-                    let last = t.chars().last().unwrap_or(' ');
-                    !last.is_whitespace() && !['(', ',', '.', ')'].contains(&last)
-                }
-                SQLChunk::Table(_)
-                | SQLChunk::Column(_)
-                | SQLChunk::Param(_)
-                | SQLChunk::Alias { .. } => true,
-                _ => false,
+        
+        // Find next non-empty chunk
+        let mut next_index = index + 1;
+        let next = loop {
+            if next_index >= self.chunks.len() {
+                return false;
             }
-        }
-
-        fn starts_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
-            match chunk {
-                SQLChunk::Text(t) => {
-                    let first = t.chars().next().unwrap_or(' ');
-                    !first.is_whitespace() && !['(', ',', '.', ')'].contains(&first)
+            
+            let candidate = &self.chunks[next_index];
+            if let SQLChunk::Text(t) = candidate {
+                if t.is_empty() {
+                    next_index += 1;
+                    continue;
                 }
-                SQLChunk::Table(_)
-                | SQLChunk::Column(_)
-                | SQLChunk::Param(_)
-                | SQLChunk::Alias { .. } => true,
-                _ => false,
             }
-        }
+            break candidate;
+        };
 
-        ends_word(current) && starts_word(next)
+        let ends_word = chunk_ends_word(current);
+        let starts_word = chunk_starts_word(next);
+        
+        ends_word && starts_word
     }
 
     /// Returns references to parameter values from this SQL fragment in the correct order.
     pub fn params<'b>(&'b self) -> Vec<&'b V> {
         let mut params_vec = Vec::with_capacity(self.chunks.len().min(8));
         for chunk in &self.chunks {
-            params_vec.extend(Self::collect_chunk_params(chunk));
+            Self::collect_chunk_params(chunk, &mut params_vec);
         }
         params_vec
     }
@@ -886,35 +890,31 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         I: IntoIterator,
         I::Item: Into<Cow<'a, V>>,
     {
-        let mut values_iter = values.into_iter();
+        let values: Vec<_> = values.into_iter().map(|v| v.into()).collect();
 
-        match values_iter.next() {
-            None => Self::empty(),
-            Some(first_value) => match values_iter.next() {
-                None => Self::parameter(first_value),
-                Some(second_value) => {
-                    let mut chunks = SmallVec::new();
-                    chunks.push(SQLChunk::Param(Param {
-                        value: Some(first_value.into()),
-                        placeholder: Self::POSITIONAL_PLACEHOLDER,
-                    }));
-                    chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(", "))));
-                    chunks.push(SQLChunk::Param(Param {
-                        value: Some(second_value.into()),
-                        placeholder: Self::POSITIONAL_PLACEHOLDER,
-                    }));
-
-                    for value in values_iter {
-                        chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(", "))));
-                        chunks.push(SQLChunk::Param(Param {
-                            value: Some(value.into()),
-                            placeholder: Self::POSITIONAL_PLACEHOLDER,
-                        }));
-                    }
-                    SQL { chunks }
-                }
-            },
+        if values.is_empty() {
+            return Self::empty();
         }
+
+        if values.len() == 1 {
+            return Self::parameter(values.into_iter().next().unwrap());
+        }
+
+        // Pre-calculate capacity: each value creates a param chunk, plus separators
+        let mut chunks = SmallVec::with_capacity(values.len() * 2 - 1);
+        let separator_chunk = SQLChunk::Text(Cow::Owned(CompactString::const_new(", ")));
+
+        for (i, value) in values.into_iter().enumerate() {
+            if i > 0 {
+                chunks.push(separator_chunk.clone());
+            }
+            chunks.push(SQLChunk::Param(Param {
+                value: Some(value),
+                placeholder: Self::POSITIONAL_PLACEHOLDER,
+            }));
+        }
+
+        SQL { chunks }
     }
 
     /// Creates a comma-separated list of column assignments: "col1 = ?, col2 = ?"
@@ -923,43 +923,68 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         I: IntoIterator<Item = (&'a str, T)>,
         T: Into<Cow<'a, V>>,
     {
-        let mut pairs_iter = pairs.into_iter();
+        let pairs: Vec<_> = pairs
+            .into_iter()
+            .map(|(col, val)| (col, val.into()))
+            .collect();
 
-        match pairs_iter.next() {
-            None => Self::empty(),
-            Some((first_col, first_val)) => match pairs_iter.next() {
-                None => Self::raw(first_col)
-                    .append_raw(" = ")
-                    .append(Self::parameter(first_val.into())),
-                Some((second_col, second_val)) => {
-                    let mut chunks = SmallVec::new();
-                    chunks.push(SQLChunk::Text(Cow::Owned(first_col.to_compact_string())));
-                    chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(" = "))));
-                    chunks.push(SQLChunk::Param(Param {
-                        value: Some(first_val.into()),
-                        placeholder: Self::POSITIONAL_PLACEHOLDER,
-                    }));
-                    chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(", "))));
-                    chunks.push(SQLChunk::Text(Cow::Owned(second_col.to_compact_string())));
-                    chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(" = "))));
-                    chunks.push(SQLChunk::Param(Param {
-                        value: Some(second_val.into()),
-                        placeholder: Self::POSITIONAL_PLACEHOLDER,
-                    }));
-
-                    for (col, val) in pairs_iter {
-                        chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(", "))));
-                        chunks.push(SQLChunk::Text(Cow::Owned(col.to_compact_string())));
-                        chunks.push(SQLChunk::Text(Cow::Owned(CompactString::const_new(" = "))));
-                        chunks.push(SQLChunk::Param(Param {
-                            value: Some(val.into()),
-                            placeholder: Self::POSITIONAL_PLACEHOLDER,
-                        }));
-                    }
-                    SQL { chunks }
-                }
-            },
+        if pairs.is_empty() {
+            return Self::empty();
         }
+
+        if pairs.len() == 1 {
+            let (col, val) = pairs.into_iter().next().unwrap();
+            return Self::raw(col)
+                .append_raw(" = ")
+                .append(Self::parameter(val));
+        }
+
+        // Pre-calculate capacity: each pair creates 3 chunks (col, " = ", param), plus separators
+        let mut chunks = SmallVec::with_capacity(pairs.len() * 4 - 1);
+        let separator_chunk = SQLChunk::Text(Cow::Owned(CompactString::const_new(", ")));
+        let equals_chunk = SQLChunk::Text(Cow::Owned(CompactString::const_new(" = ")));
+
+        for (i, (col, val)) in pairs.into_iter().enumerate() {
+            if i > 0 {
+                chunks.push(separator_chunk.clone());
+            }
+            chunks.push(SQLChunk::Text(Cow::Owned(col.to_compact_string())));
+            chunks.push(equals_chunk.clone());
+            chunks.push(SQLChunk::Param(Param {
+                value: Some(val),
+                placeholder: Self::POSITIONAL_PLACEHOLDER,
+            }));
+        }
+
+        SQL { chunks }
+    }
+}
+
+/// Helper function to determine if a chunk ends with a word character
+fn chunk_ends_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
+    match chunk {
+        SQLChunk::Text(t) => {
+            let last = t.chars().last().unwrap_or(' ');
+            !last.is_whitespace() && !['(', ',', '.', ')'].contains(&last)
+        }
+        SQLChunk::Table(_) | SQLChunk::Column(_) | SQLChunk::Param(_) | SQLChunk::Alias { .. } | SQLChunk::Subquery(_) => {
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Helper function to determine if a chunk starts with a word character  
+fn chunk_starts_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
+    match chunk {
+        SQLChunk::Text(t) => {
+            let first = t.chars().next().unwrap_or(' ');
+            !first.is_whitespace() && !['(', ',', ')', ';'].contains(&first)
+        }
+        SQLChunk::Table(_) | SQLChunk::Column(_) | SQLChunk::Param(_) | SQLChunk::Alias { .. } | SQLChunk::Subquery(_) => {
+            true
+        }
+        _ => false,
     }
 }
 
