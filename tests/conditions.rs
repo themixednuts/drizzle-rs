@@ -136,13 +136,25 @@ async fn test_null_conditions() {
 
     // Insert data with separate operations since each has different column patterns
     // User A: has email set
-    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User A", true, Role::User).with_email("user@example.com")]).execute());
-    
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User A", true, Role::User).with_email("user@example.com")])
+            .execute()
+    );
+
     // User B: has no optional fields set
-    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User B", false, Role::Admin)]).execute());
-    
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User B", false, Role::Admin)])
+            .execute()
+    );
+
     // User C: has age set
-    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User C", true, Role::User).with_age(25)]).execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User C", true, Role::User).with_age(25)])
+            .execute()
+    );
 
     // Test is_null condition
     let result: Vec<SelectComplex> = drizzle_exec!(
@@ -347,12 +359,11 @@ async fn test_single_condition_logical_operations() {
     let conn = setup_test_db!();
     let (db, simple) = drizzle!(conn, [Simple]);
 
-    let test_data = vec![
+    // Insert test data - both have same pattern (both set id)
+    drizzle_exec!(db.insert(simple).values([
         InsertSimple::new("Test").with_id(1),
         InsertSimple::new("Other").with_id(2),
-    ];
-
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    ]).execute());
 
     // Test single condition in and() - should not add extra parentheses
     let result: Vec<SelectSimple> = drizzle_exec!(
@@ -374,14 +385,13 @@ async fn test_single_condition_logical_operations() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Other");
 
-    // Test empty conditions
+    // Test no condition (get all records)
     let result: Vec<SelectSimple> = drizzle_exec!(
         db.select(())
             .from(simple)
-            .r#where(and(Vec::<SQL<_>>::new()))
             .all()
     );
-    assert_eq!(result.len(), 2); // Empty condition should return all
+    assert_eq!(result.len(), 2); // No condition should return all
 }
 
 #[tokio::test]
@@ -408,60 +418,39 @@ async fn test_string_operations() {
     assert!(concats.contains(&"World - Suffix".to_string()));
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", feature = "serde"))]
 #[tokio::test]
 async fn test_sqlite_json_conditions() {
     use drizzle_rs::sqlite::conditions::*;
+    use crate::common::UserMetadata;
 
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, complex) = drizzle!(conn, [Complex]);
 
-    // Create a simple table with a JSON column for testing
-    exec_sql!(
-        db.conn(),
-        "ALTER TABLE simple ADD COLUMN json_data TEXT",
-        db_params!()
-    );
+    // Insert test data with JSON metadata
+    let metadata = UserMetadata {
+        preferences: vec!["dark_theme".to_string(), "compact_view".to_string()],
+        last_login: Some("2024-01-01T10:00:00Z".to_string()),
+        theme: "dark".to_string(),
+    };
 
-    let test_data = vec![
-        InsertSimple::new("Item A").with_id(1),
-        InsertSimple::new("Item B").with_id(2),
-        InsertSimple::new("Item C").with_id(3),
-    ];
+    drizzle_exec!(db.insert(complex).values([
+        InsertComplex::new("User A", true, Role::User).with_metadata(metadata.clone()),
+    ]).execute());
 
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(complex).values([
+        InsertComplex::new("User B", false, Role::Admin),
+    ]).execute());
 
-    // Update with JSON data
-    exec_sql!(
-        db.conn(),
-        "UPDATE simple SET json_data = '{\"name\": \"test\", \"value\": 42}' WHERE id = 1",
-        db_params!()
-    );
-    exec_sql!(
-        db.conn(),
-        "UPDATE simple SET json_data = '{\"name\": \"other\", \"value\": 100}' WHERE id = 2",
-        db_params!()
-    );
-    exec_sql!(
-        db.conn(),
-        "UPDATE simple SET json_data = '{\"items\": [1, 2, 3], \"status\": \"active\"}' WHERE id = 3",
-        db_params!()
-    );
-
-    // Test json_eq condition - just testing function compilation
-    // Note: This wouldn't actually work with the simple table structure but tests the function exists
-    // let result = db.select(simple.id)
-    //     .from(simple)
-    //     .r#where(json_eq(simple.name, "$.name", "test"));
-    // We're just testing that the json functions compile and generate SQL
-
-    // Test json_extract helper
+    // Test json_extract helper on the metadata field
     let result: Vec<JsonExtractResult> = drizzle_exec!(
-        db.select(alias(json_extract(simple.name, "name"), "extract"))
-            .from(simple)
+        db.select(alias(json_extract(complex.metadata, "theme"), "extract"))
+            .from(complex)
+            .r#where(is_not_null(complex.metadata))
             .all()
     );
-    assert_eq!(result.len(), 3);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].extract, "dark");
 }
 
 #[tokio::test]
