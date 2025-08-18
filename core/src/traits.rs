@@ -42,7 +42,7 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     }
 }
 
-pub trait SQLColumnInfo: Any {
+pub trait SQLColumnInfo: Any + Send + Sync {
     fn is_not_null(&self) -> bool;
     fn is_primary_key(&self) -> bool;
     fn is_unique(&self) -> bool;
@@ -127,7 +127,7 @@ pub trait SQLTable<'a, Value: SQLParam + 'a>:
     type Update: SQLModel<'a, Value> + Default + 'a;
 }
 
-pub trait SQLTableInfo: Any {
+pub trait SQLTableInfo: Any + Send + Sync {
     fn name(&self) -> &str;
     fn r#type(&self) -> SQLSchemaType;
     fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]>;
