@@ -298,11 +298,16 @@ fn needs_reference_type(base_type_str: &str) -> bool {
 }
 
 /// Generate turso JSON implementations (IntoValue) - per JSON type approach
-pub(crate) fn generate_json_impls(json_type_storage: &std::collections::HashMap<String, (crate::sqlite::field::SQLiteType, &FieldInfo)>) -> Result<Vec<TokenStream>> {
-    if json_type_storage.is_empty() { 
+pub(crate) fn generate_json_impls(
+    json_type_storage: &std::collections::HashMap<
+        String,
+        (crate::sqlite::field::SQLiteType, &FieldInfo),
+    >,
+) -> Result<Vec<TokenStream>> {
+    if json_type_storage.is_empty() {
         return Ok(vec![]);
     }
-    
+
     json_type_storage.iter().map(|(_, (storage_type, info))| {
         let struct_name = info.base_type;
         let (into_value_impl) = match storage_type {

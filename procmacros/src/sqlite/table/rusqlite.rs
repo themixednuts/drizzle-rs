@@ -77,11 +77,11 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 /// Generate rusqlite enum implementations (FromSql/ToSql)
 pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     if !info.is_enum {
-        return Ok(quote!{});
+        return Ok(quote! {});
     }
 
     let value_type = info.base_type;
-    
+
     match info.column_type {
         crate::sqlite::field::SQLiteType::Integer => Ok(quote! {
             // ::rusqlite::FromSql and ToSql for integer enums
@@ -95,7 +95,7 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
                     }
                 }
             }
-            
+
             impl ::rusqlite::types::ToSql for #value_type {
                 fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
                     let val: i64 = self.into();
@@ -116,7 +116,7 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
                     }
                 }
             }
-            
+
             impl ::rusqlite::types::ToSql for #value_type {
                 fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
                     let val: &str = self.into();
@@ -124,16 +124,24 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
                 }
             }
         }),
-        _ => Err(syn::Error::new_spanned(info.ident, "Enum is only supported in text or integer column types"))
+        _ => Err(syn::Error::new_spanned(
+            info.ident,
+            "Enum is only supported in text or integer column types",
+        )),
     }
 }
 
 /// Generate rusqlite JSON implementations (FromSql/ToSql)
-pub(crate) fn generate_json_impls(json_type_storage: &std::collections::HashMap<String, (crate::sqlite::field::SQLiteType, &FieldInfo)>) -> Result<Vec<TokenStream>> {
-    if json_type_storage.is_empty() { 
+pub(crate) fn generate_json_impls(
+    json_type_storage: &std::collections::HashMap<
+        String,
+        (crate::sqlite::field::SQLiteType, &FieldInfo),
+    >,
+) -> Result<Vec<TokenStream>> {
+    if json_type_storage.is_empty() {
         return Ok(vec![]);
     }
-    
+
     json_type_storage.iter().map(|(_, (storage_type, info))| {
         let struct_name = info.base_type;
         let (from_impl, to_impl) = match storage_type {
