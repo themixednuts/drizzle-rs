@@ -231,13 +231,15 @@ async fn test_coalesce_expression() {
     let conn = setup_test_db!();
     let (db, complex) = drizzle!(conn, [Complex]);
 
-    let test_data = vec![
+    // Insert data with separate operations since each has different column patterns
+    // Users A and C: have email set
+    drizzle_exec!(db.insert(complex).values([
         InsertComplex::new("User A", true, Role::User).with_email("user@example.com".to_string()),
-        InsertComplex::new("User B", false, Role::Admin),
         InsertComplex::new("User C", true, Role::User).with_email("user3@example.com".to_string()),
-    ];
-
-    drizzle_exec!(db.insert(complex).values(test_data).execute());
+    ]).execute());
+    
+    // User B: has no optional fields set
+    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User B", false, Role::Admin)]).execute());
 
     // Test coalesce with email field (some null, some not)
     let result: Vec<CoalesceStringResult> = drizzle_exec!(
@@ -305,17 +307,19 @@ async fn test_complex_expressions() {
     let conn = setup_test_db!();
     let (db, complex) = drizzle!(conn, [Complex]);
 
-    let test_data = vec![
+    // Insert data with separate operations since each has different column patterns
+    // Users A and B: have both age and score set
+    drizzle_exec!(db.insert(complex).values([
         InsertComplex::new("User A", true, Role::User)
             .with_age(25)
             .with_score(85.5),
         InsertComplex::new("User B", false, Role::Admin)
             .with_age(30)
             .with_score(92.0),
-        InsertComplex::new("User C", true, Role::User).with_score(78.3),
-    ];
-
-    drizzle_exec!(db.insert(complex).values(test_data).execute());
+    ]).execute());
+    
+    // User C: has only score set
+    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User C", true, Role::User).with_score(78.3)]).execute());
 
     // Test multiple expressions in one query
     let result: Vec<ComplexAggregateResult> = drizzle_exec!(

@@ -134,18 +134,15 @@ async fn test_null_conditions() {
     let conn = setup_test_db!();
     let (db, complex) = drizzle!(conn, [Complex]);
 
-    let test_data = vec![
-        InsertComplex::new("User A", true, Role::User).with_email("user@example.com"),
-        InsertComplex::new("User B", false, Role::Admin),
-        InsertComplex::new("User C", true, Role::User).with_age(25),
-    ];
-
-    let stmt = db.insert(complex).values(test_data);
-    let sql = stmt.to_sql();
-
-    println!("{sql}");
-
-    drizzle_exec!(stmt.execute());
+    // Insert data with separate operations since each has different column patterns
+    // User A: has email set
+    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User A", true, Role::User).with_email("user@example.com")]).execute());
+    
+    // User B: has no optional fields set
+    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User B", false, Role::Admin)]).execute());
+    
+    // User C: has age set
+    drizzle_exec!(db.insert(complex).values([InsertComplex::new("User C", true, Role::User).with_age(25)]).execute());
 
     // Test is_null condition
     let result: Vec<SelectComplex> = drizzle_exec!(
