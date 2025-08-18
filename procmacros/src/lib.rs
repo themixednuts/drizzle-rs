@@ -463,7 +463,7 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// - Converting expressions in `{braces}` to `.to_sql()` calls on the expression
 ///
 /// # Syntax Forms
-/// 
+///
 /// ## String Literal Syntax
 /// ```rust
 /// # use drizzle_rs::{sql, prelude::*};

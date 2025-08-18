@@ -107,31 +107,40 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
     // Turso implementation
     #[cfg(feature = "turso")]
     {
-        let turso_field_assignments =
-            if is_tuple {
-                // For tuple structs, use index-based access
-                fields
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, field)| {
-                        let field_type_str = field.ty.to_token_stream().to_string();
-                        let extraction = crate::sqlite::row_helpers::generate_turso_value_extraction(idx, &field_type_str);
-                        quote! {
-                            #extraction,
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                // For named structs, still use index-based access (turso doesn't support name-based)
-                fields.iter().enumerate().map(|(idx, field)| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_type_str = field.ty.to_token_stream().to_string();
-                let extraction = crate::sqlite::row_helpers::generate_turso_value_extraction(idx, &field_type_str);
-                quote! {
-                    #field_name: #extraction,
-                }
-            }).collect::<Vec<_>>()
-            };
+        let turso_field_assignments = if is_tuple {
+            // For tuple structs, use index-based access
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let field_type_str = field.ty.to_token_stream().to_string();
+                    let extraction = crate::sqlite::row_helpers::generate_turso_value_extraction(
+                        idx,
+                        &field_type_str,
+                    );
+                    quote! {
+                        #extraction,
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            // For named structs, still use index-based access (turso doesn't support name-based)
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let field_name = field.ident.as_ref().unwrap();
+                    let field_type_str = field.ty.to_token_stream().to_string();
+                    let extraction = crate::sqlite::row_helpers::generate_turso_value_extraction(
+                        idx,
+                        &field_type_str,
+                    );
+                    quote! {
+                        #field_name: #extraction,
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
 
         let turso_impl = if is_tuple {
             quote! {
@@ -172,17 +181,19 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 .map(|(idx, field)| {
                     let field_type_str = field.ty.to_token_stream().to_string();
                     let is_optional = field_type_str.contains("Option");
-                    let into = if is_optional { quote!{ .into() }} else { quote!{} };
+                    let into = if is_optional {
+                        quote! { .into() }
+                    } else {
+                        quote! {}
+                    };
 
                     let idx = idx as i32;
-                    
+
                     // Special handling for Uuid from [u8;16]
                     if field_type_str.contains("Uuid") {
                         quote! {
                             row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into,
                         }
-
-
                     } else if field_type_str.contains("f32") {
                         quote! {
                             row.get::<f64>(#idx).map(|v| v as f32)?#into,
@@ -191,8 +202,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                         quote! {
                             row.get::<i64>(#idx).map(|v| v.try_into())??#into,
                         }
-                    }
-                    else {
+                    } else {
                         quote! {
                             row.get(#idx)?,
                         }

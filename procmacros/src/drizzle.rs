@@ -50,7 +50,11 @@ impl Parse for DrizzleInput {
             None
         };
 
-        Ok(DrizzleInput { conn, tables, schema_type })
+        Ok(DrizzleInput {
+            conn,
+            tables,
+            schema_type,
+        })
     }
 }
 
@@ -80,7 +84,7 @@ pub fn drizzle_impl(input: DrizzleInput) -> syn::Result<TokenStream> {
                                 "Expected a table type",
                             ));
                         };
-                        
+
                         let types = vec![table_type];
                         let fake_array = quote! { [#single_table] };
                         (types, fake_array)
