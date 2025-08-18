@@ -1,7 +1,7 @@
 use crate::helpers;
 use crate::values::SQLiteValue;
+use drizzle_core::SQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
-use drizzle_core::{SQL, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -19,6 +19,7 @@ pub struct SelectInitial;
 
 impl SelectInitial {
     /// Creates a new SelectInitial marker
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
@@ -54,36 +55,43 @@ pub struct SelectOffsetSet;
 
 // Const constructors for all marker types
 impl SelectFromSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl SelectJoinSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl SelectWhereSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl SelectGroupSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl SelectOrderSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl SelectLimitSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl SelectOffsetSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
@@ -148,6 +156,7 @@ pub type SelectBuilder<'a, Schema, State, Table = ()> =
 
 impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// Specifies the table to select FROM and transitions state
+    #[inline]
     pub fn from<T>(self, table: T) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
         T: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<S>,
@@ -170,6 +179,7 @@ where
     T: SQLTable<'a, SQLiteValue<'a>>,
 {
     /// Adds a JOIN clause to the query
+    #[inline]
     pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
         self,
         table: U,
@@ -185,6 +195,7 @@ where
 
     join_impl!();
 
+    #[inline]
     pub fn r#where(
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
@@ -211,6 +222,7 @@ where
     }
 
     /// Limits the number of rows returned
+    #[inline]
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
@@ -221,6 +233,7 @@ where
     }
 
     /// Sets the offset for the query results
+    #[inline]
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
@@ -231,6 +244,7 @@ where
     }
 
     /// Sorts the query results
+    #[inline]
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
@@ -253,6 +267,7 @@ where
 
 impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     /// Adds a WHERE condition after a JOIN
+    #[inline]
     pub fn r#where(
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
@@ -265,6 +280,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         }
     }
     /// Sorts the query results
+    #[inline]
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
@@ -280,6 +296,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         }
     }
     /// Adds a JOIN clause to the query
+    #[inline]
     pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
         self,
         table: U,
@@ -314,7 +331,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     }
 
     /// Adds an ORDER BY clause after a WHERE
-    pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    pub fn order_by<TOrderBy>(
+        self,
+        expressions: TOrderBy,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -356,7 +376,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     }
 
     /// Adds an ORDER BY clause after GROUP BY
-    pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    pub fn order_by<TOrderBy>(
+        self,
+        expressions: TOrderBy,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {

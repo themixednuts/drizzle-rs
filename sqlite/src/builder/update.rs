@@ -47,6 +47,7 @@ where
     Table: SQLTable<'a, SQLiteValue<'a>>,
 {
     /// Sets the values to update and transitions to the SetClauseSet state
+    #[inline]
     pub fn set(
         self,
         values: Table::Update,
@@ -67,6 +68,7 @@ where
 
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// Adds a WHERE condition and transitions to the WhereSet state
+    #[inline]
     pub fn r#where(
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
@@ -81,6 +83,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     }
 
     /// Adds a RETURNING clause and transitions to the ReturningSet state
+    #[inline]
     pub fn returning(
         self,
         columns: impl ToSQL<'a, SQLiteValue<'a>>,
@@ -101,6 +104,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
+    #[inline]
     pub fn returning(
         self,
         columns: impl ToSQL<'a, SQLiteValue<'a>>,

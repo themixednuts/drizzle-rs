@@ -40,6 +40,7 @@ pub type DeleteBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// Adds a WHERE condition to the query
+    #[inline]
     pub fn r#where(
         self,
         condition: SQL<'a, SQLiteValue<'a>>,
@@ -54,6 +55,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     }
 
     /// Adds a RETURNING clause to the query
+    #[inline]
     pub fn returning(
         self,
         columns: impl ToSQL<'a, SQLiteValue<'a>>,
@@ -74,6 +76,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
+    #[inline]
     pub fn returning(
         self,
         columns: impl ToSQL<'a, SQLiteValue<'a>>,
