@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
-    SQLiteValue, SQLiteTransactionType,
+    SQLiteValue,
     builder::{
         self, QueryBuilder,
         delete::{self, DeleteBuilder},
@@ -88,11 +88,17 @@ pub use libsql::Transaction;
 // TransactionBuilder - Builder with Type State Pattern
 //------------------------------------------------------------------------------
 
-#[derive(Debug)]
 pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
+    #[cfg(all(feature = "rusqlite", not(feature = "libsql"), not(feature = "turso")))]
     transaction: &'a Transaction<'conn, Schema>,
+    #[cfg(all(any(feature = "turso", feature = "libsql"), not(feature = "rusqlite")))]
+    transaction: &'a Transaction<Schema>,
+
     builder: Builder,
+    #[cfg(all(feature = "rusqlite", not(feature = "libsql"), not(feature = "turso")))]
     state: PhantomData<(Schema, State)>,
+    #[cfg(all(any(feature = "turso", feature = "libsql"), not(feature = "rusqlite")))]
+    state: PhantomData<(fn() -> &'conn (), Schema, State)>,
 }
 
 // Generic prepare method for all drivers
@@ -352,7 +358,13 @@ impl<'a, 'conn, Schema, Table>
 
 #[cfg(feature = "sqlite")]
 impl<'a, 'conn, S, T>
-    TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, delete::DeleteInitial, T>, delete::DeleteInitial>
+    TransactionBuilder<
+        'a,
+        'conn,
+        S,
+        DeleteBuilder<'a, S, delete::DeleteInitial, T>,
+        delete::DeleteInitial,
+    >
 where
     T: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>,
 {
@@ -380,7 +392,8 @@ where
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, 'conn, S, T, State> ToSQL<'a, SQLiteValue<'a>> for TransactionBuilder<'a, 'conn, S, T, State>
+impl<'a, 'conn, S, T, State> ToSQL<'a, SQLiteValue<'a>>
+    for TransactionBuilder<'a, 'conn, S, T, State>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,
 {
