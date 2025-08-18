@@ -53,10 +53,11 @@ uuid = { version = "1.16.0", features = ["v4", "serde"] }
 
 # Add dev-dependencies for tests
 [dev-dependencies]
-drizzle_rs = { workspace = true, features = ["rusqlite", "uuid", "serde"] }
-procmacros = { workspace = true, features = ["rusqlite", "serde"] }
+drizzle_rs = { workspace = true, features = ["libsql", "serde", "uuid"] }
+procmacros = { workspace = true, features = ["libsql", "serde"] }
 rand = { workspace = true }
 tokio = { workspace = true }
+futures-util = { workspace = true }
 divan = "0.1.21"
 
 [[bench]]
