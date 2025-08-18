@@ -35,7 +35,7 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Test basic insert
-        let data = InsertSimple::default().with_name("libsql_test");
+        let data = InsertSimple::new("libsql_test");
         let inserted = db.insert(simple).values([data]).execute().await.unwrap();
 
         assert_eq!(inserted, 1);
@@ -55,7 +55,7 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("single_row_test");
+        let data = InsertSimple::new("single_row_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test get method
@@ -98,12 +98,10 @@ mod libsql_tests {
         let (db, complex) = drizzle!(conn, [Complex]);
 
         // Test complex type insertion
-        let complex_data = InsertComplex::default()
+        let complex_data = InsertComplex::new("libsql_complex", true, Role::User)
             .with_name("libsql_complex")
             .with_email("test@libsql.com".to_string())
-            .with_age(30)
-            .with_active(true)
-            .with_role(Role::User);
+            .with_age(30);
 
         let inserted = db
             .insert(complex)
@@ -141,11 +139,8 @@ mod libsql_tests {
             theme: "dark".to_string(),
         };
 
-        let complex_data = InsertComplex::default()
-            .with_name("json_test")
-            .with_active(true)
-            .with_role(Role::Admin)
-            .with_metadata(metadata.clone());
+        let complex_data =
+            InsertComplex::new("json_test", true, Role::Admin).with_metadata(metadata.clone());
 
         let inserted = db
             .insert(complex)
@@ -171,7 +166,7 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert initial data
-        let data = InsertSimple::default().with_name("update_test");
+        let data = InsertSimple::new("update_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test update
@@ -199,7 +194,7 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("delete_test");
+        let data = InsertSimple::new("delete_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test delete
@@ -229,8 +224,8 @@ mod libsql_tests {
         assert!(result.is_err());
 
         // Test error when trying to insert duplicate primary key
-        let data1 = InsertSimple::default().with_id(1).with_name("test1");
-        let data2 = InsertSimple::default().with_id(1).with_name("test2");
+        let data1 = InsertSimple::new("test1").with_id(1);
+        let data2 = InsertSimple::new("test2").with_id(1);
 
         db.insert(simple).values([data1]).execute().await.unwrap();
         let result = db.insert(simple).values([data2]).execute().await;
@@ -245,12 +240,12 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("prepared_test");
+        let data = InsertSimple::new("prepared_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test prepared statement with parameters
         let prepared = db.select(()).from(simple).prepare();
-        let selected: Vec<SelectSimple> = prepared.all([]).await.unwrap();
+        let selected: Vec<SelectSimple> = prepared.all(db.conn(), []).await.unwrap();
 
         assert!(selected.len() > 0);
         assert_eq!(selected[0].name, "prepared_test");
@@ -264,8 +259,8 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert data in a transaction context
-        let data1 = InsertSimple::default().with_name("trans_test1");
-        let data2 = InsertSimple::default().with_name("trans_test2");
+        let data1 = InsertSimple::new("trans_test1");
+        let data2 = InsertSimple::new("trans_test2");
 
         db.insert(simple).values([data1]).execute().await.unwrap();
         db.insert(simple).values([data2]).execute().await.unwrap();
@@ -283,9 +278,9 @@ mod libsql_tests {
         let (db, simple) = drizzle!(conn, [Simple]);
 
         // Insert multiple test records
-        let data1 = InsertSimple::default().with_name("where_test1");
-        let data2 = InsertSimple::default().with_name("where_test2");
-        let data3 = InsertSimple::default().with_name("other_test");
+        let data1 = InsertSimple::new("where_test1");
+        let data2 = InsertSimple::new("where_test2");
+        let data3 = InsertSimple::new("other_test");
 
         db.insert(simple)
             .values([data1, data2, data3])
