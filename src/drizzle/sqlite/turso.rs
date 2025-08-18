@@ -1,12 +1,13 @@
 use drizzle_core::ParamBind;
 use drizzle_core::ToSQL;
+use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use std::marker::PhantomData;
-use turso::{Connection, IntoValue};
+use turso::{Connection, IntoValue, Row};
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
-    SQLiteValue,
+    SQLiteTransactionType, SQLiteValue,
     builder::{
         self, QueryBuilder,
         delete::{self, DeleteBuilder},
@@ -17,6 +18,7 @@ use sqlite::{
 };
 
 use crate::drizzle::sqlite::DrizzleBuilder;
+use crate::transaction::sqlite::turso::Transaction;
 
 /// Drizzle instance that provides access to the database and query builder.
 #[derive(Debug)]
@@ -169,6 +171,117 @@ impl<Schema> Drizzle<Schema> {
             .execute(&sql, params)
             .await
             .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))
+    }
+
+    /// Runs the query and returns all matching rows (for SELECT queries)
+    pub async fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = query.to_sql();
+        let sql_str = sql.sql();
+        let params: Vec<turso::Value> = sql
+            .params()
+            .into_iter()
+            .map(|p| {
+                p.into_value()
+                    .map_err(|e| DrizzleError::Other(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut rows = self
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        let mut results = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?
+        {
+            let converted = R::try_from(&row).map_err(Into::into)?;
+            results.push(converted);
+        }
+
+        Ok(results)
+    }
+
+    /// Runs the query and returns a single row (for SELECT queries)
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = query.to_sql();
+        let sql_str = sql.sql();
+        let params: Vec<turso::Value> = sql
+            .params()
+            .into_iter()
+            .map(|p| {
+                p.into_value()
+                    .map_err(|e| DrizzleError::Other(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut rows = self
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?
+        {
+            R::try_from(&row).map_err(Into::into)
+        } else {
+            Err(DrizzleError::NotFound)
+        }
+    }
+
+    /// Executes a transaction with the given callback
+    pub async fn transaction<F, R>(
+        &self,
+        tx_type: SQLiteTransactionType,
+        f: F,
+    ) -> drizzle_core::error::Result<R>
+    where
+        F: for<'t> FnOnce(
+            &'t Transaction<'_, Schema>,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
+        >,
+    {
+        // Start transaction manually for turso
+        let tx_sql = match tx_type {
+            SQLiteTransactionType::Deferred => "BEGIN DEFERRED",
+            SQLiteTransactionType::Immediate => "BEGIN IMMEDIATE",
+            SQLiteTransactionType::Exclusive => "BEGIN EXCLUSIVE",
+        };
+
+        self.conn
+            .execute(tx_sql, vec![])
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        let transaction = Transaction::new(&self.conn, tx_type);
+
+        match f(&transaction).await {
+            Ok(result) => {
+                transaction.commit().await?;
+                Ok(result)
+            }
+            Err(e) => {
+                let _ = transaction.rollback().await;
+                Err(e)
+            }
+        }
     }
 }
 

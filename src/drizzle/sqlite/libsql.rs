@@ -1,12 +1,14 @@
-use drizzle_core::ParamBind;
 use drizzle_core::ToSQL;
+use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
-use libsql::Connection;
+use libsql::{Connection, Row};
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 #[cfg(feature = "sqlite")]
 use sqlite::{
-    SQLiteValue,
+    SQLiteTransactionType, SQLiteValue,
     builder::{
         self, QueryBuilder,
         delete::{self, DeleteBuilder},
@@ -17,6 +19,8 @@ use sqlite::{
 };
 
 use crate::drizzle::sqlite::DrizzleBuilder;
+
+use crate::transaction::sqlite::libsql::Transaction;
 
 /// Drizzle instance that provides access to the database and query builder.
 #[derive(Debug)]
@@ -162,6 +166,97 @@ impl<Schema> Drizzle<Schema> {
             .execute(&sql, params)
             .await
             .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string()))
+    }
+
+    /// Runs the query and returns all matching rows (for SELECT queries)
+    pub async fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = query.to_sql();
+        let sql_str = sql.sql();
+        let params: Vec<libsql::Value> = sql.params().into_iter().map(|p| p.into()).collect();
+
+        let mut rows = self
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        let mut results = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?
+        {
+            let converted = R::try_from(&row).map_err(Into::into)?;
+            results.push(converted);
+        }
+
+        Ok(results)
+    }
+
+    /// Runs the query and returns a single row (for SELECT queries)
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = query.to_sql();
+        let sql_str = sql.sql();
+        let params: Vec<libsql::Value> = sql.params().into_iter().map(|p| p.into()).collect();
+
+        let mut rows = self
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string()))?
+        {
+            R::try_from(&row).map_err(Into::into)
+        } else {
+            Err(DrizzleError::NotFound)
+        }
+    }
+
+    /// Executes a transaction with the given callback
+
+    pub async fn transaction<F, R>(
+        &self,
+        tx_type: SQLiteTransactionType,
+        f: F,
+    ) -> drizzle_core::error::Result<R>
+    where
+        F: for<'t> FnOnce(
+            &'t Transaction<Schema>,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<R, drizzle_rs::error::DrizzleError>> + Send + 't>,
+        >,
+    {
+        let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
+        let transaction = Transaction::new(tx, tx_type);
+
+        // run the closure
+        let result = f(&transaction).await;
+
+        // now commit/rollback by moving transaction safely
+        match result {
+            Ok(val) => {
+                transaction.commit().await?;
+                Ok(val)
+            }
+            Err(e) => {
+                let _ = transaction.rollback().await;
+                Err(e)
+            }
+        }
     }
 }
 
