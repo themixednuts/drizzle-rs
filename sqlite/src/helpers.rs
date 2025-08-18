@@ -1,4 +1,4 @@
-use crate::{OwnedSQLiteValue, common::Join, values::SQLiteValue};
+use crate::{common::Join, values::SQLiteValue};
 use drizzle_core::{
     SQL, SQLTable, ToSQL, helpers as core_helpers,
     traits::{SQLColumnInfo, SQLModel, SQLParam},
@@ -10,10 +10,7 @@ pub(crate) use core_helpers::{
 };
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a, 'b, V>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, V>
-where
-    V: SQLParam + 'a,
-{
+fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, SQLiteValue<'a>> {
     // For INSERT statements, we need just column names, not fully qualified names
     let joined_names = columns
         .iter()
@@ -219,91 +216,45 @@ pub(crate) fn insert<'a, T>(table: T) -> SQL<'a, SQLiteValue<'a>>
 where
     T: SQLTable<'a, SQLiteValue<'a>>,
 {
-    SQL::raw("INSERT INTO").append(&table)
+    SQL::text("INSERT INTO").append(&table)
 }
 
-/// Helper function to create VALUES clause for INSERT with smart batching
-/// Groups rows by their column patterns and generates separate batch INSERT statements
-pub(crate) fn values<'a, Table>(
-    rows: impl IntoIterator<Item = <Table as SQLTable<'a, SQLiteValue<'a>>>::Insert>,
+/// Helper function to create VALUES clause for INSERT with pattern validation
+/// All rows must have the same column pattern (enforced by type parameter)
+pub(crate) fn values<'a, Table, T>(
+    rows: impl IntoIterator<Item = <Table as SQLTable<'a, SQLiteValue<'a>>>::Insert<T>>,
 ) -> SQL<'a, SQLiteValue<'a>>
 where
-    Table: SQLTable<'a, SQLiteValue<'a>>,
+    Table: SQLTable<'a, SQLiteValue<'a>> + Default,
+    Table::Insert<T>: SQLModel<'a, SQLiteValue<'a>>,
 {
-    let mut iter = rows.into_iter();
-
-    match iter.next() {
-        None => SQL::raw("VALUES"),
-        Some(row) => {
-            let rows: Box<_> = std::iter::once(row).chain(iter).collect();
-
-            SQL::join(
-                group_rows_by_columns(&rows)
-                    .into_iter()
-                    .map(|(columns, batch_rows)| generate_batch_insert(columns, batch_rows)),
-                "; ",
-            )
-        }
-    }
-}
-
-/// Groups rows by their column patterns for efficient batching
-fn group_rows_by_columns<'a, V, Row>(rows: &[Row]) -> Vec<(SQL<'a, V>, Vec<&Row>)>
-where
-    V: SQLParam + 'a,
-    Row: SQLModel<'a, V>,
-{
-    use std::collections::BTreeMap;
-
-    // Use BTreeMap for consistent ordering of column patterns
-    let mut groups: BTreeMap<String, (SQL<'a, V>, Vec<&Row>)> = BTreeMap::new();
-
-    for row in rows {
-        let columns_info = row.columns();
-        let columns_sql = columns_info_to_sql(&columns_info);
-        let columns_key = columns_sql.sql(); // Use SQL string as grouping key
-
-        groups
-            .entry(columns_key)
-            .or_insert_with(|| (columns_sql, Vec::new()))
-            .1
-            .push(row);
+    let rows: Vec<_> = rows.into_iter().collect();
+    
+    if rows.is_empty() {
+        return SQL::raw("VALUES");
     }
 
-    groups.into_values().collect()
-}
-
-/// Generates a batched INSERT statement for rows with the same column pattern  
-fn generate_batch_insert<'a, V, Row>(columns: SQL<'a, V>, batch_rows: Vec<&Row>) -> SQL<'a, V>
-where
-    V: SQLParam + 'a,
-    Row: SQLModel<'a, V>,
-{
-    // Check if this batch has no columns (all fields are Omit) - use DEFAULT VALUES
-    if batch_rows
-        .first()
-        .map_or(true, |row| row.columns().is_empty())
-    {
-        return batch_rows
-            .iter()
-            .map(|_| SQL::raw("DEFAULT VALUES"))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .reduce(|acc, sql| acc.append_raw("; ").append(sql))
-            .unwrap_or(SQL::raw("DEFAULT VALUES"));
+    // Since all rows have the same PATTERN, they all have the same columns
+    // Get column info from the first row (all rows will have the same columns)
+    let columns_info = rows[0].columns();
+    
+    // Check if this is a DEFAULT VALUES case (no columns)
+    if columns_info.is_empty() {
+        return SQL::raw("DEFAULT VALUES");
     }
 
-    // Generate standard INSERT with columns and values
-    let value_clauses = batch_rows
+    let columns_sql = columns_info_to_sql(&columns_info);
+    let value_clauses: Vec<_> = rows
         .iter()
-        .map(|row| SQL::raw("(").append(row.values()).append_raw(")"))
-        .collect::<Vec<_>>();
+        .map(|row| row.values().subquery())
+        .collect();
 
-    SQL::raw("(")
-        .append(columns)
-        .append_raw(") VALUES ")
+    columns_sql
+        .subquery()
+        .append_raw("VALUES")
         .append(SQL::join(value_clauses, ", "))
 }
+
 
 /// Helper function to create a RETURNING clause - SQLite specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>

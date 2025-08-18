@@ -9,7 +9,7 @@ pub mod turso;
 pub mod libsql;
 
 use drizzle_core::ToSQL;
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::{IsInSchema, SQLModel, SQLTable};
 use paste::paste;
 use std::marker::PhantomData;
 
@@ -101,14 +101,11 @@ where
     State: builder::ExecutableState,
 {
     /// Creates a prepared statement that can be executed multiple times
+    #[inline]
     pub fn prepare(self) -> sqlite::builder::prepared::PreparedStatement<'a> {
         self.builder.prepare()
     }
 }
-
-//------------------------------------------------------------------------------
-// Drizzle Query Building Methods
-//------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
 // SELECT Builder Implementation
@@ -123,6 +120,7 @@ impl<'a, Schema>
         select::SelectInitial,
     >
 {
+    #[inline]
     pub fn from<T>(
         self,
         table: T,
@@ -155,6 +153,7 @@ impl<'a, Schema, T>
 where
     T: SQLTable<'a, SQLiteValue<'a>>,
 {
+    #[inline]
     pub fn r#where(
         self,
         condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
@@ -172,6 +171,7 @@ where
         }
     }
 
+    #[inline]
     pub fn limit(
         self,
         limit: usize,
@@ -209,6 +209,7 @@ where
         }
     }
 
+    #[inline]
     pub fn join<U>(
         self,
         table: U,
@@ -420,9 +421,10 @@ impl<'a, Schema, Table>
     >
 {
     #[cfg(feature = "sqlite")]
-    pub fn values(
+    #[inline]
+    pub fn values<T>(
         self,
-        values: impl IntoIterator<Item = Table::Insert>,
+        values: impl IntoIterator<Item = Table::Insert<T>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
@@ -431,6 +433,7 @@ impl<'a, Schema, Table>
     >
     where
         Table: SQLTable<'a, SQLiteValue<'a>>,
+        Table::Insert<T>: SQLModel<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.values(values);
         DrizzleBuilder {
@@ -544,6 +547,7 @@ impl<'a, Schema, Table>
 where
     Table: SQLTable<'a, SQLiteValue<'a>>,
 {
+    #[inline]
     pub fn set(
         self,
         values: Table::Update,

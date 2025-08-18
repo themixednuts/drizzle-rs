@@ -28,21 +28,25 @@ pub struct InsertOnConflictSet;
 
 // Const constructors for insert marker types
 impl InsertInitial {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl InsertValuesSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl InsertReturningSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
 }
 impl InsertOnConflictSet {
+    #[inline]
     pub const fn new() -> Self {
         Self
     }
@@ -99,14 +103,15 @@ pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
     Table: SQLTable<'a, SQLiteValue<'a>>,
-    Table::Insert: SQLModel<'a, SQLiteValue<'a>>,
 {
     /// Sets values to insert and transitions to ValuesSet state
-    pub fn values<I>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    #[inline]
+    pub fn values<I, T>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where
-        I: IntoIterator<Item = Table::Insert>,
+        I: IntoIterator<Item = Table::Insert<T>>,
+        Table::Insert<T>: SQLModel<'a, SQLiteValue<'a>>,
     {
-        let sql = crate::helpers::values::<'a, Table>(values);
+        let sql = crate::helpers::values::<'a, Table, T>(values);
         InsertBuilder {
             sql: self.sql.append(sql),
             schema: PhantomData,
@@ -177,6 +182,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     }
 
     /// Adds a RETURNING clause and transitions to ReturningSet state
+    #[inline]
     pub fn returning(
         self,
         columns: impl ToSQL<'a, SQLiteValue<'a>>,
@@ -197,6 +203,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     /// Adds a RETURNING clause after ON CONFLICT
+    #[inline]
     pub fn returning(
         self,
         columns: impl ToSQL<'a, SQLiteValue<'a>>,

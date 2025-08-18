@@ -47,6 +47,35 @@ pub enum InsertValue<'a, V: SQLParam, T> {
     Value(ValueWrapper<'a, V, T>),
 }
 
+impl<'a, T> InsertValue<'a, SQLiteValue<'a>, T> {
+    /// Converts this InsertValue to an owned version with 'static lifetime
+    pub fn into_owned(self) -> InsertValue<'static, SQLiteValue<'static>, T> {
+        match self {
+            InsertValue::Omit => InsertValue::Omit,
+            InsertValue::Null => InsertValue::Null,
+            InsertValue::Value(wrapper) => {
+                // Extract the parameter value, convert to owned, then back to static SQLiteValue
+                if let Some(drizzle_core::SQLChunk::Param(param)) = wrapper.value.chunks.first() {
+                    if let Some(ref val) = param.value {
+                        let owned_val = OwnedSQLiteValue::from(val.as_ref().clone());
+                        let static_val: SQLiteValue<'static> = owned_val.into();
+                        let static_sql = drizzle_core::SQL::parameter(static_val);
+                        InsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(static_sql))
+                    } else {
+                        InsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
+                            drizzle_core::SQL::parameter(SQLiteValue::Null),
+                        ))
+                    }
+                } else {
+                    InsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
+                        drizzle_core::SQL::parameter(SQLiteValue::Null),
+                    ))
+                }
+            }
+        }
+    }
+}
+
 // Conversion implementations for SQLiteValue-based InsertValue
 
 // Generic conversion from any type T to InsertValue (for same type T)
@@ -96,6 +125,33 @@ where
         }
     }
 }
+
+// Array conversion for Vec<u8> InsertValue - support flexible input types
+impl<'a, const N: usize> From<[u8; N]> for InsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
+    fn from(value: [u8; N]) -> Self {
+        let sqlite_value = SQLiteValue::Blob(std::borrow::Cow::Owned(value.to_vec()));
+        let sql = SQL::parameter(sqlite_value);
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
+    }
+}
+
+// Slice conversion for Vec<u8> InsertValue
+impl<'a> From<&'a [u8]> for InsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
+    fn from(value: &'a [u8]) -> Self {
+        let sqlite_value = SQLiteValue::Blob(std::borrow::Cow::Borrowed(value));
+        let sql = SQL::parameter(sqlite_value);
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
+    }
+}
+
+// Vec<u8> conversion for Vec<u8> InsertValue
+// impl<'a> From<Vec<u8>> for InsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
+//     fn from(value: Vec<u8>) -> Self {
+//         let sqlite_value = SQLiteValue::Blob(std::borrow::Cow::Owned(value));
+//         let sql = SQL::parameter(sqlite_value);
+//         InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
+//     }
+// }
 
 //------------------------------------------------------------------------------
 // SQLiteValue Definition
