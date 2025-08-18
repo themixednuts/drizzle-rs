@@ -8,22 +8,24 @@ pub mod turso;
 pub mod libsql;
 
 mod attributes;
-mod context;
-mod sql_generation;
 mod column_definitions;
-mod models;
-mod traits;
+mod context;
 mod json;
+mod models;
+mod sql_generation;
+mod traits;
 mod validation;
 
 use super::field::FieldInfo;
 pub use attributes::TableAttributes;
+use column_definitions::{
+    generate_column_accessors, generate_column_definitions, generate_column_fields,
+};
 use context::MacroContext;
-use sql_generation::{generate_create_table_sql, generate_create_table_sql_runtime};
-use column_definitions::{generate_column_definitions, generate_column_accessors, generate_column_fields};
-use models::generate_model_definitions;
-use traits::generate_table_impls;
 use json::generate_json_impls;
+use models::generate_model_definitions;
+use sql_generation::{generate_create_table_sql, generate_create_table_sql_runtime};
+use traits::generate_table_impls;
 use validation::generate_default_validations;
 
 use proc_macro2::TokenStream;
@@ -93,12 +95,19 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     };
 
     // Calculate required fields pattern for const generic
-    let required_fields_pattern: Vec<bool> = field_infos.iter().map(|info| {
-        let is_optional = info.is_nullable || info.has_default || info.default_fn.is_some() || 
-            (info.is_primary && !attrs.without_rowid && !info.is_enum && 
-             matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer));
-        !is_optional
-    }).collect();
+    let required_fields_pattern: Vec<bool> = field_infos
+        .iter()
+        .map(|info| {
+            let is_optional = info.is_nullable
+                || info.has_default
+                || info.default_fn.is_some()
+                || (info.is_primary
+                    && !attrs.without_rowid
+                    && !info.is_enum
+                    && matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer));
+            !is_optional
+        })
+        .collect();
 
     let ctx = MacroContext {
         struct_ident,
@@ -123,7 +132,8 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
     let column_accessors = generate_column_accessors(&ctx, &column_zst_idents)?;
     let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
-    let model_definitions = generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
+    let model_definitions =
+        generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let json_impls = generate_json_impls(&ctx)?;
 
     #[cfg(feature = "rusqlite")]
