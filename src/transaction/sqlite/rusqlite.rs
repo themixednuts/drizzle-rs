@@ -5,7 +5,7 @@ use rusqlite::params_from_iter;
 use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
-use sqlite::{
+use drizzle_sqlite::{
     SQLiteTransactionType, SQLiteValue,
     builder::{
         self, QueryBuilder,
@@ -63,7 +63,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         T: ToSQL<'b, SQLiteValue<'b>>,
     {
-        use sqlite::builder::QueryBuilder;
+        use drizzle_sqlite::builder::QueryBuilder;
 
         let builder = QueryBuilder::new::<Schema>().select(query);
 

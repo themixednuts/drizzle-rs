@@ -26,16 +26,16 @@ rust-version = "1.89"
 [workspace.dependencies]
 anyhow = "1.0.75"
 compact_str = { version = "0.9.0" }
-drizzle_core = { path = "./core" }
-drizzle_rs = { path = "." }
+drizzle-core = { path = "./core", version = "0.1.0" }
+drizzle_rs = { path = ".", version = "0.1.0" }
 frunk = { version = "0.4.4" }
 futures-util = { version = "0.3" }
 libsql = { version = "0.9" }
 libsql-rusqlite = { version = "0.33.0", features = ["bundled"] }
-mysql = { path = "./mysql" }
+drizzle-mysql = { path = "./mysql", version = "0.1.0" }
 paste = { version = "1.0.15" }
-postgres = { path = "./postgres" }
-procmacros = { path = "./procmacros" }
+drizzle-postgres = { path = "./postgres", version = "0.1.0" }
+drizzle-macros = { path = "./procmacros", version = "0.1.0" }
 rand = { version = "0.9.2" }
 rusqlite = { version = "0.34.0", features = ["bundled", "uuid"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -45,7 +45,7 @@ smallvec = { version = "1.15.1", features = [
   "const_new",
   "const_generics",
 ] }
-sqlite = { path = "./sqlite" }
+drizzle-sqlite = { path = "./sqlite", version = "0.1.0" }
 thiserror = "1.0.49"
 tokio = { version = "1.47", features = ["full"] }
 turso = { version = "0.1" }
@@ -54,7 +54,7 @@ uuid = { version = "1.16.0", features = ["v4", "serde"] }
 # Add dev-dependencies for tests
 [dev-dependencies]
 drizzle_rs = { workspace = true }
-procmacros = { workspace = true }
+drizzle-macros = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
@@ -67,70 +67,65 @@ harness = false
 [features]
 rusqlite = [
   "dep:rusqlite",
-  "sqlite/rusqlite",
+  "drizzle-sqlite/rusqlite",
   "sqlite",
-  "procmacros/rusqlite",
-  "drizzle_core/rusqlite",
+  "drizzle-macros/rusqlite",
+  "drizzle-core/rusqlite",
   "rusqlite/uuid",
   "rusqlite/serde_json",
-  # "drizzle_rs/rusqlite",
 ]
 turso = [
   "dep:turso",
-  "sqlite/turso",
+  "drizzle-sqlite/turso",
   "sqlite",
-  "procmacros/turso",
-  "drizzle_core/turso",
-  # "drizzle_rs/turso",
+  "drizzle-macros/turso",
+  "drizzle-core/turso",
 ]
 libsql = [
   "dep:libsql",
-  "sqlite/libsql",
+  "drizzle-sqlite/libsql",
   "sqlite",
-  "procmacros/libsql",
-  "drizzle_core/libsql",
-  # "drizzle_rs/libsql",
+  "drizzle-macros/libsql",
+  "drizzle-core/libsql",
 ]
 libsql-rusqlite = [
   "dep:libsql-rusqlite",
-  "sqlite/libsql-rusqlite",
+  "drizzle-sqlite/libsql-rusqlite",
   "sqlite",
-  "procmacros/libsql-rusqlite",
+  "drizzle-macros/libsql-rusqlite",
 ]
 serde = [
   "dep:serde_json",
   "dep:serde",
-  "sqlite/serde",
-  "postgres/serde",
-  "mysql/serde",
-  "procmacros/serde",
-  "drizzle_core/serde",
-  "drizzle_rs/serde",
+  "drizzle-sqlite/serde",
+  "drizzle-postgres/serde",
+  "drizzle-mysql/serde",
+  "drizzle-macros/serde",
+  "drizzle-core/serde",
 ]
 uuid = [
   "dep:uuid",
-  "sqlite/uuid",
-  "postgres/uuid",
-  "mysql/uuid",
-  "procmacros/uuid",
-  "drizzle_core/uuid",
-  "drizzle_rs/uuid",
+  "drizzle-sqlite/uuid",
+  "drizzle-postgres/uuid",
+  "drizzle-mysql/uuid",
+  "drizzle-macros/uuid",
+  "drizzle-core/uuid",
 ]
 
 # Add dialect-specific features back for gating re-exports
-sqlite = ["procmacros/sqlite", "dep:sqlite"]
-postgres = ["procmacros/postgres", "dep:postgres"]
-mysql = ["procmacros/mysql", "dep:mysql"]
+sqlite = ["drizzle-macros/sqlite", "dep:drizzle-sqlite"]
+postgres = ["drizzle-macros/postgres", "dep:drizzle-postgres"]
+mysql = ["drizzle-macros/mysql", "dep:drizzle-mysql"]
 
 [dependencies]
-procmacros = { workspace = true }
+drizzle-macros = { workspace = true }
 paste = { workspace = true }
-drizzle_core = { workspace = true }
+drizzle-core = { workspace = true }
 
 # Optional dependencies activated by features
-sqlite = { workspace = true, optional = true }
-postgres = { workspace = true, optional = true }
-mysql = { workspace = true, optional = true }
+drizzle-sqlite = { workspace = true, optional = true }
+drizzle-postgres = { workspace = true, optional = true }
+drizzle-mysql = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
 libsql-rusqlite = { workspace = true, optional = true }

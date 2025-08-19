@@ -14,7 +14,7 @@ use paste::paste;
 use std::marker::PhantomData;
 
 #[cfg(feature = "sqlite")]
-use sqlite::{
+use drizzle_sqlite::{
     SQLiteValue,
     builder::{
         self, QueryBuilder,
@@ -102,7 +102,7 @@ where
 {
     /// Creates a prepared statement that can be executed multiple times
     #[inline]
-    pub fn prepare(self) -> sqlite::builder::prepared::PreparedStatement<'a> {
+    pub fn prepare(self) -> drizzle_sqlite::builder::prepared::PreparedStatement<'a> {
         self.builder.prepare()
     }
 }

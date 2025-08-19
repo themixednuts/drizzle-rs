@@ -1,5 +1,5 @@
 [package]
-name = "drizzle_core"
+name = "drizzle-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,4 +1,4 @@
-use crate::{sql::SQL, traits::SQLParam, ToSQL};
+use crate::{ToSQL, sql::SQL, traits::SQLParam};
 
 /// The type of SQLite database object
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]

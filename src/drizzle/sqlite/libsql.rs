@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 
 #[cfg(feature = "sqlite")]
-use sqlite::{
+use drizzle_sqlite::{
     SQLiteTransactionType, SQLiteValue,
     builder::{
         self, QueryBuilder,
@@ -72,7 +72,7 @@ impl<Schema> Drizzle<Schema> {
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
-        use sqlite::builder::QueryBuilder;
+        use drizzle_sqlite::builder::QueryBuilder;
 
         let builder = QueryBuilder::new::<Schema>().select(query);
 
@@ -97,7 +97,7 @@ impl<Schema> Drizzle<Schema> {
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>> + 'a,
     {
-        use sqlite::builder::QueryBuilder;
+        use drizzle_sqlite::builder::QueryBuilder;
 
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {

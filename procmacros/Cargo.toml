@@ -1,9 +1,12 @@
 [package]
-name = "procmacros"
+name = "drizzle-macros"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [lib]
@@ -29,12 +32,13 @@ chrono = { version = "0.4" }
 tokio = { workspace = true }
 
 [features]
-serde = ["drizzle_rs/serde"]
-sqlite = ["drizzle_rs/sqlite"]
-postgres = ["drizzle_rs/postgres"]
-mysql = ["drizzle_rs/mysql"]
-uuid = ["drizzle_rs/uuid"]
-rusqlite = ["sqlite", "drizzle_rs/rusqlite"]
-libsql = ["sqlite", "drizzle_rs/libsql"]
-libsql-rusqlite = ["sqlite", "drizzle_rs/libsql-rusqlite"]
-turso = ["sqlite", "drizzle_rs/turso"]
+default = []
+serde = []
+sqlite = []
+postgres = []
+mysql = []
+uuid = []
+rusqlite = ["sqlite"]
+libsql = ["sqlite"] 
+libsql-rusqlite = ["sqlite"]
+turso = ["sqlite"]

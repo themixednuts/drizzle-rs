@@ -1,5 +1,5 @@
 [package]
-name = "sqlite"
+name = "drizzle-sqlite"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,7 +10,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-drizzle_core = { workspace = true }
+drizzle-core = { workspace = true }
 thiserror = { workspace = true }
 compact_str = { workspace = true }
 

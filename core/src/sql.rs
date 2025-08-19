@@ -1,14 +1,10 @@
 use compact_str::{CompactString, ToCompactString};
 use smallvec::{SmallVec, smallvec};
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    fmt::Display,
-};
+use std::{borrow::Cow, collections::HashMap, fmt::Display};
 
 use crate::{
-    Param, OwnedParam, ParamBind, Placeholder, PlaceholderStyle,
-    traits::{SQLParam, SQLTableInfo, SQLColumnInfo},
+    OwnedParam, Param, ParamBind, Placeholder, PlaceholderStyle,
+    traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
 };
 
 /// A SQL chunk represents a part of an SQL statement.
@@ -415,7 +411,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write fully qualified columns to buffer - unified implementation
-    pub(crate) fn write_qualified_columns(&self, buf: &mut CompactString, table: &'a dyn SQLTableInfo) {
+    pub(crate) fn write_qualified_columns(
+        &self,
+        buf: &mut CompactString,
+        table: &'a dyn SQLTableInfo,
+    ) {
         let columns = table.columns();
         if columns.is_empty() {
             buf.push('*');
@@ -445,7 +445,12 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write a single chunk to buffer with pattern detection
-    pub(crate) fn write_chunk(&self, buf: &mut CompactString, chunk: &SQLChunk<'a, V>, index: usize) {
+    pub(crate) fn write_chunk(
+        &self,
+        buf: &mut CompactString,
+        chunk: &SQLChunk<'a, V>,
+        index: usize,
+    ) {
         match chunk {
             SQLChunk::Text(text) if text.is_empty() => {
                 if let Some(table) = self.detect_pattern_at(index) {

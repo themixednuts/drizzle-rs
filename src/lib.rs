@@ -5,7 +5,7 @@ mod transaction;
 
 // Essential re-exports
 pub use drizzle_core::error::Result;
-pub use procmacros::{SQLSchema, drizzle, sql};
+pub use drizzle_macros::{SQLSchema, drizzle, sql};
 
 // Error types
 pub mod error {
@@ -32,19 +32,19 @@ pub mod core {
 pub mod sqlite {
     // Core SQLite functionality
     pub use super::drizzle::sqlite::Drizzle;
-    pub use sqlite::builder::QueryBuilder;
+    pub use drizzle_sqlite::builder::QueryBuilder;
 
     // SQLite macros
-    pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
+    pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
 
     // SQLite builders and helpers
-    pub use sqlite::builder;
-    pub use sqlite::conditions;
-    pub use sqlite::{SQLiteTransactionType, params};
+    pub use drizzle_sqlite::builder;
+    pub use drizzle_sqlite::conditions;
+    pub use drizzle_sqlite::{SQLiteTransactionType, params};
 
     // SQLite types and traits
-    pub use sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
-    pub use sqlite::values::{InsertValue, OwnedSQLiteValue, SQLiteValue, ValueWrapper};
+    pub use drizzle_sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
+    pub use drizzle_sqlite::values::{InsertValue, OwnedSQLiteValue, SQLiteValue, ValueWrapper};
 
     // Transaction support
     #[cfg(feature = "rusqlite")]
@@ -71,14 +71,14 @@ pub mod prelude {
     pub use drizzle_core::expressions::alias;
 
     // Essential macros
-    pub use procmacros::{FromRow, SQLSchema, drizzle};
+    pub use drizzle_macros::{FromRow, SQLSchema, drizzle};
 
     // SQLite-specific exports (when enabled)
     #[cfg(feature = "sqlite")]
     pub use crate::sqlite::*;
 
     #[cfg(feature = "sqlite")]
-    pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
+    pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
 
     // Future dialect support
     // #[cfg(feature = "postgres")]
@@ -95,8 +95,8 @@ pub mod prelude {
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod tests {
+    use drizzle_macros::{SQLiteTable, drizzle};
     use drizzle_rs::prelude::*;
-    use procmacros::{SQLiteTable, drizzle};
 
     #[cfg(feature = "rusqlite")]
     use rusqlite;
@@ -147,7 +147,7 @@ mod tests {
     #[cfg(feature = "rusqlite")]
     #[test]
     fn test_insert() {
-        use sqlite::builder::Conflict;
+        use drizzle_sqlite::builder::Conflict;
 
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let (db, Schema { user, .. }) = drizzle!(conn, Schema);

@@ -1,5 +1,8 @@
+use crate::{
+    sql::SQL,
+    traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
+};
 use std::borrow::Cow;
-use crate::{sql::SQL, traits::{SQLParam, SQLTableInfo, SQLColumnInfo}};
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;

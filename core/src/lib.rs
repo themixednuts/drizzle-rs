@@ -10,9 +10,9 @@ pub mod traits;
 
 // Re-export key types and traits
 pub use conversions::ToSQL;
-pub use params::{Param, ParamBind, Placeholder, PlaceholderStyle, OwnedParam, placeholders};
+pub use params::{OwnedParam, Param, ParamBind, Placeholder, PlaceholderStyle, placeholders};
 pub use schema::{OrderBy, SQLSchemaType};
-pub use sql::{SQL, SQLChunk, OwnedSQL, OwnedSQLChunk};
+pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk};
 pub use traits::*;
 
 /// Creates an aliased table that can be used in joins and queries
