@@ -75,6 +75,8 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let all_field_names: Box<_> = all_fields.iter().map(|(name, _)| *name).collect();
     let all_field_types: Box<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
 
+    let create_signature = quote! {};
+
     // Precompute the create method signature based on feature flags
     #[cfg(feature = "rusqlite")]
     let create_signature = quote! {
@@ -142,16 +144,16 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
 fn generate_create_all_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     let table_sql_collection = fields.iter().map(|(name, ty)| {
         quote! {
-            if <#ty>::TYPE == ::drizzle_rs::core::SQLSchemaType::Table {
-                sql_statements.push(self.#name.sql().sql());
+            if <#ty as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::TYPE == ::drizzle_rs::core::SQLSchemaType::Table {
+                sql_statements.push(<#ty as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::sql(&self.#name).sql());
             }
         }
     });
 
     let index_sql_collection = fields.iter().map(|(name, ty)| {
         quote! {
-            if <#ty>::TYPE == ::drizzle_rs::core::SQLSchemaType::Index {
-                sql_statements.push(self.#name.sql().sql());
+            if <#ty as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::TYPE == ::drizzle_rs::core::SQLSchemaType::Index {
+                sql_statements.push(<#ty as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::sql(&self.#name).sql());
             }
         }
     });
