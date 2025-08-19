@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
 
 /// Parse column reference from field attributes, looking for #[column(Table::field)]

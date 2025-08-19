@@ -9,7 +9,6 @@ use quote::quote;
 use syn::Result;
 
 // Re-export convenience functions for internal use only
-use convenience::{generate_convenience_method, generate_required_param_and_assignment};
 pub(crate) use insert::generate_insert_model;
 pub(crate) use select::generate_select_model;
 pub(crate) use update::generate_update_model;

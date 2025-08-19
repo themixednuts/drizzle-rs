@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Result, Type};
+use syn::{Data, DeriveInput, Fields, Result};
 
 /// Generates the Schema derive implementation
 pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {

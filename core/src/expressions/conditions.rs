@@ -286,19 +286,16 @@ where
     match iter.next() {
         None => SQL::empty(), // No conditions = empty
         Some(first) => {
-            let second = iter.next();
-            if second.is_none() {
-                // Single condition doesn't need parentheses
-                first
-            } else {
-                // Multiple conditions - rebuild iterator and wrap in parentheses
-                let all_conditions = std::iter::once(first)
-                    .chain(std::iter::once(second.unwrap()))
-                    .chain(iter);
-                SQL::raw("(")
-                    .append(SQL::join(all_conditions, "AND"))
-                    .append_raw(")")
-            }
+            let Some(second) = iter.next() else {
+                return first;
+            };
+            // Multiple conditions - rebuild iterator and wrap in parentheses
+            let all_conditions = std::iter::once(first)
+                .chain(std::iter::once(second))
+                .chain(iter);
+            SQL::raw("(")
+                .append(SQL::join(all_conditions, "AND"))
+                .append_raw(")")
         }
     }
 }
@@ -314,19 +311,17 @@ where
     match iter.next() {
         None => SQL::empty(), // No conditions = empty
         Some(first) => {
-            let second = iter.next();
-            if second.is_none() {
-                // Single condition doesn't need parentheses
-                first
-            } else {
-                // Multiple conditions - rebuild iterator and wrap in parentheses
-                let all_conditions = std::iter::once(first)
-                    .chain(std::iter::once(second.unwrap()))
-                    .chain(iter);
-                SQL::raw("(")
-                    .append(SQL::join(all_conditions, "OR"))
-                    .append_raw(")")
-            }
+            let Some(second) = iter.next() else {
+                return first;
+            };
+            // Single condition doesn't need parentheses
+            // Multiple conditions - rebuild iterator and wrap in parentheses
+            let all_conditions = std::iter::once(first)
+                .chain(std::iter::once(second))
+                .chain(iter);
+            SQL::raw("(")
+                .append(SQL::join(all_conditions, "OR"))
+                .append_raw(")")
         }
     }
 }

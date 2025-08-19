@@ -48,7 +48,7 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
 
         let mut param_iter = self.params.iter();
 
-        for (_i, text_segment) in self.text_segments.iter().enumerate() {
+        for text_segment in self.text_segments.iter() {
             sql.push_str(text_segment);
 
             // Add parameter placeholder if we have one

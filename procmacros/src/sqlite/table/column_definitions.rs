@@ -1,5 +1,4 @@
 use super::context::MacroContext;
-use crate::sqlite::field::FieldInfo;
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};

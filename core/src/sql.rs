@@ -66,7 +66,7 @@ impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
     pub const fn param(value: &'a V, placeholder: Placeholder) -> Self {
         Self::Param(Param {
             value: Some(Cow::Borrowed(value)),
-            placeholder: placeholder,
+            placeholder,
         })
     }
 
@@ -177,7 +177,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Const placeholder instances for zero-copy usage
     const POSITIONAL_PLACEHOLDER: Placeholder = Placeholder::positional();
 
-    pub const fn new<'b>(chunks: [SQLChunk<'a, V>; 3]) -> SQL<'a, V> {
+    pub const fn new<'b>(chunks: [SQLChunk<'b, V>; 3]) -> SQL<'b, V> {
         SQL {
             chunks: SmallVec::from_const(chunks),
         }
@@ -394,10 +394,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             .map(|chunk| match chunk {
                 SQLChunk::Param(mut param) => {
                     // Only bind named placeholders
-                    if let Some(name) = param.placeholder.name {
-                        if let Some(value) = param_map.get(name) {
-                            param.value = Some(Cow::Owned(value.clone()));
-                        }
+                    if let Some(name) = param.placeholder.name
+                        && let Some(value) = param_map.get(name)
+                    {
+                        param.value = Some(Cow::Owned(value.clone()));
                     }
                     SQLChunk::Param(param)
                 }
@@ -526,15 +526,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         &self,
         select_index: usize,
     ) -> Option<&'a dyn SQLTableInfo> {
-        if select_index + 2 < self.chunks.len() {
-            if let (SQLChunk::Text(from_text), SQLChunk::Table(table)) = (
+        if select_index + 2 < self.chunks.len()
+            && let (SQLChunk::Text(from_text), SQLChunk::Table(table)) = (
                 &self.chunks[select_index + 1],
                 &self.chunks[select_index + 2],
-            ) {
-                if from_text.trim().eq_ignore_ascii_case("FROM") {
-                    return Some(*table);
-                }
-            }
+            )
+            && from_text.trim().eq_ignore_ascii_case("FROM")
+        {
+            return Some(*table);
         }
         None
     }
