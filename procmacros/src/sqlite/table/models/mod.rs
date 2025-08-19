@@ -59,7 +59,7 @@ fn generate_model_trait_impls(
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
                 // For partial select model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                INSTANCE.columns()
+                <#struct_ident as ::drizzle_rs::core::SQLTableInfo>::columns(&INSTANCE)
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
@@ -77,7 +77,7 @@ fn generate_model_trait_impls(
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
                 // For select model, return all columns
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                INSTANCE.columns()
+                <#struct_ident as ::drizzle_rs::core::SQLTableInfo>::columns(&INSTANCE)
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
@@ -89,7 +89,7 @@ fn generate_model_trait_impls(
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                INSTANCE.columns()
+                <#struct_ident as ::drizzle_rs::core::SQLTableInfo>::columns(&INSTANCE)
             }
 
             fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
