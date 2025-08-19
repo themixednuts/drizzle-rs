@@ -146,6 +146,29 @@ impl<Schema> Drizzle<Schema> {
         }
     }
 
+    /// Creates a query with CTE (Common Table Expression).
+    #[cfg(feature = "sqlite")]
+    pub fn with<'a, Q, C>(
+        &'a self,
+        cte: C,
+    ) -> DrizzleBuilder<
+        'a,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
+    where
+        Q: ToSQL<'a, SQLiteValue<'a>>,
+        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+    {
+        let builder = QueryBuilder::new::<Schema>().with(cte);
+        DrizzleBuilder {
+            drizzle: self,
+            builder,
+            state: PhantomData,
+        }
+    }
+
     pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -244,6 +267,72 @@ impl<Schema> Drizzle<Schema> {
                 let _ = transaction.rollback();
                 std::panic::resume_unwind(panic_payload);
             }
+        }
+    }
+}
+
+// Implementation for schemas that implement SQLSchemaImpl
+impl<Schema> Drizzle<Schema>
+where
+    Schema: drizzle_core::traits::SQLSchemaImpl + Default,
+{
+    /// Create schema objects using SQLSchemaImpl trait
+    pub fn create(&self) -> drizzle_core::error::Result<()> {
+        let schema = Schema::default();
+        schema.create(&self.conn)
+    }
+}
+
+// CTE (WITH) Builder Implementation for RusQLite
+#[cfg(feature = "rusqlite")]
+impl<'a, Schema>
+    DrizzleBuilder<
+        'a,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
+{
+    #[inline]
+    pub fn select<T>(
+        self,
+        query: T,
+    ) -> DrizzleBuilder<
+        'a,
+        Schema,
+        SelectBuilder<'a, Schema, select::SelectInitial>,
+        select::SelectInitial,
+    >
+    where
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let builder = self.builder.select(query);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn with<Q, C>(
+        self,
+        cte: C,
+    ) -> DrizzleBuilder<
+        'a,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
+    where
+        Q: ToSQL<'a, SQLiteValue<'a>>,
+        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+    {
+        let builder = self.builder.with(cte);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            state: PhantomData,
         }
     }
 }
