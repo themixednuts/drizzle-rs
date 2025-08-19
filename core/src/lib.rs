@@ -400,11 +400,11 @@ pub struct SQL<'a, V: SQLParam> {
     pub chunks: SmallVec<[SQLChunk<'a, V>; 3]>,
 }
 
-impl<'a, V: SQLParam> ToSQL<'a, V> for &SQL<'a, V> {
-    fn to_sql(&self) -> SQL<'a, V> {
-        (*self).clone()
-    }
-}
+// impl<'a, V: SQLParam> ToSQL<'a, V> for &SQL<'a, V> {
+//     fn to_sql(&self) -> SQL<'a, V> {
+//         (*self).clone()
+//     }
+// }
 
 pub struct OwnedSQL<V: SQLParam> {
     pub chunks: SmallVec<[OwnedSQLChunk<V>; 3]>,
@@ -703,6 +703,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 if let Some(table) = self.detect_select_from_table_pattern(index) {
                     buf.push_str("SELECT ");
                     self.write_qualified_columns(buf, table);
+                } else if self.detect_select_from_non_table_pattern(index) {
+                    buf.push_str("SELECT *");
                 } else {
                     buf.push_str(text);
                 }
@@ -777,6 +779,28 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             }
         }
         None
+    }
+
+    /// Detect SELECT-FROM-NON_TABLE pattern (e.g., CTE, subquery, etc.)
+    fn detect_select_from_non_table_pattern(&self, select_index: usize) -> bool {
+        if select_index + 2 < self.chunks.len() {
+            if let SQLChunk::Text(from_text) = &self.chunks[select_index + 1] {
+                if from_text.trim().eq_ignore_ascii_case("FROM") {
+                    // Check if what follows FROM is NOT a table
+                    match &self.chunks[select_index + 2] {
+                        SQLChunk::Table(_) => false, // This is a table, handled by other pattern
+                        SQLChunk::Text(_) | SQLChunk::SQL(_) | SQLChunk::Subquery(_) => true, // CTE name, subquery, etc.
+                        _ => true, // Any other chunk type is not a table
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     /// Find SELECT keyword before the given position
@@ -1044,6 +1068,15 @@ where
     }
 }
 
+impl<'a, V: SQLParam, T> ToSQL<'a, V> for &T
+where
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        (**self).to_sql()
+    }
+}
+
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for () {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::empty()
@@ -1099,15 +1132,15 @@ where
     }
 }
 
-impl<'a, V, T, const N: usize> ToSQL<'a, V> for &[T; N]
-where
-    V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
-    }
-}
+// impl<'a, V, T, const N: usize> ToSQL<'a, V> for &[T; N]
+// where
+//     V: SQLParam + 'a,
+//     T: ToSQL<'a, V>,
+// {
+//     fn to_sql(&self) -> SQL<'a, V> {
+//         SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+//     }
+// }
 
 // Implement ToSQL for SQLTableInfo and SQLColumnInfo trait objects
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'static dyn SQLTableInfo {
@@ -1222,17 +1255,17 @@ where
     }
 }
 
-#[cfg(feature = "uuid")]
-impl<'a, V> ToSQL<'a, V> for &'a Uuid
-where
-    V: SQLParam + 'a,
-    V: From<&'a Uuid>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
-    }
-}
+// #[cfg(feature = "uuid")]
+// impl<'a, V> ToSQL<'a, V> for &'a Uuid
+// where
+//     V: SQLParam + 'a,
+//     V: From<&'a Uuid>,
+//     V: Into<Cow<'a, V>>,
+// {
+//     fn to_sql(&self) -> SQL<'a, V> {
+//         SQL::parameter(V::from(*self))
+//     }
+// }
 
 pub mod placeholders {
     use super::{Placeholder, PlaceholderStyle};
