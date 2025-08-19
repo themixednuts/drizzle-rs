@@ -112,6 +112,7 @@ uuid = [
   "sqlite/uuid",
   "postgres/uuid",
   "mysql/uuid",
+  "procmacros/uuid",
   "drizzle_core/uuid",
   "drizzle_rs/uuid",
 ]

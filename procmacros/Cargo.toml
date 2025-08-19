@@ -18,7 +18,7 @@ heck = { version = "0.5.0" }
 paste = { workspace = true }
 
 [dev-dependencies]
-drizzle_rs = { workspace = true, features = ["uuid", "serde"] }
+drizzle_rs = { workspace = true }
 rusqlite = { workspace = true }
 libsql = { workspace = true }
 turso = { workspace = true }
@@ -29,10 +29,11 @@ chrono = { version = "0.4" }
 tokio = { workspace = true }
 
 [features]
-serde = []
-sqlite = []
-postgres = []
-mysql = []
+serde = ["drizzle_rs/serde"]
+sqlite = ["drizzle_rs/sqlite"]
+postgres = ["drizzle_rs/postgres"]
+mysql = ["drizzle_rs/mysql"]
+uuid = ["drizzle_rs/uuid"]
 rusqlite = ["sqlite", "drizzle_rs/rusqlite"]
 libsql = ["sqlite", "drizzle_rs/libsql"]
 libsql-rusqlite = ["sqlite", "drizzle_rs/libsql-rusqlite"]

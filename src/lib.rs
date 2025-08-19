@@ -2,54 +2,53 @@ extern crate self as drizzle_rs;
 
 mod drizzle;
 mod transaction;
+
+// Essential re-exports
 pub use drizzle_core::error::Result;
 pub use procmacros::{SQLSchema, drizzle, sql};
 
+// Error types
 pub mod error {
     pub use drizzle_core::error::DrizzleError;
 }
 
 // Core components (dialect-agnostic)
 pub mod core {
-    // Core traits and types from core crate
-    pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+    // Core traits and types
     pub use drizzle_core::traits::*;
     pub use drizzle_core::{
         OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, SQLSchemaType, ToSQL,
     };
 
+    // Prepared statements
+    pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+
+    // Condition expressions
     pub use drizzle_core::expressions::conditions::*;
 }
 
 // SQLite specific components
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    // Core SQLite functionality
     pub use super::drizzle::sqlite::Drizzle;
+    pub use sqlite::builder::QueryBuilder;
+
+    // SQLite macros
     pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
-    pub use sqlite::builder::QueryBuilder; // SQLite specific macros
+
+    // SQLite builders and helpers
+    pub use sqlite::builder;
+    pub use sqlite::conditions;
+    pub use sqlite::{SQLiteTransactionType, params};
+
+    // SQLite types and traits
+    pub use sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
+    pub use sqlite::values::{InsertValue, OwnedSQLiteValue, SQLiteValue, ValueWrapper};
 
     // Transaction support
     #[cfg(feature = "rusqlite")]
     pub use super::transaction::sqlite::rusqlite::Transaction;
-
-    // SQLite specific types, columns, etc. from sqlite crate
-    pub use sqlite::builder;
-    pub use sqlite::conditions;
-    pub use sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
-    pub use sqlite::values::{InsertValue, OwnedSQLiteValue, SQLiteValue, ValueWrapper};
-    pub use sqlite::{SQLiteTransactionType, params};
-
-    // Re-export rusqlite specific functionality when the feature is enabled
-    #[cfg(feature = "rusqlite")]
-    pub use ::rusqlite;
-
-    // Re-export libsql specific functionality when the feature is enabled
-    #[cfg(feature = "libsql")]
-    pub use ::libsql;
-
-    // Re-export libsql-rusqlite specific functionality when the feature is enabled
-    #[cfg(feature = "libsql-rusqlite")]
-    pub use ::libsql_rusqlite;
 }
 
 // Placeholder for future dialects
@@ -66,33 +65,31 @@ pub mod mysql {
 /// A comprehensive prelude that brings commonly used items into scope.
 pub mod prelude {
     // Core components (traits, types, expressions)
-    pub use crate::core::*; // Includes core traits, SQL, SQLParam, conditions::*, core macros
+    pub use crate::core::*;
 
-    // Export QueryBuilder types from core crate
+    // Expression helpers
     pub use drizzle_core::expressions::alias;
 
-    #[cfg(feature = "sqlite")]
-    pub use super::drizzle::sqlite::Drizzle;
-    #[cfg(feature = "sqlite")]
-    pub use sqlite::builder::QueryBuilder;
-
-    // Proc Macros (essential for schema definition)
+    // Essential macros
     pub use procmacros::{FromRow, SQLSchema, drizzle};
 
-    // Dialect-specific components (gated)
+    // SQLite-specific exports (when enabled)
     #[cfg(feature = "sqlite")]
-    pub use crate::sqlite::*; // Includes SQLiteColumn, SQLiteValue, etc.
+    pub use crate::sqlite::*;
 
     #[cfg(feature = "sqlite")]
-    pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable}; // SQLite specific macros
+    pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
 
+    // Future dialect support
     // #[cfg(feature = "postgres")]
     // pub use crate::postgres::*;
-    // #[cfg(feature = "postgres")] pub use procmacros::{PostgresEnum, PostgresTable};
+    // #[cfg(feature = "postgres")]
+    // pub use procmacros::{PostgresEnum, PostgresTable};
 
     // #[cfg(feature = "mysql")]
     // pub use crate::mysql::*;
-    // #[cfg(feature = "mysql")] pub use procmacros::{MySQLEnum, MySQLTable};
+    // #[cfg(feature = "mysql")]
+    // pub use procmacros::{MySQLEnum, MySQLTable};
 }
 
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
