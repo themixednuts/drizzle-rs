@@ -25,8 +25,8 @@ pub mod core {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     pub use super::drizzle::sqlite::Drizzle;
-    pub use ::procmacros::SQLiteIndex;
-    pub use sqlite::builder::QueryBuilder;
+    pub use procmacros::{SQLiteEnum, SQLiteIndex, SQLiteTable};
+    pub use sqlite::builder::QueryBuilder; // SQLite specific macros
 
     // Transaction support
     #[cfg(feature = "rusqlite")]
