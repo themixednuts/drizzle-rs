@@ -2,9 +2,12 @@
 
 use std::marker::PhantomData;
 
-use common::{Complex, InsertComplex, InsertSimple, Role, Simple};
+use common::{Complex, ComplexSchema, InsertComplex, InsertSimple, Role, SelectSimple, Simple};
 use drizzle_core::expressions::*;
 use drizzle_rs::prelude::*;
+use drizzle_rs::sql;
+
+use crate::common::SimpleSchema;
 
 mod common;
 
@@ -93,7 +96,7 @@ struct CoalesceAvgResult {
 #[tokio::test]
 async fn test_aggregate_functions() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![
         InsertSimple::new("Item A").with_id(10),
@@ -137,7 +140,7 @@ async fn test_aggregate_functions() {
 #[tokio::test]
 async fn test_aggregate_functions_with_real_numbers() {
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     let test_data = vec![
         InsertComplex::new("User A", true, Role::User).with_score(85.5),
@@ -192,7 +195,7 @@ async fn test_aggregate_functions_with_real_numbers() {
 #[tokio::test]
 async fn test_distinct_expression() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![
         InsertSimple::new("Apple").with_id(1),
@@ -229,7 +232,7 @@ async fn test_distinct_expression() {
 #[tokio::test]
 async fn test_coalesce_expression() {
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert data with separate operations since each has different column patterns
     // Users A and C: have email set
@@ -280,7 +283,7 @@ async fn test_coalesce_expression() {
 #[tokio::test]
 async fn test_alias_expression() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![InsertSimple::new("Test Item").with_id(1)];
 
@@ -315,7 +318,7 @@ async fn test_alias_expression() {
 #[tokio::test]
 async fn test_complex_expressions() {
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert data with separate operations since each has different column patterns
     // Users A and B: have both age and score set
@@ -395,7 +398,7 @@ impl<'a, TestName, TestEmail> Test<(TestName, TestEmail)> {
 #[tokio::test]
 async fn test_expressions_with_conditions() {
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     let test_data = [
         InsertComplex::new("Active User", true, Role::User).with_score(85.5),
@@ -437,7 +440,7 @@ async fn test_expressions_with_conditions() {
 #[tokio::test]
 async fn test_aggregate_with_empty_result() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // No data inserted, test aggregate functions on empty table
 
@@ -457,7 +460,7 @@ async fn test_aggregate_with_empty_result() {
 #[tokio::test]
 async fn test_expression_edge_cases() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = [
         InsertSimple::new("").with_id(0), // Empty string and zero id
@@ -503,7 +506,7 @@ async fn test_expression_edge_cases() {
 #[tokio::test]
 async fn test_multiple_aliases() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = [
         InsertSimple::new("Item A").with_id(1),
@@ -532,4 +535,158 @@ async fn test_multiple_aliases() {
     assert_eq!(result[0].identifier, 1);
     assert_eq!(result[0].item_name, "Item A");
     assert_eq!(result[0].total, 2);
+}
+
+#[test]
+fn test_cte_basic() {
+    use drizzle_core::SQL;
+    use sqlite::SQLiteValue;
+
+    let cte_query = SQL::<SQLiteValue>::raw("SELECT id, name FROM users WHERE id = 42");
+    let main_query = SQL::<SQLiteValue>::raw("SELECT * FROM sq");
+
+    let sq = cte("sq").r#as(cte_query);
+    let result = with(sq, main_query);
+
+    let sql_output = result.sql();
+    assert_eq!(
+        sql_output,
+        "WITH sq AS (SELECT id, name FROM users WHERE id = 42) SELECT * FROM sq"
+    );
+}
+
+#[test]
+fn test_cte_name_access() {
+    use drizzle_core::SQL;
+    use sqlite::SQLiteValue;
+
+    let cte_query = SQL::<SQLiteValue>::raw("SELECT * FROM users");
+    let sq = cte("my_cte").r#as(cte_query);
+
+    assert_eq!(sq.name(), "my_cte");
+}
+
+#[test]
+fn test_cte_to_sql() {
+    use drizzle_core::SQL;
+    use sqlite::SQLiteValue;
+
+    let cte_query = SQL::<SQLiteValue>::raw("SELECT id FROM users WHERE active = 1");
+    let sq = cte("active_users").r#as(cte_query);
+
+    let cte_sql = sq.definition();
+    assert_eq!(
+        cte_sql.sql(),
+        "active_users AS (SELECT id FROM users WHERE active = 1)"
+    );
+    
+    // Test that to_sql() returns just the name for use in FROM clauses
+    let name_sql = sq.to_sql();
+    assert_eq!(name_sql.sql(), "active_users");
+}
+
+#[tokio::test]
+async fn test_cte_integration_simple() {
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+
+    // Insert test data
+    let test_data = [
+        InsertSimple::new("Alice").with_id(1),
+        InsertSimple::new("Bob").with_id(2),
+        InsertSimple::new("Charlie").with_id(3),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Create a CTE that filters for specific IDs
+    let sq = cte("filtered_users").r#as(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(gt(simple.id, 1)),
+    );
+
+    // Use the CTE in a main query - empty select() should render as *
+    let result: Vec<SelectSimple> =
+        drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
+
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].name, "Bob");
+    assert_eq!(result[1].name, "Charlie");
+}
+
+#[tokio::test]
+async fn test_cte_integration_with_aggregation() {
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+
+    // Insert test data
+    let test_data = [
+        InsertSimple::new("Test1").with_id(1),
+        InsertSimple::new("Test2").with_id(2),
+        InsertSimple::new("Test3").with_id(3),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Create a CTE with count
+    let sq = cte("user_count").r#as(db.select(count(simple.id)).from(simple));
+
+    #[derive(FromRow)]
+    struct CountResult {
+        count: i32,
+    }
+
+    // Use the CTE - empty select() should render as *
+    let result: Vec<CountResult> =
+        drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].count, 3);
+}
+
+#[tokio::test]
+async fn test_cte_complex_two_levels() {
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+
+    // Insert test data
+    let test_data = [
+        InsertSimple::new("Alice").with_id(1),
+        InsertSimple::new("Bob").with_id(2),
+        InsertSimple::new("Charlie").with_id(3),
+        InsertSimple::new("David").with_id(4),
+        InsertSimple::new("Eve").with_id(5),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Level 1 CTE: Filter users with id > 2
+    let filtered_users = cte("filtered_users").r#as(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(gt(simple.id, 2)),
+    );
+
+    // Level 2 CTE: Count from the first CTE and add a computed column
+    let user_stats = cte("user_stats").r#as(
+        db.select((count(sql!("id")), sql!("'high_id_users'")))
+            .from(&filtered_users)
+    );
+
+    #[derive(FromRow)]
+    struct StatsResult {
+        count: i32,
+        category: String,
+    }
+
+    // Final query: Use the second CTE
+    let result: Vec<StatsResult> = drizzle_exec!(
+        db.with(&filtered_users)
+            .with(&user_stats)
+            .select(())
+            .from(&user_stats)
+            .all()
+    );
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].count, 3); // Should have 3 users with id > 2 (Charlie, David, Eve)
+    assert_eq!(result[0].category, "high_id_users");
 }
