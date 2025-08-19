@@ -146,12 +146,12 @@ jobs:
       run: cargo doc --features "rusqlite,uuid,serde" --no-deps --document-private-items
 
   build-check:
-    name: Build Check
+    name: Build Check (stable/beta/nightly)
     runs-on: ubuntu-latest
-    needs: [get-rust-version, lint]
+    needs: [lint]
     strategy:
       matrix:
-        rust: [${{ needs.get-rust-version.outputs.rust-version }}, beta, nightly]
+        rust: [stable, beta, nightly]
         driver: [rusqlite, libsql]
     
     steps:
@@ -172,10 +172,13 @@ jobs:
     name: Minimum Supported Rust Version
     runs-on: ubuntu-latest
     needs: [get-rust-version, lint]
+    strategy:
+      matrix:
+        driver: [rusqlite, libsql]
     steps:
     - uses: actions/checkout@v4
     
-    - name: Install Rust ${{ needs.get-rust-version.outputs.rust-version }}
+    - name: Install Rust (MSRV)
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ needs.get-rust-version.outputs.rust-version }}
@@ -183,8 +186,5 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
     
-    - name: Check MSRV with rusqlite
-      run: cargo check --features "rusqlite,uuid,serde"
-    
-    - name: Check MSRV with libsql
-      run: cargo check --features "libsql,uuid,serde"
+    - name: Check MSRV with ${{ matrix.driver }}
+      run: cargo check --features "${{ matrix.driver }},uuid,serde"
