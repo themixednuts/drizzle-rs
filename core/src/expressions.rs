@@ -2,6 +2,72 @@ pub mod conditions;
 
 use crate::{SQL, SQLParam, ToSQL};
 
+/// A Common Table Expression (CTE) builder
+pub struct CTE {
+    name: &'static str,
+}
+
+/// A defined CTE with its query
+pub struct DefinedCTE<'a, V: SQLParam, Q: ToSQL<'a, V>> {
+    name: &'a str,
+    query: Q,
+    _phantom: std::marker::PhantomData<V>,
+}
+
+impl CTE {
+    /// Define the CTE with a query
+    pub fn r#as<'a, V: SQLParam, Q: ToSQL<'a, V>>(self, query: Q) -> DefinedCTE<'a, V, Q> {
+        DefinedCTE {
+            name: self.name,
+            query,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, V: SQLParam, Q: ToSQL<'a, V>> DefinedCTE<'a, V, Q> {
+    /// Get the CTE name for referencing in queries
+    pub fn name(&self) -> &'a str {
+        self.name
+    }
+}
+
+impl<'a, V: SQLParam + 'a, Q: ToSQL<'a, V>> ToSQL<'a, V> for DefinedCTE<'a, V, Q> {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::raw(self.name)
+    }
+}
+
+impl<'a, V: SQLParam, Q: ToSQL<'a, V>> DefinedCTE<'a, V, Q> {
+    /// Get the full CTE definition for WITH clauses
+    pub fn definition(&self) -> SQL<'a, V> {
+        SQL::raw(self.name)
+            .append_raw("AS")
+            .append(self.query.to_sql().subquery())
+    }
+}
+
+impl<'a, V: SQLParam, Q: ToSQL<'a, V>> AsRef<DefinedCTE<'a, V, Q>> for DefinedCTE<'a, V, Q> {
+    fn as_ref(&self) -> &DefinedCTE<'a, V, Q> {
+        self
+    }
+}
+
+/// Create a new CTE with the given name
+pub fn cte(name: &'static str) -> CTE {
+    CTE { name }
+}
+
+/// Combine a CTE with a main query
+pub fn with<'a, V: SQLParam + 'a, Q: ToSQL<'a, V>, M: ToSQL<'a, V>>(
+    cte: DefinedCTE<'a, V, Q>,
+    main_query: M,
+) -> SQL<'a, V> {
+    SQL::raw("WITH")
+        .append(cte.definition())
+        .append(main_query.to_sql())
+}
+
 pub fn alias<'a, V: SQLParam + 'a, C: ToSQL<'a, V>>(col: C, alias: &'a str) -> SQL<'a, V> {
     col.to_sql()
         .append_raw(" AS ")
