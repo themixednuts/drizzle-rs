@@ -203,10 +203,10 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     let column_name = &info.column_name;
 
     if info.is_json && !cfg!(feature = "serde") {
-        return Err(Error::new_spanned(
+        Err(Error::new_spanned(
             info.ident,
             "JSON fields require the 'serde' feature to be enabled",
-        ));
+        ))
     } else if info.is_uuid {
         // Handle all UUIDs as BLOB - rusqlite handles this perfectly with built-in support
         Ok(quote! {

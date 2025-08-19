@@ -16,11 +16,11 @@ impl Parse for TableAttributes {
         for meta in metas {
             match meta {
                 Meta::NameValue(nv) if nv.path.is_ident("name") => {
-                    if let syn::Expr::Lit(lit) = nv.clone().value {
-                        if let syn::Lit::Str(str_lit) = lit.lit {
-                            attrs.name = Some(str_lit.value());
-                            continue;
-                        }
+                    if let syn::Expr::Lit(lit) = nv.clone().value
+                        && let syn::Lit::Str(str_lit) = lit.lit
+                    {
+                        attrs.name = Some(str_lit.value());
+                        continue;
                     }
                     return Err(syn::Error::new(
                         nv.span(),

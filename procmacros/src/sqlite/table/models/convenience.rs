@@ -99,33 +99,3 @@ pub(crate) fn generate_convenience_method(
         }
     }
 }
-
-/// Generates constructor parameter and assignment for required fields only
-pub(crate) fn generate_required_param_and_assignment(
-    field: &FieldInfo,
-    _ctx: &MacroContext,
-) -> (TokenStream, TokenStream) {
-    let field_name = field.ident;
-    let base_type = field.base_type;
-    let type_string = base_type.to_token_stream().to_string();
-
-    // Required parameters - convert using Into<InsertValue<...>> trait
-    match (field.is_uuid, type_string.as_str()) {
-        (true, _) => (
-            quote! { #field_name: impl Into<::uuid::Uuid> },
-            quote! { #field_name: #field_name.into().into() },
-        ),
-        (false, s) if s.contains("String") => (
-            quote! { #field_name: impl Into<::std::string::String> },
-            quote! { #field_name: #field_name.into().into() },
-        ),
-        (false, s) if s.contains("Vec") && s.contains("u8") => (
-            quote! { #field_name: impl Into<::std::vec::Vec<u8>> },
-            quote! { #field_name: #field_name.into().into() },
-        ),
-        (false, _) => (
-            quote! { #field_name: #base_type },
-            quote! { #field_name: #field_name.into() },
-        ),
-    }
-}

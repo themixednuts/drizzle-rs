@@ -291,15 +291,13 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
             // Generate implementation for enum
             match crate::sqlite::r#enum::generate_enum_impl(name, data) {
                 Ok(ts) => ts.into(),
-                Err(e) => return e.to_compile_error().into(),
+                Err(e) => e.to_compile_error().into(),
             }
         }
-        _ => {
-            return quote! {
-                compile_error!("SQLiteEnum can only be derived for enums and tuple structs");
-            }
-            .into();
+        _ => quote! {
+            compile_error!("SQLiteEnum can only be derived for enums and tuple structs");
         }
+        .into(),
     }
 }
 

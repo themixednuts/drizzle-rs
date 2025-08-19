@@ -68,19 +68,38 @@ pub enum Conflict<
         /// Target columns that trigger the conflict
         target: T,
         /// SET clause for what to update
-        set: SQL<'a, SQLiteValue<'a>>,
+        set: Box<SQL<'a, SQLiteValue<'a>>>,
         /// Optional WHERE clause for the conflict target (partial indexes)
         /// This goes after the target: ON CONFLICT (col) WHERE condition
-        target_where: Option<SQL<'a, SQLiteValue<'a>>>,
+        target_where: Box<Option<SQL<'a, SQLiteValue<'a>>>>,
         /// Optional WHERE clause for the update (conditional updates)
         /// This goes after the SET: DO UPDATE SET col = val WHERE condition
-        set_where: Option<SQL<'a, SQLiteValue<'a>>>,
+        set_where: Box<Option<SQL<'a, SQLiteValue<'a>>>>,
     },
 }
 
 impl<'a> Default for Conflict<'a> {
     fn default() -> Self {
         Self::Ignore { target: None }
+    }
+}
+
+impl<'a, T> Conflict<'a, T>
+where
+    T: IntoIterator<Item: ToSQL<'a, SQLiteValue<'a>>>,
+{
+    pub fn update(
+        target: T,
+        set: SQL<'a, SQLiteValue<'a>>,
+        target_where: Option<SQL<'a, SQLiteValue<'a>>>,
+        set_where: Option<SQL<'a, SQLiteValue<'a>>>,
+    ) -> Self {
+        Conflict::Update {
+            target,
+            set: Box::new(set),
+            target_where: Box::new(target_where),
+            set_where: Box::new(set_where),
+        }
     }
 }
 
@@ -158,14 +177,14 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
                     .append_raw(")");
 
                 // Add target WHERE clause (for partial indexes)
-                if let Some(target_where) = target_where {
+                if let Some(target_where) = *target_where {
                     sql = sql.append_raw(" WHERE ").append(target_where);
                 }
 
-                sql = sql.append_raw(" DO UPDATE SET ").append(set);
+                sql = sql.append_raw(" DO UPDATE SET ").append(*set);
 
                 // Add set WHERE clause (for conditional updates)
-                if let Some(set_where) = set_where {
+                if let Some(set_where) = *set_where {
                     sql = sql.append_raw(" WHERE ").append(set_where);
                 }
 

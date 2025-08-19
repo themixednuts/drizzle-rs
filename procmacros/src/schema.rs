@@ -5,7 +5,7 @@ use syn::{Data, DeriveInput, Fields, Result};
 /// Generates the Schema derive implementation
 pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let struct_name = &input.ident;
-    let struct_vis = &input.vis;
+    // let struct_vis = &input.vis;
 
     // Extract fields from the struct
     let fields = match &input.data {
@@ -37,11 +37,11 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     }
 
     // Generate field accessors for the schema struct
-    let field_definitions = all_fields.iter().map(|(name, ty)| {
-        quote! {
-            pub #name: #ty
-        }
-    });
+    // let field_definitions = all_fields.iter().map(|(name, ty)| {
+    //     quote! {
+    //         pub #name: #ty
+    //     }
+    // });
 
     let fields_new = all_fields.iter().map(|(name, ty)| {
         quote! {
@@ -75,8 +75,6 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let all_field_names: Box<_> = all_fields.iter().map(|(name, _)| *name).collect();
     let all_field_types: Box<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
 
-    let create_signature = quote! {};
-
     // Precompute the create method signature based on feature flags
     #[cfg(feature = "rusqlite")]
     let create_signature = quote! {
@@ -92,6 +90,9 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let create_signature = quote! {
         async fn create(&self, conn: &::turso::Connection) -> Result<(), ::drizzle_rs::error::DrizzleError>
     };
+
+    #[cfg(not(any(feature = "rusqlite", feature = "turso", feature = "libsql")))]
+    let create_signature = quote! {};
 
     Ok(quote! {
 

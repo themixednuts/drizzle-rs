@@ -85,13 +85,13 @@ impl SQLiteType {
 
     /// Check if a flag is valid for this column type
     pub(crate) fn is_valid_flag(&self, flag: &str) -> bool {
-        match (self, flag) {
-            (Self::Integer, "autoincrement") => true,
-            (Self::Text | Self::Blob, "json") => true,
-            (Self::Text | Self::Integer, "enum") => true,
-            (_, "primary" | "primary_key" | "unique") => true,
-            _ => false,
-        }
+        matches!(
+            (self, flag),
+            (Self::Integer, "autoincrement")
+                | (Self::Text | Self::Blob, "json")
+                | (Self::Text | Self::Integer, "enum")
+                | (_, "primary" | "primary_key" | "unique")
+        )
     }
 
     /// Validate a flag for this column type, returning an error with SQLite docs link if invalid.
@@ -273,15 +273,15 @@ impl<'a> FieldInfo<'a> {
                 }
             }
             Expr::Assign(assign) => {
-                if let Expr::Path(path) = &*assign.left {
-                    if let Some(param) = path.path.get_ident() {
-                        match param.to_string().as_str() {
-                            "default" => args.default_value = Some(*assign.right),
-                            "default_fn" => args.default_fn = Some(*assign.right),
-                            "references" => args.references = Some(*assign.right),
-                            "name" => args.name = Some(*assign.right),
-                            _ => {}
-                        }
+                if let Expr::Path(path) = &*assign.left
+                    && let Some(param) = path.path.get_ident()
+                {
+                    match param.to_string().as_str() {
+                        "default" => args.default_value = Some(*assign.right),
+                        "default_fn" => args.default_fn = Some(*assign.right),
+                        "references" => args.references = Some(*assign.right),
+                        "name" => args.name = Some(*assign.right),
+                        _ => {}
                     }
                 }
             }
@@ -395,7 +395,7 @@ impl<'a> FieldInfo<'a> {
         let foreign_key = attrs
             .references_path
             .as_ref()
-            .and_then(|path| detect_foreign_key_reference_from_path(path));
+            .and_then(detect_foreign_key_reference_from_path);
 
         Ok(FieldInfo {
             ident: field_name,

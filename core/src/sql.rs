@@ -624,11 +624,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             }
 
             let candidate = &self.chunks[next_index];
-            if let SQLChunk::Text(t) = candidate {
-                if t.is_empty() {
-                    next_index += 1;
-                    continue;
-                }
+            if let SQLChunk::Text(t) = candidate
+                && t.is_empty()
+            {
+                next_index += 1;
+                continue;
             }
             break candidate;
         };
@@ -640,7 +640,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Returns references to parameter values from this SQL fragment in the correct order.
-    pub fn params<'b>(&'b self) -> Vec<&'b V> {
+    pub fn params(&self) -> Vec<&V> {
         let mut params_vec = Vec::with_capacity(self.chunks.len().min(8));
         for chunk in &self.chunks {
             Self::collect_chunk_params(chunk, &mut params_vec);
@@ -775,11 +775,10 @@ fn chunk_starts_word<V: SQLParam>(chunk: &SQLChunk<'_, V>) -> bool {
 
 impl<'a, V: SQLParam> IntoIterator for SQL<'a, V> {
     type Item = SQLChunk<'a, V>;
-    type IntoIter = std::iter::Flatten<
-        std::iter::Map<
-            smallvec::IntoIter<[SQLChunk<'a, V>; 3]>,
-            fn(SQLChunk<'a, V>) -> Box<dyn Iterator<Item = SQLChunk<'a, V>> + 'a>,
-        >,
+    type IntoIter = std::iter::FlatMap<
+        smallvec::IntoIter<[SQLChunk<'a, V>; 3]>,
+        Box<dyn Iterator<Item = SQLChunk<'a, V>> + 'a>,
+        fn(SQLChunk<'a, V>) -> Box<dyn Iterator<Item = SQLChunk<'a, V>> + 'a>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -794,8 +793,7 @@ impl<'a, V: SQLParam> IntoIterator for SQL<'a, V> {
 
         self.chunks
             .into_iter()
-            .map(flatten_chunk as fn(_) -> _)
-            .flatten()
+            .flat_map(flatten_chunk as fn(_) -> _)
     }
 }
 

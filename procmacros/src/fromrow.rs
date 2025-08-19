@@ -5,15 +5,12 @@ use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result}
 /// Parse column reference from field attributes, looking for #[column(Table::field)]
 fn parse_column_reference(field: &Field) -> Option<ExprPath> {
     for attr in &field.attrs {
-        if let Some(ident) = attr.path().get_ident() {
-            if ident == "column" {
-                if let Meta::List(meta_list) = &attr.meta {
-                    if let Ok(Expr::Path(expr_path)) = syn::parse2::<Expr>(meta_list.tokens.clone())
-                    {
-                        return Some(expr_path);
-                    }
-                }
-            }
+        if let Some(ident) = attr.path().get_ident()
+            && ident == "column"
+            && let Meta::List(meta_list) = &attr.meta
+            && let Ok(Expr::Path(expr_path)) = syn::parse2::<Expr>(meta_list.tokens.clone())
+        {
+            return Some(expr_path);
         }
     }
     None

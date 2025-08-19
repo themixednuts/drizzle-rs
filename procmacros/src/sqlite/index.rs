@@ -128,12 +128,10 @@ pub(crate) fn sqlite_index_attr_macro(
         .iter()
         .map(|col| match col {
             Expr::Path(p) => extract_zst_ident(p),
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    col,
-                    "Expected column path like User::id",
-                ));
-            }
+            _ => Err(syn::Error::new_spanned(
+                col,
+                "Expected column path like User::id",
+            )),
         })
         .collect::<Result<Box<_>>>()?;
 

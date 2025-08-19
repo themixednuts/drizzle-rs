@@ -142,7 +142,7 @@ impl crate::builder::prepared::OwnedPreparedStatement {
     ) -> Result<usize> {
         // Convert to owned params and bind to pre-rendered SQL
         use crate::values::OwnedSQLiteValue;
-        let prepared_params = self.inner.params.iter().map(|v| &v.value).flat_map(|v| v);
+        let prepared_params = self.inner.params.iter().flat_map(|v| &v.value);
         let runtime_params = params
             .into_iter()
             .map(|p| ParamBind::new(p.name, OwnedSQLiteValue::from(p.value)));
@@ -166,7 +166,7 @@ impl crate::builder::prepared::OwnedPreparedStatement {
     {
         // Convert to owned params and bind to pre-rendered SQL
         use crate::values::OwnedSQLiteValue;
-        let prepared_params = self.inner.params.iter().map(|v| &v.value).flat_map(|v| v);
+        let prepared_params = self.inner.params.iter().flat_map(|v| &v.value);
         let runtime_params = params
             .into_iter()
             .map(|p| ParamBind::new(p.name, OwnedSQLiteValue::from(p.value)));
@@ -203,7 +203,7 @@ impl crate::builder::prepared::OwnedPreparedStatement {
         // Convert to owned params and bind to pre-rendered SQL
 
         use crate::values::OwnedSQLiteValue;
-        let prepared_params = self.inner.params.iter().map(|v| &v.value).flat_map(|v| v);
+        let prepared_params = self.inner.params.iter().flat_map(|v| &v.value);
         let runtime_params = params
             .into_iter()
             .map(|p| ParamBind::new(p.name, OwnedSQLiteValue::from(p.value)));

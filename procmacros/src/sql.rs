@@ -161,7 +161,7 @@ fn parse_template_with_args(
                 let mut expr_content = String::new();
                 let mut brace_count = 1;
 
-                while let Some(inner_ch) = chars.next() {
+                for inner_ch in chars.by_ref() {
                     match inner_ch {
                         '{' => {
                             brace_count += 1;
@@ -241,17 +241,17 @@ fn parse_template_with_args(
     }
 
     // Check if we used all positional arguments
-    if let Some(args) = positional_args {
-        if arg_index != args.len() {
-            return Err(syn::Error::new(
-                Span::call_site(),
-                format!(
-                    "Too many arguments provided. Expected {}, got {}",
-                    arg_index,
-                    args.len()
-                ),
-            ));
-        }
+    if let Some(args) = positional_args
+        && arg_index != args.len()
+    {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            format!(
+                "Too many arguments provided. Expected {}, got {}",
+                arg_index,
+                args.len()
+            ),
+        ));
     }
 
     Ok(segments)

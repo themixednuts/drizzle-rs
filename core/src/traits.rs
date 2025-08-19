@@ -92,7 +92,7 @@ pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     }
 }
 
-impl<'a> std::fmt::Debug for dyn SQLColumnInfo {
+impl std::fmt::Debug for dyn SQLColumnInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SQLColumnInfo")
             .field("name", &self.name())
@@ -149,7 +149,7 @@ pub trait SQLTableInfo: Any + Send + Sync {
     fn strict(&self) -> bool;
 }
 
-impl<'a> std::fmt::Debug for dyn SQLTableInfo {
+impl std::fmt::Debug for dyn SQLTableInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SQLTableInfo")
             .field("name", &self.name())
