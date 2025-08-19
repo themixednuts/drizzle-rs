@@ -124,8 +124,7 @@ where
     }
 }
 
-impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit>
-{
+impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -144,7 +143,11 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit>
         Q: ToSQL<'a, SQLiteValue<'a>>,
         C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
     {
-        let sql = self.sql.clone().append_raw(", ").append(cte.as_ref().definition());
+        let sql = self
+            .sql
+            .clone()
+            .append_raw(", ")
+            .append(cte.as_ref().definition());
         QueryBuilder {
             sql,
             schema: PhantomData,

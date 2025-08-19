@@ -154,12 +154,7 @@ impl<Schema> Drizzle<Schema> {
     pub fn with<'a, Q, C>(
         &'a self,
         cte: C,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
         Q: ToSQL<'a, SQLiteValue<'a>>,
         C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
@@ -323,12 +318,7 @@ where
 // CTE (WITH) Builder Implementation for Turso
 #[cfg(feature = "turso")]
 impl<'a, Schema>
-    DrizzleBuilder<
-        'a,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+    DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
     #[inline]
     pub fn select<T>(
@@ -355,12 +345,7 @@ impl<'a, Schema>
     pub fn with<Q, C>(
         self,
         cte: C,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
         Q: ToSQL<'a, SQLiteValue<'a>>,
         C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,

@@ -78,14 +78,14 @@ struct AppTestSchema {
 async fn test_schema_derive() {
     let conn = setup_test_db!();
     let schema = AppTestSchema::new();
-    
+
     // Test that we can create all objects
     drizzle_exec!(schema.create(&conn));
 
     // Test that we can get tables and indexes
     let tables = schema.tables();
     let indexes = schema.indexes();
-    
+
     // Tables and indexes are now tuples, not vectors
     // We can access them by position or destructure them
 }
@@ -94,7 +94,7 @@ async fn test_schema_derive() {
 async fn test_schema_with_drizzle_macro() {
     let conn = setup_test_db!();
     let (db, schema) = drizzle!(conn, AppTestSchema);
-    
+
     // Test that we can create all database objects
     drizzle_exec!(schema.create(db.conn()));
 
@@ -110,7 +110,7 @@ async fn test_schema_with_drizzle_macro() {
             .r#where(eq(schema.user.email, "test@example.com"))
             .all()
     );
-    
+
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "test@example.com");
     assert_eq!(users[0].name, "Test User");
@@ -120,10 +120,10 @@ async fn test_schema_with_drizzle_macro() {
 async fn test_schema_destructuring() {
     let conn = setup_test_db!();
     let (db, schema) = drizzle!(conn, AppTestSchema);
-    
+
     // Test destructuring the schema into individual components
     let (user, user_email_idx, user_name_idx) = schema.into();
-    
+
     // Create all objects
     let schema = AppTestSchema::new(); // Get a fresh schema for create
     drizzle_exec!(schema.create(db.conn()));
@@ -140,7 +140,7 @@ async fn test_schema_destructuring() {
             .r#where(eq(user.email, "destructured@example.com"))
             .all()
     );
-    
+
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "destructured@example.com");
     assert_eq!(users[0].name, "Destructured User");

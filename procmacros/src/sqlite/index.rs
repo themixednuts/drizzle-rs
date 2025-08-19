@@ -173,7 +173,7 @@ pub(crate) fn sqlite_index_attr_macro(
             const NAME: &'a str = #index_name;
             const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Index;
             const SQL: ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> = ::drizzle_rs::core::SQL::empty();
-            
+
             fn sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
                 self.to_sql()
             }

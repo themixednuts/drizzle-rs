@@ -151,7 +151,7 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
                 // Process subquery like nested SQL but with parentheses
                 current_text.push('(');
                 let nested_prepared = prepare_render(sql.as_ref().clone());
-                
+
                 // Merge the nested prepared SQL into current one
                 for (j, text_segment) in nested_prepared.text_segments.iter().enumerate() {
                     if j == 0 {
@@ -167,14 +167,18 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
                         current_text.push_str(text_segment);
                     }
                 }
-                
+
                 // Add any remaining parameters from the nested prepared
-                for remaining_param in nested_prepared.params.iter().skip(nested_prepared.text_segments.len() - 1) {
+                for remaining_param in nested_prepared
+                    .params
+                    .iter()
+                    .skip(nested_prepared.text_segments.len() - 1)
+                {
                     text_segments.push(current_text);
                     current_text = CompactString::default();
                     params.push(remaining_param.clone());
                 }
-                
+
                 current_text.push(')');
             }
             SQLChunk::SQL(nested_sql) => {
