@@ -2,69 +2,203 @@
 
 A type-safe SQL query builder for Rust inspired by Drizzle ORM.
 
-## Features
+## Schema Setup
 
-- **Type Safety**: Compile-time guarantees for SQL queries and schema definitions
-- **SQLite Support**: Multiple SQLite drivers (rusqlite, turso, libsql)
-- **Schema-First**: Define your database schema with Rust structs and derive macros
-- **Query Builder**: Fluent API for building complex SQL queries
-
-## Quick Start
+First, create a `schema.rs` file to define your database tables. All schema items must be `pub` for proper destructuring:
 
 ```rust
-use drizzle_rs::prelude::*;
+use drizzle_rs::{SQLSchema, sqlite::SQLiteTable};
+use uuid::Uuid;
 
-// Define your schema
+#[derive(SQLSchema)]
+pub struct Schema {
+    pub users: Users,
+    pub posts: Posts,
+}
+
 #[SQLiteTable(name = "users")]
-struct Users {
+pub struct Users {
+    #[blob(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,
+    #[text]
+    pub name: String,
+    #[integer]
+    pub age: u64,
+}
+
+#[SQLiteTable(name = "posts")]
+pub struct Posts {
+    #[blob(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,
+    #[blob(references = Users::id)]
+    pub user_id: Uuid,
+    #[text]
+    pub context: Option<String>,
+}
+```
+
+### UUID Storage Options
+
+Choose between binary (BLOB) or string (TEXT) storage:
+
+```rust
+// Binary storage (16 bytes) - more efficient
+#[blob(primary, default_fn = Uuid::new_v4)]
+pub id: Uuid,
+
+// String storage (36 characters) - human readable  
+#[text(primary, default_fn = || Uuid::new_v4().to_string())]
+pub id: String,
+```
+
+### Indexes
+
+Create indexes as separate structs:
+
+```rust
+use drizzle_rs::sqlite::{SQLiteTable, SQLiteIndex};
+#[SQLiteTable]
+struct User {
     #[integer(primary)]
     id: i32,
     #[text]
-    name: String,
-    #[text]
     email: String,
-    #[integer]
-    age: Option<i32>, // Optional field - nullable in database
+    #[text]
+    username: String,
 }
 
-// Use the schema
-let (db, users) = drizzle!(connection, Users);
+#[SQLiteIndex(unique)]
+struct UserEmailUsernameIdx(User::email, User::username);
 
-// Insert data - use ::new() for required fields
-let inserted = db.insert(users)
+#[SQLiteIndex]
+struct UserEmailIdx(User::email);
+```
+
+## Basic Usage
+
+In your `main.rs`, use the schema without feature flags:
+
+```rust
+mod schema;
+
+use drizzle_rs::{core::eq, drizzle};
+use procmacros::FromRow;
+use rusqlite::Connection;
+use uuid::Uuid;
+
+use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
+
+fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
+    let conn = Connection::open_in_memory()?;
+    let (db, Schema { users, posts }) = drizzle!(conn, Schema);
+    
+    // Create tables (only on fresh database)
+    db.create()?;
+
+    let id = Uuid::new_v4();
+
+    // Insert data
+    db.insert(users)
+        .values([InsertUsers::new("Alex Smith", 26).with_id(id)])
+        .execute()?;
+
+    db.insert(posts)
+        .values([InsertPosts::new(id).with_context("just testing")])
+        .execute()?;
+
+    // Query data
+    let user_rows: Vec<SelectUsers> = db.select(()).from(users).all()?;
+    let post_rows: Vec<SelectPosts> = db.select(()).from(posts).all()?;
+
+    println!("Users: {:?}", user_rows);
+    println!("Posts: {:?}", post_rows);
+
+    // JOIN queries with custom result struct
+    #[derive(FromRow, Default, Debug)]
+    struct JoinedResult {
+        #[column(Users::id)]
+        id: Uuid,
+        #[column(Posts::id)]
+        post_id: Uuid,
+        name: String,
+        age: u64,
+    }
+
+    let row: JoinedResult = db
+        .select(JoinedResult::default())
+        .from(users)
+        .left_join(posts, eq(users.id, posts.user_id))
+        .get()?;
+
+    Ok(())
+}
+```
+
+## Insert Models
+
+```rust
+// Always use new() as it forces you at compile time to input required fields
+InsertUsers::new("John Doe", 25)
+    .with_email("john@example.com") // Optional fields via .with_*
+
+// don't use default() as this will fail at runtime if you do not provide the required fields
+InsertUsers::default()
+```
+
+The `.values()` method automatically batches inserts of the same type:
+
+```rust
+// Same insert model type - will batch
+db.insert(users)
     .values([
-        InsertUsers::new("Alice", "alice@example.com"), // Required fields
-        InsertUsers::new("Bob", "bob@example.com").with_age(25), // Optional fields via .with_*
+        InsertUsers::new("Alice", 30),
+        InsertUsers::new("Bob", 25),
     ])
     .execute()?;
 
-// Query data
-let all_users: Vec<SelectUsers> = db
-    .select(())
-    .from(users)
-    .all()?;
-
-let user: SelectUsers = db
-    .select(())
-    .from(users)
-    .r#where(eq(users.email, "alice@example.com"))
-    .get()?;
-
-// Partial selection with FromRow
-#[derive(FromRow, Debug)]
-struct UserName {
-    name: String,
-}
-
-let names: Vec<UserName> = db
-    .select(users.name)
-    .from(users)
-    .all()?;
+// compile time failure, use transactions
+db.insert(users)
+    .values([
+        InsertUsers::new("Alice", 30),
+        InsertUsers::new("Bob", 25).with_email("bob@example.com"),
+    ])
+    .execute()?;
 ```
 
-## Schema Definition
+## Transactions
 
-### Table Attributes
+For multiple different operations or when you need ACID guarantees, use transactions:
+
+```rust
+use drizzle_rs::sqlite::SQLiteTransactionType;
+
+db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    // Insert users
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 30)])
+        .execute()?;
+    
+    // Insert posts  
+    tx.insert(posts)
+        .values([InsertPosts::new(user_id)])
+        .execute()?;
+    
+    // Update data
+    tx.update(users)
+        .set(UpdateUsers::default().with_age(31))
+        .r#where(eq(users.name, "Alice"))
+        .execute()?;
+    
+    Ok(())
+})?;
+```
+
+Transaction types:
+- `SQLiteTransactionType::Deferred` - Default, begins when first read/write
+- `SQLiteTransactionType::Immediate` - Begins immediately with write lock
+- `SQLiteTransactionType::Exclusive` - Exclusive access to database
+
+## Table Attributes
 
 ```rust
 #[SQLiteTable] // Basic table
@@ -74,7 +208,7 @@ let names: Vec<UserName> = db
 #[SQLiteTable(name = "users", strict, without_rowid)] // Combined
 ```
 
-### Field Attributes
+## Field Attributes
 
 ```rust
 // Column types
@@ -105,7 +239,7 @@ let names: Vec<UserName> = db
 #[integer(references = Users::id)] // Foreign key reference
 ```
 
-### Nullability
+## Nullability
 
 Nullability is controlled by Rust's type system:
 
@@ -118,41 +252,10 @@ struct Example {
     name: String,      // NOT NULL - required field
     #[text]
     email: Option<String>, // NULL allowed - optional field
-    #[integer]
-    age: Option<i32>,  // NULL allowed - optional field
-}
-
-// Insert usage
-InsertExample::new(1, "John") // Required fields only
-    .with_email("john@example.com") // Optional fields
-    .with_age(25)
-```
-
-## Advanced Features
-
-### UUID Support
-
-Choose between binary storage (BLOB) or string storage (TEXT):
-
-```rust
-use uuid::Uuid;
-
-#[SQLiteTable(name = "posts")]
-struct Posts {
-    // Option 1: Store UUID as binary (16 bytes) - more efficient
-    #[blob(primary, default_fn = Uuid::new_v4)]
-    id: Uuid,
-    
-    // Option 2: Store UUID as string (36 characters) - human readable
-    #[text(primary, default_fn = || Uuid::new_v4().to_string())]
-    id: String,
-    
-    #[text]
-    title: String,
 }
 ```
 
-### Enums
+## Enums
 
 ```rust
 #[derive(SQLiteEnum, Default)]
@@ -172,7 +275,7 @@ struct Users {
 }
 ```
 
-### JSON Fields
+## JSON Fields
 
 ```rust
 #[derive(serde::Serialize, serde::Deserialize)]
