@@ -1,7 +1,7 @@
 use std::any::Any;
 mod tuple;
 
-use crate::{SQL, SQLSchemaType, ToSQL};
+use crate::{SQL, SQLSchemaType, ToSQL, error::DrizzleError};
 
 /// A marker trait for types that can be used as SQL parameters.
 ///
@@ -42,6 +42,13 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     }
 }
 
+#[cfg(feature = "libsql")]
+use libsql::Connection;
+#[cfg(feature = "rusqlite")]
+use rusqlite::Connection;
+#[cfg(feature = "turso")]
+use turso::Connection;
+
 pub trait SQLColumnInfo: Any + Send + Sync {
     fn is_not_null(&self) -> bool;
     fn is_primary_key(&self) -> bool;
@@ -50,6 +57,13 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     fn r#type(&self) -> &str;
     fn table(&self) -> &dyn SQLTableInfo;
     fn has_default(&self) -> bool;
+}
+
+pub trait SQLSchemaImpl: Any + Send + Sync {
+    #[cfg(feature = "rusqlite")]
+    fn create(&self, conn: &Connection) -> Result<(), DrizzleError>;
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    fn create(&self, conn: &Connection) -> impl Future<Output = Result<(), DrizzleError>>;
 }
 
 pub trait AsColumnInfo: SQLColumnInfo {
