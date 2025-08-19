@@ -137,7 +137,7 @@ pub fn max<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(expr: E) -> SQL<'a, V> {
 /// # Returns
 /// An `SQL` fragment representing DISTINCT expr
 pub fn distinct<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(expr: E) -> SQL<'a, V> {
-    SQL::raw("DISTINCT ").append(expr.to_sql())
+    SQL::raw("DISTINCT").append(expr.to_sql())
 }
 
 /// Helper function to create a COALESCE expression
@@ -164,8 +164,5 @@ fn create_aggregate_function<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(
     expr: E,
     function_name: &'a str,
 ) -> SQL<'a, V> {
-    SQL::raw(function_name)
-        .append_raw("(")
-        .append(expr.to_sql())
-        .append_raw(")")
+    SQL::raw(function_name).append(expr.to_sql().subquery())
 }

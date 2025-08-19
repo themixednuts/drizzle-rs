@@ -104,76 +104,10 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         impl_blocks.push(rusqlite_impl);
     }
 
-    // Turso implementation
-    #[cfg(feature = "turso")]
-    {
-        let turso_field_assignments = if is_tuple {
-            // For tuple structs, use index-based access
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| {
-                    let field_type_str = field.ty.to_token_stream().to_string();
-                    let extraction = crate::sqlite::row_helpers::generate_turso_value_extraction(
-                        idx,
-                        &field_type_str,
-                    );
-                    quote! {
-                        #extraction,
-                    }
-                })
-                .collect::<Vec<_>>()
-        } else {
-            // For named structs, still use index-based access (turso doesn't support name-based)
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| {
-                    let field_name = field.ident.as_ref().unwrap();
-                    let field_type_str = field.ty.to_token_stream().to_string();
-                    let extraction = crate::sqlite::row_helpers::generate_turso_value_extraction(
-                        idx,
-                        &field_type_str,
-                    );
-                    quote! {
-                        #field_name: #extraction,
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let turso_impl = if is_tuple {
-            quote! {
-                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = ::drizzle_rs::error::DrizzleError;
-
-                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self(
-                            #(#turso_field_assignments)*
-                        ))
-                    }
-                }
-            }
-        } else {
-            quote! {
-                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = ::drizzle_rs::error::DrizzleError;
-
-                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self {
-                            #(#turso_field_assignments)*
-                        })
-                    }
-                }
-            }
-        };
-        impl_blocks.push(turso_impl);
-    }
-
     // Libsql implementation - use simple .get() calls
-    #[cfg(feature = "libsql")]
+    #[cfg(any(feature = "libsql", feature = "turso"))]
     {
-        let libsql_field_assignments = if is_tuple {
+        let field_assignments = if is_tuple {
             // For tuple structs, use index-based access
             fields
                 .iter()
@@ -240,32 +174,37 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
             }).collect::<Vec<_>>()
         };
 
-        let libsql_impl = if is_tuple {
+        #[cfg(feature = "libsql")]
+        let ty = quote! { libsql };
+        #[cfg(feature = "turso")]
+        let ty = quote! { turso };
+
+        let impls = if is_tuple {
             quote! {
-                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
+                impl ::std::convert::TryFrom<&::#ty::Row> for #struct_name {
                     type Error = ::drizzle_rs::error::DrizzleError;
 
-                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+                    fn try_from(row: &::#ty::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self(
-                            #(#libsql_field_assignments)*
+                            #(#field_assignments)*
                         ))
                     }
                 }
             }
         } else {
             quote! {
-                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
+                impl ::std::convert::TryFrom<&::#ty::Row> for #struct_name {
                     type Error = ::drizzle_rs::error::DrizzleError;
 
-                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+                    fn try_from(row: &::#ty::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self {
-                            #(#libsql_field_assignments)*
+                            #(#field_assignments)*
                         })
                     }
                 }
             }
         };
-        impl_blocks.push(libsql_impl);
+        impl_blocks.push(impls);
     }
 
     let impl_block = quote! {

@@ -1,120 +1,236 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Type;
+use syn::{Data, DeriveInput, Fields, Result, Type};
 
-/// Generates a schema type name based on the types
-pub fn get_schema_name(types: &[Type]) -> String {
-    if types.is_empty() {
-        "EmptySchema".to_string()
-    } else {
-        // Create a schema name from the type names
-        let combined_names = types
-            .iter()
-            .map(|ty| {
-                if let Type::Path(path) = ty {
-                    if let Some(segment) = path.path.segments.last() {
-                        return segment.ident.to_string();
-                    }
-                }
-                "Unknown".to_string()
-            })
-            .collect::<Vec<_>>()
-            .join("");
+/// Generates the Schema derive implementation
+pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
+    let struct_name = &input.ident;
+    let struct_vis = &input.vis;
 
-        format!("{}Schema", combined_names)
-    }
-}
-
-/// Generates a schema type for the given tables
-pub(crate) fn generate_schema(input: TokenStream) -> syn::Result<TokenStream> {
-    // Parse the input as an optional array of table types
-    let types = parse_schema_input(input)?;
-    // Generate a schema type name based on the types
-    let schema_name = get_schema_name(&types);
-    let schema_ident = quote::format_ident!("{}", schema_name);
-
-    // Generate output with schema type definition and implementations
-    let output = if types.is_empty() {
-        // If no types, just create an empty schema type
-        quote! {
-            #[derive(Clone, Debug)]
-            pub struct EmptySchema;
-        }
-    } else {
-        // Add IsInSchema implementations for each type
-        let is_in_schema_impls = types.iter().map(|ty| {
-            quote! {
-                #[allow(non_local_definitions)]
-                impl ::drizzle_rs::core::IsInSchema<#schema_ident> for #ty {}
-                #[allow(non_local_definitions)]
-                impl ::drizzle_rs::core::IsInSchema<#schema_ident> for &#ty {}
+    // Extract fields from the struct
+    let fields = match &input.data {
+        Data::Struct(data_struct) => match &data_struct.fields {
+            Fields::Named(named_fields) => &named_fields.named,
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    &input,
+                    "Schema can only be derived for structs with named fields",
+                ));
             }
-        });
-        // Define the schema type and implementations
-        quote! {
-            #[derive(Clone, Debug)]
-            #[allow(non_camel_case_types)]
-            pub struct #schema_ident;
-
-            #(#is_in_schema_impls)*
+        },
+        _ => {
+            return Err(syn::Error::new_spanned(
+                &input,
+                "Schema can only be derived for structs",
+            ));
         }
     };
-    Ok(output)
-}
 
-/// Generate schema implementation for a user-provided schema type
-pub(crate) fn generate_schema_for_type(
-    schema_expr: &syn::Expr,
-    tables_tokens: TokenStream,
-) -> syn::Result<TokenStream> {
-    // Parse the table types from the tokens
-    let types = parse_schema_input(tables_tokens)?;
+    let mut all_fields = Vec::new();
 
-    // Generate IsInSchema implementations for each type with the user-provided schema
-    let is_in_schema_impls = types.iter().map(|ty| {
+    // Collect all fields (we'll determine table vs index at runtime)
+    for field in fields {
+        let field_name = field.ident.as_ref().unwrap();
+        let field_type = &field.ty;
+
+        all_fields.push((field_name, field_type));
+    }
+
+    // Generate field accessors for the schema struct
+    let field_definitions = all_fields.iter().map(|(name, ty)| {
         quote! {
-            #[allow(non_local_definitions)]
-            impl ::drizzle_rs::core::IsInSchema<#schema_expr> for #ty {}
-            #[allow(non_local_definitions)]
-            impl ::drizzle_rs::core::IsInSchema<#schema_expr> for &#ty {}
+            pub #name: #ty
         }
     });
 
-    // Return just the trait implementations (the schema struct should already exist)
+    let fields_new = all_fields.iter().map(|(name, ty)| {
+        quote! {
+            #name: #ty::new()
+        }
+    });
+
+    // Generate Default implementation
+    let field_defaults = all_fields.iter().map(|(name, _)| {
+        quote! {
+            #name: Default::default()
+        }
+    });
+
+    // Generate methods that filter by SQLSchemaType
+    let create_all_impl = generate_create_all_method(&all_fields);
+    let tables_method = generate_tables_method(&all_fields);
+    let indexes_method = generate_indexes_method(&all_fields);
+
+    // Generate IsInSchema implementations for all fields
+    let is_in_schema_impls = all_fields.iter().map(|(_, ty)| {
+        quote! {
+            #[allow(non_local_definitions)]
+            impl ::drizzle_rs::core::IsInSchema<#struct_name> for #ty {}
+            #[allow(non_local_definitions)]
+            impl ::drizzle_rs::core::IsInSchema<#struct_name> for &#ty {}
+        }
+    });
+
+    // Collect field names and types for tuple destructuring
+    let all_field_names: Box<_> = all_fields.iter().map(|(name, _)| *name).collect();
+    let all_field_types: Box<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
+
+    // Precompute the create method signature based on feature flags
+    #[cfg(feature = "rusqlite")]
+    let create_signature = quote! {
+        fn create(&self, conn: &::rusqlite::Connection) -> Result<(), ::drizzle_rs::error::DrizzleError>
+    };
+
+    #[cfg(feature = "libsql")]
+    let create_signature = quote! {
+        async fn create(&self, conn: &::libsql::Connection) -> Result<(), ::drizzle_rs::error::DrizzleError>
+    };
+
+    #[cfg(feature = "turso")]
+    let create_signature = quote! {
+        async fn create(&self, conn: &::turso::Connection) -> Result<(), ::drizzle_rs::error::DrizzleError>
+    };
+
     Ok(quote! {
-        #(#is_in_schema_impls)*
-    })
-}
 
-/// Parse the input as an optional array of table types
-pub(crate) fn parse_schema_input(input: TokenStream) -> syn::Result<Vec<Type>> {
-    // If input is empty, return an empty vec
-    if input.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Try to parse as an array
-    if let Ok(array) = syn::parse2::<syn::ExprArray>(input.clone()) {
-        let mut types = Vec::new();
-
-        for expr in array.elems {
-            if let syn::Expr::Path(path) = expr {
-                let type_path = syn::TypePath {
-                    qself: None,
-                    path: path.path,
-                };
-                types.push(syn::Type::Path(type_path));
-            } else {
-                return Err(syn::Error::new_spanned(expr, "Expected a type name"));
+        impl Default for #struct_name {
+            fn default() -> Self {
+                Self {
+                    #(#field_defaults,)*
+                }
             }
         }
 
-        return Ok(types);
-    }
+        impl #struct_name {
+            pub const fn new() -> Self {
+                Self {
+                    #(#fields_new,)*
+                }
+            }
 
-    // Try to parse as a single type
-    match syn::parse2::<Type>(input) {
-        Ok(ty) => Ok(vec![ty]),
-        Err(err) => Err(err),
+            /// Create all database objects (tables, indexes) in the correct order
+            #create_signature {
+                #create_all_impl
+            }
+
+            /// Get all table objects in field order
+            #tables_method
+
+            /// Get all index objects in field order
+            #indexes_method
+        }
+
+        // Implement IsInSchema for all field types (tables and indexes)
+        #(#is_in_schema_impls)*
+
+        // Implement SQLSchemaImpl trait
+        impl ::drizzle_rs::core::SQLSchemaImpl for #struct_name {
+            #create_signature {
+                #create_all_impl
+            }
+        }
+
+        // Implement tuple destructuring support
+        impl From<#struct_name> for (#(#all_field_types,)*) {
+            fn from(schema: #struct_name) -> Self {
+                (#(schema.#all_field_names,)*)
+            }
+        }
+    })
+}
+
+fn generate_create_all_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    let table_sql_collection = fields.iter().map(|(name, ty)| {
+        quote! {
+            if <#ty>::TYPE == ::drizzle_rs::core::SQLSchemaType::Table {
+                sql_statements.push(self.#name.sql().sql());
+            }
+        }
+    });
+
+    let index_sql_collection = fields.iter().map(|(name, ty)| {
+        quote! {
+            if <#ty>::TYPE == ::drizzle_rs::core::SQLSchemaType::Index {
+                sql_statements.push(self.#name.sql().sql());
+            }
+        }
+    });
+
+    #[cfg(feature = "rusqlite")]
+    let execute_batch = quote! {
+        if !sql_statements.is_empty() {
+            let batch_sql = sql_statements.join(";");
+            conn.execute_batch(&batch_sql)?;
+        }
+    };
+
+    #[cfg(any(feature = "libsql", feature = "turso"))]
+    let execute_batch = quote! {
+        if !sql_statements.is_empty() {
+            let batch_sql = sql_statements.join(";");
+            conn.execute_batch(&batch_sql).await?;
+        }
+    };
+
+    #[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
+    let execute_batch = quote! {};
+
+    quote! {
+        let mut sql_statements = Vec::<String>::new();
+
+        // Collect table SQL first (in field order)
+        #(#table_sql_collection)*
+
+        // Then collect index SQL (in field order)
+        #(#index_sql_collection)*
+
+        // Execute all statements as a batch
+        #execute_batch
+
+        Ok(())
+    }
+}
+
+fn generate_tables_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    let table_refs: Vec<_> = fields
+        .iter()
+        .map(|(_, ty)| {
+            quote! { #ty::new() }
+        })
+        .collect();
+
+    let table_types: Vec<_> = fields
+        .iter()
+        .map(|(_, ty)| {
+            quote! { #ty }
+        })
+        .collect();
+
+    quote! {
+        pub fn tables(&self) -> (#(#table_types,)*) {
+            (#(#table_refs,)*)
+        }
+    }
+}
+
+fn generate_indexes_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    let index_refs: Vec<_> = fields
+        .iter()
+        .map(|(name, _)| {
+            quote! { &self.#name }
+        })
+        .collect();
+
+    let index_types: Vec<_> = fields
+        .iter()
+        .map(|(_, ty)| {
+            quote! { &#ty }
+        })
+        .collect();
+
+    quote! {
+        pub fn indexes(&self) -> (#(#index_types,)*) {
+            (#(#index_refs,)*)
+        }
     }
 }

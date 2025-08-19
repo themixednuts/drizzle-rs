@@ -1,7 +1,7 @@
 use crate::helpers;
 use crate::values::SQLiteValue;
-use drizzle_core::SQL;
 use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::{SQL, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -157,12 +157,12 @@ pub type SelectBuilder<'a, Schema, State, Table = ()> =
 impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// Specifies the table to select FROM and transitions state
     #[inline]
-    pub fn from<T>(self, table: T) -> SelectBuilder<'a, S, SelectFromSet, T>
+    pub fn from<T>(self, query: T) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
-        T: SQLTable<'a, SQLiteValue<'a>> + IsInSchema<S>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::from(table)),
+            sql: self.sql.append(helpers::from(query)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

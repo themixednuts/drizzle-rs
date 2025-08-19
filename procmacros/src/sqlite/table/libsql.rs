@@ -315,7 +315,7 @@ pub(crate) fn generate_json_impls(
         .iter()
         .map(|(_, (storage_type, info))| {
             let struct_name = info.base_type;
-            let (into_value_impl) = match storage_type {
+            let into_value_impl = match storage_type {
                 crate::sqlite::field::SQLiteType::Text => quote! {
                     impl From<#struct_name> for ::libsql::Value {
                         fn from(value: #struct_name) -> Self {

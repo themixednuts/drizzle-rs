@@ -10,12 +10,12 @@ where
 }
 
 /// Helper function to create a FROM clause using table generic
-pub fn from<'a, T, Value>(table: T) -> SQL<'a, Value>
+pub fn from<'a, T, Value>(query: T) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, Value>,
+    T: ToSQL<'a, Value>,
     Value: SQLParam + 'a,
 {
-    SQL::raw("FROM").append(&table)
+    SQL::raw("FROM").append(&query)
 }
 
 /// Helper function to create a WHERE clause

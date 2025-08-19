@@ -185,3 +185,49 @@ pub struct PostCategory {
     #[integer]
     pub category_id: i32,
 }
+
+#[derive(SQLSchema)]
+pub struct SimpleComplexSchema {
+    pub simple: Simple,
+    pub complex: Complex,
+}
+
+#[derive(SQLSchema)]
+pub struct SimpleSchema {
+    pub simple: Simple,
+}
+
+#[derive(SQLSchema)]
+pub struct ComplexSchema {
+    pub complex: Complex,
+}
+
+#[derive(SQLSchema)]
+pub struct PostSchema {
+    pub post: Post,
+}
+
+#[derive(SQLSchema)]
+pub struct ComplexPostSchema {
+    pub complex: Complex,
+    pub post: Post,
+}
+
+#[derive(SQLSchema)]
+pub struct CategorySchema {
+    pub category: Category,
+}
+
+#[derive(SQLSchema)]
+pub struct PostCategorySchema {
+    pub post_category: PostCategory,
+}
+
+#[derive(SQLSchema)]
+pub struct FullBlogSchema {
+    pub simple: Simple,
+    pub complex: Complex,
+    pub post: Post,
+    pub category: Category,
+    pub post_category: PostCategory,
+}

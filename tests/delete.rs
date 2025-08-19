@@ -6,6 +6,8 @@ use rusqlite::Row;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+use crate::common::SimpleComplexSchema;
+
 mod common;
 
 #[derive(FromRow, Debug)]
@@ -35,7 +37,7 @@ struct ComplexResult {
 #[tokio::test]
 async fn simple_delete() {
     let db = setup_test_db!();
-    let (db, (simple, ..)) = drizzle!(db, [Simple, Complex]);
+    let (db, SimpleComplexSchema { simple, .. }) = drizzle!(db, SimpleComplexSchema);
 
     // Insert test records
     let test_data = vec![
@@ -83,7 +85,7 @@ async fn simple_delete() {
 #[tokio::test]
 async fn feature_gated_delete() {
     let db = setup_test_db!();
-    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
+    let (db, SimpleComplexSchema { simple, complex }) = drizzle!(db, SimpleComplexSchema);
 
     // Insert test records with UUIDs
     let test_id_1 = uuid::Uuid::new_v4();
@@ -100,13 +102,12 @@ async fn feature_gated_delete() {
             .with_age(35),
     ];
 
-    let insert_result = drizzle_exec!(drizzle.insert(complex).values(test_data).execute());
+    let insert_result = drizzle_exec!(db.insert(complex).values(test_data).execute());
     assert_eq!(insert_result, 2);
 
     // Verify initial state
     let initial_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .all()
     );
@@ -114,8 +115,7 @@ async fn feature_gated_delete() {
 
     // Delete specific record using UUID primary key
     let delete_result = drizzle_exec!(
-        drizzle
-            .delete(complex)
+        db.delete(complex)
             .r#where(eq(complex.id, test_id_1))
             .execute()
     );
@@ -123,8 +123,7 @@ async fn feature_gated_delete() {
 
     // Verify deletion - should only have keep_user left
     let remaining_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .all()
     );
@@ -135,8 +134,7 @@ async fn feature_gated_delete() {
 
     // Verify specific UUID record is gone
     let deleted_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(eq(complex.id, test_id_1.to_string()))
             .all()

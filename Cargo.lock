@@ -1819,6 +1819,7 @@ dependencies = [
  "chrono",
  "drizzle_rs",
  "heck",
+ "libsql",
  "paste",
  "proc-macro2",
  "quote",
@@ -1827,6 +1828,8 @@ dependencies = [
  "serde",
  "serde_json",
  "syn",
+ "tokio",
+ "turso",
  "uuid",
 ]
 

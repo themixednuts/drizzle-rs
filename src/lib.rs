@@ -3,7 +3,7 @@ extern crate self as drizzle_rs;
 mod drizzle;
 mod transaction;
 pub use drizzle_core::error::Result;
-pub use procmacros::{drizzle, qb, sql};
+pub use procmacros::{SQLSchema, drizzle, sql};
 
 pub mod error {
     pub use drizzle_core::error::DrizzleError;
@@ -77,7 +77,7 @@ pub mod prelude {
     pub use sqlite::builder::QueryBuilder;
 
     // Proc Macros (essential for schema definition)
-    pub use procmacros::{FromRow, drizzle, qb};
+    pub use procmacros::{FromRow, SQLSchema, drizzle};
 
     // Dialect-specific components (gated)
     #[cfg(feature = "sqlite")]
@@ -99,13 +99,13 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     use drizzle_rs::prelude::*;
-    use procmacros::{SQLiteTable, drizzle, qb};
+    use procmacros::{SQLiteTable, drizzle};
 
     #[cfg(feature = "rusqlite")]
     use rusqlite;
 
     #[SQLiteTable(name = "Users")]
-    struct User {
+    pub struct User {
         #[integer(primary)]
         id: i32,
         #[text]
@@ -115,7 +115,7 @@ mod tests {
     }
 
     #[SQLiteTable(name = "Posts")]
-    struct Post {
+    pub struct Post {
         #[integer(primary)]
         id: i32,
         #[text]
@@ -123,17 +123,25 @@ mod tests {
     }
 
     #[SQLiteTable(name = "Comments")]
-    struct Comment {
+    pub struct Comment {
         #[integer(primary)]
         id: i32,
         #[text]
         content: String,
     }
 
+    #[derive(SQLSchema)]
+    pub struct Schema {
+        pub user: User,
+        pub post: Post,
+        pub comment: Comment,
+    }
+
     #[test]
     fn test_schema_macro() {
         // Create a schema with the User table using schema! macro
-        let (builder, (user, ..)) = qb!([User, Post]);
+        let builder = QueryBuilder::new::<Schema>();
+        let (user, ..) = Schema::new().tables();
 
         let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);
@@ -145,8 +153,8 @@ mod tests {
         use sqlite::builder::Conflict;
 
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        let (db, user) = drizzle!(conn, [User]);
-        db.execute(User::SQL).expect("Should have created table");
+        let (db, Schema { user, .. }) = drizzle!(conn, Schema);
+        db.create().expect("Should have created table");
 
         let result = db
             .insert(user)

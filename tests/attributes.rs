@@ -182,6 +182,62 @@ struct NullableTest {
     optional_bool: Option<bool>,
 }
 
+// Schemas for individual table tests
+#[derive(SQLSchema)]
+struct AllTypesSchema {
+    all_types: AllTypes,
+}
+
+#[derive(SQLSchema)]
+struct PrimaryKeyVariationsSchema {
+    pk_variations: PrimaryKeyVariations,
+}
+
+#[derive(SQLSchema)]
+struct ManualPrimaryKeySchema {
+    manual_pk: ManualPrimaryKey,
+}
+
+#[derive(SQLSchema)]
+struct UniqueFieldsSchema {
+    unique_fields: UniqueFields,
+}
+
+#[derive(SQLSchema)]
+struct CompileTimeDefaultsSchema {
+    compile_defaults: CompileTimeDefaults,
+}
+
+#[derive(SQLSchema)]
+struct RuntimeDefaultsSchema {
+    runtime_defaults: RuntimeDefaults,
+}
+
+#[derive(SQLSchema)]
+struct EnumFieldsSchema {
+    enum_fields: EnumFields,
+}
+
+#[derive(SQLSchema)]
+struct ComplexEnumFieldsSchema {
+    complex_enum_fields: ComplexEnumFields,
+}
+
+#[derive(SQLSchema)]
+struct JsonFieldsSchema {
+    json_fields: JsonFields,
+}
+
+#[derive(SQLSchema)]
+struct UuidFieldsSchema {
+    uuid_fields: UuidFields,
+}
+
+#[derive(SQLSchema)]
+struct NullableTestSchema {
+    nullable_test: NullableTest,
+}
+
 #[cfg(feature = "rusqlite")]
 // Helper functions for setup
 fn setup_test_db() -> Connection {
@@ -272,7 +328,8 @@ async fn test_all_column_types() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, all_types) = drizzle!(conn, [AllTypes]);
+    let (db, schema) = drizzle!(conn, AllTypesSchema);
+    let all_types = schema.all_types;
 
     // Test insertion with all column types
     let test_data = InsertAllTypes::new("test text", 123, 45.67, [1, 2, 3, 4, 5], true);
@@ -353,7 +410,8 @@ async fn test_primary_key_autoincrement() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, pk_table) = drizzle!(conn, [PrimaryKeyVariations]);
+    let (db, schema) = drizzle!(conn, PrimaryKeyVariationsSchema);
+    let pk_table = schema.pk_variations;
 
     // Insert multiple records to test autoincrement
     let data1 = InsertPrimaryKeyVariations::new("first");
@@ -412,7 +470,8 @@ async fn test_manual_primary_key() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, manual_pk) = drizzle!(conn, [ManualPrimaryKey]);
+    let (db, schema) = drizzle!(conn, ManualPrimaryKeySchema);
+    let manual_pk = schema.manual_pk;
 
     let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
 
@@ -458,7 +517,8 @@ async fn test_unique_constraints() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, unique_table) = drizzle!(conn, [UniqueFields]);
+    let (db, schema) = drizzle!(conn, UniqueFieldsSchema);
+    let unique_table = schema.unique_fields;
 
     // Insert first record
     let data1 =
@@ -494,7 +554,8 @@ async fn test_compile_time_defaults() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, defaults_table) = drizzle!(conn, [CompileTimeDefaults]);
+    let (db, schema) = drizzle!(conn, CompileTimeDefaultsSchema);
+    let defaults_table = schema.compile_defaults;
 
     // Insert with minimal data - defaults should be used
     let data = InsertCompileTimeDefaults::new();
@@ -567,7 +628,8 @@ async fn test_runtime_defaults() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, runtime_table) = drizzle!(conn, [RuntimeDefaults]);
+    let (db, schema) = drizzle!(conn, RuntimeDefaultsSchema);
+    let runtime_table = schema.runtime_defaults;
 
     // Insert with minimal data - runtime defaults should be used
     let data = InsertRuntimeDefaults::new("test");
@@ -627,7 +689,8 @@ async fn test_enum_storage_types() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, enum_table) = drizzle!(conn, [EnumFields]);
+    let (db, schema) = drizzle!(conn, EnumFieldsSchema);
+    let enum_table = schema.enum_fields;
 
     // Test different enum storage types
     let data = InsertEnumFields::new(Priority::High, TaskStatus::InProgress, "Test task");
@@ -692,7 +755,8 @@ async fn test_json_storage_types() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, json_table) = drizzle!(conn, [JsonFields]);
+    let (db, schema) = drizzle!(conn, JsonFieldsSchema);
+    let json_table = schema.json_fields;
 
     let json_data = JsonData {
         value: 42,
@@ -744,7 +808,8 @@ async fn test_uuid_primary_key_with_default_fn() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, uuid_table) = drizzle!(conn, [UuidFields]);
+    let (db, schema) = drizzle!(conn, UuidFieldsSchema);
+    let uuid_table = schema.uuid_fields;
 
     // Insert without specifying UUID - default_fn should generate one
     let data = InsertUuidFields::new("uuid test");
@@ -801,7 +866,8 @@ async fn test_nullable_vs_non_nullable() {
     #[cfg(any(feature = "turso", feature = "libsql"))]
     let conn = setup_test_db().await;
 
-    let (db, nullable_table) = drizzle!(conn, [NullableTest]);
+    let (db, schema) = drizzle!(conn, NullableTestSchema);
+    let nullable_table = schema.nullable_test;
 
     // Test 1: Insert with all required fields, no optional fields
     let minimal_data = InsertNullableTest::new("required", 123, true);

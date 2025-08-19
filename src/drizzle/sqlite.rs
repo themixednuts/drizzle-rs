@@ -131,7 +131,7 @@ impl<'a, Schema>
         select::SelectFromSet,
     >
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.from(table);
         DrizzleBuilder {

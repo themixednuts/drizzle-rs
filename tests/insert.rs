@@ -5,6 +5,8 @@ use drizzle_rs::sqlite::builder::Conflict;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+use crate::common::{ComplexSchema, SimpleComplexSchema, SimpleSchema};
+
 mod common;
 
 #[derive(FromRow, Debug)]
@@ -36,7 +38,7 @@ struct ComplexResult {
 #[tokio::test]
 async fn simple_insert() {
     let db = setup_test_db!();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Insert Simple record
     let data = InsertSimple::new("test");
@@ -60,7 +62,7 @@ async fn simple_insert() {
 #[tokio::test]
 async fn complex_insert() {
     let db = setup_test_db!();
-    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, ComplexSchema { complex }) = drizzle!(db, ComplexSchema);
 
     // Insert Complex record with various field types
     #[cfg(not(feature = "uuid"))]
@@ -109,7 +111,7 @@ async fn complex_insert() {
 #[tokio::test]
 async fn conflict_resolution() {
     let db = setup_test_db!();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Insert initial Simple record
     let initial_data = InsertSimple::new("conflict_test").with_id(1);
@@ -145,7 +147,7 @@ async fn conflict_resolution() {
 #[tokio::test]
 async fn feature_gated_insert() {
     let db = setup_test_db!();
-    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, ComplexSchema { complex }) = drizzle!(db, ComplexSchema);
 
     // Insert Complex record using feature-gated fields
     let data = InsertComplex::new("feature_test", true, common::Role::User)

@@ -579,7 +579,7 @@ fn test_cte_to_sql() {
         cte_sql.sql(),
         "active_users AS (SELECT id FROM users WHERE active = 1)"
     );
-    
+
     // Test that to_sql() returns just the name for use in FROM clauses
     let name_sql = sq.to_sql();
     assert_eq!(name_sql.sql(), "active_users");
@@ -606,8 +606,7 @@ async fn test_cte_integration_simple() {
     );
 
     // Use the CTE in a main query - empty select() should render as *
-    let result: Vec<SelectSimple> =
-        drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
+    let result: Vec<SelectSimple> = drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
 
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Bob");
@@ -628,7 +627,7 @@ async fn test_cte_integration_with_aggregation() {
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
     // Create a CTE with count
-    let sq = cte("user_count").r#as(db.select(count(simple.id)).from(simple));
+    let sq = cte("user_count").r#as(db.select(count(simple.id).alias("count")).from(simple));
 
     #[derive(FromRow)]
     struct CountResult {
@@ -636,8 +635,7 @@ async fn test_cte_integration_with_aggregation() {
     }
 
     // Use the CTE - empty select() should render as *
-    let result: Vec<CountResult> =
-        drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
+    let result: Vec<CountResult> = drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3);
@@ -667,8 +665,11 @@ async fn test_cte_complex_two_levels() {
 
     // Level 2 CTE: Count from the first CTE and add a computed column
     let user_stats = cte("user_stats").r#as(
-        db.select((count(sql!("id")), sql!("'high_id_users'")))
-            .from(&filtered_users)
+        db.select((
+            count(sql!("id")).alias("count"),
+            sql!("'high_id_users'").alias("category"),
+        ))
+        .from(&filtered_users),
     );
 
     #[derive(FromRow)]

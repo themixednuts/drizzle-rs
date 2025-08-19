@@ -33,6 +33,11 @@ struct UserAccount {
     status: AccountStatus,
 }
 
+#[derive(SQLSchema)]
+pub struct Schema {
+    user_account: UserAccount,
+}
+
 #[test]
 fn test_enum() {
     // Test basic enum functionality works
@@ -82,7 +87,7 @@ async fn test_enum_database_roundtrip() {
     let conn = setup_test_db!();
 
     // Setup database
-    let (db, user_account) = drizzle!(conn, [UserAccount]);
+    let (db, Schema { user_account }) = drizzle!(conn, Schema);
     // Create table
     println!("CREATE TABLE SQL: {}", UserAccount::SQL);
 

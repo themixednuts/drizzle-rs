@@ -1,6 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use common::{Complex, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, Simple};
+use common::{
+    ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
+};
 use drizzle_core::expressions::conditions::*;
 use drizzle_rs::prelude::*;
 
@@ -19,7 +21,7 @@ struct ConcatResult {
 #[tokio::test]
 async fn test_basic_comparison_conditions() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![
         InsertSimple::new("Item A").with_id(1),
@@ -72,7 +74,7 @@ async fn test_basic_comparison_conditions() {
 #[tokio::test]
 async fn test_in_array_conditions() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![
         InsertSimple::new("Apple").with_id(1),
@@ -131,8 +133,10 @@ async fn test_in_array_conditions() {
 #[cfg(feature = "uuid")]
 #[tokio::test]
 async fn test_null_conditions() {
+    use crate::common::ComplexSchema;
+
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert data with separate operations since each has different column patterns
     // User A: has email set
@@ -199,7 +203,7 @@ async fn test_null_conditions() {
 #[tokio::test]
 async fn test_between_conditions() {
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     let test_data = vec![
         InsertComplex::new("User A", true, Role::User)
@@ -247,7 +251,7 @@ async fn test_between_conditions() {
 #[tokio::test]
 async fn test_like_conditions() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![
         InsertSimple::new("Apple Pie").with_id(1),
@@ -299,7 +303,7 @@ async fn test_like_conditions() {
 #[tokio::test]
 async fn test_logical_conditions() {
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     let test_data = vec![
         InsertComplex::new("Active Admin", true, Role::Admin).with_age(30),
@@ -357,7 +361,7 @@ async fn test_logical_conditions() {
 #[tokio::test]
 async fn test_single_condition_logical_operations() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert test data - both have same pattern (both set id)
     drizzle_exec!(
@@ -397,7 +401,7 @@ async fn test_single_condition_logical_operations() {
 #[tokio::test]
 async fn test_string_operations() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![
         InsertSimple::new("Hello").with_id(1),
@@ -425,7 +429,7 @@ async fn test_sqlite_json_conditions() {
     use drizzle_rs::sqlite::conditions::*;
 
     let conn = setup_test_db!();
-    let (db, complex) = drizzle!(conn, [Complex]);
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert test data with JSON metadata
     let metadata = UserMetadata {
@@ -462,7 +466,7 @@ async fn test_sqlite_json_conditions() {
 #[tokio::test]
 async fn test_condition_edge_cases() {
     let conn = setup_test_db!();
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
 

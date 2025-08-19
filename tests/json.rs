@@ -32,6 +32,10 @@ struct JsonUser {
 
 #[tokio::test]
 async fn json_storage() {
+    #[derive(SQLSchema)]
+    struct Schema {
+        jsonuser: JsonUser,
+    }
     let conn = setup_test_db!();
 
     exec_sql!(conn, JsonUser::SQL.sql().as_str(), db_params!());
@@ -44,7 +48,7 @@ async fn json_storage() {
 
     let id = Uuid::new_v4();
 
-    let (db, jsonuser) = drizzle!(conn, [JsonUser]);
+    let (db, Schema { jsonuser }) = drizzle!(conn, Schema);
     drizzle_exec!(
         db.insert(jsonuser)
             .values([InsertJsonUser::new(id, "john@test.com", profile)])

@@ -1,5 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{InsertSimple, Simple};
+
+use common::{InsertSimple, Simple, SimpleSchema};
 use drizzle_core::{SQL, prepared::prepare_render};
 use drizzle_rs::prelude::*;
 use sqlite::{SQLiteValue, params};
@@ -78,7 +79,7 @@ fn test_placeholder_styles() {
 #[tokio::test]
 async fn test_insert_with_placeholders() {
     let db = setup_test_db!();
-    let (drizzle, simple) = drizzle!(db, [Simple]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Create insert model with explicit placeholders
     let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
@@ -105,7 +106,6 @@ async fn test_insert_with_placeholders() {
     );
 }
 
-#[cfg(all(feature = "rusqlite", feature = "serde", feature = "uuid"))]
 #[tokio::test]
 async fn test_insert_with_placeholders_execute_and_retrieve() {
     use drizzle_core::{SQL, prepared::prepare_render};
@@ -118,7 +118,7 @@ async fn test_insert_with_placeholders_execute_and_retrieve() {
     }
 
     let db = setup_test_db!();
-    let (drizzle, simple) = drizzle!(db, [Simple]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Create insert model with explicit placeholders
     let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
@@ -157,8 +157,8 @@ async fn test_insert_with_placeholders_execute_and_retrieve() {
 async fn test_parameter_integration_with_query_builder() {
     #[derive(FromRow, Default)]
     struct SimpleResult(String);
-    let db = setup_test_db!();
-    let (drizzle, simple) = drizzle!(db, [Simple]);
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert test data
     let test_data = vec![
@@ -166,12 +166,11 @@ async fn test_parameter_integration_with_query_builder() {
         InsertSimple::new("bob"),
         InsertSimple::new("charlie"),
     ];
-    drizzle_exec!(drizzle.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
 
     // Test that normal query builder still works (this uses internal parameter binding)
     let results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select(simple.name)
+        db.select(simple.name)
             .from(simple)
             .r#where(eq(simple.name, "alice"))
             .all()
@@ -182,16 +181,14 @@ async fn test_parameter_integration_with_query_builder() {
 
     // Test multiple parameter conditions using multiple queries
     let alice_results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select(simple.name)
+        db.select(simple.name)
             .from(simple)
             .r#where(eq(simple.name, "alice"))
             .all()
     );
 
     let bob_results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select(simple.name)
+        db.select(simple.name)
             .from(simple)
             .r#where(eq(simple.name, "bob"))
             .all()

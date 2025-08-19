@@ -6,7 +6,9 @@ mod common;
 mod tests {
     use uuid::Uuid;
 
-    use crate::common::{Complex, InsertComplex, InsertPost, Post, SelectPost, setup_db};
+    use crate::common::{
+        Complex, FullBlogSchema, InsertComplex, InsertPost, Post, SelectPost, setup_db,
+    };
 
     use super::*;
 
@@ -36,15 +38,21 @@ mod tests {
         );
     }
 
+    #[derive(SQLSchema)]
+    pub struct ComplexPostSchema {
+        pub complex: Complex,
+        pub post: Post,
+    }
+
     #[tokio::test]
     async fn test_foreign_key_impl() {
         let conn = setup_test_db!();
-        let (db, (user, post)) = drizzle!(conn, [Complex, Post]);
+        let (db, ComplexPostSchema { complex, post }) = drizzle!(conn, ComplexPostSchema);
 
         let id = Uuid::new_v4();
 
         drizzle_exec!(
-            db.insert(user)
+            db.insert(complex)
                 .values([InsertComplex::new("John", false, common::Role::User).with_id(id)])
                 .execute()
         );

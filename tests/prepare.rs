@@ -6,7 +6,9 @@ use drizzle_rs::{
 };
 use procmacros::{FromRow, drizzle};
 
-use crate::common::{Complex, InsertSimple, SelectSimple, Simple};
+use crate::common::{
+    Complex, InsertSimple, SelectSimple, Simple, SimpleComplexSchema, SimpleSchema,
+};
 
 mod common;
 
@@ -15,7 +17,7 @@ async fn test_prepare_with_placeholder() {
     let conn = setup_test_db!();
     // Insert specific test data instead of using random seed
 
-    let (db, (simple, _complex)) = drizzle!(conn, [Simple, Complex]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
@@ -195,7 +197,7 @@ fn test_prepare_complex_query() {
 #[tokio::test]
 async fn test_prepared_performance_comparison() {
     let conn = setup_test_db!();
-    let (db, (simple, _complex)) = drizzle!(conn, [Simple, Complex]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert test data
     let test_data: Vec<_> = (0..1000)
@@ -244,7 +246,7 @@ async fn test_prepared_performance_comparison() {
 #[tokio::test]
 async fn test_prepared_insert_performance() {
     let conn = setup_test_db!();
-    let (db, (simple, _complex)) = drizzle!(conn, [Simple, Complex]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Test regular insert performance
     let start = std::time::Instant::now();

@@ -3,16 +3,16 @@ use common::{Complex, Simple};
 use drizzle_rs::{error::DrizzleError, prelude::*};
 use procmacros::sql;
 
-use crate::common::{InsertSimple, SelectSimple};
+use crate::common::{ComplexSchema, InsertSimple, SelectSimple, SimpleComplexSchema, SimpleSchema};
 
 mod common;
 
 #[tokio::test]
 async fn test_simple_select_all_sql_generation() {
-    let db = setup_test_db!();
-    let (drizzle, simple) = drizzle!(db, [Simple]);
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    let query = drizzle.select(()).from(simple);
+    let query = db.select(()).from(simple);
     let sql = query.to_sql();
 
     println!("Simple select all SQL: {}", sql.sql());
@@ -37,8 +37,8 @@ async fn test_simple_select_all_sql_generation() {
 
 #[tokio::test]
 async fn test_complex_select_all_sql_generation() {
-    let db = setup_test_db!();
-    let (drizzle, complex) = drizzle!(db, [Complex]);
+    let conn = setup_test_db!();
+    let (drizzle, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Test select(()).from(complex) - should generate all complex table columns
     let query = drizzle.select(()).from(complex);
@@ -69,7 +69,7 @@ async fn test_complex_select_all_sql_generation() {
 #[tokio::test]
 async fn test_select_all_with_where_clause() {
     let db = setup_test_db!();
-    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Test select(()).from(table).where(...) - should still work with qualified columns
     let query = drizzle
@@ -101,7 +101,7 @@ async fn test_select_all_with_where_clause() {
 #[tokio::test]
 async fn test_select_specific_columns_vs_select_all() {
     let db = setup_test_db!();
-    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Compare select(()) vs select(columns![...])
     let select_all_query = drizzle.select(()).from(simple);
@@ -127,7 +127,8 @@ async fn test_select_specific_columns_vs_select_all() {
 #[tokio::test]
 async fn test_sql_macro() -> Result<(), DrizzleError> {
     let db = setup_test_db!();
-    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+
     let id = 4;
     drizzle_try!(
         drizzle
@@ -156,7 +157,7 @@ async fn test_sql_macro() -> Result<(), DrizzleError> {
 #[tokio::test]
 async fn test_sql_printf_style() -> Result<(), DrizzleError> {
     let db = setup_test_db!();
-    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
     let id = 5;
     let name = "printf_test";
 
@@ -183,7 +184,7 @@ async fn test_sql_printf_style() -> Result<(), DrizzleError> {
 #[tokio::test]
 async fn test_sql_mixed_named_positional() -> Result<(), DrizzleError> {
     let db = setup_test_db!();
-    let (drizzle, (simple, _complex)) = drizzle!(db, [Simple, Complex]);
+    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
     let id = 6;
     let name = "mixed_test";
 

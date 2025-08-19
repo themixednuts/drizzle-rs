@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use common::{InsertSimple, SelectSimple, Simple, UpdateSimple};
+use common::{InsertSimple, SelectSimple, Simple, SimpleSchema, UpdateSimple};
 use drizzle_rs::error::DrizzleError;
 use drizzle_rs::prelude::*;
 
@@ -10,10 +10,10 @@ mod common;
 async fn test_transaction_commit() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(feature = "rusqlite")]
     let result = db.transaction(SQLiteTransactionType::Deferred, |tx| {
@@ -71,10 +71,10 @@ async fn test_transaction_commit() {
 async fn test_transaction_rollback() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert initial record outside transaction
     drizzle_exec!(
@@ -126,10 +126,10 @@ async fn test_transaction_rollback() {
 async fn test_transaction_types() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Test different transaction types
     for tx_type in [
@@ -175,10 +175,10 @@ async fn test_transaction_types() {
 async fn test_transaction_query_builders() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert test data
     drizzle_exec!(
@@ -285,10 +285,10 @@ async fn test_transaction_query_builders() {
 async fn test_transaction_database_error_rollback() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert initial data
     drizzle_exec!(
@@ -351,10 +351,10 @@ async fn test_transaction_database_error_rollback() {
 async fn test_transaction_panic_rollback() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert initial data
     drizzle_exec!(
@@ -399,7 +399,8 @@ async fn test_transaction_panic_rollback() {
             })
         });
 
-        let result: Result<Result<(), DrizzleError>, _> = AssertUnwindSafe(panic_future).catch_unwind().await;
+        let result: Result<Result<(), DrizzleError>, _> =
+            AssertUnwindSafe(panic_future).catch_unwind().await;
         assert!(result.is_err()); // Panic occurred
     }
 
@@ -416,10 +417,10 @@ async fn test_transaction_panic_rollback() {
 async fn test_nested_transaction_operations() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(feature = "rusqlite")]
     // Test complex transaction with multiple interdependent operations
@@ -461,6 +462,8 @@ async fn test_nested_transaction_operations() {
         // If we got this far, everything should commit
         Ok(())
     });
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
     let result = db
         .transaction(SQLiteTransactionType::Immediate, |tx| {
             Box::pin(async move {
@@ -521,10 +524,10 @@ async fn test_nested_transaction_operations() {
 async fn test_transaction_with_failed_query_in_middle() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(feature = "rusqlite")]
     // Test transaction where a query fails in the middle
@@ -610,10 +613,10 @@ async fn test_transaction_with_failed_query_in_middle() {
 async fn test_large_transaction_rollback() {
     let conn = setup_test_db!();
     #[cfg(feature = "rusqlite")]
-    let (mut db, simple) = drizzle!(conn, [Simple]);
+    let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (db, simple) = drizzle!(conn, [Simple]);
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Test rollback of transaction with many operations
     #[cfg(feature = "rusqlite")]

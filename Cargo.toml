@@ -53,8 +53,8 @@ uuid = { version = "1.16.0", features = ["v4", "serde"] }
 
 # Add dev-dependencies for tests
 [dev-dependencies]
-drizzle_rs = { workspace = true, features = ["libsql", "serde", "uuid"] }
-procmacros = { workspace = true, features = ["libsql", "serde"] }
+drizzle_rs = { workspace = true }
+procmacros = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
@@ -73,6 +73,7 @@ rusqlite = [
   "drizzle_core/rusqlite",
   "rusqlite/uuid",
   "rusqlite/serde_json",
+  # "drizzle_rs/rusqlite",
 ]
 turso = [
   "dep:turso",
@@ -80,6 +81,7 @@ turso = [
   "sqlite",
   "procmacros/turso",
   "drizzle_core/turso",
+  # "drizzle_rs/turso",
 ]
 libsql = [
   "dep:libsql",
@@ -87,6 +89,7 @@ libsql = [
   "sqlite",
   "procmacros/libsql",
   "drizzle_core/libsql",
+  # "drizzle_rs/libsql",
 ]
 libsql-rusqlite = [
   "dep:libsql-rusqlite",
@@ -102,6 +105,7 @@ serde = [
   "mysql/serde",
   "procmacros/serde",
   "drizzle_core/serde",
+  "drizzle_rs/serde",
 ]
 uuid = [
   "dep:uuid",
@@ -109,6 +113,7 @@ uuid = [
   "postgres/uuid",
   "mysql/uuid",
   "drizzle_core/uuid",
+  "drizzle_rs/uuid",
 ]
 
 # Add dialect-specific features back for gating re-exports

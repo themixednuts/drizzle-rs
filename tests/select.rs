@@ -4,6 +4,8 @@ use drizzle_core::OrderBy;
 use drizzle_rs::prelude::*;
 use procmacros::FromRow;
 
+use crate::common::{ComplexSchema, SimpleSchema};
+
 mod common;
 
 #[derive(Debug, FromRow)]
@@ -38,9 +40,8 @@ struct JoinResult {
 
 #[tokio::test]
 async fn simple_select_with_conditions() {
-    pub struct Schema;
-    let db = setup_test_db!();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex, Post], Schema);
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert test data
     let test_data = vec![
@@ -50,12 +51,11 @@ async fn simple_select_with_conditions() {
         InsertSimple::new("delta"),
     ];
 
-    drizzle_exec!(drizzle.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
 
     // Test WHERE condition
     let where_results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "beta"))
             .all()
@@ -66,8 +66,7 @@ async fn simple_select_with_conditions() {
 
     // Test ORDER BY with LIMIT
     let ordered_results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .order_by([OrderBy::asc(simple.name)])
             .limit(2)
@@ -80,8 +79,7 @@ async fn simple_select_with_conditions() {
 
     // Test LIMIT with OFFSET
     let offset_results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .order_by([OrderBy::asc(simple.name)])
             .limit(2)
@@ -97,8 +95,8 @@ async fn simple_select_with_conditions() {
 #[tokio::test]
 async fn complex_select_with_conditions() {
     pub struct Schema;
-    let db = setup_test_db!();
-    let (drizzle, (_, complex, ..)) = drizzle!(db, [Simple, Complex, Post], Schema);
+    let conn = setup_test_db!();
+    let (drizzle, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -168,9 +166,8 @@ async fn complex_select_with_conditions() {
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[tokio::test]
 async fn feature_gated_select() {
-    pub struct Schema;
-    let db = setup_test_db!();
-    let (drizzle, (_, complex, _)) = drizzle!(db, [Simple, Complex, Post], Schema);
+    let conn = setup_test_db!();
+    let (drizzle, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();

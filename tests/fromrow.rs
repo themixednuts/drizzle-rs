@@ -79,11 +79,18 @@ struct FloatTest {
     compact: f32,
 }
 
+#[derive(SQLSchema)]
+pub struct TypeTestSchema {
+    type_test: TypeTest,
+}
 
 #[tokio::test]
 async fn test_fromrow_with_all_data_types() {
     let conn = setup_test_db!();
-    let (db, type_test) = drizzle!(conn, [TypeTest]);
+    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+
+    // Create tables
+    drizzle_exec!(db.create());
 
     // Insert test data with all data types
     let test_data = InsertTypeTest::new("test_user", 25, 98.5, true, [1, 2, 3, 4, 5]);
@@ -107,8 +114,15 @@ async fn test_fromrow_with_all_data_types() {
 
 #[tokio::test]
 async fn test_fromrow_with_integer_sizes() {
+    #[derive(SQLSchema)]
+    struct Schema {
+        integer_test: IntegerTest,
+    }
     let conn = setup_test_db!();
-    let (db, integer_test) = drizzle!(conn, [IntegerTest]);
+    let (db, Schema { integer_test }) = drizzle!(conn, Schema);
+
+    // Create tables
+    drizzle_exec!(db.create());
 
     // Insert test data with different integer sizes
     let test_data = InsertIntegerTest::new(9223372036854775806i64, 32000i16, 100i8);
@@ -130,8 +144,15 @@ async fn test_fromrow_with_integer_sizes() {
 
 #[tokio::test]
 async fn test_fromrow_with_float_types() {
+    #[derive(SQLSchema)]
+    struct Schema {
+        float_test: FloatTest,
+    }
     let conn = setup_test_db!();
-    let (db, float_test) = drizzle!(conn, [FloatTest]);
+    let (db, Schema { float_test }) = drizzle!(conn, Schema);
+
+    // Create tables
+    drizzle_exec!(db.create());
 
     // Insert test data with different float types
     let test_data = InsertFloatTest::new(3.141592653589793, 2.718f32);
@@ -153,7 +174,10 @@ async fn test_fromrow_with_float_types() {
 #[tokio::test]
 async fn test_fromrow_type_conversion_edge_cases() {
     let conn = setup_test_db!();
-    let (db, type_test) = drizzle!(conn, [TypeTest]);
+    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+
+    // Create tables
+    drizzle_exec!(db.create());
 
     // Insert test data with edge case values
     let test_data = InsertTypeTest::new("edge_case", 0, 0.0, false, []);
@@ -181,7 +205,7 @@ struct DerivedPartialSimple {
     name: String,
 }
 
-// Test FromRow with column mapping  
+// Test FromRow with column mapping
 #[derive(FromRow, Debug, Default)]
 struct DerivedSimpleWithColumns {
     #[column(TypeTest::id)]
@@ -193,26 +217,37 @@ struct DerivedSimpleWithColumns {
 #[tokio::test]
 async fn test_fromrow_derive_with_partial_selection() {
     let conn = setup_test_db!();
-    let (db, type_test) = drizzle!(conn, [TypeTest]);
+    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+
+    // Create tables
+    drizzle_exec!(db.create());
 
     let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
     drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
     // Test the derived implementation with partial selection
-    let result: DerivedPartialSimple = drizzle_exec!(db.select(type_test.name).from(type_test).get());
+    let result: DerivedPartialSimple =
+        drizzle_exec!(db.select(type_test.name).from(type_test).get());
     assert_eq!(result.name, "derive_test");
 }
 
 #[tokio::test]
 async fn test_fromrow_with_column_mapping() {
     let conn = setup_test_db!();
-    let (db, type_test) = drizzle!(conn, [TypeTest]);
+    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+
+    // Create tables
+    drizzle_exec!(db.create());
 
     let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
     drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
     // Test the column-mapped FromRow implementation
-    let result: DerivedSimpleWithColumns = drizzle_exec!(db.select(DerivedSimpleWithColumns::default()).from(type_test).get());
+    let result: DerivedSimpleWithColumns = drizzle_exec!(
+        db.select(DerivedSimpleWithColumns::default())
+            .from(type_test)
+            .get()
+    );
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");

@@ -25,6 +25,11 @@ struct User {
     email: String,
 }
 
+#[derive(SQLSchema)]
+struct Schema {
+    user: User,
+}
+
 // Raw SQL schema
 const CREATE_TABLE_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS users (
@@ -53,12 +58,10 @@ async fn setup_raw_connection() -> Connection {
     conn
 }
 
-#[derive(Clone)]
-pub struct Schema;
 #[cfg(feature = "rusqlite")]
 fn setup_drizzle() -> (drizzle_rs::sqlite::Drizzle<Schema>, User) {
     let conn = Connection::open_in_memory().unwrap();
-    let (db, users) = drizzle!(conn, User, Schema);
+    let (db, users) = drizzle!(conn,);
     db.execute(users.sql()).unwrap();
 
     (db, users)
@@ -71,10 +74,12 @@ async fn setup_drizzle() -> (drizzle_rs::sqlite::Drizzle<Schema>, User) {
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    let (db, users) = drizzle!(conn, User, Schema);
-    db.execute(users.sql()).await.expect("create table");
+    let (db, schema) = drizzle!(conn, Schema);
+    let Schema { user } = schema;
 
-    (db, users)
+    db.execute(user.sql()).await.expect("create table");
+
+    (db, user)
 }
 
 #[divan::bench_group]

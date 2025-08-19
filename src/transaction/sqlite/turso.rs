@@ -19,18 +19,17 @@ use sqlite::{
 use crate::transaction::sqlite::TransactionBuilder;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
-#[derive(Debug)]
-pub struct Transaction<'conn, Schema = ()> {
-    conn: &'conn Connection,
+pub struct Transaction<Schema = ()> {
+    tx: turso::Transaction,
     tx_type: SQLiteTransactionType,
     _schema: PhantomData<Schema>,
 }
 
-impl<'conn, Schema> Transaction<'conn, Schema> {
+impl<Schema> Transaction<Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(conn: &'conn Connection, tx_type: SQLiteTransactionType) -> Self {
+    pub(crate) fn new(tx: turso::Transaction, tx_type: SQLiteTransactionType) -> Self {
         Self {
-            conn,
+            tx,
             tx_type,
             _schema: PhantomData,
         }
@@ -38,8 +37,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Gets a reference to the underlying connection
     #[inline]
-    pub fn conn(&self) -> &Connection {
-        self.conn
+    pub fn tx(&self) -> &turso::Transaction {
+        &self.tx
     }
 
     /// Gets the transaction type
@@ -55,7 +54,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         query: T,
     ) -> TransactionBuilder<
         'a,
-        'conn,
+        'a,
         Schema,
         SelectBuilder<'b, Schema, select::SelectInitial>,
         select::SelectInitial,
@@ -81,7 +80,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         table: Table,
     ) -> TransactionBuilder<
         'a,
-        'conn,
+        'a,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
         insert::InsertInitial,
@@ -104,7 +103,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         table: Table,
     ) -> TransactionBuilder<
         'a,
-        'conn,
+        'a,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
         update::UpdateInitial,
@@ -127,7 +126,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         table: T,
     ) -> TransactionBuilder<
         'a,
-        'conn,
+        'a,
         Schema,
         DeleteBuilder<'a, Schema, delete::DeleteInitial, T>,
         delete::DeleteInitial,
@@ -150,19 +149,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     {
         let query = query.to_sql();
         let sql = query.sql();
-        let params: Vec<turso::Value> = query
-            .params()
-            .into_iter()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let params: Vec<turso::Value> = query.params().into_iter().map(|p| p.into()).collect();
 
-        self.conn
-            .execute(&sql, params)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))
+        Ok(self.tx.execute(&sql, params).await?)
     }
 
     /// Runs a query and returns all matching rows within the transaction
@@ -174,27 +163,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     {
         let sql = query.to_sql();
         let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql
-            .params()
-            .into_iter()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let params: Vec<turso::Value> = sql.params().into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self
-            .conn
-            .query(&sql_str, params)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+        let mut rows = self.tx.query(&sql_str, params).await?;
 
         let mut results = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?
-        {
+        while let Some(row) = rows.next().await? {
             let converted = R::try_from(&row).map_err(Into::into)?;
             results.push(converted);
         }
@@ -211,26 +185,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     {
         let sql = query.to_sql();
         let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql
-            .params()
-            .into_iter()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let params: Vec<turso::Value> = sql.params().into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self
-            .conn
-            .query(&sql_str, params)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+        let mut rows = self.tx.query(&sql_str, params).await?;
 
-        if let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?
-        {
+        if let Some(row) = rows.next().await? {
             R::try_from(&row).map_err(Into::into)
         } else {
             Err(DrizzleError::NotFound)
@@ -240,20 +199,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Commits the transaction (turso transactions are auto-committed)
     pub async fn commit(self) -> Result<(), DrizzleError> {
         // For turso, we execute COMMIT manually
-        self.conn
-            .execute("COMMIT", vec![])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
-        Ok(())
+        Ok(self.tx.commit().await?)
     }
 
     /// Rolls back the transaction
     pub async fn rollback(self) -> Result<(), DrizzleError> {
-        self.conn
-            .execute("ROLLBACK", vec![])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
-        Ok(())
+        Ok(self.tx.rollback().await?)
     }
 }
 
@@ -272,17 +223,10 @@ where
             .sql
             .params()
             .into_iter()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|p| p.into())
+            .collect();
 
-        self.transaction
-            .conn
-            .execute(&sql, params)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))
+        Ok(self.transaction.tx.execute(&sql, params).await?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -293,28 +237,12 @@ where
     {
         let sql = &self.builder.sql;
         let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql
-            .params()
-            .into_iter()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let params: Vec<turso::Value> = sql.params().into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self
-            .transaction
-            .conn
-            .query(&sql_str, params)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
 
         let mut results = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?
-        {
+        while let Some(row) = rows.next().await? {
             let converted = R::try_from(&row).map_err(Into::into)?;
             results.push(converted);
         }
@@ -330,27 +258,11 @@ where
     {
         let sql = &self.builder.sql;
         let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql
-            .params()
-            .into_iter()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let params: Vec<turso::Value> = sql.params().into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self
-            .transaction
-            .conn
-            .query(&sql_str, params)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
 
-        if let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?
-        {
+        if let Some(row) = rows.next().await? {
             R::try_from(&row).map_err(Into::into)
         } else {
             Err(DrizzleError::NotFound)

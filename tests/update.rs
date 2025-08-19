@@ -6,6 +6,8 @@ use procmacros::FromRow;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 
+use crate::common::{ComplexSchema, SimpleSchema};
+
 mod common;
 
 #[derive(Debug, FromRow)]
@@ -36,18 +38,16 @@ struct ComplexResult {
 
 #[tokio::test]
 async fn simple_update() {
-    let db = setup_test_db!();
-    let (drizzle, (simple, ..)) = drizzle!(db, [Simple, Complex]);
-
+    let conn = setup_test_db!();
+    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
     // Insert initial Simple record
     let insert_data = InsertSimple::new("original");
-    let insert_result = drizzle_exec!(drizzle.insert(simple).values([insert_data]).execute());
+    let insert_result = drizzle_exec!(db.insert(simple).values([insert_data]).execute());
     assert_eq!(insert_result, 1);
 
     // Update the record
     let update_result = drizzle_exec!(
-        drizzle
-            .update(simple)
+        db.update(simple)
             .set(UpdateSimple::default().with_name("updated"))
             .r#where(eq(Simple::name, "original"))
             .execute()
@@ -56,8 +56,7 @@ async fn simple_update() {
 
     // Verify the update by selecting the record
     let results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
             .all()
@@ -68,8 +67,7 @@ async fn simple_update() {
 
     // Verify original name is gone
     let old_results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original"))
             .all()
@@ -80,8 +78,8 @@ async fn simple_update() {
 
 #[tokio::test]
 async fn complex_update() {
-    let db = setup_test_db!();
-    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
+    let conn = setup_test_db!();
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
     // Insert initial Complex record
     #[cfg(not(feature = "uuid"))]
@@ -97,13 +95,12 @@ async fn complex_update() {
         .with_age(25)
         .with_description("Original description".to_string());
 
-    let insert_result = drizzle_exec!(drizzle.insert(complex).values([insert_data]).execute());
+    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]).execute());
     assert_eq!(insert_result, 1);
 
     // Update multiple fields
     let update_result = drizzle_exec!(
-        drizzle
-            .update(complex)
+        db.update(complex)
             .set(
                 UpdateComplex::default()
                     .with_email("new@example.com".to_string())
@@ -117,17 +114,16 @@ async fn complex_update() {
 
     // Verify the update by selecting the record
     let results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((
-                complex.id,
-                complex.name,
-                complex.email,
-                complex.age,
-                complex.description,
-            ))
-            .from(complex)
-            .r#where(eq(complex.name, "user"))
-            .all()
+        db.select((
+            complex.id,
+            complex.name,
+            complex.email,
+            complex.age,
+            complex.description,
+        ))
+        .from(complex)
+        .r#where(eq(complex.name, "user"))
+        .all()
     );
 
     assert_eq!(results.len(), 1);
@@ -143,9 +139,8 @@ async fn complex_update() {
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[tokio::test]
 async fn feature_gated_update() {
-    let db = setup_test_db!();
-    let (drizzle, (.., complex)) = drizzle!(db, [Simple, Complex]);
-
+    let conn = setup_test_db!();
+    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
     let insert_data = InsertComplex::new("feature_user", true, common::Role::User)
@@ -161,13 +156,12 @@ async fn feature_gated_update() {
             settings: std::collections::HashMap::new(),
         });
 
-    let insert_result = drizzle_exec!(drizzle.insert(complex).values([insert_data]).execute());
+    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]).execute());
     assert_eq!(insert_result, 1);
 
     // Update feature-gated fields using UUID primary key
     let update_result = drizzle_exec!(
-        drizzle
-            .update(complex)
+        db.update(complex)
             .set(
                 UpdateComplex::default()
                     .with_metadata(common::UserMetadata {
@@ -191,17 +185,16 @@ async fn feature_gated_update() {
 
     // Verify the update by selecting with UUID
     let results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((
-                complex.id,
-                complex.name,
-                complex.email,
-                complex.age,
-                complex.description,
-            ))
-            .from(complex)
-            .r#where(eq(complex.id, test_id))
-            .all()
+        db.select((
+            complex.id,
+            complex.name,
+            complex.email,
+            complex.age,
+            complex.description,
+        ))
+        .from(complex)
+        .r#where(eq(complex.id, test_id))
+        .all()
     );
 
     assert_eq!(results.len(), 1);

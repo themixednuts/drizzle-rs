@@ -9,6 +9,8 @@ use std::array;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+use crate::common::{ComplexPostSchema, FullBlogSchema};
+
 mod common;
 
 #[derive(Debug, FromRow, Default)]
@@ -34,7 +36,7 @@ struct PostCategoryResult {
 #[tokio::test]
 async fn simple_inner_join() {
     let db = setup_test_db!();
-    let (drizzle, (complex, post, ..)) = drizzle!(db, [Complex, Post, PostCategory, Category]);
+    let (drizzle, ComplexPostSchema { complex, post }) = drizzle!(db, ComplexPostSchema);
 
     #[cfg(not(feature = "uuid"))]
     let (id1, id2, id3) = (1, 2, 3);
@@ -128,9 +130,21 @@ async fn simple_inner_join() {
 
 #[tokio::test]
 async fn many_to_many_join() {
+    #[derive(SQLSchema)]
+    struct Schema {
+        category: Category,
+        post: Post,
+        postcategory: PostCategory,
+    }
     let db = setup_test_db!();
-    let (drizzle, (.., post, postcategory, category)) =
-        drizzle!(db, [Complex, Post, PostCategory, Category]);
+    let (
+        drizzle,
+        Schema {
+            category,
+            post,
+            postcategory,
+        },
+    ) = drizzle!(db, Schema);
 
     // Insert test data: posts and categories with many-to-many relationship
     let posts = vec![
