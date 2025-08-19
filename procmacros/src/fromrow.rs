@@ -1,4 +1,6 @@
 use proc_macro2::TokenStream;
+#[cfg(any(feature = "turso", feature = "libsql"))]
+use quote::ToTokens;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
 
@@ -40,6 +42,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         }
     };
 
+    #[cfg(feature = "rusqlite")]
     // Generate field assignments
     let field_assignments = if is_tuple {
         // For tuple structs, use index-based access
@@ -110,7 +113,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 .iter()
                 .enumerate()
                 .map(|(idx, field)| {
-                    let field_type_str = field.ty.to_token_stream().to_string();
+                    let field_type_str = field.ty.clone().into_token_stream().to_string();
                     let is_optional = field_type_str.contains("Option");
                     let into = if is_optional {
                         quote! { .into() }
@@ -144,7 +147,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
             // For named structs, still use index-based access (libsql doesn't support name-based)
             fields.iter().enumerate().map(|(idx, field)| {
                 let field_name = field.ident.as_ref().unwrap();
-                let field_type_str = field.ty.to_token_stream().to_string();
+                let field_type_str = field.ty.clone().into_token_stream().to_string();
                 let idx = idx as i32;
                     let is_optional = field_type_str.contains("Option");
                     let into = if is_optional { quote!{ .into() } } else { quote!{} };

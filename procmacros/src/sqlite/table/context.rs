@@ -13,6 +13,7 @@ pub(crate) struct MacroContext<'a> {
     pub(crate) create_table_sql_runtime: Option<TokenStream>, // For tables with foreign keys
     pub(crate) field_infos: &'a [FieldInfo<'a>],
     pub(crate) select_model_ident: Ident,
+    #[cfg(feature = "rusqlite")]
     pub(crate) select_model_partial_ident: Ident,
     pub(crate) insert_model_ident: Ident,
     pub(crate) update_model_ident: Ident,

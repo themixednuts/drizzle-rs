@@ -37,11 +37,15 @@ fn generate_model_trait_impls(
     ctx: &MacroContext,
     _column_zst_idents: &[Ident],
 ) -> Result<TokenStream> {
+    #[cfg(feature = "rusqlite")]
     let (select_model, select_model_partial, update_model) = (
         &ctx.select_model_ident,
         &ctx.select_model_partial_ident,
         &ctx.update_model_ident,
     );
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    let (select_model, update_model) = (&ctx.select_model_ident, &ctx.update_model_ident);
 
     let struct_ident = &ctx.struct_ident;
 

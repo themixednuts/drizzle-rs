@@ -1,6 +1,8 @@
 use super::{FieldInfo, MacroContext};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+#[cfg(feature = "rusqlite")]
+use quote::format_ident;
+use quote::{ToTokens, quote};
 use syn::{Error, Result};
 
 /// Generate TryFrom implementations for libsql::Row for a table's models
@@ -11,6 +13,8 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         update_model_ident,
         ..
     } = ctx;
+
+    #[cfg(feature = "rusqlite")]
     let (select, update, partial) = field_infos
         .iter()
         .enumerate()
@@ -22,6 +26,18 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    let (select, update) = field_infos
+        .iter()
+        .enumerate()
+        .map(|(i, info)| {
+            Ok((
+                generate_field_from_row_for_select(i, info)?,
+                generate_field_from_row_for_update(i, info)?,
+            ))
+        })
+        .collect::<Result<(Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
@@ -35,6 +51,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
+    #[cfg(feature = "rusqlite")]
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
     #[cfg(not(any(feature = "libsql", feature = "turso")))]
@@ -84,6 +101,7 @@ fn generate_field_from_row_for_update(idx: usize, info: &FieldInfo) -> Result<To
     generate_field_from_row_impl(idx, info, &update_type)
 }
 
+#[cfg(feature = "rusqlite")]
 /// Generate field conversion for PartialSelect model
 fn generate_field_from_row_for_partial_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let select_type = info.get_select_type();

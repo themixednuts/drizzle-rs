@@ -245,7 +245,6 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Executes a transaction with the given callback
-
     pub async fn transaction<F, R>(
         &self,
         tx_type: SQLiteTransactionType,

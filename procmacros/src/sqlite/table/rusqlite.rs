@@ -11,6 +11,8 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         update_model_ident,
         ..
     } = ctx;
+
+    #[cfg(feature = "rusqlite")]
     let (select, update, partial) = field_infos
         .iter()
         .map(|info| {
@@ -21,6 +23,20 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
                 generate_field_from_row(info)?,
                 generate_field_from_row(info)?,
                 quote! { #name: row.get(#column).unwrap_or_default(), },
+            ))
+        })
+        .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    let (select, update) = field_infos
+        .iter()
+        .map(|info| {
+            let name = &info.ident;
+            let column = &info.column_name;
+
+            Ok((
+                generate_field_from_row(info)?,
+                generate_field_from_row(info)?,
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
@@ -37,8 +53,10 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         }
     };
 
+    #[cfg(feature = "rusqlite")]
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
+    #[cfg(feature = "rusqlite")]
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #partial_ident {
             type Error = ::rusqlite::Error;
@@ -51,8 +69,8 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         }
     };
 
-    // Insert models should not have TryFrom<Row> implementations since they're for
-    // writing data TO the database, not reading FROM it
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    let partial_select_model_try_from_impl = quote! {};
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #update_model_ident {

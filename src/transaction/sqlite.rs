@@ -97,6 +97,7 @@ pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
     builder: Builder,
     #[cfg(all(feature = "rusqlite", not(feature = "libsql"), not(feature = "turso")))]
     state: PhantomData<(Schema, State)>,
+    #[allow(clippy::type_complexity)]
     #[cfg(all(any(feature = "turso", feature = "libsql"), not(feature = "rusqlite")))]
     state: PhantomData<(fn() -> &'conn (), Schema, State)>,
 }

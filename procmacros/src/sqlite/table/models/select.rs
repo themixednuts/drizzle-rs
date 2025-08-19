@@ -6,9 +6,18 @@ use syn::Result;
 
 /// Generates the Select model and its partial variant
 pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
+    #[cfg(feature = "rusqlite")]
     let MacroContext {
         select_model_ident,
         select_model_partial_ident,
+        struct_vis,
+        field_infos,
+        ..
+    } = ctx;
+
+    #[cfg(any(feature = "turso", feature = "libsql"))]
+    let MacroContext {
+        select_model_ident,
         struct_vis,
         field_infos,
         ..
