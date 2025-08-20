@@ -48,7 +48,7 @@ smallvec = { version = "1.15.1", features = [
 drizzle-sqlite = { path = "./sqlite", version = "0.1.0" }
 thiserror = "1.0.49"
 tokio = { version = "1.47", features = ["full"] }
-turso = { version = "0.1" }
+turso = { version = "0.1.4" }
 uuid = { version = "1.16.0", features = ["v4", "serde"] }
 
 # Add dev-dependencies for tests
