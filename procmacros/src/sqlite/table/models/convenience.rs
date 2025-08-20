@@ -26,13 +26,20 @@ pub(crate) fn generate_convenience_method(
             // This allows both regular values (String, i32, etc.) and SQL objects to work
             let type_string = base_type.to_token_stream().to_string();
             match (field.is_uuid, type_string.as_str()) {
-                (true, _) => quote! {
-                    pub fn #method_name<V>(mut self, value: V) -> Self
-                    where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::uuid::Uuid>>
-                    {
-                        #assignment
-                        self
+                (true, _) => {
+                    // Use String for TEXT columns, Uuid for BLOB columns
+                    let insert_value_type = match field.column_type {
+                        crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
+                        _ => quote! { ::uuid::Uuid },
+                    };
+                    quote! {
+                        pub fn #method_name<V>(mut self, value: V) -> Self
+                        where
+                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>>
+                        {
+                            #assignment
+                            self
+                        }
                     }
                 },
                 (_, s) if s.contains("String") => quote! {

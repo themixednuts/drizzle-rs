@@ -12,38 +12,20 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         ..
     } = ctx;
 
-    #[cfg(feature = "rusqlite")]
     let (select, update, partial) = field_infos
         .iter()
         .map(|info| {
-            let name = &info.ident;
-            let column = &info.column_name;
-
             Ok((
                 generate_field_from_row(info)?,
-                generate_field_from_row(info)?,
-                quote! { #name: row.get(#column).unwrap_or_default(), },
-            ))
-        })
-        .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
-
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (select, update) = field_infos
-        .iter()
-        .map(|info| {
-            let name = &info.ident;
-            let column = &info.column_name;
-
-            Ok((
-                generate_field_from_row(info)?,
-                generate_field_from_row(info)?,
+                generate_update_field_from_row(info)?,
+                generate_partial_field_from_row(info)?,
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #select_model_ident {
-            type Error = ::rusqlite::Error;
+            type Error = ::drizzle_rs::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -53,13 +35,11 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         }
     };
 
-    #[cfg(feature = "rusqlite")]
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
-    #[cfg(feature = "rusqlite")]
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #partial_ident {
-            type Error = ::rusqlite::Error;
+            type Error = ::drizzle_rs::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -69,12 +49,9 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         }
     };
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let partial_select_model_try_from_impl = quote! {};
-
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #update_model_ident {
-            type Error = ::rusqlite::Error;
+            type Error = ::drizzle_rs::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -215,6 +192,79 @@ pub(crate) fn generate_json_impls(
     }).collect::<Result<Vec<_>>>()
 }
 
+/// Generate partial model field assignment (for rusqlite PartialSelect models)
+fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+    let name = info.ident;
+    let column_name = &info.column_name;
+
+    if info.is_uuid {
+        // Handle UUIDs based on their column type for partial models
+        match info.column_type {
+            crate::sqlite::field::SQLiteType::Text => {
+                // UUID stored as TEXT - get Option<String> and map to Option<Uuid>
+                Ok(quote! {
+                    #name: row.get::<_, Option<String>>(#column_name)
+                        .map(|v| v.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())?.unwrap_or_default(),
+                })
+            }
+            crate::sqlite::field::SQLiteType::Blob => {
+                // UUID stored as BLOB - use direct conversion
+                Ok(quote! {
+                    #name: row.get(#column_name).unwrap_or_default(),
+                })
+            }
+            _ => Err(Error::new_spanned(
+                info.ident,
+                "UUID fields must use either TEXT or BLOB column types",
+            )),
+        }
+    } else {
+        // Standard field - use unwrap_or_default
+        Ok(quote! { #name: row.get(#column_name).unwrap_or_default(), })
+    }
+}
+
+/// Generate update model field assignment (always wraps values in Some() for Option fields)
+fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+    let name = info.ident;
+    let column_name = &info.column_name;
+
+    if info.is_json && !cfg!(feature = "serde") {
+        Err(Error::new_spanned(
+            info.ident,
+            "JSON fields require the 'serde' feature to be enabled",
+        ))
+    } else if info.is_uuid {
+        // Handle UUIDs based on their column type - always wrap in Some() for Update models
+        match info.column_type {
+            crate::sqlite::field::SQLiteType::Text => {
+                // UUID stored as TEXT - convert from string and wrap in Some()
+                Ok(quote! {
+                    #name: {
+                        let v: String = row.get(#column_name)?;
+                        Some(::uuid::Uuid::parse_str(&v)?)
+                    },
+                })
+            }
+            crate::sqlite::field::SQLiteType::Blob => {
+                // UUID stored as BLOB - use direct conversion and wrap in Some()
+                Ok(quote! {
+                    #name: Some(row.get(#column_name)?),
+                })
+            }
+            _ => Err(Error::new_spanned(
+                info.ident,
+                "UUID fields must use either TEXT or BLOB column types",
+            )),
+        }
+    } else {
+        // Standard field - wrap in Some()
+        Ok(quote! {
+            #name: Some(row.get(#column_name)?),
+        })
+    }
+}
+
 /// Handles both standard types and conditional JSON deserialization.
 fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     let name = info.ident;
@@ -226,10 +276,32 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
             "JSON fields require the 'serde' feature to be enabled",
         ))
     } else if info.is_uuid {
-        // Handle all UUIDs as BLOB - rusqlite handles this perfectly with built-in support
-        Ok(quote! {
-            #name: row.get(#column_name)?,
-        })
+        // Handle UUIDs based on their column type
+        match info.column_type {
+            crate::sqlite::field::SQLiteType::Text => {
+                // UUID stored as TEXT - convert from string
+                if info.is_nullable {
+                    Ok(quote! {
+                        #name: row.get::<_, Option<String>>(#column_name)
+                            .map(|v| v.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())??,
+                    })
+                } else {
+                    Ok(quote! {
+                        #name: ::uuid::Uuid::parse_str(&row.get::<_, String>(#column_name)?)?,
+                    })
+                }
+            }
+            crate::sqlite::field::SQLiteType::Blob => {
+                // UUID stored as BLOB - use direct conversion
+                Ok(quote! {
+                    #name: row.get(#column_name)?,
+                })
+            }
+            _ => Err(Error::new_spanned(
+                info.ident,
+                "UUID fields must use either TEXT or BLOB column types",
+            )),
+        }
     } else {
         Ok(quote! {
             #name: row.get(#column_name)?,

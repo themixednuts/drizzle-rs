@@ -69,8 +69,17 @@ impl<'a> MacroContext<'a> {
         let base_type = field.base_type;
         match model_type {
             ModelType::Insert => {
-                // All insert fields use InsertValue for three-state handling with owned data
-                quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>)
+                // For UUID fields, use String for TEXT columns, Uuid for BLOB columns
+                if field.is_uuid {
+                    let insert_value_type = match field.column_type {
+                        crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
+                        _ => quote! { ::uuid::Uuid },
+                    };
+                    quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>)
+                } else {
+                    // All other insert fields use InsertValue for three-state handling with owned data
+                    quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>)
+                }
             }
             ModelType::Update => quote!(Option<#base_type>),
             ModelType::PartialSelect => quote!(Option<#base_type>),

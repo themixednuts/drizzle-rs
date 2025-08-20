@@ -165,9 +165,9 @@ fn handle_uuid_field(
         }
         crate::sqlite::field::SQLiteType::Text => {
             if is_optional {
-                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| ::uuid::Uuid::parse_str(&v).ok())))
+                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())?)
             } else {
-                quote!(::uuid::Uuid::parse_str(&row.get::<String>(#idx)?).map_err(Into::into))
+                quote!(row.get::<String>(#idx).map(|v| ::uuid::Uuid::parse_str(&v))?)
             }
         }
         _ => {

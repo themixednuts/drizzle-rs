@@ -448,12 +448,12 @@ impl<'a> FieldInfo<'a> {
               Examples:\n  #[text(default = \"hello\")] for compile-time defaults\n  #[text(default_fn = String::new)] for runtime defaults",
             ),
             (
-                props.is_uuid && !matches!(column_type, SQLiteType::Blob),
-                "UUID fields must use BLOB column type for optimal performance and compatibility.\n\
-              UUIDs are stored as 16-byte binary data in SQLite.\n\
+                props.is_uuid && !matches!(column_type, SQLiteType::Blob | SQLiteType::Text),
+                "UUID fields must use either BLOB or TEXT column type.\n\
+              BLOB storage: Efficient 16-byte binary format (recommended)\n\
+              TEXT storage: Human-readable string format\n\
               See: https://sqlite.org/datatype3.html#storage_classes_and_datatypes\n\
-              Use: #[blob] instead of #[text] for UUID fields\n\
-              Example: #[blob(primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid",
+              Examples:\n  #[blob(primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid\n  #[text(default_fn = uuid::Uuid::new_v4)] pub uuid_text: uuid::Uuid",
             ),
         ];
 

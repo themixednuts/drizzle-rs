@@ -126,6 +126,25 @@ where
     }
 }
 
+// UUID conversion for String InsertValue (for text columns)
+#[cfg(feature = "uuid")]
+impl<'a> From<Uuid> for InsertValue<'a, SQLiteValue<'a>, String> {
+    fn from(value: Uuid) -> Self {
+        let sqlite_value = SQLiteValue::Text(std::borrow::Cow::Owned(value.to_string()));
+        let sql = SQL::parameter(sqlite_value);
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, String>::new(sql))
+    }
+}
+
+#[cfg(feature = "uuid")]
+impl<'a> From<&'a Uuid> for InsertValue<'a, SQLiteValue<'a>, String> {
+    fn from(value: &'a Uuid) -> Self {
+        let sqlite_value = SQLiteValue::Text(std::borrow::Cow::Owned(value.to_string()));
+        let sql = SQL::parameter(sqlite_value);
+        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, String>::new(sql))
+    }
+}
+
 // Array conversion for Vec<u8> InsertValue - support flexible input types
 impl<'a, const N: usize> From<[u8; N]> for InsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
     fn from(value: [u8; N]) -> Self {
@@ -873,6 +892,7 @@ impl<'a> TryFrom<SQLiteValue<'a>> for Uuid {
                 })?;
                 Ok(Uuid::from_bytes(bytes))
             }
+            SQLiteValue::Text(cow) => Ok(Uuid::parse_str(cow.as_ref())?),
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to UUID",
                 value
@@ -1150,6 +1170,7 @@ impl<'a> TryFrom<&SQLiteValue<'a>> for Uuid {
                 })?;
                 Ok(Uuid::from_bytes(bytes))
             }
+            SQLiteValue::Text(cow) => Ok(Uuid::parse_str(cow.as_ref())?),
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to UUID",
                 value

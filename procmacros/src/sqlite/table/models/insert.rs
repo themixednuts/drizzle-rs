@@ -81,10 +81,17 @@ pub(crate) fn generate_insert_model(
 
             // Use the same flexible parameter types as convenience methods
             let (param, assignment) = match (info.is_uuid, type_string.as_str()) {
-                (true, _) => (
-                    quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::uuid::Uuid>> },
-                    quote! { #field_name: #field_name.into() },
-                ),
+                (true, _) => {
+                    // Use String for TEXT columns, Uuid for BLOB columns
+                    let insert_value_type = match info.column_type {
+                        crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
+                        _ => quote! { ::uuid::Uuid },
+                    };
+                    (
+                        quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>> },
+                        quote! { #field_name: #field_name.into() },
+                    )
+                },
                 (_, s) if s.contains("String") => (
                     quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },
@@ -157,15 +164,22 @@ pub(crate) fn generate_insert_model(
         let type_string = base_type.to_token_stream().to_string();
 
         match (info.is_uuid, type_string.as_str()) {
-            (true, _) => quote! {
-                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
-                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
-                    where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::uuid::Uuid>>
-                    {
-                        #insert_model {
-                            #(#field_assignments,)*
-                            _pattern: ::std::marker::PhantomData,
+            (true, _) => {
+                // Use String for TEXT columns, Uuid for BLOB columns
+                let insert_value_type = match info.column_type {
+                    crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
+                    _ => quote! { ::uuid::Uuid },
+                };
+                quote! {
+                    impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
+                        pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
+                        where
+                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>>
+                        {
+                            #insert_model {
+                                #(#field_assignments,)*
+                                _pattern: ::std::marker::PhantomData,
+                            }
                         }
                     }
                 }
