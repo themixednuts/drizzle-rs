@@ -610,7 +610,6 @@ dependencies = [
  "drizzle-macros",
  "drizzle-mysql",
  "drizzle-postgres",
- "drizzle-rs",
  "drizzle-sqlite",
  "futures-util",
  "libsql",
