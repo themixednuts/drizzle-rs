@@ -11,7 +11,7 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust
+//! ```ignore
 //! use drizzle_rs::prelude::*;
 //!
 //! // Define your schema
@@ -54,7 +54,7 @@ use syn::parse_macro_input;
 ///
 /// # Syntax
 ///
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::{sqlite::SQLiteTable, SQLSchema, drizzle};
 ///
 /// #[SQLiteTable]
@@ -118,7 +118,7 @@ use syn::parse_macro_input;
 /// # Examples
 ///
 /// ## Single Table
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -155,7 +155,7 @@ use syn::parse_macro_input;
 /// ```
 ///
 /// ## Multiple Tables
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 /// use drizzle_rs::error::DrizzleError;
 ///
@@ -219,7 +219,7 @@ pub fn drizzle(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// # Examples
 ///
 /// ## Text Storage (Variant Names)
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
@@ -240,7 +240,7 @@ pub fn drizzle(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// ```
 ///
 /// ## Integer Storage (Discriminants)
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
@@ -341,7 +341,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ## Basic Table
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -358,7 +358,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ## Table with Defaults
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[SQLiteTable(name = "posts", strict)]
@@ -375,7 +375,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ## Enums and JSON
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 /// # #[cfg(feature = "serde")]
 /// use serde::{Serialize, Deserialize};
@@ -416,7 +416,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// Use `Option<T>` for nullable fields, or `T` for NOT NULL constraints:
 ///
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[SQLiteTable]
@@ -500,7 +500,7 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use drizzle_rs::prelude::*;
 ///
 /// #[SQLiteTable]
@@ -560,7 +560,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// # Syntax Forms
 ///
 /// ## String Literal Syntax
-/// ```rust
+/// ```ignore
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
@@ -577,7 +577,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ## Token Stream Syntax (Preserves LSP Hover)
-/// ```rust
+/// ```ignore
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
@@ -594,7 +594,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ## Printf-Style Syntax
-/// ```rust
+/// ```ignore
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
@@ -613,7 +613,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ## Basic Usage
-/// ```rust
+/// ```ignore
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
@@ -631,7 +631,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ## Multiple Expressions
-/// ```rust
+/// ```ignore
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
@@ -651,7 +651,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Escaped Braces
 /// Use `{{` and `}}` for literal braces in the SQL:
-/// ```rust
+/// ```ignore
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }

@@ -16,7 +16,6 @@ uuid = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 paste = { workspace = true }
-frunk = { workspace = true }
 smallvec = { workspace = true }
 compact_str = { workspace = true }
 turso = { workspace = true, optional = true }
