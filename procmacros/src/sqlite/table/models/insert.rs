@@ -91,7 +91,7 @@ pub(crate) fn generate_insert_model(
                         quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>> },
                         quote! { #field_name: #field_name.into() },
                     )
-                },
+                }
                 (_, s) if s.contains("String") => (
                     quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },

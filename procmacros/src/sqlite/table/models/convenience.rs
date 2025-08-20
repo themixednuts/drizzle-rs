@@ -41,7 +41,7 @@ pub(crate) fn generate_convenience_method(
                             self
                         }
                     }
-                },
+                }
                 (_, s) if s.contains("String") => quote! {
                     pub fn #method_name<V>(mut self, value: V) -> Self
                     where
