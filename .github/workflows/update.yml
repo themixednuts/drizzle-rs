@@ -1,7 +1,9 @@
 name: Update
 
 on:
-  push:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
     branches: [master]
   workflow_dispatch:
 
@@ -12,6 +14,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' && github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
@@ -30,8 +33,16 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
+      - name: Install nightly Rust for formatting
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+
+      - name: Format code with nightly
+        run: cargo +nightly fmt
 
       - name: Install release-plz
         uses: taiki-e/install-action@v2

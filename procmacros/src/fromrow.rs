@@ -66,7 +66,11 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
     };
 
     // Generate implementations for all drivers
+    #[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
+
+    #[cfg(not(any(feature = "rusqlite", feature = "libsql", feature = "turso")))]
+    let impl_blocks: Vec<TokenStream> = Vec::new();
 
     // Rusqlite implementation
     #[cfg(feature = "rusqlite")]

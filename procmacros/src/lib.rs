@@ -44,7 +44,6 @@ mod rusqlite;
 
 use drizzle::DrizzleInput;
 use proc_macro::TokenStream;
-use quote::quote;
 use syn::parse_macro_input;
 
 /// Initialize a Drizzle instance with database connection and table schemas.

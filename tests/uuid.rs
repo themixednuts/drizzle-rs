@@ -3,7 +3,7 @@
     feature = "uuid"
 ))]
 
-use drizzle_rs::{error::DrizzleError, prelude::*};
+use drizzle_rs::prelude::*;
 use uuid::Uuid;
 
 mod common;
@@ -18,21 +18,6 @@ struct UuidTextTest {
     #[text]
     name: String,
 }
-
-// impl TryFrom<rusqlite::Row<'_>> for UuidTextTest {
-//     type Error = DrizzleError;
-
-//     fn try_from(value: rusqlite::Row<'_>) -> Result<Self, Self::Error> {
-//         Ok(Self {
-//             id: value.get(0)?,
-//             uuid_field: value
-//                 .get::<_, Option<String>>(1)
-//                 .map(|v| v.map(|v| Uuid::parse_str(&v)).transpose())?
-//                 .unwrap_or_default(),
-//             name: value.get(2)?,
-//         })
-//     }
-// }
 
 // Test table with UUID as BLOB column
 #[SQLiteTable(name = "uuid_blob_test")]

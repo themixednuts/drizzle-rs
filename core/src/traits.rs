@@ -1,7 +1,7 @@
 use std::any::Any;
 mod tuple;
 
-use crate::{SQL, SQLSchemaType, ToSQL, error::DrizzleError};
+use crate::{SQL, SQLSchemaType, ToSQL};
 
 /// A marker trait for types that can be used as SQL parameters.
 ///
