@@ -185,17 +185,17 @@ fn is_float_type(base_type_str: &str) -> bool {
 /// Extract base type from Option<T> or T
 fn extract_base_type(type_str: &str) -> String {
     if let Some(inner) = type_str.strip_prefix("Option < ")
-        && let Some(inner) = inner.strip_suffix(" >") {
-            return inner.trim().to_string();
-        }
+        && let Some(inner) = inner.strip_suffix(" >")
+    {
+        return inner.trim().to_string();
+    }
     type_str.to_string()
 }
 
 /// Check if field has json attribute
 fn has_json_attribute(field: &Field) -> bool {
-    field.attrs.iter().any(|attr| {
-        attr.path()
-            .get_ident()
-            .is_some_and(|ident| ident == "json")
-    })
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
 }
