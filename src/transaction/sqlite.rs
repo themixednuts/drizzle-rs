@@ -91,7 +91,9 @@ pub use libsql::Transaction;
 pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
     #[cfg(all(feature = "rusqlite", not(feature = "libsql"), not(feature = "turso")))]
     transaction: &'a Transaction<'conn, Schema>,
-    #[cfg(all(any(feature = "turso", feature = "libsql"), not(feature = "rusqlite")))]
+    #[cfg(all(feature = "turso", not(feature = "libsql"), not(feature = "rusqlite")))]
+    transaction: &'a Transaction<'conn, Schema>,
+    #[cfg(all(feature = "libsql", not(feature = "turso"), not(feature = "rusqlite")))]
     transaction: &'a Transaction<Schema>,
 
     builder: Builder,

@@ -5,7 +5,7 @@ mod transaction;
 
 // Essential re-exports
 pub use drizzle_core::error::Result;
-pub use drizzle_macros::{SQLSchema, drizzle, sql};
+pub use drizzle_macros::{FromRow, SQLSchema, drizzle, sql};
 
 // Error types
 pub mod error {
@@ -95,7 +95,7 @@ pub mod prelude {
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod tests {
-    use drizzle_macros::{SQLiteTable, drizzle};
+    use drizzle_macros::SQLiteTable;
     use drizzle_rs::prelude::*;
 
     #[cfg(feature = "rusqlite")]
@@ -147,6 +147,7 @@ mod tests {
     #[cfg(feature = "rusqlite")]
     #[test]
     fn test_insert() {
+        use drizzle_macros::drizzle;
         use drizzle_sqlite::builder::Conflict;
 
         let conn = rusqlite::Connection::open_in_memory().unwrap();

@@ -89,6 +89,30 @@ impl From<libsql::TransactionBehavior> for SQLiteTransactionType {
         }
     }
 }
+// Convert to turso::TransactionBehavior
+#[cfg(feature = "turso")]
+impl From<SQLiteTransactionType> for turso::transaction::TransactionBehavior {
+    fn from(tx_type: SQLiteTransactionType) -> Self {
+        match tx_type {
+            SQLiteTransactionType::Deferred => turso::transaction::TransactionBehavior::Deferred,
+            SQLiteTransactionType::Immediate => turso::transaction::TransactionBehavior::Immediate,
+            SQLiteTransactionType::Exclusive => turso::transaction::TransactionBehavior::Exclusive,
+        }
+    }
+}
+
+// Convert from turso::TransactionBehavior
+#[cfg(feature = "turso")]
+impl From<turso::transaction::TransactionBehavior> for SQLiteTransactionType {
+    fn from(behavior: turso::transaction::TransactionBehavior) -> Self {
+        match behavior {
+            turso::transaction::TransactionBehavior::Deferred => SQLiteTransactionType::Deferred,
+            turso::transaction::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
+            turso::transaction::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
+            _ => SQLiteTransactionType::Deferred,
+        }
+    }
+}
 
 /// Creates an array of SQL parameters for binding values to placeholders.
 ///
