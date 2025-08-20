@@ -1,0 +1,53 @@
+[workspace]
+# Release control
+publish = true
+release = true
+semver_check = true
+allow_dirty = false
+
+# Git and tagging
+git_tag_enable = true
+git_release_enable = true
+
+# Changelog settings
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+
+# PR settings
+pr_labels = ["release"]
+
+# Conventional commits configuration
+[changelog]
+header = """# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
+
+# Package-specific overrides
+[[package]]
+name = "drizzle_rs"
+changelog_update = true
+
+[[package]]
+name = "drizzle-core"
+changelog_update = false
+
+[[package]]
+name = "drizzle-macros" 
+changelog_update = false
+
+[[package]]
+name = "drizzle-sqlite"
+changelog_update = false
+
+[[package]]
+name = "drizzle-postgres"
+changelog_update = false
+
+[[package]]
+name = "drizzle-mysql"
+changelog_update = false
