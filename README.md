@@ -47,8 +47,8 @@ Choose between binary (BLOB) or string (TEXT) storage:
 pub id: Uuid,
 
 // String storage (36 characters) - human readable  
-#[text(primary, default_fn = || Uuid::new_v4().to_string())]
-pub id: String,
+#[text(primary, default_fn = || Uuid::new_v4)]
+pub id: Uuid,
 ```
 
 ### Indexes
@@ -88,6 +88,7 @@ use uuid::Uuid;
 
 use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
+             // drizzle_rs::error::Result<()>
 fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
     let conn = Connection::open_in_memory()?;
     let (db, Schema { users, posts }) = drizzle!(conn, Schema);
@@ -140,10 +141,9 @@ fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
 // Always use new() as it forces you at compile time to input required fields
 InsertUsers::new("John Doe", 25)
     .with_email("john@example.com") // Optional fields via .with_*
-
-// don't use default() as this will fail at runtime if you do not provide the required fields
-InsertUsers::default()
 ```
+> [!WARNING]  
+> Avoid using `InsertUsers::default()`, as it will fail at runtime if required fields are not provided.
 
 The `.values()` method automatically batches inserts of the same type:
 
@@ -156,7 +156,7 @@ db.insert(users)
     ])
     .execute()?;
 
-// compile time failure, use transactions
+// compile time failure
 db.insert(users)
     .values([
         InsertUsers::new("Alice", 30),

@@ -1,4 +1,10 @@
 extern crate self as drizzle_rs;
+#[cfg(any(
+    all(feature = "rusqlite", feature = "libsql"),
+    all(feature = "rusqlite", feature = "turso"),
+    all(feature = "libsql", feature = "turso"),
+))]
+compile_error!("Only one of `rusqlite`, `libsql`, or `turso` features may be enabled at a time.");
 
 mod drizzle;
 mod transaction;
