@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 # Package-specific overrides
 [[package]]
-name = "drizzle_rs"
+name = "drizzle-rs"
 changelog_update = true
 
 [[package]]
@@ -37,7 +37,7 @@ name = "drizzle-core"
 changelog_update = false
 
 [[package]]
-name = "drizzle-macros" 
+name = "drizzle-macros"
 changelog_update = false
 
 [[package]]

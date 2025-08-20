@@ -1,5 +1,5 @@
 [package]
-name = "drizzle_rs"
+name = "drizzle-rs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -24,7 +24,7 @@ repository = "https://github.com/themixednuts/drizzle-rs"
 rust-version = "1.89"
 
 [workspace.dependencies]
-drizzle_rs = { path = ".", version = "0.1.0" }
+drizzle-rs = { path = ".", version = "0.1.0" }
 drizzle-core = { path = "./core", version = "0.1.0" }
 drizzle-macros = { path = "./procmacros", version = "0.1.0" }
 drizzle-mysql = { path = "./mysql", version = "0.1.0" }
@@ -53,7 +53,7 @@ uuid = { version = "1.16.0", features = ["v4", "serde"] }
 
 # Add dev-dependencies for tests
 [dev-dependencies]
-drizzle_rs = { workspace = true }
+drizzle-rs = { workspace = true }
 drizzle-macros = { workspace = true }
 
 divan = "0.1.21"

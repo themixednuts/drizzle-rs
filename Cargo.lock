@@ -566,7 +566,7 @@ name = "drizzle-macros"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "drizzle_rs",
+ "drizzle-rs",
  "heck",
  "libsql",
  "paste",
@@ -603,25 +603,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "drizzle-sqlite"
-version = "0.1.0"
-dependencies = [
- "compact_str",
- "drizzle-core",
- "drizzle_rs",
- "libsql",
- "libsql-rusqlite 0.33.0",
- "paste",
- "rusqlite",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "turso",
- "uuid",
-]
-
-[[package]]
-name = "drizzle_rs"
+name = "drizzle-rs"
 version = "0.1.0"
 dependencies = [
  "divan",
@@ -629,8 +611,8 @@ dependencies = [
  "drizzle-macros",
  "drizzle-mysql",
  "drizzle-postgres",
+ "drizzle-rs",
  "drizzle-sqlite",
- "drizzle_rs",
  "futures-util",
  "libsql",
  "libsql-rusqlite 0.33.0",
@@ -640,6 +622,24 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "turso",
+ "uuid",
+]
+
+[[package]]
+name = "drizzle-sqlite"
+version = "0.1.0"
+dependencies = [
+ "compact_str",
+ "drizzle-core",
+ "drizzle-rs",
+ "libsql",
+ "libsql-rusqlite 0.33.0",
+ "paste",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
  "turso",
  "uuid",
 ]

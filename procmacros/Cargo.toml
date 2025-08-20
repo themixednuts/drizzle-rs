@@ -21,7 +21,7 @@ heck = { version = "0.5.0" }
 paste = { workspace = true }
 
 [dev-dependencies]
-drizzle_rs = { workspace = true }
+drizzle-rs = { workspace = true }
 rusqlite = { workspace = true }
 libsql = { workspace = true }
 turso = { workspace = true }

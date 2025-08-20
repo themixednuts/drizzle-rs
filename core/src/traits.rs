@@ -1,6 +1,8 @@
 use std::any::Any;
 mod tuple;
 
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+use crate::error::DrizzleError;
 use crate::{SQL, SQLSchemaType, ToSQL};
 
 /// A marker trait for types that can be used as SQL parameters.
