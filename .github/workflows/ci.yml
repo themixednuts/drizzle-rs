@@ -87,7 +87,7 @@ jobs:
         echo "Testing with features: $FEATURES"
     
     - name: Run tests - ${{ matrix.driver }} with ${{ matrix.features || 'default' }}
-      run: cargo test --features "${{ steps.features.outputs.features }}" --verbose
+      run: cargo test --workspace --features "${{ steps.features.outputs.features }}" --verbose
     
     - name: Run examples - ${{ matrix.driver }} with ${{ matrix.features || 'default' }}
       run: cargo run --example rusqlite --features "${{ steps.features.outputs.features }}"
@@ -120,7 +120,7 @@ jobs:
     - name: Run tests - turso with ${{ matrix.features }}
       run: |
         echo "::notice::Testing turso with features: ${{ matrix.features }}"
-        if cargo test --features "${{ matrix.features }}" --verbose; then
+        if cargo test --workspace --features "${{ matrix.features }}" --verbose; then
           echo "::notice::✅ Turso tests passed with features: ${{ matrix.features }}"
         else
           echo "::warning::❌ Turso tests failed with features: ${{ matrix.features }} (experimental - not blocking)"
