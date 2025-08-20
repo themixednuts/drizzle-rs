@@ -1,7 +1,5 @@
 use super::{FieldInfo, MacroContext};
 use proc_macro2::TokenStream;
-#[cfg(feature = "rusqlite")]
-use quote::format_ident;
 use quote::{ToTokens, quote};
 use syn::{Error, Result};
 
@@ -14,20 +12,6 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         ..
     } = ctx;
 
-    #[cfg(feature = "rusqlite")]
-    let (select, update, partial) = field_infos
-        .iter()
-        .enumerate()
-        .map(|(i, info)| {
-            Ok((
-                generate_field_from_row_for_select(i, info)?,
-                generate_field_from_row_for_update(i, info)?,
-                generate_field_from_row_for_partial_select(i, info)?,
-            ))
-        })
-        .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
-
-    #[cfg(any(feature = "turso", feature = "libsql"))]
     let (select, update) = field_infos
         .iter()
         .enumerate()
@@ -51,25 +35,6 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
-    #[cfg(feature = "rusqlite")]
-    let partial_ident = format_ident!("Partial{}", select_model_ident);
-
-    #[cfg(not(any(feature = "libsql", feature = "turso")))]
-    let partial_select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::libsql::Row> for #partial_ident {
-            type Error = ::drizzle_rs::error::DrizzleError;
-
-            fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#partial)*
-                })
-            }
-        }
-    };
-
-    #[cfg(any(feature = "libsql", feature = "turso"))]
-    let partial_select_model_try_from_impl = quote! {};
-
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #update_model_ident {
             type Error = ::drizzle_rs::error::DrizzleError;
@@ -84,7 +49,6 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     Ok(quote! {
         #select_model_try_from_impl
-        #partial_select_model_try_from_impl
         #update_model_try_from_impl
     })
 }
@@ -99,14 +63,6 @@ fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<To
 fn generate_field_from_row_for_update(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let update_type = info.get_update_type();
     generate_field_from_row_impl(idx, info, &update_type)
-}
-
-#[cfg(feature = "rusqlite")]
-/// Generate field conversion for PartialSelect model
-fn generate_field_from_row_for_partial_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
-    let select_type = info.get_select_type();
-    let partial_type = quote!(Option<#select_type>);
-    generate_field_from_row_impl(idx, info, &partial_type)
 }
 
 /// Core implementation for field conversion from libsql Row
@@ -165,8 +121,20 @@ fn handle_json_field(
     is_optional: bool,
 ) -> Result<TokenStream> {
     let accessor = match info.column_type {
-        crate::sqlite::field::SQLiteType::Text => quote!(row.get_value(#idx)?.as_text()),
-        crate::sqlite::field::SQLiteType::Blob => quote!(row.get_value(#idx)?.as_blob()),
+        crate::sqlite::field::SQLiteType::Text => {
+            if is_optional {
+                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| serde_json::from_str(&v).ok())))
+            } else {
+                quote!(row.get::<String>(#idx).map(|v|serde_json::from_str(v.as_str()))?)
+            }
+        }
+        crate::sqlite::field::SQLiteType::Blob => {
+            if is_optional {
+                quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| serde_json::from_slice(&v).ok())))
+            } else {
+                quote!(row.get::<Vec<u8>>(#idx).map(|v|serde_json::from_slice(v.as_slice()))?)
+            }
+        }
         _ => {
             return Err(Error::new_spanned(
                 info.ident,
@@ -175,42 +143,9 @@ fn handle_json_field(
         }
     };
 
-    let converter = match info.column_type {
-        crate::sqlite::field::SQLiteType::Text => {
-            |v: TokenStream| quote!(#v.map(|v| serde_json::from_str(v)).transpose()?)
-        }
-        crate::sqlite::field::SQLiteType::Blob => {
-            |v: TokenStream| quote!(#v.map(|v| serde_json::from_slice(v)).transpose()?)
-        }
-        _ => unreachable!(),
-    };
-
-    Ok(wrap_optional(converter(accessor), name, is_optional))
-}
-
-fn wrap_optional(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> TokenStream {
-    if is_optional {
-        quote! {
-            #name: #inner,
-        }
-    } else {
-        let error_msg = format!("Error converting required field `{}`", name);
-        quote! {
-            #name: #inner
-                .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(#error_msg.to_string()))?,
-        }
-    }
-}
-fn wrap_some(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> TokenStream {
-    if is_optional {
-        quote! {
-            #name: Some(#inner),
-        }
-    } else {
-        quote! {
-            #name: #inner,
-        }
-    }
+    Ok(quote! {
+        #name: #accessor?,
+    })
 }
 
 /// Handle UUID fields
@@ -220,17 +155,20 @@ fn handle_uuid_field(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    let into = if is_optional {
-        quote! { .into() }
-    } else {
-        quote! {}
-    };
     let accessor = match info.column_type {
         crate::sqlite::field::SQLiteType::Blob => {
-            quote!(row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into)
+            if is_optional {
+                quote!(row.get::<Option<[u8;16]>>(#idx).map(|opt| opt.map(::uuid::Uuid::from_bytes)))
+            } else {
+                quote!(row.get::<[u8;16]>(#idx).map(::uuid::Uuid::from_bytes))
+            }
         }
         crate::sqlite::field::SQLiteType::Text => {
-            quote!(row.get::<String>(#idx).map(|v| ::uuid::Uuid::parse_str(&v))??#into)
+            if is_optional {
+                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| ::uuid::Uuid::parse_str(&v).ok())))
+            } else {
+                quote!(::uuid::Uuid::parse_str(&row.get::<String>(#idx)?).map_err(Into::into))
+            }
         }
         _ => {
             return Err(Error::new_spanned(
@@ -240,7 +178,9 @@ fn handle_uuid_field(
         }
     };
 
-    Ok(wrap_some(accessor, name, is_optional))
+    Ok(quote! {
+        #name: #accessor?,
+    })
 }
 
 /// Handle integer fields
@@ -251,20 +191,28 @@ fn handle_integer_field(
     is_optional: bool,
     base_type_str: &str,
 ) -> Result<TokenStream> {
-    let accessor = quote!(row.get_value(#idx)?.as_integer());
-
     let is_not_i64 = !base_type_str.contains("i64");
     let is_bool = base_type_str.contains("bool");
 
-    let converter = if is_bool {
-        |v: TokenStream| quote!(#v.map(|&v| v != 0))
+    let accessor = if is_bool {
+        if is_optional {
+            quote!(row.get::<Option<i64>>(#idx).map(|opt| opt.map(|v| v != 0)))
+        } else {
+            quote!(row.get::<i64>(#idx).map(|v| v != 0))
+        }
     } else if info.is_enum || is_not_i64 {
-        |v: TokenStream| quote!(#v.map(|&v| v.try_into()).transpose()?)
+        if is_optional {
+            quote!(row.get::<Option<i64>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
+        } else {
+            quote!(row.get::<i64>(#idx).map(TryInto::try_into)?)
+        }
     } else {
-        |v: TokenStream| quote!(#v.copied())
+        quote!(row.get(#idx))
     };
 
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    Ok(quote! {
+        #name: #accessor?,
+    })
 }
 
 /// Handle text fields
@@ -274,15 +222,21 @@ fn handle_text_field(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    let accessor = quote!(row.get_value(#idx)?.as_text());
-
-    let converter = if info.is_enum {
-        |v: TokenStream| quote!(#v.map(|v| v.try_into()).transpose()?)
+    let accessor = if info.is_enum {
+        if is_optional {
+            quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
+        } else {
+            quote!(row.get::<String>(#idx).map(TryInto::try_into)?)
+        }
+    } else if is_optional {
+        quote!(row.get::<Option<String>>(#idx))
     } else {
-        |v: TokenStream| quote!(#v.cloned())
+        quote!(row.get::<String>(#idx))
     };
 
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    Ok(quote! {
+        #name: #accessor?,
+    })
 }
 
 /// Handle real/float fields
@@ -293,15 +247,19 @@ fn handle_real_field(
     is_optional: bool,
     base_type_str: &str,
 ) -> Result<TokenStream> {
-    let accessor = quote!(row.get_value(#idx)?.as_real());
-
-    let converter = if base_type_str.contains("f32") {
-        |v: TokenStream| quote!(#v.map(|&v| v as f32))
+    let accessor = if base_type_str.contains("f32") {
+        if is_optional {
+            quote!(row.get::<Option<f64>>(#idx).map(|opt| opt.map(|v| v as f32)))
+        } else {
+            quote!(row.get::<f64>(#idx).map(|v| v as f32))
+        }
     } else {
-        |v: TokenStream| quote!(#v.cloned())
+        quote!(row.get(#idx))
     };
 
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    Ok(quote! {
+        #name: #accessor?,
+    })
 }
 
 /// Handle blob fields
@@ -311,11 +269,15 @@ fn handle_blob_field(
     _info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    let accessor = quote!(row.get_value(#idx)?.as_blob());
+    let accessor = if is_optional {
+        quote!(row.get::<Option<Vec<u8>>>(#idx))
+    } else {
+        quote!(row.get::<Vec<u8>>(#idx))
+    };
 
-    let converter = |v: TokenStream| quote!(#v.cloned());
-
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    Ok(quote! {
+        #name: #accessor?,
+    })
 }
 
 /// Generate libsql JSON implementations (Into<libsql::Value>) - per JSON type approach

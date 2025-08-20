@@ -1,8 +1,13 @@
 use proc_macro2::TokenStream;
-#[cfg(any(feature = "turso", feature = "libsql"))]
-use quote::ToTokens;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
+
+#[cfg(feature = "libsql")]
+mod libsql;
+#[cfg(feature = "rusqlite")]
+mod rusqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 /// Parse column reference from field attributes, looking for #[column(Table::field)]
 fn parse_column_reference(field: &Field) -> Option<ExprPath> {
@@ -43,31 +48,21 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
     };
 
     #[cfg(feature = "rusqlite")]
-    // Generate field assignments
     let field_assignments = if is_tuple {
-        // For tuple structs, use index-based access
         fields
             .iter()
             .enumerate()
-            .map(|(idx, _field)| {
-                quote! {
-                    row.get(#idx)?,
-                }
-            })
-            .collect::<Vec<_>>()
+            .map(|(idx, field)| rusqlite::generate_field_assignment(idx, field, None))
+            .collect::<std::result::Result<Vec<_>, _>>()?
     } else {
-        // For named structs, use field name as the column alias
         fields
             .iter()
-            .map(|field| {
+            .enumerate()
+            .map(|(idx, field)| {
                 let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
-
-                quote! {
-                    #field_name: row.get(#field_name_str)?,
-                }
+                rusqlite::generate_field_assignment(idx, field, Some(field_name))
             })
-            .collect::<Vec<_>>()
+            .collect::<std::result::Result<Vec<_>, _>>()?
     };
 
     // Generate implementations for all drivers
@@ -104,87 +99,32 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         impl_blocks.push(rusqlite_impl);
     }
 
-    // Libsql implementation - use simple .get() calls
-    #[cfg(any(feature = "libsql", feature = "turso"))]
+    // Turso implementation
+    #[cfg(feature = "turso")]
     {
         let field_assignments = if is_tuple {
-            // For tuple structs, use index-based access
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| turso::generate_field_assignment(idx, field, None))
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        } else {
             fields
                 .iter()
                 .enumerate()
                 .map(|(idx, field)| {
-                    let field_type_str = field.ty.clone().into_token_stream().to_string();
-                    let is_optional = field_type_str.contains("Option");
-                    let into = if is_optional {
-                        quote! { .into() }
-                    } else {
-                        quote! {}
-                    };
-
-                    let idx = idx as i32;
-
-                    // Special handling for Uuid from [u8;16]
-                    if field_type_str.contains("Uuid") {
-                        quote! {
-                            row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into,
-                        }
-                    } else if field_type_str.contains("f32") {
-                        quote! {
-                            row.get::<f64>(#idx).map(|v| v as f32)?#into,
-                        }
-                    } else if field_type_str.contains("i8") || field_type_str.contains("i16") {
-                        quote! {
-                            row.get::<i64>(#idx).map(|v| v.try_into())??#into,
-                        }
-                    } else {
-                        quote! {
-                            row.get(#idx)?,
-                        }
-                    }
+                    let field_name = field.ident.as_ref().unwrap();
+                    turso::generate_field_assignment(idx, field, Some(field_name))
                 })
-                .collect::<Vec<_>>()
-        } else {
-            // For named structs, still use index-based access (libsql doesn't support name-based)
-            fields.iter().enumerate().map(|(idx, field)| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_type_str = field.ty.clone().into_token_stream().to_string();
-                let idx = idx as i32;
-                    let is_optional = field_type_str.contains("Option");
-                    let into = if is_optional { quote!{ .into() } } else { quote!{} };
-
-                // Special handling for Uuid from [u8;16]
-                if field_type_str.contains("Uuid") {
-                    quote! {
-                        #field_name: row.get::<[u8;16]>(#idx).map(|v| ::uuid::Uuid::from_bytes(v))?#into,
-                    }
-                } else if field_type_str.contains("f32") {
-                    quote! {
-                        #field_name: row.get::<f64>(#idx).map(|v| v as f32)?#into,
-                    }
-                } else if field_type_str.contains("i8") || field_type_str.contains("i16") {
-                    quote! {
-                        #field_name: row.get::<i64>(#idx).map(|v| v.try_into())??#into,
-                    }
-                }
-                else {
-                    quote! {
-                        #field_name: row.get(#idx)?,
-                    }
-                }
-            }).collect::<Vec<_>>()
+                .collect::<std::result::Result<Vec<_>, _>>()?
         };
 
-        #[cfg(feature = "libsql")]
-        let ty = quote! { libsql };
-        #[cfg(feature = "turso")]
-        let ty = quote! { turso };
-
-        let impls = if is_tuple {
+        let turso_impl = if is_tuple {
             quote! {
-                impl ::std::convert::TryFrom<&::#ty::Row> for #struct_name {
+                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
                     type Error = ::drizzle_rs::error::DrizzleError;
 
-                    fn try_from(row: &::#ty::Row) -> ::std::result::Result<Self, Self::Error> {
+                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self(
                             #(#field_assignments)*
                         ))
@@ -193,10 +133,10 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
             }
         } else {
             quote! {
-                impl ::std::convert::TryFrom<&::#ty::Row> for #struct_name {
+                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
                     type Error = ::drizzle_rs::error::DrizzleError;
 
-                    fn try_from(row: &::#ty::Row) -> ::std::result::Result<Self, Self::Error> {
+                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self {
                             #(#field_assignments)*
                         })
@@ -204,7 +144,55 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 }
             }
         };
-        impl_blocks.push(impls);
+        impl_blocks.push(turso_impl);
+    }
+
+    // Libsql implementation
+    #[cfg(all(feature = "libsql", not(feature = "turso")))]
+    {
+        let field_assignments = if is_tuple {
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| libsql::generate_field_assignment(idx, field, None))
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        } else {
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let field_name = field.ident.as_ref().unwrap();
+                    libsql::generate_field_assignment(idx, field, Some(field_name))
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+
+        let libsql_impl = if is_tuple {
+            quote! {
+                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
+                    type Error = ::drizzle_rs::error::DrizzleError;
+
+                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self(
+                            #(#field_assignments)*
+                        ))
+                    }
+                }
+            }
+        } else {
+            quote! {
+                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
+                    type Error = ::drizzle_rs::error::DrizzleError;
+
+                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+                        Ok(Self {
+                            #(#field_assignments)*
+                        })
+                    }
+                }
+            }
+        };
+        impl_blocks.push(libsql_impl);
     }
 
     let impl_block = quote! {

@@ -167,11 +167,18 @@ fn generate_create_all_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStre
         }
     };
 
-    #[cfg(any(feature = "libsql", feature = "turso"))]
+    #[cfg(feature = "libsql")]
     let execute_batch = quote! {
         if !sql_statements.is_empty() {
             let batch_sql = sql_statements.join(";");
             conn.execute_batch(&batch_sql).await?;
+        }
+    };
+
+    #[cfg(feature = "turso")]
+    let execute_batch = quote! {
+        for sql in sql_statements {
+            conn.execute(&sql, ()).await?;
         }
     };
 

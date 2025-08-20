@@ -55,7 +55,7 @@ use syn::parse_macro_input;
 /// # Syntax
 ///
 /// ```rust
-/// use drizzle_rs::prelude::*;
+/// use drizzle_rs::{sqlite::SQLiteTable, SQLSchema, drizzle};
 ///
 /// #[SQLiteTable]
 /// pub struct Table1 {
