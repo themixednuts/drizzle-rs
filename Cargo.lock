@@ -547,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "compact_str",
  "libsql",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "drizzle-rs",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-mysql"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "drizzle-core",
  "serde",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-postgres"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "drizzle-core",
  "serde",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-rs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "divan",
  "drizzle-core",
@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-sqlite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "compact_str",
  "drizzle-core",
