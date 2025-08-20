@@ -1,0 +1,62 @@
+{
+    "branches": ["master"],
+    "plugins": [
+        [
+            "@semantic-release/commit-analyzer",
+            {
+                "preset": "conventionalcommits",
+                "releaseRules": [
+                    { "type": "docs", "scope": "README", "release": "patch" },
+                    { "type": "refactor", "release": "patch" },
+                    { "type": "style", "release": "patch" }
+                ]
+            }
+        ],
+        [
+            "@semantic-release/release-notes-generator",
+            {
+                "preset": "conventionalcommits"
+            }
+        ],
+        [
+            "@semantic-release/changelog",
+            {
+                "changelogFile": "CHANGELOG.md"
+            }
+        ],
+        [
+            "semantic-release-replace-plugin",
+            {
+                "replacements": [
+                    {
+                        "files": ["Cargo.toml"],
+                        "from": "version = \".*\"",
+                        "to": "version = \"${nextRelease.version}\"",
+                        "countMatches": true
+                    }
+                ]
+            }
+        ],
+        [
+            "@semantic-release/git",
+            {
+                "assets": ["Cargo.toml", "CHANGELOG.md"],
+                "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+            }
+        ],
+        [
+            "@semantic-release/github",
+            {
+                "successComment": false,
+                "failComment": false,
+                "releasedLabels": false
+            }
+        ],
+        [
+            "@semantic-release/exec",
+            {
+                "successCmd": "cargo workspaces publish --from-git --token $CARGO_REGISTRY_TOKEN --yes"
+            }
+        ]
+    ]
+}
