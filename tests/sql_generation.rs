@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use common::{Complex};
-use common::{Simple};
+use common::Complex;
+use common::Simple;
 use drizzle_rs::{error::DrizzleError, prelude::*, sql};
 
 #[cfg(feature = "uuid")]

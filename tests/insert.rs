@@ -7,9 +7,9 @@ use drizzle_rs::sqlite::builder::Conflict;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+use crate::common::SimpleSchema;
 #[cfg(feature = "uuid")]
 use crate::common::{ComplexSchema, SimpleComplexSchema};
-use crate::common::SimpleSchema;
 
 mod common;
 

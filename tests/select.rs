@@ -1,17 +1,17 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use common::InsertSimple;
+#[cfg(not(feature = "uuid"))]
+use common::Simple;
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
-use common::{InsertSimple};
 #[cfg(feature = "uuid")]
 use common::{Post, Simple};
-#[cfg(not(feature = "uuid"))]
-use common::{Simple};
 use drizzle_core::OrderBy;
 use drizzle_rs::prelude::*;
 
 #[cfg(feature = "uuid")]
-use crate::common::{ComplexSchema};
-use crate::common::{SimpleSchema};
+use crate::common::ComplexSchema;
+use crate::common::SimpleSchema;
 
 mod common;
 

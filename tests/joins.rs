@@ -1,20 +1,17 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post, PostCategory};
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
-use common::{
-    Category, InsertCategory, InsertPost, InsertPostCategory, Post,
-    PostCategory,
-};
 use drizzle_rs::prelude::*;
 
 use std::array;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+#[cfg(not(feature = "uuid"))]
+use crate::common::FullBlogSchema;
 #[cfg(feature = "uuid")]
 use crate::common::{ComplexPostSchema, FullBlogSchema};
-#[cfg(not(feature = "uuid"))]
-use crate::common::{FullBlogSchema};
 
 mod common;
 
