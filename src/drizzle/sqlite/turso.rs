@@ -1,4 +1,3 @@
-use drizzle_core::ParamBind;
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
@@ -265,30 +264,19 @@ impl<Schema> Drizzle<Schema> {
 
     /// Executes a transaction with the given callback
     pub async fn transaction<F, R>(
-        &self,
+        &mut self,
         tx_type: SQLiteTransactionType,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         F: for<'t> FnOnce(
-            &'t Transaction<'_, Schema>,
+            &'t Transaction<Schema>,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
         >,
     {
-        // Start transaction manually for turso
-        let tx_sql = match tx_type {
-            SQLiteTransactionType::Deferred => "BEGIN DEFERRED",
-            SQLiteTransactionType::Immediate => "BEGIN IMMEDIATE",
-            SQLiteTransactionType::Exclusive => "BEGIN EXCLUSIVE",
-        };
-
-        self.conn
-            .execute(tx_sql, vec![])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
-
-        let transaction = Transaction::new(&self.conn, tx_type);
+        let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
+        let transaction = Transaction::new(tx, tx_type);
 
         match f(&transaction).await {
             Ok(result) => {

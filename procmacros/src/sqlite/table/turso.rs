@@ -1,6 +1,6 @@
 use super::{FieldInfo, MacroContext};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+use quote::{ToTokens, quote};
 use syn::{Error, Result};
 
 /// Generate TryFrom implementations for ::turso::Row for a table's models
@@ -11,17 +11,16 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         update_model_ident,
         ..
     } = ctx;
-    let (select, update, partial) = field_infos
+    let (select, update) = field_infos
         .iter()
         .enumerate()
         .map(|(i, info)| {
             Ok((
                 generate_field_from_row_for_select(i, info)?,
                 generate_field_from_row_for_update(i, info)?,
-                generate_field_from_row_for_partial_select(i, info)?,
             ))
         })
-        .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
+        .collect::<Result<(Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::turso::Row> for #select_model_ident {
@@ -34,24 +33,6 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
             }
         }
     };
-
-    let partial_ident = format_ident!("Partial{}", select_model_ident);
-
-    #[cfg(not(any(feature = "libsql", feature = "turso")))]
-    let partial_select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::turso::Row> for #partial_ident {
-            type Error = ::drizzle_rs::error::DrizzleError;
-
-            fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#partial)*
-                })
-            }
-        }
-    };
-
-    #[cfg(any(feature = "libsql", feature = "turso"))]
-    let partial_select_model_try_from_impl = quote! {};
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::turso::Row> for #update_model_ident {
@@ -67,7 +48,6 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     Ok(quote! {
         #select_model_try_from_impl
-        #partial_select_model_try_from_impl
         #update_model_try_from_impl
     })
 }
@@ -82,13 +62,6 @@ fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<To
 fn generate_field_from_row_for_update(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let update_type = info.get_update_type();
     generate_field_from_row_impl(idx, info, &update_type)
-}
-
-/// Generate field conversion for PartialSelect model
-fn generate_field_from_row_for_partial_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
-    let select_type = info.get_select_type();
-    let partial_type = quote!(Option<#select_type>);
-    generate_field_from_row_impl(idx, info, &partial_type)
 }
 
 /// Core implementation for field conversion from turso Row - clean approach with proper error handling
@@ -235,7 +208,7 @@ fn handle_integer_field(
     } else if info.is_enum || is_not_i64 {
         |v: TokenStream| quote!(#v.map(|&v| v.try_into()).transpose()?)
     } else {
-        |v: TokenStream| quote!(#v)
+        |v: TokenStream| quote!(#v.copied())
     };
 
     Ok(wrap_optional(converter(accessor), name, is_optional))
@@ -270,7 +243,7 @@ fn handle_real_field(
     let accessor = quote!(row.get_value(#idx)?.as_real());
 
     let converter = if base_type_str.contains("f32") {
-        |v: TokenStream| quote!(#v.map(|&v| v.try_into()).transpose()?)
+        |v: TokenStream| quote!(#v.map(|&v| v as f32))
     } else {
         |v: TokenStream| quote!(#v.cloned())
     };
@@ -308,51 +281,56 @@ pub(crate) fn generate_json_impls(
         return Ok(vec![]);
     }
 
-    json_type_storage.iter().map(|(_, (storage_type, info))| {
-        let struct_name = info.base_type;
-        let (into_value_impl) = match storage_type {
-            crate::sqlite::field::SQLiteType::Text => quote! {
-                impl ::turso::IntoValue for #struct_name {
-                    fn into_value(self) -> ::turso::Result<::turso::Value> {
-                        let json = serde_json::to_string(&self)
-                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
-                        Ok(::turso::Value::Text(json))
+    json_type_storage
+        .iter()
+        .map(|(_, (storage_type, info))| {
+            let struct_name = info.base_type;
+            let into_value_impl = match storage_type {
+                crate::sqlite::field::SQLiteType::Text => quote! {
+                    impl ::turso::IntoValue for #struct_name {
+                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                            let json = serde_json::to_string(&self)
+                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(::turso::Value::Text(json))
+                        }
                     }
-                }
 
-                impl ::turso::IntoValue for &#struct_name {
-                    fn into_value(self) -> ::turso::Result<::turso::Value> {
-                        let json = serde_json::to_string(self)
-                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
-                        Ok(::turso::Value::Text(json))
+                    impl ::turso::IntoValue for &#struct_name {
+                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                            let json = serde_json::to_string(self)
+                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(::turso::Value::Text(json))
+                        }
                     }
-                }
-            },
-            crate::sqlite::field::SQLiteType::Blob => quote! {
-                impl ::turso::IntoValue for #struct_name {
-                    fn into_value(self) -> ::turso::Result<::turso::Value> {
-                        let json = serde_json::to_vec(&self)
-                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
-                        Ok(::turso::Value::Blob(json))
+                },
+                crate::sqlite::field::SQLiteType::Blob => quote! {
+                    impl ::turso::IntoValue for #struct_name {
+                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                            let json = serde_json::to_vec(&self)
+                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(::turso::Value::Blob(json))
+                        }
                     }
-                }
 
-                impl ::turso::IntoValue for &#struct_name {
-                    fn into_value(self) -> ::turso::Result<::turso::Value> {
-                        let json = serde_json::to_vec(self)
-                            .map_err(|e| ::turso::Error::ToSql(format!("JSON serialization error: {}", e)))?;
-                        Ok(::turso::Value::Blob(json))
+                    impl ::turso::IntoValue for &#struct_name {
+                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                            let json = serde_json::to_vec(self)
+                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(::turso::Value::Blob(json))
+                        }
                     }
+                },
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        info.ident,
+                        "JSON fields must use either TEXT or BLOB column types",
+                    ));
                 }
-            },
-            _ => return Err(syn::Error::new_spanned(
-                info.ident,
-                "JSON fields must use either TEXT or BLOB column types"
-            )),
-        };
+            };
 
-        Ok(into_value_impl)
-    }).collect::<Result<Vec<_>>>()
+            Ok(into_value_impl)
+        })
+        .collect::<Result<Vec<_>>>()
 }
 
 /// Generate turso enum implementations (IntoValue) - per field approach

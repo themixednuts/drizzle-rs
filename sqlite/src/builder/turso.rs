@@ -1,7 +1,7 @@
 use crate::builder::{ExecutableState, QueryBuilder};
 use drizzle_core::ParamBind;
 use drizzle_core::error::{DrizzleError, Result};
-use turso::{Connection, IntoValue, Row};
+use turso::{Connection, Row};
 
 impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
 where

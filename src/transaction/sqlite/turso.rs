@@ -2,7 +2,7 @@ use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use std::marker::PhantomData;
-use turso::{Connection, IntoValue, Row};
+use turso::Row;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -19,15 +19,18 @@ use drizzle_sqlite::{
 use crate::transaction::sqlite::TransactionBuilder;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
-pub struct Transaction<Schema = ()> {
-    tx: turso::Transaction,
+pub struct Transaction<'conn, Schema = ()> {
+    tx: turso::transaction::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
     _schema: PhantomData<Schema>,
 }
 
-impl<Schema> Transaction<Schema> {
+impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(tx: turso::Transaction, tx_type: SQLiteTransactionType) -> Self {
+    pub(crate) fn new(
+        tx: turso::transaction::Transaction<'conn>,
+        tx_type: SQLiteTransactionType,
+    ) -> Self {
         Self {
             tx,
             tx_type,
@@ -37,7 +40,7 @@ impl<Schema> Transaction<Schema> {
 
     /// Gets a reference to the underlying connection
     #[inline]
-    pub fn tx(&self) -> &turso::Transaction {
+    pub fn tx(&self) -> &turso::transaction::Transaction<'conn> {
         &self.tx
     }
 
