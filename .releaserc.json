@@ -94,7 +94,7 @@
       "@semantic-release/exec",
       {
         "publishCmd": "cargo workspaces publish --from-git --token $CARGO_REGISTRY_TOKEN --yes",
-        "failCmd": "git checkout HEAD~1 Cargo.toml CHANGELOG.md && git commit -m 'Revert failed release' && git push origin master"
+        "failCmd": "git reset --hard HEAD~1 && git push origin +master"
       }
     ]
   ]
