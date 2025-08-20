@@ -1,9 +1,17 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Complex, InsertComplex, InsertSimple, Post, Simple};
+#[cfg(feature = "uuid")]
+use common::{Complex, InsertComplex};
+use common::{InsertSimple};
+#[cfg(feature = "uuid")]
+use common::{Post, Simple};
+#[cfg(not(feature = "uuid"))]
+use common::{Simple};
 use drizzle_core::OrderBy;
 use drizzle_rs::prelude::*;
 
-use crate::common::{ComplexSchema, SimpleSchema};
+#[cfg(feature = "uuid")]
+use crate::common::{ComplexSchema};
+use crate::common::{SimpleSchema};
 
 mod common;
 
@@ -91,6 +99,7 @@ async fn simple_select_with_conditions() {
     assert_eq!(offset_results[1].name, "gamma");
 }
 
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn complex_select_with_conditions() {
     pub struct Schema;
@@ -163,6 +172,7 @@ async fn complex_select_with_conditions() {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn feature_gated_select() {
     let conn = setup_test_db!();

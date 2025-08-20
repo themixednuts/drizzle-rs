@@ -4,11 +4,15 @@ mod common;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "uuid")]
     use uuid::Uuid;
 
+    #[cfg(feature = "uuid")]
     use crate::common::{
         Complex, FullBlogSchema, InsertComplex, InsertPost, Post, SelectPost, setup_db,
     };
+    #[cfg(not(feature = "uuid"))]
+    use crate::common::{FullBlogSchema, InsertPost, Post, SelectPost, setup_db};
 
     use super::*;
 
@@ -38,12 +42,14 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "uuid")]
     #[derive(SQLSchema)]
     pub struct ComplexPostSchema {
         pub complex: Complex,
         pub post: Post,
     }
 
+    #[cfg(feature = "uuid")]
     #[tokio::test]
     async fn test_foreign_key_impl() {
         let conn = setup_test_db!();

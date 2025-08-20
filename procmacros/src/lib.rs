@@ -377,6 +377,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Enums and JSON
 /// ```rust
 /// use drizzle_rs::prelude::*;
+/// # #[cfg(feature = "serde")]
 /// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
@@ -386,9 +387,12 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///     Admin
 /// }
 ///
+/// # #[cfg(feature = "serde")]
 /// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 /// struct Metadata { theme: String }
 ///
+///
+/// # #[cfg(feature = "serde")]
 /// #[SQLiteTable(name = "accounts")]
 /// struct Accounts {
 ///     #[integer(primary)]

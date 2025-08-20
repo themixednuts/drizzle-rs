@@ -52,10 +52,18 @@ fn main() {
 
         #[derive(FromRow, Default, Debug)]
         struct JoinedResult {
+            #[cfg(feature = "uuid")]
             #[column(Users::id)]
             id: Uuid,
+            #[cfg(not(feature = "uuid"))]
+            #[column(Users::id)]
+            id: i64,
+            #[cfg(feature = "uuid")]
             #[column(Posts::id)]
             post_id: Uuid,
+            #[cfg(not(feature = "uuid"))]
+            #[column(Posts::id)]
+            post_id: i64,
             name: String,
             age: u64,
         }

@@ -1,11 +1,15 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Complex, InsertComplex, InsertSimple, Simple, setup_db};
+#[cfg(feature = "uuid")]
+use common::{Complex, InsertComplex};
+use common::{InsertSimple, Simple, setup_db};
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-use crate::common::{ComplexSchema, SimpleComplexSchema, SimpleSchema};
+#[cfg(feature = "uuid")]
+use crate::common::{ComplexSchema, SimpleComplexSchema};
+use crate::common::SimpleSchema;
 
 mod common;
 
@@ -59,6 +63,7 @@ async fn simple_insert() {
     assert_eq!(results[0].name, "test");
 }
 
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn complex_insert() {
     let db = setup_test_db!();
@@ -144,6 +149,7 @@ async fn conflict_resolution() {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn feature_gated_insert() {
     let db = setup_test_db!();

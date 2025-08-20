@@ -50,8 +50,37 @@ pub struct Simple {
     #[text]
     pub name: String,
 }
+#[cfg(all(feature = "uuid", not(feature = "serde")))]
+#[SQLiteTable(name = "complex")]
+pub struct Complex {
+    #[blob(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,
+    #[text]
+    pub name: String,
+    #[text]
+    pub email: Option<String>,
+    #[integer]
+    pub age: Option<i32>,
+    #[real]
+    pub score: Option<f64>,
+    #[boolean]
+    pub active: bool,
+    #[text(enum)]
+    pub role: Role,
 
-#[cfg(feature = "uuid")]
+    // Text field for regular text storage
+    #[text]
+    pub description: Option<String>,
+
+    // Raw blob storage
+    #[blob]
+    pub data_blob: Option<Vec<u8>>,
+
+    #[text]
+    pub created_at: Option<String>,
+}
+
+#[cfg(all(feature = "uuid", feature = "serde"))]
 #[SQLiteTable(name = "complex")]
 pub struct Complex {
     #[blob(primary, default_fn = Uuid::new_v4)]
@@ -74,12 +103,10 @@ pub struct Complex {
     pub description: Option<String>,
 
     // JSON stored as text (serde feature)
-    #[cfg(feature = "serde")]
     #[text(json)]
     pub metadata: Option<UserMetadata>,
 
     // JSON stored as blob (serde feature)
-    #[cfg(feature = "serde")]
     #[blob(json)]
     pub config: Option<UserConfig>,
 
@@ -90,11 +117,11 @@ pub struct Complex {
     #[text]
     pub created_at: Option<String>,
 }
-#[cfg(not(feature = "uuid"))]
+#[cfg(all(not(feature = "uuid"), feature = "serde"))]
 #[SQLiteTable(name = "complex")]
 pub struct Complex {
-    #[blob(primary, default_fn = Uuid::new_v4().into )]
-    pub id: String,
+    #[integer(primary)]
+    pub id: i64,
     #[text]
     pub name: String,
     #[text]
@@ -105,18 +132,18 @@ pub struct Complex {
     pub score: Option<f64>,
     #[boolean]
     pub active: bool,
+    #[text(enum)]
+    pub role: Role,
 
     // Text field for regular text storage
     #[text]
     pub description: Option<String>,
 
     // JSON stored as text (serde feature)
-    #[cfg(feature = "serde")]
     #[text(json)]
     pub metadata: Option<UserMetadata>,
 
     // JSON stored as blob (serde feature)
-    #[cfg(feature = "serde")]
     #[blob(json)]
     pub config: Option<UserConfig>,
 
@@ -128,7 +155,37 @@ pub struct Complex {
     pub created_at: Option<String>,
 }
 
-#[cfg(not(feature = "uuid"))]
+#[cfg(all(not(feature = "uuid"), not(feature = "serde")))]
+#[SQLiteTable(name = "complex")]
+pub struct Complex {
+    #[integer(primary)]
+    pub id: i64,
+    #[text]
+    pub name: String,
+    #[text]
+    pub email: Option<String>,
+    #[integer]
+    pub age: Option<i32>,
+    #[real]
+    pub score: Option<f64>,
+    #[boolean]
+    pub active: bool,
+    #[text(enum)]
+    pub role: Role,
+
+    // Text field for regular text storage
+    #[text]
+    pub description: Option<String>,
+
+    // Raw blob storage
+    #[blob]
+    pub data_blob: Option<Vec<u8>>,
+
+    #[text]
+    pub created_at: Option<String>,
+}
+
+#[cfg(all(not(feature = "uuid"), feature = "serde"))]
 #[SQLiteTable(name = "posts")]
 pub struct Post {
     #[integer(primary)]
@@ -141,7 +198,25 @@ pub struct Post {
     pub author_id: Option<i32>,
     #[boolean]
     pub published: bool,
-    #[cfg(feature = "serde")]
+    #[text]
+    pub tags: Option<String>,
+    #[text]
+    pub created_at: Option<String>,
+}
+
+#[cfg(all(not(feature = "uuid"), not(feature = "serde")))]
+#[SQLiteTable(name = "posts")]
+pub struct Post {
+    #[integer(primary)]
+    pub id: i32,
+    #[text]
+    pub title: String,
+    #[text]
+    pub content: Option<String>,
+    #[integer(references = Complex::id)]
+    pub author_id: Option<i32>,
+    #[boolean]
+    pub published: bool,
     #[text]
     pub tags: Option<String>,
     #[text]
@@ -161,7 +236,6 @@ pub struct Post {
     pub author_id: Option<Uuid>,
     #[boolean]
     pub published: bool,
-    #[cfg(feature = "serde")]
     #[text]
     pub tags: Option<String>,
     #[text]
@@ -186,6 +260,14 @@ pub struct PostCategory {
     pub category_id: i32,
 }
 
+#[cfg(feature = "uuid")]
+#[derive(SQLSchema)]
+pub struct SimpleComplexSchema {
+    pub simple: Simple,
+    pub complex: Complex,
+}
+
+#[cfg(not(feature = "uuid"))]
 #[derive(SQLSchema)]
 pub struct SimpleComplexSchema {
     pub simple: Simple,
@@ -197,6 +279,13 @@ pub struct SimpleSchema {
     pub simple: Simple,
 }
 
+#[cfg(feature = "uuid")]
+#[derive(SQLSchema)]
+pub struct ComplexSchema {
+    pub complex: Complex,
+}
+
+#[cfg(not(feature = "uuid"))]
 #[derive(SQLSchema)]
 pub struct ComplexSchema {
     pub complex: Complex,
@@ -207,6 +296,14 @@ pub struct PostSchema {
     pub post: Post,
 }
 
+#[cfg(feature = "uuid")]
+#[derive(SQLSchema)]
+pub struct ComplexPostSchema {
+    pub complex: Complex,
+    pub post: Post,
+}
+
+#[cfg(not(feature = "uuid"))]
 #[derive(SQLSchema)]
 pub struct ComplexPostSchema {
     pub complex: Complex,
@@ -223,6 +320,17 @@ pub struct PostCategorySchema {
     pub post_category: PostCategory,
 }
 
+#[cfg(feature = "uuid")]
+#[derive(SQLSchema)]
+pub struct FullBlogSchema {
+    pub simple: Simple,
+    pub complex: Complex,
+    pub post: Post,
+    pub category: Category,
+    pub post_category: PostCategory,
+}
+
+#[cfg(not(feature = "uuid"))]
 #[derive(SQLSchema)]
 pub struct FullBlogSchema {
     pub simple: Simple,

@@ -1,11 +1,15 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Complex, InsertComplex, InsertSimple, Simple, UpdateComplex, UpdateSimple, setup_db};
+#[cfg(feature = "uuid")]
+use common::{Complex, InsertComplex, UpdateComplex};
+use common::{InsertSimple, Simple, UpdateSimple, setup_db};
 use drizzle_rs::prelude::*;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 
-use crate::common::{ComplexSchema, SimpleSchema};
+#[cfg(feature = "uuid")]
+use crate::common::ComplexSchema;
+use crate::common::SimpleSchema;
 
 mod common;
 
@@ -75,6 +79,7 @@ async fn simple_update() {
     assert_eq!(old_results.len(), 0);
 }
 
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn complex_update() {
     let conn = setup_test_db!();

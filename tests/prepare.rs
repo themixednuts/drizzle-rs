@@ -8,7 +8,9 @@ use drizzle_rs::{
 };
 
 mod common;
-use common::{Complex, InsertSimple, SelectSimple, Simple, SimpleComplexSchema, SimpleSchema};
+#[cfg(feature = "uuid")]
+use common::{Complex, SimpleComplexSchema};
+use common::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 
 #[tokio::test]
 async fn test_prepare_with_placeholder() {

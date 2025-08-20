@@ -1,8 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use common::{
-    ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
-};
+use common::{ComplexSchema, InsertComplex, SelectComplex};
+use common::{InsertSimple, Role, SelectSimple, SimpleSchema};
 use drizzle_core::expressions::conditions::*;
 use drizzle_rs::prelude::*;
 
@@ -133,8 +132,6 @@ async fn test_in_array_conditions() {
 #[cfg(feature = "uuid")]
 #[tokio::test]
 async fn test_null_conditions() {
-    use crate::common::ComplexSchema;
-
     let conn = setup_test_db!();
     let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
@@ -425,7 +422,7 @@ async fn test_string_operations() {
 #[cfg(all(feature = "sqlite", feature = "serde"))]
 #[tokio::test]
 async fn test_sqlite_json_conditions() {
-    use crate::common::UserMetadata;
+    use crate::common::{ComplexSchema, UserMetadata};
     use drizzle_rs::sqlite::conditions::*;
 
     let conn = setup_test_db!();

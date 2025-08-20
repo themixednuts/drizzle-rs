@@ -1,12 +1,13 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Complex, InsertComplex, InsertSimple, Simple};
+use common::{Complex, InsertComplex};
+use common::{InsertSimple, Simple};
 use drizzle_rs::prelude::*;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-use crate::common::SimpleComplexSchema;
+use crate::common::SimpleSchema;
 
 mod common;
 
@@ -37,7 +38,7 @@ struct ComplexResult {
 #[tokio::test]
 async fn simple_delete() {
     let db = setup_test_db!();
-    let (db, SimpleComplexSchema { simple, .. }) = drizzle!(db, SimpleComplexSchema);
+    let (db, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
 
     // Insert test records
     let test_data = vec![
@@ -84,6 +85,8 @@ async fn simple_delete() {
 #[cfg(feature = "uuid")]
 #[tokio::test]
 async fn feature_gated_delete() {
+    use crate::common::SimpleComplexSchema;
+
     let db = setup_test_db!();
     let (db, SimpleComplexSchema { simple, complex }) = drizzle!(db, SimpleComplexSchema);
 

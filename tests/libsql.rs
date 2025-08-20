@@ -2,7 +2,8 @@
 
 mod common;
 
-use common::{Complex, InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
+use common::Complex;
+use common::{InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
 use drizzle_rs::prelude::*;
 use libsql::{Builder, Connection};
 
@@ -95,6 +96,8 @@ async fn test_libsql_column_tuple_select() {
 #[cfg(feature = "uuid")]
 #[tokio::test]
 async fn test_libsql_complex_types() {
+    use crate::common::{ComplexSchema, InsertComplex, SelectComplex};
+
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
@@ -115,7 +118,6 @@ async fn test_libsql_complex_types() {
     assert_eq!(inserted, 1);
 
     // Test complex type selection
-    use crate::common::{ComplexSchema, InsertComplex, SelectComplex};
     let selected: Vec<SelectComplex> = db.select(()).from(complex).all().await.unwrap();
 
     assert!(selected.len() > 0);

@@ -1,5 +1,8 @@
 #![cfg(feature = "rusqlite")]
 
+#[cfg(feature = "uuid")]
+use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
+#[cfg(not(feature = "uuid"))]
 use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
 use ::rusqlite::Connection;
 use rand::seq::IndexedRandom;
@@ -60,15 +63,15 @@ pub fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
     #[cfg(feature = "uuid")]
     let mut complex_ids: Vec<Uuid> = Vec::new();
     #[cfg(not(feature = "uuid"))]
-    let mut complex_ids: Vec<String> = Vec::new();
+    let mut complex_ids: Vec<i64> = Vec::new();
 
-    for _ in 0..rows {
+    for i in 0..rows {
         #[cfg(feature = "uuid")]
         let id = Uuid::new_v4();
         #[cfg(not(feature = "uuid"))]
-        let id = Uuid::new_v4().to_string();
+        let id = i as i64 + 1;
 
-        complex_ids.push(id.clone());
+        complex_ids.push(id);
 
         let name = format!("User{}", rng.random_range(1..=1000));
         let email: Option<String> = if rng.random_bool(0.7) {
@@ -120,6 +123,8 @@ pub fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
         )
         .unwrap();
 
+        let bytes: Vec<u8> = vec![rng.random_range(0..=255), rng.random_range(0..=255)];
+
         #[cfg(all(not(feature = "uuid"), feature = "rusqlite"))]
         conn.execute(
             r#"
@@ -135,7 +140,7 @@ pub fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
                 score,
                 active,
                 Some("Generated user"),
-                Some(vec![rng.random_range(0..=255), rng.random_range(0..=255)]),
+                Some(bytes),
                 Some("2025-08-11T12:00:00Z"),
             ],
         )

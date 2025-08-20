@@ -2,7 +2,9 @@
 
 use std::marker::PhantomData;
 
-use common::{Complex, ComplexSchema, InsertComplex, InsertSimple, Role, SelectSimple, Simple};
+#[cfg(feature = "uuid")]
+use common::{Complex, ComplexSchema, InsertComplex};
+use common::{InsertSimple, Role, SelectSimple, Simple};
 use drizzle_core::expressions::*;
 use drizzle_rs::prelude::*;
 use drizzle_rs::sql;

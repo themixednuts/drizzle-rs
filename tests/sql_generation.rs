@@ -1,8 +1,12 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Complex, Simple};
+#[cfg(feature = "uuid")]
+use common::{Complex};
+use common::{Simple};
 use drizzle_rs::{error::DrizzleError, prelude::*, sql};
 
-use crate::common::{ComplexSchema, InsertSimple, SelectSimple, SimpleComplexSchema, SimpleSchema};
+#[cfg(feature = "uuid")]
+use crate::common::{ComplexSchema, SimpleComplexSchema};
+use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
 
 mod common;
 
@@ -34,6 +38,7 @@ async fn test_simple_select_all_sql_generation() {
     }
 }
 
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn test_complex_select_all_sql_generation() {
     let conn = setup_test_db!();

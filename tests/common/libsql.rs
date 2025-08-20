@@ -69,15 +69,15 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
     #[cfg(feature = "uuid")]
     let mut complex_ids: Vec<Uuid> = Vec::new();
     #[cfg(not(feature = "uuid"))]
-    let mut complex_ids: Vec<String> = Vec::new();
+    let mut complex_ids: Vec<i64> = Vec::new();
 
-    for _ in 0..rows {
+    for i in 0..rows {
         #[cfg(feature = "uuid")]
         let id = Uuid::new_v4();
         #[cfg(not(feature = "uuid"))]
-        let id = Uuid::new_v4().to_string();
+        let id = i as i64 + 1;
 
-        complex_ids.push(id.clone());
+        complex_ids.push(id);
 
         let name = format!("User{}", rng.random_range(1..=1000));
         let email: Option<String> = if rng.random_bool(0.7) {
@@ -194,7 +194,7 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
             let author_id = complex_ids.choose(&mut rng).unwrap();
             conn.execute(
                 "INSERT INTO posts (title, content, author_id, published, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                libsql::params![title, content, Some(author_id), published, created_at],
+                libsql::params![title, content, Some(*author_id), published, created_at],
             ).await.unwrap();
         }
     }

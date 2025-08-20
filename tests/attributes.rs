@@ -223,11 +223,13 @@ struct ComplexEnumFieldsSchema {
     complex_enum_fields: ComplexEnumFields,
 }
 
+#[cfg(feature = "serde")]
 #[derive(SQLSchema)]
 struct JsonFieldsSchema {
     json_fields: JsonFields,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(SQLSchema)]
 struct UuidFieldsSchema {
     uuid_fields: UuidFields,

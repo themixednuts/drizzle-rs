@@ -1,6 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[cfg(feature = "uuid")]
+use common::{Complex, InsertComplex};
 use common::{
-    Category, Complex, InsertCategory, InsertComplex, InsertPost, InsertPostCategory, Post,
+    Category, InsertCategory, InsertPost, InsertPostCategory, Post,
     PostCategory,
 };
 use drizzle_rs::prelude::*;
@@ -9,10 +11,14 @@ use std::array;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+#[cfg(feature = "uuid")]
 use crate::common::{ComplexPostSchema, FullBlogSchema};
+#[cfg(not(feature = "uuid"))]
+use crate::common::{FullBlogSchema};
 
 mod common;
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, FromRow, Default)]
 struct AuthorPostResult {
     #[column(Complex::name)]
@@ -33,6 +39,7 @@ struct PostCategoryResult {
     category_description: Option<String>,
 }
 
+#[cfg(feature = "uuid")]
 #[tokio::test]
 async fn simple_inner_join() {
     let db = setup_test_db!();

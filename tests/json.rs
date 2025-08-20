@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+#[cfg(feature = "serde")]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct Profile {
     age: i64,
@@ -14,12 +15,14 @@ pub struct Profile {
     interests: Vec<String>,
 }
 
+#[cfg(all(feature = "serde", feature = "uuid"))]
 #[derive(FromRow, Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct UserResult {
     id: Uuid,
     age: i64,
 }
 
+#[cfg(all(feature = "serde", feature = "uuid"))]
 #[SQLiteTable(name = "json_users", strict)]
 struct JsonUser {
     #[blob]
@@ -30,6 +33,7 @@ struct JsonUser {
     profile: Profile,
 }
 
+#[cfg(all(feature = "serde", feature = "uuid"))]
 #[tokio::test]
 async fn json_storage() {
     #[derive(SQLSchema)]
