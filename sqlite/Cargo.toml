@@ -24,7 +24,7 @@ paste = { workspace = true }
 turso = { workspace = true, optional = true }
 
 [dev-dependencies]
-drizzle-rs = { workspace = true }
+# drizzle-rs = { workspace = true }
 
 
 [features]

@@ -631,7 +631,6 @@ version = "0.1.1"
 dependencies = [
  "compact_str",
  "drizzle-core",
- "drizzle-rs",
  "libsql",
  "libsql-rusqlite 0.33.0",
  "paste",
