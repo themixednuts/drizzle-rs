@@ -566,7 +566,6 @@ name = "drizzle-macros"
 version = "0.1.1"
 dependencies = [
  "chrono",
- "drizzle-rs",
  "heck",
  "libsql",
  "paste",
