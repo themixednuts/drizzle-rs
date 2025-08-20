@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 mod common;
 
-use drizzle_rs::prelude::*;
+use drizzle_rs::{error::DrizzleError, prelude::*};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "uuid")]

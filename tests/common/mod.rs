@@ -6,7 +6,7 @@ pub use rusqlite::*;
 
 mod turso;
 #[cfg(feature = "turso")]
-pub use turso::*;
+pub use turso::setup_db;
 
 mod libsql;
 #[cfg(feature = "libsql")]

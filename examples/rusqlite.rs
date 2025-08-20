@@ -1,11 +1,13 @@
 mod schema;
-use drizzle_rs::{core::eq, drizzle};
-use procmacros::FromRow;
+#[cfg(feature = "rusqlite")]
+use drizzle_rs::{FromRow, core::eq, drizzle};
+
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
-#[cfg(feature = "uuid")]
+#[cfg(all(feature = "uuid", feature = "rusqlite"))]
 use uuid::Uuid;
 
+#[cfg(feature = "rusqlite")]
 use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
 fn main() {

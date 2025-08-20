@@ -1,7 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, InsertComplex, InsertSimple, Simple, UpdateComplex, UpdateSimple, setup_db};
 use drizzle_rs::prelude::*;
-use procmacros::FromRow;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
@@ -17,7 +16,7 @@ struct SimpleResult {
 }
 
 #[cfg(not(feature = "uuid"))]
-#[derive(Debug)]
+#[derive(FromRow, Debug)]
 struct ComplexResult {
     id: i32,
     name: String,

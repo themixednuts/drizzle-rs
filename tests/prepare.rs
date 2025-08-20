@@ -1,16 +1,14 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
 use drizzle_rs::{
+    FromRow,
     core::{and, eq},
+    drizzle,
     sqlite::{SQLiteValue, params},
-};
-use procmacros::{FromRow, drizzle};
-
-use crate::common::{
-    Complex, InsertSimple, SelectSimple, Simple, SimpleComplexSchema, SimpleSchema,
 };
 
 mod common;
+use common::{Complex, InsertSimple, SelectSimple, Simple, SimpleComplexSchema, SimpleSchema};
 
 #[tokio::test]
 async fn test_prepare_with_placeholder() {

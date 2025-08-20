@@ -7,7 +7,7 @@ use rand::seq::IndexedRandom;
 use turso::Connection;
 #[cfg(feature = "uuid")]
 use turso::params;
-use turso::{Builder, IntoValue, params_from_iter};
+use turso::{Builder, IntoValue};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 

@@ -4,7 +4,7 @@ use common::{
     PostCategory,
 };
 use drizzle_rs::prelude::*;
-use procmacros::FromRow;
+
 use std::array;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;

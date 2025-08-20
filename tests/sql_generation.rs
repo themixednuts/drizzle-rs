@@ -1,7 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, Simple};
-use drizzle_rs::{error::DrizzleError, prelude::*};
-use procmacros::sql;
+use drizzle_rs::{error::DrizzleError, prelude::*, sql};
 
 use crate::common::{ComplexSchema, InsertSimple, SelectSimple, SimpleComplexSchema, SimpleSchema};
 

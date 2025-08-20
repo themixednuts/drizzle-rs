@@ -5,7 +5,10 @@ mod turso_tests {
     use drizzle_rs::prelude::*;
     use turso::{Builder, Connection};
 
-    use crate::common::{Complex, InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
+    use crate::common::{
+        Complex, ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple,
+        Simple, SimpleSchema, UpdateSimple, UserMetadata,
+    };
 
     // Helper function to create a turso connection for testing
     // Note: This will need a real turso database URL in practice
@@ -38,10 +41,10 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, [Simple]);
+        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
         // Test basic insert
-        let data = InsertSimple::default().with_name("turso_test");
+        let data = InsertSimple::new("turso_test");
         let inserted = db.insert(simple).values([data]).execute().await.unwrap();
 
         assert_eq!(inserted, 1);
@@ -58,10 +61,10 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, [Simple]);
+        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("single_row_test");
+        let data = InsertSimple::new("single_row_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test get method
@@ -75,10 +78,10 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, [Simple]);
+        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
         // Insert test data
-        let data = InsertSimple::default().with_name("column_tuple_test");
+        let data = InsertSimple::new("column_tuple_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test column tuple select (alternative to partial select for turso)
@@ -93,15 +96,12 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, complex) = drizzle!(conn, [Complex]);
+        let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
         // Test complex type insertion
-        let complex_data = InsertComplex::default()
-            .with_name("turso_complex")
+        let complex_data = InsertComplex::new("turso_complex", true, Role::User)
             .with_email("test@turso.com".to_string())
-            .with_age(30)
-            .with_active(true)
-            .with_role(Role::User);
+            .with_age(30);
 
         let inserted = db
             .insert(complex)
@@ -112,7 +112,6 @@ mod turso_tests {
         assert_eq!(inserted, 1);
 
         // Test complex type selection
-        use crate::common::{InsertComplex, SelectComplex};
         let selected: Vec<SelectComplex> = db.select(()).from(complex).all().await.unwrap();
 
         assert!(selected.len() > 0);
@@ -126,12 +125,10 @@ mod turso_tests {
     #[cfg(all(feature = "serde", feature = "uuid"))]
     #[tokio::test]
     async fn test_turso_json_fields() {
-        use crate::common::{InsertComplex, SelectComplex, UserMetadata};
-
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, complex) = drizzle!(conn, [Complex]);
+        let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
 
         let metadata = UserMetadata {
             preferences: vec!["dark_mode".to_string(), "notifications".to_string()],
@@ -139,11 +136,8 @@ mod turso_tests {
             theme: "dark".to_string(),
         };
 
-        let complex_data = InsertComplex::default()
-            .with_name("json_test")
-            .with_active(true)
-            .with_role(Role::Admin)
-            .with_metadata(metadata.clone());
+        let complex_data =
+            InsertComplex::new("json_test", true, Role::Admin).with_metadata(metadata.clone());
 
         let inserted = db
             .insert(complex)
@@ -166,10 +160,10 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, [Simple]);
+        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
         // Insert initial data
-        let data = InsertSimple::default().with_name("update_test");
+        let data = InsertSimple::new("update_test");
         db.insert(simple).values([data]).execute().await.unwrap();
 
         // Test update
@@ -194,7 +188,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, Simple);
+        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
         // Insert test data
         let data = InsertSimple::new("delete_test");
@@ -229,15 +223,15 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, simple) = drizzle!(conn, [Simple]);
+        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
         // Test error when trying to get from empty table
         let result: Result<SelectSimple, _> = db.select(()).from(simple).get().await;
         assert!(result.is_err());
 
         // Test error when trying to insert duplicate primary key
-        let data1 = InsertSimple::default().with_id(1).with_name("test1");
-        let data2 = InsertSimple::default().with_id(1).with_name("test2");
+        let data1 = InsertSimple::new("test1").with_id(1);
+        let data2 = InsertSimple::new("test2").with_id(1);
 
         db.insert(simple).values([data1]).execute().await.unwrap();
         let result = db.insert(simple).values([data2]).execute().await;

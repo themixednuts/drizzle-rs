@@ -61,10 +61,10 @@ async fn setup_raw_connection() -> Connection {
 #[cfg(feature = "rusqlite")]
 fn setup_drizzle() -> (drizzle_rs::sqlite::Drizzle<Schema>, User) {
     let conn = Connection::open_in_memory().unwrap();
-    let (db, users) = drizzle!(conn,);
-    db.execute(users.sql()).unwrap();
+    let (db, Schema { user }) = drizzle!(conn, Schema);
+    db.create().expect("create tables");
 
-    (db, users)
+    (db, user)
 }
 
 #[cfg(any(feature = "turso", feature = "libsql"))]
@@ -95,6 +95,7 @@ mod select {
             .with_inputs(|| {
                 #[cfg(feature = "rusqlite")]
                 {
+                    let conn = setup_raw_connection();
                     for i in 0..100 {
                         conn.execute(
                             "INSERT INTO users (name, email) VALUES (?1, ?2)",
@@ -154,10 +155,19 @@ mod select {
                     let mut rows = stmt.query(()).await.expect("query rows");
 
                     let mut results = Vec::new();
+                    #[cfg(feature = "libsql")]
                     while let Some(row) = rows.next().await.expect("get row") {
                         let col0: i32 = row.get(0).unwrap();
                         let col1: String = row.get(1).unwrap();
                         let col2: String = row.get(2).unwrap();
+
+                        results.push((col0, col1, col2));
+                    }
+                    #[cfg(feature = "turso")]
+                    while let Some(row) = rows.next().await.expect("get row") {
+                        let col0: i32 = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
+                        let col1: String = row.get_value(1).unwrap().as_text().unwrap().to_string();
+                        let col2: String = row.get_value(2).unwrap().as_text().unwrap().to_string();
 
                         results.push((col0, col1, col2));
                     }

@@ -540,7 +540,6 @@ async fn test_multiple_aliases() {
 #[test]
 fn test_cte_basic() {
     use drizzle_core::SQL;
-    use sqlite::SQLiteValue;
 
     let cte_query = SQL::<SQLiteValue>::raw("SELECT id, name FROM users WHERE id = 42");
     let main_query = SQL::<SQLiteValue>::raw("SELECT * FROM sq");
@@ -558,7 +557,6 @@ fn test_cte_basic() {
 #[test]
 fn test_cte_name_access() {
     use drizzle_core::SQL;
-    use sqlite::SQLiteValue;
 
     let cte_query = SQL::<SQLiteValue>::raw("SELECT * FROM users");
     let sq = cte("my_cte").r#as(cte_query);
@@ -569,7 +567,6 @@ fn test_cte_name_access() {
 #[test]
 fn test_cte_to_sql() {
     use drizzle_core::SQL;
-    use sqlite::SQLiteValue;
 
     let cte_query = SQL::<SQLiteValue>::raw("SELECT id FROM users WHERE active = 1");
     let sq = cte("active_users").r#as(cte_query);

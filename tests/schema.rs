@@ -122,7 +122,7 @@ async fn test_schema_destructuring() {
     let (db, schema) = drizzle!(conn, AppTestSchema);
 
     // Test destructuring the schema into individual components
-    let (user, user_email_idx, user_name_idx) = schema.into();
+    let (user, _, _) = schema.into();
 
     // Create all objects
     let schema = AppTestSchema::new(); // Get a fresh schema for create

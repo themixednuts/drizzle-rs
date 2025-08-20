@@ -128,13 +128,17 @@ impl RowHelper {
         row.get::<_, String>(index).unwrap()
     }
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     pub fn get_string(row: &libsql::Row, index: usize) -> String {
         row.get_value(index as i32)
             .unwrap()
             .as_text()
             .unwrap()
             .to_string()
+    }
+    #[cfg(feature = "turso")]
+    pub fn get_string(row: &turso::Row, index: usize) -> String {
+        row.get_value(index).unwrap().as_text().unwrap().to_string()
     }
 
     /// Extract integer value from row at index
@@ -143,13 +147,17 @@ impl RowHelper {
         row.get::<_, i32>(index).unwrap()
     }
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     pub fn get_i32(row: &libsql::Row, index: usize) -> i32 {
         row.get_value(index as i32)
             .unwrap()
             .as_integer()
             .unwrap()
             .clone() as i32
+    }
+    #[cfg(feature = "turso")]
+    pub fn get_i32(row: &turso::Row, index: usize) -> i32 {
+        row.get_value(index).unwrap().as_integer().unwrap().clone() as i32
     }
 
     /// Extract i64 value from row at index
@@ -158,13 +166,17 @@ impl RowHelper {
         row.get::<_, i64>(index).unwrap()
     }
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     pub fn get_i64(row: &libsql::Row, index: usize) -> i64 {
         row.get_value(index as i32)
             .unwrap()
             .as_integer()
             .unwrap()
             .clone()
+    }
+    #[cfg(feature = "turso")]
+    pub fn get_i64(row: &turso::Row, index: usize) -> i64 {
+        row.get_value(index).unwrap().as_integer().unwrap().clone()
     }
 
     /// Extract f64 value from row at index
@@ -173,13 +185,17 @@ impl RowHelper {
         row.get::<_, f64>(index).unwrap()
     }
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     pub fn get_f64(row: &libsql::Row, index: usize) -> f64 {
         row.get_value(index as i32)
             .unwrap()
             .as_real()
             .unwrap()
             .clone()
+    }
+    #[cfg(feature = "turso")]
+    pub fn get_f64(row: &turso::Row, index: usize) -> f64 {
+        row.get_value(index).unwrap().as_real().unwrap().clone()
     }
 
     /// Extract bool value from row at index
@@ -188,9 +204,17 @@ impl RowHelper {
         row.get::<_, bool>(index).unwrap()
     }
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     pub fn get_bool(row: &libsql::Row, index: usize) -> bool {
         row.get_value(index as i32)
+            .unwrap()
+            .as_integer()
+            .map(|&v| v != 0)
+            .unwrap()
+    }
+    #[cfg(feature = "turso")]
+    pub fn get_bool(row: &turso::Row, index: usize) -> bool {
+        row.get_value(index)
             .unwrap()
             .as_integer()
             .map(|&v| v != 0)
@@ -203,13 +227,17 @@ impl RowHelper {
         row.get::<_, Vec<u8>>(index).unwrap()
     }
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     pub fn get_blob(row: &libsql::Row, index: usize) -> Vec<u8> {
         row.get_value(index as i32)
             .unwrap()
             .as_blob()
             .unwrap()
             .clone()
+    }
+    #[cfg(feature = "turso")]
+    pub fn get_blob(row: &turso::Row, index: usize) -> Vec<u8> {
+        row.get_value(index).unwrap().as_blob().unwrap().clone()
     }
 }
 

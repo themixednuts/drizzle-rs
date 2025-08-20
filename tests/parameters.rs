@@ -3,7 +3,7 @@
 use common::{InsertSimple, Simple, SimpleSchema};
 use drizzle_core::{SQL, prepared::prepare_render};
 use drizzle_rs::prelude::*;
-use sqlite::{SQLiteValue, params};
+use drizzle_sqlite::{SQLiteValue, params};
 
 mod common;
 
@@ -109,7 +109,7 @@ async fn test_insert_with_placeholders() {
 #[tokio::test]
 async fn test_insert_with_placeholders_execute_and_retrieve() {
     use drizzle_core::{SQL, prepared::prepare_render};
-    use sqlite::{InsertValue, SQLiteValue, params, values::ValueWrapper};
+    use drizzle_sqlite::{InsertValue, SQLiteValue, params, values::ValueWrapper};
 
     #[derive(FromRow, Debug)]
     struct SimpleResult {
