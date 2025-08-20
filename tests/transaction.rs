@@ -9,10 +9,10 @@ mod common;
 #[tokio::test]
 async fn test_transaction_commit() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(feature = "rusqlite")]
@@ -70,10 +70,10 @@ async fn test_transaction_commit() {
 #[tokio::test]
 async fn test_transaction_rollback() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert initial record outside transaction
@@ -125,10 +125,10 @@ async fn test_transaction_rollback() {
 #[tokio::test]
 async fn test_transaction_types() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Test different transaction types
@@ -174,10 +174,10 @@ async fn test_transaction_types() {
 #[tokio::test]
 async fn test_transaction_query_builders() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert test data
@@ -284,10 +284,10 @@ async fn test_transaction_query_builders() {
 #[tokio::test]
 async fn test_transaction_database_error_rollback() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert initial data
@@ -350,10 +350,10 @@ async fn test_transaction_database_error_rollback() {
 #[tokio::test]
 async fn test_transaction_panic_rollback() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Insert initial data
@@ -416,10 +416,10 @@ async fn test_transaction_panic_rollback() {
 #[tokio::test]
 async fn test_nested_transaction_operations() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(feature = "rusqlite")]
@@ -523,10 +523,10 @@ async fn test_nested_transaction_operations() {
 #[tokio::test]
 async fn test_transaction_with_failed_query_in_middle() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     #[cfg(feature = "rusqlite")]
@@ -612,10 +612,10 @@ async fn test_transaction_with_failed_query_in_middle() {
 #[tokio::test]
 async fn test_large_transaction_rollback() {
     let conn = setup_test_db!();
-    #[cfg(feature = "rusqlite")]
+    #[cfg(any(feature = "rusqlite", feature = "turso"))]
     let (mut db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
+    #[cfg(feature = "libsql")]
     let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
 
     // Test rollback of transaction with many operations
