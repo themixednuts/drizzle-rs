@@ -141,7 +141,7 @@ async fn test_sql_macro() -> Result<(), DrizzleError> {
             .execute()
     )?;
 
-    let query = sql!(SELECT * FROM {simple} where {simple.id} = {id});
+    let query = sql!("SELECT * FROM {simple} where {simple.id} = {id}");
     let sql = query.sql();
     let params = query.params();
 

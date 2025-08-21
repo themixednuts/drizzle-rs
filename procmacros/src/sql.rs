@@ -1,4 +1,4 @@
-use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
     Expr, LitStr, Result,
@@ -9,45 +9,37 @@ use syn::{
 pub enum SqlInput {
     /// String literal input: sql!("SELECT * FROM {table}")
     StringLiteral(LitStr),
-    /// Token stream input: sql!(SELECT * FROM {table})
-    TokenStream(TokenStream),
     /// Printf-style input: sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)
     Printf { template: LitStr, args: Vec<Expr> },
 }
 
 impl Parse for SqlInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        // Try to parse as string literal first
-        if input.peek(LitStr) {
-            let template = input.parse::<LitStr>()?;
+        // Only parse string literals
+        let template = input.parse::<LitStr>()?;
 
-            // Check if there are comma-separated arguments after the template
-            if input.peek(syn::Token![,]) {
-                input.parse::<syn::Token![,]>()?; // consume comma
+        // Check if there are comma-separated arguments after the template
+        if input.peek(syn::Token![,]) {
+            input.parse::<syn::Token![,]>()?; // consume comma
 
-                let mut args = Vec::new();
+            let mut args = Vec::new();
 
-                // Parse first argument
-                if !input.is_empty() {
-                    args.push(input.parse::<Expr>()?);
+            // Parse first argument
+            if !input.is_empty() {
+                args.push(input.parse::<Expr>()?);
 
-                    // Parse remaining arguments
-                    while input.peek(syn::Token![,]) {
-                        input.parse::<syn::Token![,]>()?; // consume comma
-                        if !input.is_empty() {
-                            args.push(input.parse::<Expr>()?);
-                        }
+                // Parse remaining arguments
+                while input.peek(syn::Token![,]) {
+                    input.parse::<syn::Token![,]>()?; // consume comma
+                    if !input.is_empty() {
+                        args.push(input.parse::<Expr>()?);
                     }
                 }
-
-                Ok(SqlInput::Printf { template, args })
-            } else {
-                Ok(SqlInput::StringLiteral(template))
             }
+
+            Ok(SqlInput::Printf { template, args })
         } else {
-            // Parse the rest as a token stream
-            let tokens: TokenStream = input.parse()?;
-            Ok(SqlInput::TokenStream(tokens))
+            Ok(SqlInput::StringLiteral(template))
         }
     }
 }
@@ -70,65 +62,6 @@ impl std::fmt::Debug for SqlSegment {
     }
 }
 
-/// Parse token stream into text and expression segments
-/// This converts the token stream back to a string representation and then uses the string parser
-fn parse_token_stream(tokens: TokenStream) -> Result<Vec<SqlSegment>> {
-    // Convert token stream back to string with proper spacing
-    let mut sql_string = String::new();
-    let mut tokens_iter = tokens.into_iter().peekable();
-
-    while let Some(token) = tokens_iter.next() {
-        match token {
-            TokenTree::Group(group) if group.delimiter() == Delimiter::Brace => {
-                // Add space before brace if needed
-                if !sql_string.is_empty() && !sql_string.ends_with(' ') {
-                    sql_string.push(' ');
-                }
-                sql_string.push('{');
-                sql_string.push_str(&group.stream().to_string());
-                sql_string.push('}');
-            }
-            _ => {
-                // Add space before token if needed
-                if !sql_string.is_empty() {
-                    match &token {
-                        TokenTree::Punct(p) if p.as_char() == '.' => {
-                            // No space before dots
-                        }
-                        _ => {
-                            sql_string.push(' ');
-                        }
-                    }
-                }
-
-                sql_string.push_str(&token.to_string());
-
-                // Add space after token if needed
-                if let Some(next_token) = tokens_iter.peek() {
-                    match (&token, next_token) {
-                        (TokenTree::Punct(p), _) if p.as_char() == '.' => {
-                            // No space after dots
-                        }
-                        (_, TokenTree::Punct(p)) if p.as_char() == '.' => {
-                            // No space before dots
-                        }
-                        (_, TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => {
-                            // No space before brace groups
-                        }
-                        (TokenTree::Punct(p), _) if matches!(p.as_char(), '=' | '<' | '>') => {
-                            // Space after operators
-                            sql_string.push(' ');
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
-
-    // Now use the string parser which handles spacing correctly
-    parse_template(&sql_string)
-}
 
 /// Parse the template string into text and expression segments
 /// If `positional_args` is provided, empty braces {} will be replaced with the arguments
@@ -269,7 +202,6 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
             let template_str = template.value();
             parse_template(&template_str)?
         }
-        SqlInput::TokenStream(tokens) => parse_token_stream(tokens)?,
         SqlInput::Printf { template, args } => {
             let template_str = template.value();
             parse_template_with_args(&template_str, Some(&args))?
@@ -448,85 +380,6 @@ mod tests {
         assert!(parse_template("SELECT closed} FROM table").is_err());
     }
 
-    #[test]
-    fn test_parse_token_stream_simple() {
-        use quote::quote;
-
-        let tokens = quote! { SELECT * FROM {users} };
-        let segments = parse_token_stream(tokens).unwrap();
-        assert_eq!(segments.len(), 2);
-
-        match &segments[0] {
-            SqlSegment::Text(text) => {
-                // Token streams don't preserve exact spacing, so we'll be flexible
-                assert!(text.contains("SELECT"));
-                assert!(text.contains("FROM"));
-            }
-            _ => panic!("Expected text segment"),
-        }
-
-        match &segments[1] {
-            SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
-                    assert_eq!(path.path.segments.len(), 1);
-                    assert_eq!(path.path.segments[0].ident.to_string(), "users");
-                } else {
-                    panic!("Expected path expression");
-                }
-            }
-            _ => panic!("Expected expression segment"),
-        }
-    }
-
-    #[test]
-    fn test_parse_token_stream_multiple() {
-        use quote::quote;
-
-        let tokens = quote! { SELECT {column} FROM {table} WHERE {condition} };
-        let segments = parse_token_stream(tokens).unwrap();
-        assert_eq!(segments.len(), 6);
-
-        // Verify some key segments
-        match &segments[0] {
-            SqlSegment::Text(text) => {
-                assert!(text.contains("SELECT"));
-            }
-            _ => panic!("Expected text segment"),
-        }
-
-        match &segments[1] {
-            SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
-                    assert_eq!(path.path.segments[0].ident.to_string(), "column");
-                }
-            }
-            _ => panic!("Expected expression segment"),
-        }
-    }
-
-    #[test]
-    fn test_string_vs_token_equivalence() {
-        use quote::quote;
-
-        // Test that string literal and token stream approaches produce identical results
-        let string_segments =
-            parse_template("SELECT * FROM {table} where {table.id} = {id}").unwrap();
-
-        let tokens = quote! { SELECT * FROM {table} where {table.id} = {id} };
-        let token_segments = parse_token_stream(tokens).unwrap();
-
-        // Both should have the same number of segments
-        assert_eq!(string_segments.len(), token_segments.len());
-
-        // Both should generate equivalent text segments (spacing might differ slightly but structure is same)
-        for (string_seg, token_seg) in string_segments.iter().zip(token_segments.iter()) {
-            match (string_seg, token_seg) {
-                (SqlSegment::Text(_), SqlSegment::Text(_)) => {} // Both are text
-                (SqlSegment::Expression(_), SqlSegment::Expression(_)) => {} // Both are expressions
-                _ => panic!("Segment types don't match"),
-            }
-        }
-    }
 
     #[test]
     fn test_parse_printf_style() {

@@ -547,10 +547,9 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 
 /// A procedural macro for building SQL queries with embedded expressions.
 ///
-/// This macro supports three different syntax forms:
+/// This macro supports two different syntax forms:
 /// 1. **String literal syntax**: `sql!("SELECT * FROM {table}")`
-/// 2. **Token stream syntax**: `sql!(SELECT * FROM {table})` (preserves LSP hover support)
-/// 3. **Printf-style syntax**: `sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)`
+/// 2. **Printf-style syntax**: `sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)`
 ///
 /// The macro parses SQL templates and generates type-safe SQL code by:
 /// - Converting literal text to `SQL::text()` calls
@@ -573,23 +572,6 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// # let conn = rusqlite::Connection::open_in_memory().unwrap();
 /// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
 /// let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
-/// ```
-///
-/// ## Token Stream Syntax (Preserves LSP Hover)
-/// ```ignore
-/// # use drizzle_rs::{sql, prelude::*};
-/// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
-/// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
-/// let query = sql!(SELECT * FROM {users} WHERE {users.id} = 42);
 /// ```
 ///
 /// ## Printf-Style Syntax
@@ -621,7 +603,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// # #[cfg(feature = "libsql")]
 /// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
 /// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect().await }).unwrap();
+/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
 /// # #[cfg(feature = "rusqlite")]
 /// # let conn = rusqlite::Connection::open_in_memory().unwrap();
 /// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
@@ -654,8 +636,6 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// # use drizzle_rs::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[SQLiteTable] pub struct Posts { #[integer(primary)] pub id: i32, #[integer] pub author: i32 }
-/// # #[derive(SQLSchema)] pub struct BlogSchema { pub users: Users, pub posts: Posts }
 /// # #[cfg(any(feature = "libsql", feature = "turso"))]
 /// # let rt = tokio::runtime::Runtime::new().unwrap();
 /// # #[cfg(feature = "libsql")]
@@ -664,9 +644,9 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect().await }).unwrap();
 /// # #[cfg(feature = "rusqlite")]
 /// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, BlogSchema { users, posts }) = drizzle!(conn, BlogSchema);
-///   let query = sql!("SELECT JSON_OBJECT('key', {{users.id}}) FROM {users}");
-/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {value}) FROM table")
+/// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
+/// let query = sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
+/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {literal}) FROM table")
 /// ```
 ///
 /// # Requirements
