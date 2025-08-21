@@ -14,7 +14,7 @@ resolver = "3"
 members = ["procmacros", "core", "sqlite", "postgres", "mysql"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Mixed Nuts"]
 keywords = ["drizzle", "rizzle", "orm", "database", "sqlite"]
