@@ -135,8 +135,8 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod tests {
+    use crate::common::{Join, JoinType, Number};
     use crate::*;
-    use crate::common::{Number, Join, JoinType};
     use std::borrow::Cow;
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
     fn test_number_enum() {
         let int_num = Number::Integer(42);
         let real_num = Number::Real(3.14);
-        
+
         assert_eq!(int_num, Number::from(42i64));
         assert_eq!(real_num, Number::from(3.14f64));
         assert_eq!(Number::default(), Number::Integer(0));
@@ -191,15 +191,15 @@ mod tests {
         let outer_join = Join::new().left().outer();
         assert_eq!(outer_join.join_type, JoinType::Left);
         assert_eq!(outer_join.outer, true);
-        
+
         let cross_join = Join::new().cross();
         assert_eq!(cross_join.join_type, JoinType::Cross);
     }
 
     #[test]
     fn test_join_to_sql() {
-        use drizzle_core::{ToSQL, SQL};
-        
+        use drizzle_core::{SQL, ToSQL};
+
         let inner_join = Join::new().inner();
         let sql: SQL<SQLiteValue> = inner_join.to_sql();
         assert_eq!(sql.sql(), "INNER JOIN");

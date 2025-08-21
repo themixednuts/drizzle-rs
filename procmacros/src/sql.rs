@@ -62,7 +62,6 @@ impl std::fmt::Debug for SqlSegment {
     }
 }
 
-
 /// Parse the template string into text and expression segments
 /// If `positional_args` is provided, empty braces {} will be replaced with the arguments
 fn parse_template_with_args(
@@ -379,7 +378,6 @@ mod tests {
         assert!(parse_template("SELECT {unclosed FROM table").is_err());
         assert!(parse_template("SELECT closed} FROM table").is_err());
     }
-
 
     #[test]
     fn test_parse_printf_style() {
