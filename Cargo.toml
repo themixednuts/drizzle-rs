@@ -24,12 +24,12 @@ repository = "https://github.com/themixednuts/drizzle-rs"
 rust-version = "1.89"
 
 [workspace.dependencies]
-drizzle-rs = { path = ".", version = "0.1.0" }
-drizzle-core = { path = "./core", version = "0.1.0" }
-drizzle-macros = { path = "./procmacros", version = "0.1.0" }
-drizzle-mysql = { path = "./mysql", version = "0.1.0" }
-drizzle-postgres = { path = "./postgres", version = "0.1.0" }
-drizzle-sqlite = { path = "./sqlite", version = "0.1.0" }
+drizzle-rs = { path = "." }
+drizzle-core = { path = "./core", version = "0.1" }
+drizzle-macros = { path = "./procmacros", version = "0.1" }
+drizzle-mysql = { path = "./mysql", version = "0.1" }
+drizzle-postgres = { path = "./postgres", version = "0.1" }
+drizzle-sqlite = { path = "./sqlite", version = "0.1" }
 
 anyhow = "1.0.75"
 compact_str = { version = "0.9.0" }
