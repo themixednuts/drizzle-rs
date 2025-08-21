@@ -23,14 +23,12 @@ uuid = { workspace = true, optional = true }
 paste = { workspace = true }
 turso = { workspace = true, optional = true }
 
-[dev-dependencies]
-# drizzle-rs = { workspace = true }
 
 
 [features]
-rusqlite = ["dep:rusqlite"]
-libsql = ["dep:libsql"]
+rusqlite = ["dep:rusqlite", "drizzle-core/rusqlite"]
+libsql = ["dep:libsql", "drizzle-core/libsql"]
 libsql-rusqlite = ["dep:libsql-rusqlite"]
-serde = ["dep:serde_json", "dep:serde"]
-uuid = ["dep:uuid"]
-turso = ["dep:turso"]
+serde = ["dep:serde_json", "dep:serde", "drizzle-core/serde"]
+uuid = ["dep:uuid", "drizzle-core/uuid"]
+turso = ["dep:turso", "drizzle-core/turso"]

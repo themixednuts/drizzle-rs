@@ -30,6 +30,9 @@ pub mod prelude {
 
 pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
 
+// Re-export ParamBind for use in macros
+pub use drizzle_core::ParamBind;
+
 /// SQLite transaction types
 #[derive(Default, Debug, Clone, Copy)]
 pub enum SQLiteTransactionType {
@@ -122,7 +125,7 @@ impl From<turso::transaction::TransactionBehavior> for SQLiteTransactionType {
 /// # Examples
 ///
 /// ```
-/// use drizzle_rs::prelude::*;
+/// use drizzle_sqlite::params;
 ///
 /// let params = params![{ name: "alice" }, { active: true }];
 /// ```
@@ -143,10 +146,10 @@ macro_rules! params {
 macro_rules! params_internal {
     // Colon-style named parameter
     ({ $key:ident: $value:expr }) => {
-        ::drizzle_rs::core::ParamBind::new(stringify!($key), $crate::SQLiteValue::from($value))
+        $crate::ParamBind::new(stringify!($key), $crate::SQLiteValue::from($value))
     };
     // Positional parameter
     ($value:expr) => {
-        ::drizzle_rs::core::ParamBind::new($crate::SQLiteValue::from($value))
+        $crate::ParamBind::new("", $crate::SQLiteValue::from($value))
     };
 }

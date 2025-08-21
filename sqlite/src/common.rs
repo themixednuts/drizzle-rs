@@ -135,27 +135,9 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod tests {
-    use drizzle_rs::prelude::*;
+    use crate::*;
+    use crate::common::{Number, Join, JoinType};
     use std::borrow::Cow;
-
-    // Define test enums for SQLiteEnum tests
-    // Text-based enum (default)
-    #[derive(SQLiteEnum, Default, Debug, Clone, PartialEq)]
-    enum Role {
-        #[default]
-        User,
-        Admin,
-        Moderator,
-    }
-
-    // Integer-based enum with explicit discriminants
-    #[derive(SQLiteEnum, Default, Debug, Clone, PartialEq)]
-    enum Status {
-        Active = 1,
-        #[default]
-        Inactive = 0,
-        Banned = -1,
-    }
 
     #[test]
     fn test_into_sqlite_value_impls() {
@@ -190,17 +172,44 @@ mod tests {
     }
 
     #[test]
-    fn test_sqlite_enum_derives() {
-        // Just test that the enums compile and basic functionality works
-        let role = Role::Admin;
-        let status = Status::Active;
+    fn test_number_enum() {
+        let int_num = Number::Integer(42);
+        let real_num = Number::Real(3.14);
+        
+        assert_eq!(int_num, Number::from(42i64));
+        assert_eq!(real_num, Number::from(3.14f64));
+        assert_eq!(Number::default(), Number::Integer(0));
+    }
 
-        // Test that Display works
-        assert_eq!(format!("{}", role), "Admin");
-        assert_eq!(format!("{}", status), "Active");
+    #[test]
+    fn test_join_type_and_join() {
+        let join = Join::new().inner().natural();
+        assert_eq!(join.join_type, JoinType::Inner);
+        assert_eq!(join.natural, true);
+        assert_eq!(join.outer, false);
 
-        // Test that FromStr works
-        assert_eq!("User".parse::<Role>().unwrap(), Role::User);
-        assert_eq!("Banned".parse::<Status>().unwrap(), Status::Banned);
+        let outer_join = Join::new().left().outer();
+        assert_eq!(outer_join.join_type, JoinType::Left);
+        assert_eq!(outer_join.outer, true);
+        
+        let cross_join = Join::new().cross();
+        assert_eq!(cross_join.join_type, JoinType::Cross);
+    }
+
+    #[test]
+    fn test_join_to_sql() {
+        use drizzle_core::{ToSQL, SQL};
+        
+        let inner_join = Join::new().inner();
+        let sql: SQL<SQLiteValue> = inner_join.to_sql();
+        assert_eq!(sql.sql(), "INNER JOIN");
+
+        let natural_left_outer = Join::new().natural().left().outer();
+        let sql: SQL<SQLiteValue> = natural_left_outer.to_sql();
+        assert_eq!(sql.sql(), "NATURAL LEFT OUTER JOIN");
+
+        let cross_join = Join::new().cross();
+        let sql: SQL<SQLiteValue> = cross_join.to_sql();
+        assert_eq!(sql.sql(), "CROSS JOIN");
     }
 }
