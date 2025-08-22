@@ -1,17 +1,11 @@
 extern crate self as drizzle_rs;
-#[cfg(any(
-    all(feature = "rusqlite", feature = "libsql"),
-    all(feature = "rusqlite", feature = "turso"),
-    all(feature = "libsql", feature = "turso"),
-))]
-compile_error!("Only one of `rusqlite`, `libsql`, or `turso` features may be enabled at a time.");
 
 mod drizzle;
 mod transaction;
 
 // Essential re-exports
 pub use drizzle_core::error::Result;
-pub use drizzle_macros::{FromRow, SQLSchema, drizzle, sql};
+pub use drizzle_macros::{FromRow, SQLSchema, sql};
 
 // Error types
 pub mod error {
@@ -31,13 +25,14 @@ pub mod core {
 
     // Condition expressions
     pub use drizzle_core::expressions::conditions::*;
+
+    // Expression functions
+    pub use drizzle_core::expressions::{alias, cast, r#typeof};
 }
 
-// SQLite specific components
+// Shared SQLite components
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
-    // Core SQLite functionality
-    pub use super::drizzle::sqlite::Drizzle;
     pub use drizzle_sqlite::builder::QueryBuilder;
 
     // SQLite macros
@@ -51,10 +46,27 @@ pub mod sqlite {
     // SQLite types and traits
     pub use drizzle_sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};
     pub use drizzle_sqlite::values::{InsertValue, OwnedSQLiteValue, SQLiteValue, ValueWrapper};
+}
 
-    // Transaction support
-    #[cfg(feature = "rusqlite")]
-    pub use super::transaction::sqlite::rusqlite::Transaction;
+// Rusqlite driver
+#[cfg(feature = "rusqlite")]
+pub mod rusqlite {
+    pub use crate::drizzle::sqlite::rusqlite::Drizzle;
+    pub use crate::transaction::sqlite::rusqlite::Transaction;
+}
+
+// LibSQL driver
+#[cfg(feature = "libsql")]
+pub mod libsql {
+    pub use crate::drizzle::sqlite::libsql::Drizzle;
+    pub use crate::transaction::sqlite::libsql::Transaction;
+}
+
+// Turso driver
+#[cfg(feature = "turso")]
+pub mod turso {
+    pub use crate::drizzle::sqlite::turso::Drizzle;
+    pub use crate::transaction::sqlite::turso::Transaction;
 }
 
 // Placeholder for future dialects
@@ -69,17 +81,24 @@ pub mod mysql {
 }
 
 /// A comprehensive prelude that brings commonly used items into scope.
+///
+/// This includes all shared functionality but NOT the `Drizzle` struct.
+/// Users must explicitly import the driver they want:
+///
+/// ```ignore
+/// use drizzle_rs::prelude::*;           // Shared functionality
+/// use drizzle_rs::rusqlite::Drizzle;    // Explicit driver choice
+/// ```
 pub mod prelude {
     // Core components (traits, types, expressions)
     pub use crate::core::*;
 
     // Expression helpers
-    pub use drizzle_core::expressions::alias;
+    pub use drizzle_core::expressions::{alias, cast, r#typeof};
 
     // Essential macros
-    pub use drizzle_macros::{FromRow, SQLSchema, drizzle};
+    pub use drizzle_macros::{FromRow, SQLSchema};
 
-    // SQLite-specific exports (when enabled)
     #[cfg(feature = "sqlite")]
     pub use crate::sqlite::*;
 
@@ -143,8 +162,13 @@ mod tests {
     #[test]
     fn test_schema_macro() {
         // Create a schema with the User table using schema! macro
+        let Schema {
+            user,
+            post,
+            comment,
+        } = Schema::new();
         let builder = QueryBuilder::new::<Schema>();
-        let (user, ..) = Schema::new().tables();
+        let tables = Schema::new().tables().cloned();
 
         let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);
@@ -153,11 +177,10 @@ mod tests {
     #[cfg(feature = "rusqlite")]
     #[test]
     fn test_insert() {
-        use drizzle_macros::drizzle;
         use drizzle_sqlite::builder::Conflict;
 
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        let (db, Schema { user, .. }) = drizzle!(conn, Schema);
+        let (db, Schema { user, .. }) = drizzle_rs::rusqlite::Drizzle::new(conn, Schema::new());
         db.create().expect("Should have created table");
 
         let result = db

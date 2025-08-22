@@ -1,23 +1,47 @@
+mod delete;
+mod insert;
+mod select;
+mod update;
+
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
+#[cfg(feature = "sqlite")]
+use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
+#[cfg(feature = "rusqlite")]
+use drizzle_sqlite::builder::{InsertOnConflictSet, InsertReturningSet, InsertValuesSet};
 use rusqlite::{Connection, params_from_iter};
 use std::marker::PhantomData;
 
-#[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     SQLiteTransactionType, SQLiteValue,
     builder::{
-        self, QueryBuilder,
-        delete::{self, DeleteBuilder},
-        insert::{self, InsertBuilder},
-        select::{self, SelectBuilder},
-        update::{self, UpdateBuilder},
+        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+        update::UpdateBuilder,
     },
 };
 
-use crate::drizzle::sqlite::DrizzleBuilder;
+/// Rusqlite-specific drizzle builder
+#[derive(Debug)]
+pub struct DrizzleBuilder<'a, Schema, Builder, State> {
+    drizzle: &'a Drizzle<Schema>,
+    builder: Builder,
+    state: PhantomData<(Schema, State)>,
+}
 use crate::transaction::sqlite::rusqlite::Transaction;
+
+// Generic prepare method for rusqlite DrizzleBuilder
+impl<'a, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+where
+    State: builder::ExecutableState,
+{
+    /// Creates a prepared statement that can be executed multiple times
+    #[inline]
+    pub fn prepare(self) -> drizzle_sqlite::builder::prepared::PreparedStatement<'a> {
+        self.builder.prepare()
+    }
+}
 
 /// Drizzle instance that provides access to the database and query builder.
 #[derive(Debug)]
@@ -28,11 +52,12 @@ pub struct Drizzle<Schema = ()> {
 
 impl Drizzle {
     #[inline]
-    pub const fn new<S>(conn: Connection) -> Drizzle<S> {
-        Drizzle {
+    pub const fn new<S>(conn: Connection, schema: S) -> (Drizzle<S>, S) {
+        let drizzle = Drizzle {
             conn,
             _schema: PhantomData,
-        }
+        };
+        (drizzle, schema)
     }
 }
 
@@ -60,12 +85,7 @@ impl<Schema> Drizzle<Schema> {
     pub fn select<'a, 'b, T>(
         &'a self,
         query: T,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        SelectBuilder<'b, Schema, select::SelectInitial>,
-        select::SelectInitial,
-    >
+    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
     where
         T: ToSQL<'b, SQLiteValue<'b>>,
     {
@@ -85,12 +105,7 @@ impl<Schema> Drizzle<Schema> {
     pub fn insert<'a, Table>(
         &'a self,
         table: Table,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
-        insert::InsertInitial,
-    >
+    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
     where
         Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
@@ -107,12 +122,7 @@ impl<Schema> Drizzle<Schema> {
     pub fn update<'a, Table>(
         &'a self,
         table: Table,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
-        update::UpdateInitial,
-    >
+    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
     where
         Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
@@ -129,12 +139,7 @@ impl<Schema> Drizzle<Schema> {
     pub fn delete<'a, T>(
         &'a self,
         table: T,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        DeleteBuilder<'a, Schema, delete::DeleteInitial, T>,
-        delete::DeleteInitial,
-    >
+    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
     {
@@ -176,12 +181,13 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
-    pub fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, SQLiteValue<'a>>,
+        C: std::iter::FromIterator<R>,
     {
         let sql = query.to_sql();
         let sql_str = sql.sql();
@@ -197,12 +203,7 @@ impl<Schema> Drizzle<Schema> {
             Ok(R::try_from(row).map_err(Into::into))
         })?;
 
-        let mut results = Vec::new();
-        for row in rows {
-            results.push(row??);
-        }
-
-        Ok(results)
+        rows.collect::<Result<Result<C, _>, _>>()?
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -274,7 +275,12 @@ where
     /// Create schema objects using SQLSchemaImpl trait
     pub fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
-        schema.create(&self.conn)
+        let statements = schema.create_statements();
+        if !statements.is_empty() {
+            let batch_sql = statements.join(";");
+            self.conn.execute_batch(&batch_sql)?;
+        }
+        Ok(())
     }
 }
 
@@ -287,12 +293,7 @@ impl<'a, Schema>
     pub fn select<T>(
         self,
         query: T,
-    ) -> DrizzleBuilder<
-        'a,
-        Schema,
-        SelectBuilder<'a, Schema, select::SelectInitial>,
-        select::SelectInitial,
-    >
+    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -333,17 +334,31 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        self.builder.execute(&self.drizzle.conn)
+        let sql_str = self.builder.sql.sql();
+        let params = self.builder.sql.params().into_iter().cloned();
+        Ok(self
+            .drizzle
+            .conn
+            .execute(&sql_str, params_from_iter(params))?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
-    pub fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<R, C>(self) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
+        C: FromIterator<R>,
     {
-        self.builder.all(&self.drizzle.conn)
+        let sql_str = self.builder.sql.sql();
+        let params = self.builder.sql.params().into_iter().cloned();
+
+        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
+        let rows = stmt.query_map(params_from_iter(params), |row| {
+            Ok(R::try_from(row).map_err(Into::into))
+        })?;
+
+        rows.collect::<Result<Result<C, _>, _>>()?
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -353,6 +368,21 @@ where
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        self.builder.get(&self.drizzle.conn)
+        let sql_str = self.builder.sql.sql();
+        let params = self.builder.sql.params().into_iter().cloned();
+
+        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
+        stmt.query_row(params_from_iter(params), |row| {
+            Ok(R::try_from(row).map_err(Into::into))
+        })?
+    }
+}
+
+impl<'a, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'a, S, T, State>
+where
+    T: ToSQL<'a, SQLiteValue<'a>>,
+{
+    fn to_sql(&self) -> drizzle_core::SQL<'a, SQLiteValue<'a>> {
+        self.builder.to_sql()
     }
 }

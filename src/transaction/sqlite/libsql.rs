@@ -16,13 +16,27 @@ use drizzle_sqlite::{
     },
 };
 
-use crate::transaction::sqlite::TransactionBuilder;
+/// LibSQL-specific transaction builder
+#[derive(Debug)]
+pub struct TransactionBuilder<'a, Schema, Builder, State> {
+    transaction: &'a Transaction<Schema>,
+    builder: Builder,
+    _phantom: PhantomData<(Schema, State)>,
+}
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<Schema = ()> {
     tx: libsql::Transaction,
     tx_type: SQLiteTransactionType,
     _schema: PhantomData<Schema>,
+}
+
+impl<Schema> std::fmt::Debug for Transaction<Schema> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Transaction")
+            .field("tx_type", &self.tx_type)
+            .finish()
+    }
 }
 
 impl<Schema> Transaction<Schema> {
@@ -54,7 +68,6 @@ impl<Schema> Transaction<Schema> {
         query: T,
     ) -> TransactionBuilder<
         'a,
-        'a,
         Schema,
         SelectBuilder<'b, Schema, select::SelectInitial>,
         select::SelectInitial,
@@ -69,7 +82,7 @@ impl<Schema> Transaction<Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -79,7 +92,6 @@ impl<Schema> Transaction<Schema> {
         &'a self,
         table: Table,
     ) -> TransactionBuilder<
-        'a,
         'a,
         Schema,
         InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
@@ -92,7 +104,7 @@ impl<Schema> Transaction<Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -102,7 +114,6 @@ impl<Schema> Transaction<Schema> {
         &'a self,
         table: Table,
     ) -> TransactionBuilder<
-        'a,
         'a,
         Schema,
         UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
@@ -115,7 +126,7 @@ impl<Schema> Transaction<Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -125,7 +136,6 @@ impl<Schema> Transaction<Schema> {
         &'a self,
         table: T,
     ) -> TransactionBuilder<
-        'a,
         'a,
         Schema,
         DeleteBuilder<'a, Schema, delete::DeleteInitial, T>,
@@ -138,7 +148,7 @@ impl<Schema> Transaction<Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -209,8 +219,8 @@ impl<Schema> Transaction<Schema> {
 
 // libsql-specific execution methods for all ExecutableState QueryBuilders in transactions
 #[cfg(feature = "libsql")]
-impl<'a, 'conn, S, Schema, State, Table>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, S, Schema, State, Table>
+    TransactionBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {

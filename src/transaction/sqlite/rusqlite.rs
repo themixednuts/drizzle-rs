@@ -16,7 +16,13 @@ use drizzle_sqlite::{
     },
 };
 
-use crate::transaction::sqlite::TransactionBuilder;
+/// Rusqlite-specific transaction builder
+#[derive(Debug)]
+pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
+    transaction: &'a Transaction<'conn, Schema>,
+    builder: Builder,
+    _phantom: PhantomData<(Schema, State)>,
+}
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
@@ -70,7 +76,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -93,7 +99,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -116,7 +122,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -139,7 +145,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         TransactionBuilder {
             transaction: self,
             builder,
-            state: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
