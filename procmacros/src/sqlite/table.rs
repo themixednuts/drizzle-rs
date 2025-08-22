@@ -109,7 +109,6 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         })
         .collect();
 
-    #[cfg(feature = "rusqlite")]
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
@@ -119,21 +118,6 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
-        insert_model_ident: format_ident!("Insert{}", struct_ident),
-        update_model_ident: format_ident!("Update{}", struct_ident),
-        without_rowid: attrs.without_rowid,
-        strict: attrs.strict,
-        has_foreign_keys,
-    };
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let ctx = MacroContext {
-        struct_ident,
-        struct_vis: &input.vis,
-        table_name,
-        create_table_sql,
-        create_table_sql_runtime,
-        field_infos: &field_infos,
-        select_model_ident: format_ident!("Select{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
         without_rowid: attrs.without_rowid,

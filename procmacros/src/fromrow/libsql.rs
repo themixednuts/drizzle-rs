@@ -109,9 +109,9 @@ fn handle_integer_field(
         }
     } else if is_not_i64 {
         if is_optional {
-            quote!(row.get::<Option<i64>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
+            quote!(row.get::<Option<i64>>(#idx)?.map(|v| v.try_into()).transpose())
         } else {
-            quote!(row.get::<i64>(#idx).map(TryInto::try_into)?)
+            quote!(row.get::<i64>(#idx)?.try_into())
         }
     } else {
         quote!(row.get(#idx))

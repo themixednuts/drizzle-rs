@@ -37,15 +37,12 @@ fn generate_model_trait_impls(
     ctx: &MacroContext,
     _column_zst_idents: &[Ident],
 ) -> Result<TokenStream> {
-    #[cfg(feature = "rusqlite")]
+    #[allow(unused_variables)]
     let (select_model, select_model_partial, update_model) = (
         &ctx.select_model_ident,
         &ctx.select_model_partial_ident,
         &ctx.update_model_ident,
     );
-
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let (select_model, update_model) = (&ctx.select_model_ident, &ctx.update_model_ident);
 
     let struct_ident = &ctx.struct_ident;
 
@@ -56,7 +53,11 @@ fn generate_model_trait_impls(
         let name = info.ident;
         update_field_names.push(name);
     }
-    #[cfg(not(any(feature = "libsql", feature = "turso")))]
+
+    #[allow(unused_variables)]
+    let partial_impl = quote! {};
+
+    #[cfg(feature = "rusqlite")]
     let partial_impl = quote! {
             impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial {
             fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
@@ -70,9 +71,6 @@ fn generate_model_trait_impls(
             }
         }
     };
-
-    #[cfg(any(feature = "libsql", feature = "turso"))]
-    let partial_impl = quote! {};
 
     Ok(quote! {
         // SQLModel implementations

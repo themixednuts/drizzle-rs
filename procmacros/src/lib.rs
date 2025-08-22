@@ -30,7 +30,7 @@
 
 extern crate proc_macro;
 
-mod drizzle;
+mod drivers_test;
 mod fromrow;
 mod schema;
 mod sql;
@@ -42,165 +42,9 @@ mod sqlite;
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
 
-use drizzle::DrizzleInput;
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-/// Initialize a Drizzle instance with database connection and table schemas.
-///
-/// This macro creates a type-safe Drizzle instance that provides query building
-/// capabilities for the specified table schemas.
-///
-/// # Syntax
-///
-/// ```ignore
-/// use drizzle_rs::{sqlite::SQLiteTable, SQLSchema, drizzle};
-///
-/// #[SQLiteTable]
-/// pub struct Table1 {
-///     #[integer(primary)]
-///     pub id: i32
-/// }
-///
-/// #[SQLiteTable]
-/// pub struct Table2 {
-///     #[integer(primary)]
-///     pub id: i32
-/// }
-///
-/// #[SQLiteTable]
-/// pub struct Table {
-///     #[integer(primary)]
-///     pub id: i32
-/// }
-///
-/// #[derive(SQLSchema)]
-/// pub struct MultiTableSchema {
-///     pub table1: Table1,
-///     pub table2: Table2,
-/// }
-///
-/// #[derive(SQLSchema)]
-/// pub struct SingleTableSchema {
-///     pub table: Table,
-/// }
-///
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection1 = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection1 = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection2 = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection2 = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection3 = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection3 = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection3 = rusqlite::Connection::open_in_memory().unwrap();
-///
-/// // Multiple tables using schema
-/// let (drizzle_instance, MultiTableSchema { table1, table2 }) = drizzle!(connection1, MultiTableSchema);
-/// // Single table using schema
-/// let (drizzle_instance, SingleTableSchema { table }) = drizzle!(connection2, SingleTableSchema);
-/// // Alternative single table syntax
-/// let (drizzle_instance, SingleTableSchema { table }) = drizzle!(connection3, SingleTableSchema);
-/// ```
-///
-/// # Examples
-///
-/// ## Single Table
-/// ```ignore
-/// use drizzle_rs::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// pub struct Users {
-///     #[integer(primary)]
-///     pub id: i32,
-///     #[text]
-///     pub name: String,
-/// }
-///
-/// #[derive(SQLSchema)]
-/// pub struct UserSchema {
-///     pub users: Users,
-/// }
-///
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection1 = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection1 = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection1 = rusqlite::Connection::open_in_memory().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection2 = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection2 = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection2 = rusqlite::Connection::open_in_memory().unwrap();
-///
-/// // Using schema for single table:
-/// let (db, UserSchema { users }) = drizzle!(connection1, UserSchema);
-/// let (db, UserSchema { users }) = drizzle!(connection2, UserSchema);
-/// ```
-///
-/// ## Multiple Tables
-/// ```ignore
-/// use drizzle_rs::prelude::*;
-/// use drizzle_rs::error::DrizzleError;
-///
-/// #[SQLiteTable(name = "users")]
-/// pub struct Users {
-///     #[integer(primary)]
-///     pub id: i32,
-///     #[text]
-///     pub name: String,
-/// }
-///
-/// #[SQLiteTable(name = "posts")]
-/// pub struct Posts {
-///     #[integer(primary)]
-///     pub id: i32,
-///     #[text]
-///     pub title: String,
-///     #[integer(references = Users::id)]
-///     pub user_id: i32,
-/// }
-///
-/// #[derive(SQLSchema)]
-/// pub struct AppSchema {
-///     pub users: Users,
-///     pub posts: Posts,
-/// }
-///
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection = rusqlite::Connection::open_in_memory().unwrap();
-/// let (db, AppSchema { users, posts }) = drizzle!(connection, AppSchema);
-/// ```
-#[proc_macro]
-pub fn drizzle(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(input as DrizzleInput);
-
-    match drizzle::drizzle_impl(input) {
-        Ok(output) => output.into(),
-        Err(err) => err.into_compile_error().into(),
-    }
-}
 
 /// Derive macro for creating SQLite-compatible enums.
 ///
@@ -660,4 +504,41 @@ pub fn sql(input: TokenStream) -> TokenStream {
         Ok(output) => output.into(),
         Err(err) => err.into_compile_error().into(),
     }
+}
+
+/// Generates test functions for all enabled SQLite drivers.
+///
+/// This macro creates separate test functions for rusqlite, libsql, and turso drivers,
+/// each with proper async/sync handling and driver-specific setup.
+///
+/// # Syntax
+///
+/// ```ignore
+/// drivers_test!(test_name, SchemaType, {
+///     // Test body - uses `db` and `schema` variables
+///     let table = schema.my_table;
+///     let result = drizzle_exec!(db.insert(table).values([data]).execute());
+///     assert_eq!(result, 1);
+/// });
+/// ```
+///
+/// # Generated Functions
+///
+/// For a test named `my_test`, this generates:
+/// - `my_test_rusqlite()` - Sync test for rusqlite
+/// - `my_test_libsql()` - Async test for libsql  
+/// - `my_test_turso()` - Async test for turso
+///
+/// # Available Macros in Test Body
+///
+/// - `drizzle_exec!(operation)` - Execute operation with proper async/sync handling
+/// - `drizzle_try!(operation)` - Try operation with proper async/sync handling
+///
+/// # Variables Available in Test Body
+///
+/// - `db` - The Drizzle instance for the current driver
+/// - `schema` - The schema instance with all tables
+#[proc_macro]
+pub fn drivers_test(input: TokenStream) -> TokenStream {
+    crate::drivers_test::drivers_test_impl(input)
 }

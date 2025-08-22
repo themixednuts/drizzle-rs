@@ -156,6 +156,15 @@ pub(crate) fn sqlite_index_attr_macro(
         impl<'a> ::drizzle_rs::core::SQLIndex<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident
         {
             type Table = #table_type;
+        }
+
+        impl ::drizzle_rs::core::SQLIndexInfo for #struct_ident
+        {
+            fn table(&self) -> &dyn ::drizzle_rs::core::SQLTableInfo {
+                #[allow(non_upper_case_globals)]
+                static TABLE_INSTANCE: #table_type = #table_type::new();
+                &TABLE_INSTANCE
+            }
 
             fn name(&self) -> &'static str {
                 #index_name
@@ -169,7 +178,11 @@ pub(crate) fn sqlite_index_attr_macro(
         impl<'a> ::drizzle_rs::core::SQLSchema<'a, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_ident
         {
             const NAME: &'a str = #index_name;
-            const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Index;
+            const TYPE: ::drizzle_rs::core::SQLSchemaType = {
+                #[allow(non_upper_case_globals)]
+                static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
+                ::drizzle_rs::core::SQLSchemaType::Index(&INDEX_INSTANCE)
+            };
             const SQL: ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> = ::drizzle_rs::core::SQL::empty();
 
             fn sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {

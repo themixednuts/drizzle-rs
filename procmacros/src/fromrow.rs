@@ -152,7 +152,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
     }
 
     // Libsql implementation
-    #[cfg(all(feature = "libsql", not(feature = "turso")))]
+    #[cfg(feature = "libsql")]
     {
         let field_assignments = if is_tuple {
             fields

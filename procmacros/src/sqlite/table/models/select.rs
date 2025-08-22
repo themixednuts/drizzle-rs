@@ -6,18 +6,10 @@ use syn::Result;
 
 /// Generates the Select model and its partial variant
 pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
-    #[cfg(feature = "rusqlite")]
+    #[allow(unused_variables)]
     let MacroContext {
         select_model_ident,
         select_model_partial_ident,
-        struct_vis,
-        field_infos,
-        ..
-    } = ctx;
-
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let MacroContext {
-        select_model_ident,
         struct_vis,
         field_infos,
         ..
@@ -48,8 +40,10 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         ));
     }
 
-    // Partial Select Model - feature gated for drivers that support column-based access
-    #[cfg(not(any(feature = "libsql", feature = "turso")))]
+    #[allow(unused_variables)]
+    let partial_impl = quote! {};
+
+    #[cfg(feature = "rusqlite")]
     let partial_impl = quote! {
             // Partial Select Model - all fields are optional for selective querying
             #[derive(Debug, Clone, PartialEq, Default)]
@@ -88,8 +82,6 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
             }
 
     };
-    #[cfg(any(feature = "libsql", feature = "turso"))]
-    let partial_impl = quote! {};
 
     Ok(quote! {
         // Select Model

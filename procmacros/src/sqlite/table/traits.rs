@@ -61,7 +61,11 @@ pub(crate) fn generate_table_impls(
     Ok(quote! {
         impl<'a> ::drizzle_rs::core::SQLSchema<'a, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'a> > for #struct_ident {
             const NAME: &'a str = #table_name;
-            const TYPE: ::drizzle_rs::core::SQLSchemaType = ::drizzle_rs::core::SQLSchemaType::Table;
+            const TYPE: ::drizzle_rs::core::SQLSchemaType = {
+                #[allow(non_upper_case_globals)]
+                static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
+                ::drizzle_rs::core::SQLSchemaType::Table(&TABLE_INSTANCE)
+            };
             #sql_const
             #sql_method
         }

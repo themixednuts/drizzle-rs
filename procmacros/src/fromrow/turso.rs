@@ -12,12 +12,7 @@ pub(crate) fn generate_field_assignment(
     let is_optional = field_type_str.contains("Option");
     let base_type_str = extract_base_type(&field_type_str);
 
-    if field_name.is_none() {
-        // For tuple structs, just return the value without field name
-        return Ok(generate_tuple_value(idx, &base_type_str, &field_type_str));
-    }
-
-    let name = field_name.unwrap();
+    let name = field_name;
 
     // Check for special attributes
     if has_json_attribute(field) {
@@ -46,21 +41,21 @@ pub(crate) fn generate_field_assignment(
 }
 
 /// Handle JSON fields
-fn handle_json_field(idx: usize, name: &syn::Ident, is_optional: bool) -> Result<TokenStream> {
+fn handle_json_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_text());
     let converter = quote!(#accessor.map(|v| serde_json::from_str(v)).transpose()?);
     Ok(wrap_optional(converter, name, is_optional))
 }
 
 /// Handle UUID fields  
-fn handle_uuid_field(idx: usize, name: &syn::Ident, is_optional: bool) -> Result<TokenStream> {
+fn handle_uuid_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_blob());
     let converter = quote!(#accessor.map(|v| uuid::Uuid::from_slice(v)).transpose()?);
     Ok(wrap_optional(converter, name, is_optional))
 }
 
 /// Handle boolean fields
-fn handle_bool_field(idx: usize, name: &syn::Ident, is_optional: bool) -> Result<TokenStream> {
+fn handle_bool_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_integer());
     let converter = quote!(#accessor.map(|&v| v != 0));
     Ok(wrap_optional(converter, name, is_optional))
@@ -69,7 +64,7 @@ fn handle_bool_field(idx: usize, name: &syn::Ident, is_optional: bool) -> Result
 /// Handle integer fields (i8, i16, i32, i64)
 fn handle_integer_field(
     idx: usize,
-    name: &syn::Ident,
+    name: Option<&syn::Ident>,
     is_optional: bool,
     base_type_str: &str,
 ) -> Result<TokenStream> {
@@ -88,7 +83,7 @@ fn handle_integer_field(
 /// Handle float fields (f32, f64)
 fn handle_float_field(
     idx: usize,
-    name: &syn::Ident,
+    name: Option<&syn::Ident>,
     is_optional: bool,
     base_type_str: &str,
 ) -> Result<TokenStream> {
@@ -104,29 +99,44 @@ fn handle_float_field(
 }
 
 /// Handle text/string fields
-fn handle_text_field(idx: usize, name: &syn::Ident, is_optional: bool) -> Result<TokenStream> {
+fn handle_text_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_text());
-    let converter = quote!(#accessor.cloned());
+    let converter = quote!(#accessor.map(|s| s.to_string()));
     Ok(wrap_optional(converter, name, is_optional))
 }
 
 /// Handle blob/Vec<u8> fields
-fn handle_blob_field(idx: usize, name: &syn::Ident, is_optional: bool) -> Result<TokenStream> {
+fn handle_blob_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_blob());
     let converter = quote!(#accessor.map(|v| v.to_vec()));
     Ok(wrap_optional(converter, name, is_optional))
 }
 
-fn wrap_optional(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> TokenStream {
-    if is_optional {
-        quote! {
-            #name: #inner,
+fn wrap_optional(inner: TokenStream, name: Option<&syn::Ident>, is_optional: bool) -> TokenStream {
+    if let Some(field_name) = name {
+        // Named struct field
+        if is_optional {
+            quote! {
+                #field_name: #inner,
+            }
+        } else {
+            let error_msg = format!("Error converting required field `{}`", field_name);
+            quote! {
+                #field_name: #inner
+                    .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(#error_msg.to_string()))?,
+            }
         }
     } else {
-        let error_msg = format!("Error converting required field `{}`", name);
-        quote! {
-            #name: #inner
-                .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError(#error_msg.to_string()))?,
+        // Tuple struct field
+        if is_optional {
+            quote! {
+                #inner,
+            }
+        } else {
+            quote! {
+                #inner
+                    .ok_or_else(|| ::drizzle_rs::error::DrizzleError::ConversionError("Error converting tuple field".to_string()))?,
+            }
         }
     }
 }
@@ -166,32 +176,3 @@ fn has_json_attribute(field: &Field) -> bool {
     })
 }
 
-/// Generate tuple struct value assignment (no field name)
-fn generate_tuple_value(idx: usize, base_type_str: &str, field_type_str: &str) -> TokenStream {
-    if is_uuid_type(field_type_str) {
-        return quote!(row.get_value(#idx)?.as_blob().map(|v| uuid::Uuid::from_slice(v)).transpose()?.unwrap_or_default(),);
-    }
-
-    if base_type_str.contains("bool") {
-        quote!(row.get_value(#idx)?.as_integer().map(|&v| v != 0).unwrap_or_default(),)
-    } else if is_integer_type(base_type_str) {
-        if base_type_str.contains("i64") {
-            quote!(row.get_value(#idx)?.as_integer().copied().unwrap_or_default(),)
-        } else {
-            quote!(row.get_value(#idx)?.as_integer().map(|&v| v.try_into()).transpose()?.unwrap_or_default(),)
-        }
-    } else if is_float_type(base_type_str) {
-        if base_type_str.contains("f32") {
-            quote!(row.get_value(#idx)?.as_real().map(|&v| v as f32).unwrap_or_default(),)
-        } else {
-            quote!(row.get_value(#idx)?.as_real().cloned().unwrap_or_default(),)
-        }
-    } else if base_type_str.contains("String") {
-        quote!(row.get_value(#idx)?.as_text().cloned().unwrap_or_default(),)
-    } else if base_type_str.contains("Vec") && base_type_str.contains("u8") {
-        quote!(row.get_value(#idx)?.as_blob().map(|v| v.to_vec()).unwrap_or_default(),)
-    } else {
-        // Default to string
-        quote!(row.get_value(#idx)?.as_text().cloned().unwrap_or_default(),)
-    }
-}

@@ -126,6 +126,21 @@ pub(crate) fn generate_column_definitions<'a>(
             quote! {}
         };
 
+        // Generate foreign key reference implementation
+        let foreign_key_impl = if let Some(ref fk) = info.foreign_key {
+            let table_ident = &fk.table_ident;
+            let column_ident = &fk.column_ident;
+            let column_pascal_case = column_ident.to_string().to_upper_camel_case();
+            let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
+            quote! {
+                #[allow(non_upper_case_globals)]
+                static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
+                Some(&FK_COLUMN)
+            }
+        } else {
+            quote! { None }
+        };
+
         let column_code = quote! {
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
@@ -166,7 +181,11 @@ pub(crate) fn generate_column_definitions<'a>(
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
+                fn foreign_key(&self) -> Option<&'static dyn ::drizzle_rs::core::SQLColumnInfo> {
+                    #foreign_key_impl
+                }
             }
+
 
             impl ::drizzle_rs::sqlite::SQLiteColumnInfo for #zst_ident {
                 fn is_autoincrement(&self) -> bool {
