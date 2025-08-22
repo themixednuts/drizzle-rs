@@ -25,3 +25,5 @@ impl std::fmt::Debug for &dyn SQLiteColumnInfo {
             .finish()
     }
 }
+
+

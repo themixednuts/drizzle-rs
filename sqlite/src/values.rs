@@ -126,6 +126,18 @@ where
     }
 }
 
+impl<'a> FromIterator<OwnedSQLiteValue> for Vec<SQLiteValue<'a>> {
+    fn from_iter<T: IntoIterator<Item = OwnedSQLiteValue>>(iter: T) -> Self {
+        iter.into_iter().map(SQLiteValue::from).collect()
+    }
+}
+
+impl<'a> FromIterator<&'a OwnedSQLiteValue> for Vec<SQLiteValue<'a>> {
+    fn from_iter<T: IntoIterator<Item = &'a OwnedSQLiteValue>>(iter: T) -> Self {
+        iter.into_iter().map(SQLiteValue::from).collect()
+    }
+}
+
 // UUID conversion for String InsertValue (for text columns)
 #[cfg(feature = "uuid")]
 impl<'a> From<Uuid> for InsertValue<'a, SQLiteValue<'a>, String> {
@@ -198,6 +210,17 @@ impl<'a> From<OwnedSQLiteValue> for SQLiteValue<'a> {
             OwnedSQLiteValue::Real(r) => SQLiteValue::Real(r),
             OwnedSQLiteValue::Text(v) => SQLiteValue::Text(Cow::Owned(v)),
             OwnedSQLiteValue::Blob(v) => SQLiteValue::Blob(Cow::Owned(v.into())),
+            OwnedSQLiteValue::Null => SQLiteValue::Null,
+        }
+    }
+}
+impl<'a> From<&'a OwnedSQLiteValue> for SQLiteValue<'a> {
+    fn from(value: &'a OwnedSQLiteValue) -> Self {
+        match value {
+            OwnedSQLiteValue::Integer(f) => SQLiteValue::Integer(*f),
+            OwnedSQLiteValue::Real(r) => SQLiteValue::Real(*r),
+            OwnedSQLiteValue::Text(v) => SQLiteValue::Text(Cow::Borrowed(v)),
+            OwnedSQLiteValue::Blob(v) => SQLiteValue::Blob(Cow::Borrowed(v)),
             OwnedSQLiteValue::Null => SQLiteValue::Null,
         }
     }
