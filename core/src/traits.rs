@@ -1,8 +1,6 @@
 use std::any::Any;
 mod tuple;
 
-#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
-use crate::error::DrizzleError;
 use crate::{SQL, SQLSchemaType, ToSQL};
 
 /// A marker trait for types that can be used as SQL parameters.
@@ -44,13 +42,6 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     }
 }
 
-#[cfg(feature = "libsql")]
-use libsql::Connection;
-#[cfg(feature = "rusqlite")]
-use rusqlite::Connection;
-#[cfg(feature = "turso")]
-use turso::Connection;
-
 pub trait SQLColumnInfo: Any + Send + Sync {
     fn is_not_null(&self) -> bool;
     fn is_primary_key(&self) -> bool;
@@ -59,13 +50,15 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     fn r#type(&self) -> &str;
     fn table(&self) -> &dyn SQLTableInfo;
     fn has_default(&self) -> bool;
+    
+    /// Returns the foreign key reference if this column has one
+    fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
+        None
+    }
 }
 
 pub trait SQLSchemaImpl: Any + Send + Sync {
-    #[cfg(feature = "rusqlite")]
-    fn create(&self, conn: &Connection) -> Result<(), DrizzleError>;
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    fn create(&self, conn: &Connection) -> impl Future<Output = Result<(), DrizzleError>>;
+    fn create_statements(&self) -> Vec<String>;
 }
 
 pub trait AsColumnInfo: SQLColumnInfo {
@@ -149,6 +142,15 @@ pub trait SQLTableInfo: Any + Send + Sync {
     fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]>;
     fn without_rowid(&self) -> bool;
     fn strict(&self) -> bool;
+    
+    /// Returns all tables this table depends on via foreign keys
+    fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
+        self.columns()
+            .iter()
+            .filter_map(|col| col.foreign_key())
+            .map(|fk_col| fk_col.table())
+            .collect()
+    }
 }
 
 impl std::fmt::Debug for dyn SQLTableInfo {
@@ -264,12 +266,8 @@ mod tests {
 /// Marker trait indicating that a table `T` is part of a schema represented by the marker type `S`.
 pub trait IsInSchema<S> {}
 
-/// Trait for types that represent database indexes.
-/// Implemented by tuple structs like `struct UserEmailIdx(User::email);`
-pub trait SQLIndex<'a, Value: SQLParam + 'a>: ToSQL<'a, Value> {
-    /// The table type this index is associated with
-    type Table: SQLTable<'a, Value>;
-
+pub trait SQLIndexInfo: Any + Send + Sync {
+    fn table(&self) -> &dyn SQLTableInfo;
     /// The name of this index (for DROP INDEX statements)
     fn name(&self) -> &'static str;
 
@@ -277,4 +275,30 @@ pub trait SQLIndex<'a, Value: SQLParam + 'a>: ToSQL<'a, Value> {
     fn is_unique(&self) -> bool {
         false
     }
+}
+
+pub trait AsIndexInfo: SQLIndexInfo {
+    fn as_index(&self) -> &dyn SQLIndexInfo;
+}
+
+impl<T: SQLIndexInfo> AsIndexInfo for T {
+    fn as_index(&self) -> &dyn SQLIndexInfo {
+        self
+    }
+}
+
+impl std::fmt::Debug for dyn SQLIndexInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SQLIndexInfo")
+            .field("name", &self.name())
+            .field("is_unique", &self.is_unique())
+            .field("table", &self.table())
+            .finish()
+    }
+}
+/// Trait for types that represent database indexes.
+/// Implemented by tuple structs like `struct UserEmailIdx(User::email);`
+pub trait SQLIndex<'a, Value: SQLParam + 'a>: ToSQL<'a, Value> {
+    /// The table type this index is associated with
+    type Table: SQLTable<'a, Value>;
 }

@@ -1,14 +1,14 @@
-use crate::{ToSQL, sql::SQL, traits::SQLParam};
+use crate::{SQLIndexInfo, SQLTableInfo, ToSQL, sql::SQL, traits::SQLParam};
 
 /// The type of SQLite database object
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone)]
 pub enum SQLSchemaType {
     /// A regular table
-    Table,
+    Table(&'static dyn SQLTableInfo),
     /// A view
     View,
     /// An index
-    Index,
+    Index(&'static dyn SQLIndexInfo),
     /// A trigger
     Trigger,
 }

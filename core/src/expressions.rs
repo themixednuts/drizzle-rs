@@ -159,6 +159,33 @@ pub fn coalesce<'a, V: SQLParam + 'a, E: ToSQL<'a, V>, D: ToSQL<'a, V>>(
         .append_raw(")")
 }
 
+/// Helper function to create a TYPEOF expression
+///
+/// # Arguments
+/// * `expr` - The expression to get the type of
+///
+/// # Returns
+/// An `SQL` fragment representing TYPEOF(expr)
+pub fn r#typeof<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(expr: E) -> SQL<'a, V> {
+    SQL::raw("TYPEOF(").append(expr.to_sql()).append_raw(")")
+}
+
+/// Helper function to create a CAST expression
+///
+/// # Arguments
+/// * `expr` - The expression to cast
+/// * `target_type` - The target type to cast to (e.g., "INTEGER", "TEXT", "REAL")
+///
+/// # Returns
+/// An `SQL` fragment representing CAST(expr AS target_type)
+pub fn cast<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(expr: E, target_type: &'a str) -> SQL<'a, V> {
+    SQL::raw("CAST(")
+        .append(expr.to_sql())
+        .append_raw(" AS ")
+        .append_raw(target_type)
+        .append_raw(")")
+}
+
 // Helper function to create SQL aggregate function expressions
 fn create_aggregate_function<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(
     expr: E,
