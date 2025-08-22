@@ -1,5 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 mod common;
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
 
 // Test enums with different representations
@@ -81,16 +82,8 @@ struct UserAccountResult {
     status: i32,  // INTEGER representation
 }
 
-#[tokio::test]
-async fn test_enum_database_roundtrip() {
-    let conn = setup_test_db!();
-
-    // Setup database
-    let (db, Schema { user_account }) = drizzle!(conn, Schema);
-    // Create table
-    println!("CREATE TABLE SQL: {}", UserAccount::SQL);
-
-    drizzle_try!(db.execute(UserAccount::SQL)).expect("Failed to create user_account table");
+drivers_test!(test_enum_database_roundtrip, Schema, {
+    let Schema { user_account } = schema;
 
     // Insert test data with different enum values
     let test_users = vec![
@@ -164,4 +157,4 @@ async fn test_enum_database_roundtrip() {
 
     assert_eq!(suspended_users.len(), 1);
     assert_eq!(suspended_users[0].name, "admin_user");
-}
+});

@@ -1,3 +1,5 @@
+#![cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+
 use drizzle_rs::{SQLSchema, sqlite::SQLiteTable};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;

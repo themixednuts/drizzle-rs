@@ -1,7 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 mod common;
 
-use drizzle_rs::{error::DrizzleError, prelude::*};
+use drizzle_macros::drivers_test;
+use drizzle_rs::prelude::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "uuid")]
@@ -32,17 +33,14 @@ struct JsonUser {
     #[blob(json)]
     profile: Profile,
 }
+#[derive(SQLSchema)]
+struct Schema {
+    jsonuser: JsonUser,
+}
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[tokio::test]
-async fn json_storage() {
-    #[derive(SQLSchema)]
-    struct Schema {
-        jsonuser: JsonUser,
-    }
-    let conn = setup_test_db!();
-
-    exec_sql!(conn, JsonUser::SQL.sql().as_str(), db_params!());
+drivers_test!(json_storage, Schema, {
+    let Schema { jsonuser } = schema;
 
     let profile = Profile {
         age: 30,
@@ -52,7 +50,6 @@ async fn json_storage() {
 
     let id = Uuid::new_v4();
 
-    let (db, Schema { jsonuser }) = drizzle!(conn, Schema);
     drizzle_exec!(
         db.insert(jsonuser)
             .values([InsertJsonUser::new(id, "john@test.com", profile)])
@@ -62,16 +59,16 @@ async fn json_storage() {
     let stmt = db
         .select((
             jsonuser.id,
-            drizzle_rs::sqlite::conditions::json_extract(jsonuser.profile, "age").alias("age"),
+            cast(drizzle_rs::sqlite::conditions::json_extract(jsonuser.profile, "age"), "INTEGER").alias("age"),
         ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    // let sql = stmt.to_sql();
-    // println!("{sql}");
+    let sql = stmt.to_sql();
+    println!("{sql}");
 
     let user: UserResult = drizzle_exec!(stmt.get());
 
     assert_eq!(user.id, id);
     assert_eq!(user.age, 30);
-}
+});

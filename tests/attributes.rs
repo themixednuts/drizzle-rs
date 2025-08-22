@@ -1,14 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
-#[cfg(feature = "libsql")]
-use libsql::{Builder, Connection, Value};
-#[cfg(feature = "rusqlite")]
-use rusqlite::Connection;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "turso")]
-use turso::{Builder, Connection, Value};
+
+mod common;
 
 // Test all SQLite column types
 #[SQLiteTable(name = "all_types")]
@@ -240,524 +237,185 @@ struct NullableTestSchema {
     nullable_test: NullableTest,
 }
 
-#[cfg(feature = "rusqlite")]
-// Helper functions for setup
-fn setup_test_db() -> Connection {
-    let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
-
-    // Create all test tables
-    conn.execute(AllTypes::SQL.sql().as_str(), []).unwrap();
-    conn.execute(PrimaryKeyVariations::SQL.sql().as_str(), [])
-        .unwrap();
-    conn.execute(ManualPrimaryKey::SQL.sql().as_str(), [])
-        .unwrap();
-    conn.execute(UniqueFields::SQL.sql().as_str(), []).unwrap();
-    conn.execute(CompileTimeDefaults::SQL.sql().as_str(), [])
-        .unwrap();
-    conn.execute(RuntimeDefaults::SQL.sql().as_str(), [])
-        .unwrap();
-    conn.execute(EnumFields::SQL.sql().as_str(), []).unwrap();
-    conn.execute(ComplexEnumFields::SQL.sql().as_str(), [])
-        .unwrap();
-
-    #[cfg(feature = "serde")]
-    conn.execute(JsonFields::SQL.sql().as_str(), []).unwrap();
-
-    #[cfg(feature = "uuid")]
-    conn.execute(UuidFields::SQL.sql().as_str(), []).unwrap();
-
-    conn.execute(NullableTest::SQL.sql().as_str(), []).unwrap();
-
-    conn
-}
-
-#[cfg(any(feature = "turso", feature = "libsql"))]
-// Helper functions for setup
-async fn setup_test_db() -> Connection {
-    let db = Builder::new_local(":memory:")
-        .build()
-        .await
-        .expect("build db");
-    let conn = db.connect().expect("connect to db");
-
-    // Create all test tables
-    conn.execute(AllTypes::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(PrimaryKeyVariations::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(ManualPrimaryKey::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(UniqueFields::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(CompileTimeDefaults::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(RuntimeDefaults::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(EnumFields::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-    conn.execute(ComplexEnumFields::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-
-    #[cfg(feature = "serde")]
-    conn.execute(JsonFields::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-
-    #[cfg(feature = "uuid")]
-    conn.execute(UuidFields::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-
-    conn.execute(NullableTest::SQL.sql().as_str(), ())
-        .await
-        .unwrap();
-
-    conn
-}
-
-#[tokio::test]
-async fn test_all_column_types() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, AllTypesSchema);
+drivers_test!(test_all_column_types, AllTypesSchema, {
     let all_types = schema.all_types;
 
     // Test insertion with all column types
     let test_data = InsertAllTypes::new("test text", 123, 45.67, [1, 2, 3, 4, 5], true);
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(all_types).values([test_data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(all_types)
-        .values([test_data])
-        .execute()
-        .await
-        .unwrap();
-
+    let result = drizzle_exec!(db.insert(all_types).values([test_data]).execute());
     assert_eq!(result, 1);
+});
 
-    // Verify the data was stored correctly
-    let query = "SELECT * FROM all_types WHERE id = 1";
-    #[cfg(feature = "rusqlite")]
-    let mut stmt = db.conn().prepare(query).unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let mut stmt = db.conn().prepare(query).await.unwrap();
-
-    #[cfg(feature = "rusqlite")]
-    let row = stmt
-        .query_row([], |row| {
-            Ok((
-                row.get::<_, String>("text_field")?,
-                row.get::<_, i32>("int_field")?,
-                row.get::<_, f64>("real_field")?,
-                row.get::<_, Vec<u8>>("blob_field")?,
-                row.get::<_, bool>("bool_field")?,
-            ))
-        })
-        .unwrap();
-
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let mut rows = stmt.query(()).await.unwrap();
-
-    #[cfg(feature = "rusqlite")]
+drivers_test!(
+    test_primary_key_autoincrement,
+    PrimaryKeyVariationsSchema,
     {
-        assert_eq!(row.0, "test text");
-        assert_eq!(row.1, 123);
-        assert_eq!(row.2, 45.67);
-        assert_eq!(row.3, vec![1, 2, 3, 4, 5]);
-        assert_eq!(row.4, true);
-    }
+        let pk_table = schema.pk_variations;
 
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        while let Some(row) = rows.next().await.unwrap() {
-            assert_eq!(row.get_value(1).unwrap().as_text().unwrap(), "test text");
-            assert_eq!(
-                row.get_value(2).unwrap().as_integer().cloned().unwrap(),
-                123
-            );
-            assert_eq!(row.get_value(3).unwrap().as_real().cloned().unwrap(), 45.67);
-            assert_eq!(
-                row.get_value(4).unwrap().as_blob().cloned().unwrap(),
-                vec![1, 2, 3, 4, 5]
-            );
-            assert_eq!(
-                row.get_value(5)
-                    .unwrap()
-                    .as_integer()
-                    .map(|&v| v != 0)
-                    .unwrap(),
-                true
-            );
-        }
-    }
-}
+        // Insert multiple records to test autoincrement
+        let data1 = InsertPrimaryKeyVariations::new("first");
+        let data2 = InsertPrimaryKeyVariations::new("second");
 
-#[tokio::test]
-async fn test_primary_key_autoincrement() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
+        drizzle_exec!(db.insert(pk_table).values([data1]).execute());
+        drizzle_exec!(db.insert(pk_table).values([data2]).execute());
 
-    let (db, schema) = drizzle!(conn, PrimaryKeyVariationsSchema);
-    let pk_table = schema.pk_variations;
+        // Verify autoincrement worked using unified approach
+        let select_query = db
+            .select((pk_table.auto_id, pk_table.name))
+            .from(pk_table)
+            .order_by(pk_table.auto_id);
 
-    // Insert multiple records to test autoincrement
-    let data1 = InsertPrimaryKeyVariations::new("first");
-    let data2 = InsertPrimaryKeyVariations::new("second");
+        #[derive(FromRow, Debug, PartialEq)]
+        struct ReturnResult(i32, String);
 
-    #[cfg(feature = "rusqlite")]
-    {
-        db.insert(pk_table).values([data1]).execute().unwrap();
-        db.insert(pk_table).values([data2]).execute().unwrap();
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        db.insert(pk_table).values([data1]).execute().await.unwrap();
-        db.insert(pk_table).values([data2]).execute().await.unwrap();
-    }
-
-    // Verify autoincrement worked
-    let query = "SELECT auto_id, name FROM pk_variations ORDER BY auto_id";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let rows: Result<Vec<_>, _> = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?))
-            })
-            .unwrap()
-            .collect();
-
-        let rows = rows.unwrap();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], (1, "first".to_string()));
-        assert_eq!(rows[1], (2, "second".to_string()));
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
-        let mut results = Vec::new();
-
-        while let Some(row) = rows.next().await.unwrap() {
-            let auto_id = row.get_value(0).unwrap().as_integer().cloned().unwrap();
-            let name = row.get_value(1).unwrap().as_text().unwrap().to_string();
-            results.push((auto_id, name));
-        }
+        let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0], (1, "first".to_string()));
-        assert_eq!(results[1], (2, "second".to_string()));
+        assert_eq!(results[0], ReturnResult(1, "first".to_string()));
+        assert_eq!(results[1], ReturnResult(2, "second".to_string()));
     }
-}
+);
 
-#[tokio::test]
-async fn test_manual_primary_key() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, ManualPrimaryKeySchema);
+drivers_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
     let manual_pk = schema.manual_pk;
 
     let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(manual_pk).values([data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db.insert(manual_pk).values([data]).execute().await.unwrap();
-
+    let result = drizzle_exec!(db.insert(manual_pk).values([data]).execute());
     assert_eq!(result, 1);
 
-    // Verify the manual primary key
-    let query = "SELECT manual_id, description FROM manual_pk WHERE manual_id = 'custom_id_123'";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let row = stmt
-            .query_row([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .unwrap();
+    // Verify the manual primary key using unified query approach
+    let select_query = db
+        .select(())
+        .from(manual_pk)
+        .r#where(eq(manual_pk.manual_id, "custom_id_123"));
 
-        assert_eq!(row.0, "custom_id_123");
-        assert_eq!(row.1, "Test description");
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
+    #[derive(FromRow, Debug, PartialEq)]
+    struct ReturnResult(String, String);
 
-        if let Some(row) = rows.next().await.unwrap() {
-            let manual_id = row.get_value(0).unwrap().as_text().cloned().unwrap();
-            let description = row.get_value(1).unwrap().as_text().cloned().unwrap();
-            assert_eq!(manual_id, "custom_id_123");
-            assert_eq!(description, "Test description");
-        }
-    }
-}
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-#[tokio::test]
-async fn test_unique_constraints() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "custom_id_123");
+    assert_eq!(results[0].1, "Test description");
+});
 
-    let (db, schema) = drizzle!(conn, UniqueFieldsSchema);
+drivers_test!(test_unique_constraints, UniqueFieldsSchema, {
     let unique_table = schema.unique_fields;
 
     // Insert first record
     let data1 =
         InsertUniqueFields::new("test@example.com", "testuser").with_display_name("Test User");
 
-    #[cfg(feature = "rusqlite")]
-    let result1 = db.insert(unique_table).values([data1]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result1 = db
-        .insert(unique_table)
-        .values([data1])
-        .execute()
-        .await
-        .unwrap();
-
+    let result1 = drizzle_exec!(db.insert(unique_table).values([data1]).execute());
     assert_eq!(result1, 1);
 
     // Try to insert duplicate email - should fail
-    let data2 = InsertUniqueFields::new("test@example.com", "different_user");
+    let data2 = InsertUniqueFields::new("test@example.com", "anotheruser")
+        .with_display_name("Another User");
 
-    #[cfg(feature = "rusqlite")]
-    let result2 = db.insert(unique_table).values([data2]).execute();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result2 = db.insert(unique_table).values([data2]).execute().await;
-
+    let result2 = drizzle_try!(db.insert(unique_table).values([data2]).execute());
     assert!(result2.is_err()); // Should fail due to unique constraint
-}
+});
 
-#[tokio::test]
-async fn test_compile_time_defaults() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, CompileTimeDefaultsSchema);
+drivers_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
     let defaults_table = schema.compile_defaults;
 
     // Insert with minimal data - defaults should be used
     let data = InsertCompileTimeDefaults::new();
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(defaults_table).values([data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(defaults_table)
-        .values([data])
-        .execute()
-        .await
-        .unwrap();
-
+    let result = drizzle_exec!(db.insert(defaults_table).values([data]).execute());
     assert_eq!(result, 1);
 
-    // Verify defaults were applied
-    let query = "SELECT name, answer, pi, active, status FROM compile_defaults WHERE id = 1";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let row = stmt
-            .query_row([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i32>(1)?,
-                    row.get::<_, f64>(2)?,
-                    row.get::<_, bool>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })
-            .unwrap();
+    // Verify compile-time defaults were applied
+    let select_query = db
+        .select((
+            defaults_table.name,
+            defaults_table.answer,
+            defaults_table.pi,
+            defaults_table.active,
+            defaults_table.status,
+        ))
+        .from(defaults_table)
+        .r#where(eq(defaults_table.id, 1));
 
-        assert_eq!(row.0, "default_name");
-        assert_eq!(row.1, 42);
-        assert_eq!(row.2, 3.14);
-        assert_eq!(row.3, true);
-        assert_eq!(row.4, "pending");
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String, i32, f64, bool, String);
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        if let Some(row) = rows.next().await.unwrap() {
-            let name = row.get_value(0).unwrap().as_text().cloned().unwrap();
-            let answer = row.get_value(1).unwrap().as_integer().cloned().unwrap();
-            let pi = row.get_value(2).unwrap().as_real().cloned().unwrap();
-            let active = row
-                .get_value(3)
-                .unwrap()
-                .as_integer()
-                .map(|&v| v != 0)
-                .unwrap();
-            let status = row.get_value(4).unwrap().as_text().cloned().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "default_name");
+    assert_eq!(results[0].1, 42);
+    assert_eq!((results[0].2 - 3.14).abs() < f64::EPSILON, true); // Float comparison
+    assert_eq!(results[0].3, true);
+    assert_eq!(results[0].4, "pending");
+});
 
-            assert_eq!(name, "default_name");
-            assert_eq!(answer, 42);
-            assert_eq!(pi, 3.14);
-            assert_eq!(active, true);
-            assert_eq!(status, "pending");
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_runtime_defaults() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, RuntimeDefaultsSchema);
-    let runtime_table = schema.runtime_defaults;
+drivers_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
+    let RuntimeDefaultsSchema { runtime_defaults } = schema;
 
     // Insert with minimal data - runtime defaults should be used
     let data = InsertRuntimeDefaults::new("test");
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(runtime_table).values([data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(runtime_table)
-        .values([data])
-        .execute()
-        .await
-        .unwrap();
-
+    let result = drizzle_exec!(db.insert(runtime_defaults).values([data]).execute());
     assert_eq!(result, 1);
 
     // Verify runtime defaults were applied
-    let query = "SELECT empty_text, computed_int, name FROM runtime_defaults WHERE id = 1";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let row = stmt
-            .query_row([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i32>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .unwrap();
+    let select_query = db
+        .select((
+            runtime_defaults.empty_text,
+            runtime_defaults.computed_int,
+            runtime_defaults.name,
+        ))
+        .from(runtime_defaults)
+        .r#where(eq(runtime_defaults.id, 1));
 
-        assert_eq!(row.0, ""); // String::new() returns empty string
-        assert_eq!(row.1, 100); // Closure returns 100
-        assert_eq!(row.2, "test");
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String, i32, String);
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        if let Some(row) = rows.next().await.unwrap() {
-            let empty_text = row.get_value(0).unwrap().as_text().cloned().unwrap();
-            let computed_int = row.get_value(1).unwrap().as_integer().cloned().unwrap();
-            let name = row.get_value(2).unwrap().as_text().cloned().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, ""); // String::new() returns empty string
+    assert_eq!(results[0].1, 100); // Closure returns 100
+    assert_eq!(results[0].2, "test");
+});
 
-            assert_eq!(empty_text, ""); // String::new() returns empty string
-            assert_eq!(computed_int, 100); // Closure returns 100
-            assert_eq!(name, "test");
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_enum_storage_types() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, EnumFieldsSchema);
+drivers_test!(test_enum_storage_types, EnumFieldsSchema, {
     let enum_table = schema.enum_fields;
 
     // Test different enum storage types
     let data = InsertEnumFields::new(Priority::High, TaskStatus::InProgress, "Test task");
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(enum_table).values([data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(enum_table)
-        .values([data])
-        .execute()
-        .await
-        .unwrap();
-
+    let result = drizzle_exec!(db.insert(enum_table).values([data]).execute());
     assert_eq!(result, 1);
 
-    // Verify enum storage
-    let query = "SELECT priority, status, typeof(priority) as priority_type, typeof(status) as status_type FROM enum_fields WHERE id = 1";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let row = stmt
-            .query_row([], |row| {
-                Ok((
-                    row.get::<_, i32>(0)?,    // priority as integer
-                    row.get::<_, String>(1)?, // status as text
-                    row.get::<_, String>(2)?, // priority type
-                    row.get::<_, String>(3)?, // status type
-                ))
-            })
-            .unwrap();
+    // Verify enum storage using typeof helper
+    let priority_col = enum_table.priority;
+    let status_col = enum_table.status;
+    let select_query = db
+        .select((
+            priority_col,
+            status_col,
+            alias(r#typeof(priority_col), "priority_type"),
+            alias(r#typeof(status_col), "status_type"),
+        ))
+        .from(enum_table)
+        .r#where(eq(enum_table.id, 1));
 
-        assert_eq!(row.0, 3); // Priority::High = 3
-        assert_eq!(row.1, "InProgress"); // TaskStatus::InProgress as text
-        assert_eq!(row.2, "integer"); // integer(enum) stores as INTEGER
-        assert_eq!(row.3, "text"); // text(enum) stores as TEXT
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(i32, String, String, String);
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        if let Some(row) = rows.next().await.unwrap() {
-            let priority = row.get_value(0).unwrap().as_integer().cloned().unwrap();
-            let status = row.get_value(1).unwrap().as_text().cloned().unwrap();
-            let priority_type = row.get_value(2).unwrap().as_text().cloned().unwrap();
-            let status_type = row.get_value(3).unwrap().as_text().cloned().unwrap();
-
-            assert_eq!(priority, 3); // Priority::High = 3
-            assert_eq!(status, "InProgress"); // TaskStatus::InProgress as text
-            assert_eq!(priority_type, "integer"); // integer(enum) stores as INTEGER
-            assert_eq!(status_type, "text"); // text(enum) stores as TEXT
-        }
-    }
-}
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, 3); // Priority::High = 3
+    assert_eq!(results[0].1, "InProgress"); // TaskStatus::InProgress as text
+    assert_eq!(results[0].2, "integer"); // integer(enum) stores as INTEGER
+    assert_eq!(results[0].3, "text"); // text(enum) stores as TEXT
+});
 
 #[cfg(feature = "serde")]
-#[tokio::test]
-async fn test_json_storage_types() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, JsonFieldsSchema);
+drivers_test!(test_json_storage_types, JsonFieldsSchema, {
     let json_table = schema.json_fields;
 
     let json_data = JsonData {
@@ -767,126 +425,76 @@ async fn test_json_storage_types() {
 
     let data = InsertJsonFields::new("regular").with_text_json(json_data);
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(json_table).values([data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(json_table)
-        .values([data])
-        .execute()
-        .await
-        .unwrap();
+    let result = drizzle_exec!(db.insert(json_table).values([data]).execute());
 
     assert_eq!(result, 1);
 
     // Verify JSON storage type
-    let query = "SELECT typeof(text_json) as text_type FROM json_fields WHERE id = 1";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let row = stmt
-            .query_row([], |row| Ok(row.get::<_, String>(0)?))
-            .unwrap();
+    let text_json_col = json_table.text_json;
+    let select_query = db
+        .select(alias(r#typeof(text_json_col), "text_type"))
+        .from(json_table)
+        .r#where(eq(json_table.id, 1));
 
-        assert_eq!(row, "text"); // text(json) stores as TEXT
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String);
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        if let Some(row) = rows.next().await.unwrap() {
-            let text_type = row.get_value(0).unwrap().as_text().cloned().unwrap();
-            assert_eq!(text_type, "text"); // text(json) stores as TEXT
-        }
-    }
-}
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "text"); // text(json) stores as TEXT
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_uuid_primary_key_with_default_fn() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, UuidFieldsSchema);
+drivers_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
     let uuid_table = schema.uuid_fields;
 
     // Insert without specifying UUID - default_fn should generate one
     let data = InsertUuidFields::new("uuid test");
 
-    #[cfg(feature = "rusqlite")]
-    let result = db.insert(uuid_table).values([data]).execute().unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(uuid_table)
-        .values([data])
-        .execute()
-        .await
-        .unwrap();
+    let result = drizzle_exec!(db.insert(uuid_table).values([data]).execute());
 
     assert_eq!(result, 1);
 
     // Verify UUID was generated and is valid
-    let query = "SELECT id, name FROM uuid_fields WHERE name = 'uuid test'";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let row = stmt
-            .query_row([], |row| {
-                Ok((row.get::<_, uuid::Uuid>(0)?, row.get::<_, String>(1)?))
-            })
-            .unwrap();
+    let select_query = db
+        .select((uuid_table.id, uuid_table.name))
+        .from(uuid_table)
+        .r#where(eq(uuid_table.name, "uuid test"));
 
-        assert_eq!(row.1, "uuid test");
-        // Verify it's a valid UUID (not nil)
-        assert_ne!(row.0, uuid::Uuid::nil());
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(uuid::Uuid, String);
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        if let Some(row) = rows.next().await.unwrap() {
-            let id_bytes = row.get_value(0).unwrap().as_blob().cloned().unwrap();
-            let name = row.get_value(1).unwrap().as_text().cloned().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].1, "uuid test");
+    
+    // Validate UUID format and version
+    let generated_uuid = results[0].0;
+    assert_ne!(generated_uuid, uuid::Uuid::nil());
+    assert_eq!(generated_uuid.get_version(), Some(uuid::Version::Random));
+    
+    // Verify UUID storage type using typeof
+    let id_col = uuid_table.id;
+    let type_query = db
+        .select(alias(r#typeof(id_col), "id_type"))
+        .from(uuid_table)
+        .r#where(eq(uuid_table.name, "uuid test"));
 
-            let id = uuid::Uuid::from_slice(&id_bytes).unwrap();
+    #[derive(FromRow, Debug)]
+    struct TypeResult(String);
+    let type_results: Vec<TypeResult> = drizzle_exec!(db.all(type_query));
+    
+    assert_eq!(type_results.len(), 1);
+    assert_eq!(type_results[0].0, "blob"); // blob(primary) stores UUIDs as BLOB
+});
 
-            assert_eq!(name, "uuid test");
-            // Verify it's a valid UUID (not nil)
-            assert_ne!(id, uuid::Uuid::nil());
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_nullable_vs_non_nullable() {
-    #[cfg(feature = "rusqlite")]
-    let conn = setup_test_db();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let conn = setup_test_db().await;
-
-    let (db, schema) = drizzle!(conn, NullableTestSchema);
+drivers_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
     let nullable_table = schema.nullable_test;
 
     // Test 1: Insert with all required fields, no optional fields
     let minimal_data = InsertNullableTest::new("required", 123, true);
 
-    #[cfg(feature = "rusqlite")]
-    let result = db
-        .insert(nullable_table)
-        .values([minimal_data])
-        .execute()
-        .unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(nullable_table)
-        .values([minimal_data])
-        .execute()
-        .await
-        .unwrap();
+    let result = drizzle_exec!(db.insert(nullable_table).values([minimal_data]).execute());
 
     assert_eq!(result, 1);
 
@@ -898,83 +506,36 @@ async fn test_nullable_vs_non_nullable() {
         .with_optional_blob([9, 8, 7])
         .with_optional_bool(true);
 
-    #[cfg(feature = "rusqlite")]
-    let result = db
-        .insert(nullable_table)
-        .values([full_data])
-        .execute()
-        .unwrap();
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    let result = db
-        .insert(nullable_table)
-        .values([full_data])
-        .execute()
-        .await
-        .unwrap();
+    let result = drizzle_exec!(db.insert(nullable_table).values([full_data]).execute());
 
     assert_eq!(result, 1);
 
-    // Verify both records
-    let query = "SELECT required_text, optional_text, optional_int FROM nullable_test ORDER BY id";
-    #[cfg(feature = "rusqlite")]
-    {
-        let mut stmt = db.conn().prepare(query).unwrap();
-        let rows: Result<Vec<_>, _> = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<i32>>(2)?,
-                ))
-            })
-            .unwrap()
-            .collect();
+    // Verify both records using unified query approach
+    let select_query = db
+        .select((
+            nullable_table.required_text,
+            nullable_table.optional_text,
+            nullable_table.optional_int,
+        ))
+        .from(nullable_table)
+        .order_by(nullable_table.id);
 
-        let rows = rows.unwrap();
-        assert_eq!(rows.len(), 2);
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String, Option<String>, Option<i32>);
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        // First record: minimal data
-        assert_eq!(rows[0].0, "required");
-        assert_eq!(rows[0].1, None);
-        assert_eq!(rows[0].2, None);
+    assert_eq!(results.len(), 2);
 
-        // Second record: full data
-        assert_eq!(rows[1].0, "full");
-        assert_eq!(rows[1].1, Some("optional text".to_string()));
-        assert_eq!(rows[1].2, Some(789));
-    }
-    #[cfg(any(feature = "turso", feature = "libsql"))]
-    {
-        let mut stmt = db.conn().prepare(query).await.unwrap();
-        let mut rows = stmt.query(()).await.unwrap();
-        let mut results = Vec::new();
+    // First record: minimal data
+    assert_eq!(results[0].0, "required");
+    assert_eq!(results[0].1, None);
+    assert_eq!(results[0].2, None);
 
-        while let Some(row) = rows.next().await.unwrap() {
-            let required_text = row.get_value(0).unwrap().as_text().cloned().unwrap();
-            let optional_text = match row.get_value(1).unwrap() {
-                Value::Null => None,
-                val => Some(val.as_text().cloned().unwrap()),
-            };
-            let optional_int = match row.get_value(2).unwrap() {
-                Value::Null => None,
-                val => Some(val.as_integer().cloned().unwrap()),
-            };
-            results.push((required_text, optional_text, optional_int));
-        }
-
-        assert_eq!(results.len(), 2);
-
-        // First record: minimal data
-        assert_eq!(results[0].0, "required");
-        assert_eq!(results[0].1, None);
-        assert_eq!(results[0].2, None);
-
-        // Second record: full data
-        assert_eq!(results[1].0, "full");
-        assert_eq!(results[1].1, Some("optional text".to_string()));
-        assert_eq!(results[1].2, Some(789));
-    }
-}
+    // Second record: full data
+    assert_eq!(results[1].0, "full");
+    assert_eq!(results[1].1, Some("optional text".to_string()));
+    assert_eq!(results[1].2, Some(789));
+});
 
 #[test]
 fn test_schema_generation() {

@@ -2,6 +2,7 @@
 use common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post, PostCategory};
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
 
 use std::array;
@@ -37,10 +38,8 @@ struct PostCategoryResult {
 }
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn simple_inner_join() {
-    let db = setup_test_db!();
-    let (drizzle, ComplexPostSchema { complex, post }) = drizzle!(db, ComplexPostSchema);
+drivers_test!(simple_inner_join, ComplexPostSchema, {
+    let ComplexPostSchema { complex, post } = schema;
 
     #[cfg(not(feature = "uuid"))]
     let (id1, id2, id3) = (1, 2, 3);
@@ -60,7 +59,7 @@ async fn simple_inner_join() {
             .with_email("charlie@example.com"),
     ];
 
-    let author_result = drizzle_exec!(drizzle.insert(complex).values(authors).execute());
+    let author_result = drizzle_exec!(db.insert(complex).values(authors).execute());
     assert_eq!(author_result, 3);
 
     let posts = vec![
@@ -75,12 +74,12 @@ async fn simple_inner_join() {
             .with_author_id(id1),
     ];
 
-    let post_result = drizzle_exec!(drizzle.insert(post).values(posts).execute());
+    let post_result = drizzle_exec!(db.insert(post).values(posts).execute());
     assert_eq!(post_result, 3);
 
     // Test inner join: only authors with posts should appear
     let join_results: Vec<AuthorPostResult> = drizzle_exec!(
-        drizzle
+        db
             .select(AuthorPostResult::default())
             .from(complex)
             .inner_join(post, eq(complex.id, post.author_id))
@@ -118,7 +117,7 @@ async fn simple_inner_join() {
 
     // Verify that we can filter join results
     let alice_posts: Vec<AuthorPostResult> = drizzle_exec!(
-        drizzle
+        db
             .select(AuthorPostResult::default())
             .from(complex)
             .inner_join(post, eq(complex.id, post.author_id))
@@ -130,25 +129,15 @@ async fn simple_inner_join() {
     alice_posts.iter().for_each(|result| {
         assert_eq!(result.author_name, "alice");
     });
-}
+});
 
-#[tokio::test]
-async fn many_to_many_join() {
-    #[derive(SQLSchema)]
-    struct Schema {
-        category: Category,
-        post: Post,
-        postcategory: PostCategory,
-    }
-    let db = setup_test_db!();
-    let (
-        drizzle,
-        Schema {
-            category,
-            post,
-            postcategory,
-        },
-    ) = drizzle!(db, Schema);
+drivers_test!(many_to_many_join, FullBlogSchema, {
+    let FullBlogSchema {
+        category,
+        post,
+        post_category,
+        ..
+    } = schema;
 
     // Insert test data: posts and categories with many-to-many relationship
     let posts = vec![
@@ -157,7 +146,7 @@ async fn many_to_many_join() {
         InsertPost::new("Draft Post", false).with_content("Not published yet"),
     ];
 
-    let post_result = drizzle_exec!(drizzle.insert(post).values(posts).execute());
+    let post_result = drizzle_exec!(db.insert(post).values(posts).execute());
     assert_eq!(post_result, 3);
 
     let categories = vec![
@@ -166,7 +155,7 @@ async fn many_to_many_join() {
         InsertCategory::new("Tutorial").with_description("How-to guides"),
     ];
 
-    let category_result = drizzle_exec!(drizzle.insert(category).values(categories).execute());
+    let category_result = drizzle_exec!(db.insert(category).values(categories).execute());
     assert_eq!(category_result, 3);
 
     // Create many-to-many relationships
@@ -178,19 +167,19 @@ async fn many_to_many_join() {
     ];
 
     let junction_result = drizzle_exec!(
-        drizzle
-            .insert(postcategory)
+        db
+            .insert(post_category)
             .values(post_categories)
             .execute()
     );
     assert_eq!(junction_result, 4);
 
     // Test many-to-many join: posts with their categories
-    let join_smt = drizzle
+    let join_smt = db
         .select(PostCategoryResult::default())
         .from(post)
-        .join(postcategory, eq(post.id, postcategory.post_id))
-        .join(category, eq(postcategory.category_id, category.id))
+        .join(post_category, eq(post.id, post_category.post_id))
+        .join(category, eq(post_category.category_id, category.id))
         .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)]);
     let sql = join_smt.to_sql().sql();
 
@@ -227,11 +216,11 @@ async fn many_to_many_join() {
 
     // Test filtering: only published posts
     let published_results: Vec<PostCategoryResult> = drizzle_exec!(
-        drizzle
+        db
             .select(PostCategoryResult::default())
             .from(post)
-            .join(postcategory, eq(post.id, postcategory.post_id))
-            .join(category, eq(postcategory.category_id, category.id))
+            .join(post_category, eq(post.id, post_category.post_id))
+            .join(category, eq(post_category.category_id, category.id))
             .r#where(eq(post.published, true))
             .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
             .all()
@@ -244,4 +233,4 @@ async fn many_to_many_join() {
     published_results.iter().for_each(|result| {
         assert_ne!(result.post_title, "Draft Post");
     });
-}
+});

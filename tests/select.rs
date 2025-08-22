@@ -7,6 +7,7 @@ use common::{Complex, InsertComplex};
 #[cfg(feature = "uuid")]
 use common::{Post, Simple};
 use drizzle_core::OrderBy;
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
 
 #[cfg(feature = "uuid")]
@@ -45,11 +46,8 @@ struct JoinResult {
     title: String,
 }
 
-#[tokio::test]
-async fn simple_select_with_conditions() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
-
+drivers_test!(simple_select_with_conditions, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
     // Insert test data
     let test_data = vec![
         InsertSimple::new("alpha"),
@@ -97,15 +95,11 @@ async fn simple_select_with_conditions() {
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
     assert_eq!(offset_results[1].name, "gamma");
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn complex_select_with_conditions() {
-    pub struct Schema;
-    let conn = setup_test_db!();
-    let (drizzle, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
-
+drivers_test!(complex_select_with_conditions, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
     let test_data = [
@@ -137,7 +131,7 @@ async fn complex_select_with_conditions() {
     ];
 
     // println!("Test data: {:?}", test_data);
-    let stmt = drizzle.insert(complex).values(test_data);
+    let stmt = db.insert(complex).values(test_data);
     // let sql = stmt.to_sql();
     // println!("SQL {sql}");
 
@@ -145,8 +139,7 @@ async fn complex_select_with_conditions() {
 
     // Test complex WHERE with GT condition
     let gt_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(gt(complex.age, 25))
             .all()
@@ -159,8 +152,7 @@ async fn complex_select_with_conditions() {
 
     // Test complex WHERE with range conditions (AND logic)
     let range_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(and([gte(complex.age, 25), lt(complex.age, 45)]))
             .all()
@@ -169,14 +161,11 @@ async fn complex_select_with_conditions() {
     assert_eq!(range_results.len(), 1);
     assert_eq!(range_results[0].name, "middle");
     assert_eq!(range_results[0].age, Some(35));
-}
+});
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[cfg(feature = "uuid")]
-#[tokio::test]
-async fn feature_gated_select() {
-    let conn = setup_test_db!();
-    let (drizzle, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drivers_test!(feature_gated_select, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();
@@ -193,12 +182,11 @@ async fn feature_gated_select() {
             settings: std::collections::HashMap::new(),
         });
 
-    drizzle_exec!(drizzle.insert(complex).values([data]).execute());
+    drizzle_exec!(db.insert(complex).values([data]).execute());
 
     // Query using UUID field
     let uuid_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(eq(complex.id, test_id))
             .all()
@@ -209,8 +197,7 @@ async fn feature_gated_select() {
 
     // Query using name to verify metadata exists (can't easily verify content without custom result type)
     let metadata_results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
-            .select((complex.id, complex.name, complex.email, complex.age))
+        db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(eq(complex.name, "feature_user"))
             .all()
@@ -218,4 +205,4 @@ async fn feature_gated_select() {
 
     assert_eq!(metadata_results.len(), 1);
     assert_eq!(metadata_results[0].name, "feature_user");
-}
+});

@@ -3,6 +3,7 @@
     feature = "uuid"
 ))]
 
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
 use uuid::Uuid;
 
@@ -72,11 +73,7 @@ struct UuidBlobDefaultSchema {
     uuid_blob_default: UuidBlobDefault,
 }
 
-#[tokio::test]
-async fn test_uuid_text_storage() {
-    let conn = setup_test_db!();
-    let (db, schema) = drizzle!(conn, UuidTextSchema);
-    drizzle_exec!(db.create());
+drivers_test!(test_uuid_text_storage, UuidTextSchema, {
     let table = schema.uuid_text_test;
 
     // Generate test UUID
@@ -98,21 +95,20 @@ async fn test_uuid_text_storage() {
     assert_eq!(results[0].uuid_field, test_uuid);
     assert_eq!(results[0].name, "text storage test");
 
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String);
     // Verify it's stored as TEXT in the database
-    let query = "SELECT typeof(uuid_field) as uuid_type FROM uuid_text_test WHERE id = 1";
-    let mut stmt = prepare_stmt!(db.conn(), query);
+    let result: ReturnResult = drizzle_exec!(
+        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
+            .from(table)
+            .r#where(eq(table.id, 1))
+            .get()
+    );
 
-    query_row!(stmt, db_params!(), |row| {
-        let storage_type = row_get!(row, 0, String);
-        assert_eq!(storage_type, "text");
-    });
-}
+    dbg!(&result);
+});
 
-#[tokio::test]
-async fn test_uuid_blob_storage() {
-    let conn = setup_test_db!();
-    let (db, schema) = drizzle!(conn, UuidBlobSchema);
-    drizzle_exec!(db.create());
+drivers_test!(test_uuid_blob_storage, UuidBlobSchema, {
     let table = schema.uuid_blob_test;
 
     // Generate test UUID
@@ -134,63 +130,52 @@ async fn test_uuid_blob_storage() {
     assert_eq!(results[0].uuid_field, test_uuid);
     assert_eq!(results[0].name, "blob storage test");
 
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String);
     // Verify it's stored as BLOB in the database
-    let query = "SELECT typeof(uuid_field) as uuid_type FROM uuid_blob_test WHERE id = 1";
-    let mut stmt = prepare_stmt!(db.conn(), query);
+    let result: ReturnResult = drizzle_exec!(
+        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
+            .from(table)
+            .r#where(eq(table.id, 1))
+            .get()
+    );
 
-    query_row!(stmt, db_params!(), |row| {
-        let storage_type = row_get!(row, 0, String);
-        assert_eq!(storage_type, "blob");
-    });
-}
+    assert_eq!(result.0, "blob");
+});
 
-#[tokio::test]
-async fn test_uuid_text_vs_blob_roundtrip() {
-    // Test both tables with the same UUID
-    let test_uuid = Uuid::new_v4();
-
+drivers_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
     // Test TEXT storage
-    {
-        let conn = setup_test_db!();
-        let (db, schema) = drizzle!(conn, UuidTextSchema);
-        drizzle_exec!(db.create());
-        let table = schema.uuid_text_test;
+    let test_uuid = Uuid::new_v4();
+    let table = schema.uuid_text_test;
 
-        let data = InsertUuidTextTest::new(test_uuid, "roundtrip test");
-        drizzle_exec!(db.insert(table).values([data]).execute());
+    let data = InsertUuidTextTest::new(test_uuid, "roundtrip test");
+    drizzle_exec!(db.insert(table).values([data]).execute());
 
-        let results: Vec<SelectUuidTextTest> = drizzle_exec!(
-            db.select((table.id, table.uuid_field, table.name))
-                .from(table)
-                .all()
-        );
-        assert_eq!(results[0].uuid_field, test_uuid);
-    }
+    let results: Vec<SelectUuidTextTest> = drizzle_exec!(
+        db.select((table.id, table.uuid_field, table.name))
+            .from(table)
+            .all()
+    );
+    assert_eq!(results[0].uuid_field, test_uuid);
+});
 
+drivers_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
     // Test BLOB storage
-    {
-        let conn = setup_test_db!();
-        let (db, schema) = drizzle!(conn, UuidBlobSchema);
-        drizzle_exec!(db.create());
-        let table = schema.uuid_blob_test;
+    let test_uuid = Uuid::new_v4();
+    let table = schema.uuid_blob_test;
 
-        let data = InsertUuidBlobTest::new(test_uuid, "roundtrip test");
-        drizzle_exec!(db.insert(table).values([data]).execute());
+    let data = InsertUuidBlobTest::new(test_uuid, "roundtrip test");
+    drizzle_exec!(db.insert(table).values([data]).execute());
 
-        let results: Vec<SelectUuidBlobTest> = drizzle_exec!(
-            db.select((table.id, table.uuid_field, table.name))
-                .from(table)
-                .all()
-        );
-        assert_eq!(results[0].uuid_field, test_uuid);
-    }
-}
+    let results: Vec<SelectUuidBlobTest> = drizzle_exec!(
+        db.select((table.id, table.uuid_field, table.name))
+            .from(table)
+            .all()
+    );
+    assert_eq!(results[0].uuid_field, test_uuid);
+});
 
-#[tokio::test]
-async fn test_uuid_text_default_fn() {
-    let conn = setup_test_db!();
-    let (db, schema) = drizzle!(conn, UuidTextDefaultSchema);
-    drizzle_exec!(db.create());
+drivers_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     let table = schema.uuid_text_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -210,21 +195,20 @@ async fn test_uuid_text_default_fn() {
     // Verify UUID was generated (not nil)
     assert_ne!(results[0].uuid_field, Uuid::nil());
 
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String);
     // Verify it's stored as TEXT
-    let query = "SELECT typeof(uuid_field) as uuid_type FROM uuid_text_default WHERE id = 1";
-    let mut stmt = prepare_stmt!(db.conn(), query);
+    let result: ReturnResult = drizzle_exec!(
+        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
+            .from(table)
+            .r#where(eq(table.id, 1))
+            .get()
+    );
 
-    query_row!(stmt, db_params!(), |row| {
-        let storage_type = row_get!(row, 0, String);
-        assert_eq!(storage_type, "text");
-    });
-}
+    assert_eq!(result.0, "text");
+});
 
-#[tokio::test]
-async fn test_uuid_blob_default_fn() {
-    let conn = setup_test_db!();
-    let (db, schema) = drizzle!(conn, UuidBlobDefaultSchema);
-    drizzle_exec!(db.create());
+drivers_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     let table = schema.uuid_blob_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -244,23 +228,24 @@ async fn test_uuid_blob_default_fn() {
     // Verify UUID was generated (not nil)
     assert_ne!(results[0].uuid_field, Uuid::nil());
 
+    #[derive(FromRow, Debug)]
+    struct ReturnResult(String);
     // Verify it's stored as BLOB
-    let query = "SELECT typeof(uuid_field) as uuid_type FROM uuid_blob_default WHERE id = 1";
-    let mut stmt = prepare_stmt!(db.conn(), query);
+    let result: ReturnResult = drizzle_exec!(
+        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
+            .from(table)
+            .r#where(eq(table.id, 1))
+            .get()
+    );
 
-    query_row!(stmt, db_params!(), |row| {
-        let storage_type = row_get!(row, 0, String);
-        assert_eq!(storage_type, "blob");
-    });
-}
+    assert_eq!(result.0, "blob");
+});
 
-#[tokio::test]
-async fn test_uuid_default_fn_uniqueness() {
-    // Test TEXT default_fn generates unique UUIDs
+drivers_test!(
+    test_uuid_text_default_fn_uniqueness,
+    UuidTextDefaultSchema,
     {
-        let conn = setup_test_db!();
-        let (db, schema) = drizzle!(conn, UuidTextDefaultSchema);
-        drizzle_exec!(db.create());
+        // Test TEXT default_fn generates unique UUIDs
         let table = schema.uuid_text_default;
 
         let data1 = InsertUuidTextDefault::new("first");
@@ -280,12 +265,13 @@ async fn test_uuid_default_fn_uniqueness() {
         assert_ne!(results[0].uuid_field, Uuid::nil());
         assert_ne!(results[1].uuid_field, Uuid::nil());
     }
+);
 
-    // Test BLOB default_fn generates unique UUIDs
+drivers_test!(
+    test_uuid_blob_default_fn_uniqueness,
+    UuidBlobDefaultSchema,
     {
-        let conn = setup_test_db!();
-        let (db, schema) = drizzle!(conn, UuidBlobDefaultSchema);
-        drizzle_exec!(db.create());
+        // Test BLOB default_fn generates unique UUIDs
         let table = schema.uuid_blob_default;
 
         let data1 = InsertUuidBlobDefault::new("first");
@@ -305,4 +291,4 @@ async fn test_uuid_default_fn_uniqueness() {
         assert_ne!(results[0].uuid_field, Uuid::nil());
         assert_ne!(results[1].uuid_field, Uuid::nil());
     }
-}
+);

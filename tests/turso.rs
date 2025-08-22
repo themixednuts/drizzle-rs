@@ -2,7 +2,7 @@ mod common;
 
 #[cfg(feature = "turso")]
 mod turso_tests {
-    use drizzle_rs::prelude::*;
+    use drizzle_rs::{prelude::*, turso::Drizzle};
     use turso::{Builder, Connection};
 
     use crate::common::{
@@ -41,7 +41,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+        let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
         // Test basic insert
         let data = InsertSimple::new("turso_test");
@@ -61,7 +61,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+        let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
         // Insert test data
         let data = InsertSimple::new("single_row_test");
@@ -78,7 +78,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+        let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
         // Insert test data
         let data = InsertSimple::new("column_tuple_test");
@@ -96,7 +96,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+        let (db, ComplexSchema { complex }) = Drizzle::new(conn, ComplexSchema::new());
 
         // Test complex type insertion
         let complex_data = InsertComplex::new("turso_complex", true, Role::User)
@@ -128,7 +128,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+        let (db, ComplexSchema { complex }) = Drizzle::new(conn, ComplexSchema::new());
 
         let metadata = UserMetadata {
             preferences: vec!["dark_mode".to_string(), "notifications".to_string()],
@@ -160,7 +160,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+        let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
         // Insert initial data
         let data = InsertSimple::new("update_test");
@@ -188,7 +188,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+        let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
         // Insert test data
         let data = InsertSimple::new("delete_test");
@@ -223,7 +223,7 @@ mod turso_tests {
         let conn = setup_turso_connection().await;
         setup_test_tables(&conn).await;
 
-        let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+        let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
         // Test error when trying to get from empty table
         let result: Result<SelectSimple, _> = db.select(()).from(simple).get().await;

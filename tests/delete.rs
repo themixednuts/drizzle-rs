@@ -1,13 +1,14 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, InsertComplex};
 use common::{InsertSimple, Simple};
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-use crate::common::SimpleSchema;
+use crate::common::{SimpleComplexSchema, SimpleSchema};
 
 mod common;
 
@@ -35,10 +36,8 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-#[tokio::test]
-async fn simple_delete() {
-    let db = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drivers_test!(simple_delete, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert test records
     let test_data = vec![
@@ -80,15 +79,11 @@ async fn simple_delete() {
     );
 
     assert_eq!(deleted_results.len(), 0);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn feature_gated_delete() {
-    use crate::common::SimpleComplexSchema;
-
-    let db = setup_test_db!();
-    let (db, SimpleComplexSchema { simple, complex }) = drizzle!(db, SimpleComplexSchema);
+drivers_test!(feature_gated_delete, SimpleComplexSchema, {
+    let SimpleComplexSchema { simple, complex } = schema;
 
     // Insert test records with UUIDs
     let test_id_1 = uuid::Uuid::new_v4();
@@ -144,4 +139,4 @@ async fn feature_gated_delete() {
     );
 
     assert_eq!(deleted_results.len(), 0);
-}
+});

@@ -2,6 +2,7 @@
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
 use common::{InsertSimple, Simple, setup_db};
+use drizzle_macros::drivers_test;
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;
 #[cfg(feature = "uuid")]
@@ -39,20 +40,18 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-#[tokio::test]
-async fn simple_insert() {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drivers_test!(simple_insert, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert Simple record
     let data = InsertSimple::new("test");
-    let result = drizzle_exec!(drizzle.insert(simple).values([data]).execute());
+    let result = drizzle_exec!(db.insert(simple).values([data]).execute());
 
     assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
     let results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
+        db
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "test"))
@@ -61,13 +60,11 @@ async fn simple_insert() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn complex_insert() {
-    let db = setup_test_db!();
-    let (drizzle, ComplexSchema { complex }) = drizzle!(db, ComplexSchema);
+drivers_test!(complex_insert, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert Complex record with various field types
     #[cfg(not(feature = "uuid"))]
@@ -87,13 +84,13 @@ async fn complex_insert() {
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
-    let result = drizzle_exec!(drizzle.insert(complex).values([data]).execute());
+    let result = drizzle_exec!(db.insert(complex).values([data]).execute());
 
     assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
     let results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
+        db
             .select((
                 complex.id,
                 complex.name,
@@ -111,22 +108,20 @@ async fn complex_insert() {
     assert_eq!(results[0].email, Some("test@example.com".to_string()));
     assert_eq!(results[0].age, Some(25));
     assert_eq!(results[0].description, Some("Test description".to_string()));
-}
+});
 
-#[tokio::test]
-async fn conflict_resolution() {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drivers_test!(conflict_resolution, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert initial Simple record
     let initial_data = InsertSimple::new("conflict_test").with_id(1);
 
-    drizzle_exec!(drizzle.insert(simple).values([initial_data]).execute());
+    drizzle_exec!(db.insert(simple).values([initial_data]).execute());
 
     // Try to insert duplicate - should conflict and be ignored
     let duplicate_data = InsertSimple::new("conflict_test").with_id(1);
     let result = drizzle_exec!(
-        drizzle
+        db
             .insert(simple)
             .values([duplicate_data])
             .on_conflict(Conflict::default())
@@ -137,7 +132,7 @@ async fn conflict_resolution() {
 
     // Verify only one record exists
     let results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
+        db
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "conflict_test"))
@@ -146,14 +141,12 @@ async fn conflict_resolution() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "conflict_test");
-}
+});
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn feature_gated_insert() {
-    let db = setup_test_db!();
-    let (drizzle, ComplexSchema { complex }) = drizzle!(db, ComplexSchema);
+drivers_test!(feature_gated_insert, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert Complex record using feature-gated fields
     let data = InsertComplex::new("feature_test", true, common::Role::User)
@@ -169,13 +162,13 @@ async fn feature_gated_insert() {
             settings: std::collections::HashMap::new(),
         });
 
-    let result = drizzle_exec!(drizzle.insert(complex).values([data]).execute());
+    let result = drizzle_exec!(db.insert(complex).values([data]).execute());
 
     assert_eq!(result, 1);
 
     // Verify insertion
     let results: Vec<ComplexResult> = drizzle_exec!(
-        drizzle
+        db
             .select((
                 complex.id,
                 complex.name,
@@ -190,4 +183,4 @@ async fn feature_gated_insert() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_test");
-}
+});

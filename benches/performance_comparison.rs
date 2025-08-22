@@ -1,15 +1,5 @@
 use divan::{AllocProfiler, Bencher, black_box};
 use drizzle_rs::prelude::*;
-#[cfg(feature = "libsql")]
-use libsql::Builder;
-#[cfg(feature = "libsql")]
-use libsql::Connection;
-#[cfg(feature = "rusqlite")]
-use rusqlite::Connection;
-#[cfg(feature = "turso")]
-use turso::Builder;
-#[cfg(feature = "turso")]
-use turso::Connection;
 
 #[global_allocator]
 static ALLOC: AllocProfiler = AllocProfiler::system();
@@ -40,14 +30,28 @@ const CREATE_TABLE_SQL: &str = r#"
 "#;
 
 #[cfg(feature = "rusqlite")]
-fn setup_raw_connection() -> Connection {
-    let conn = Connection::open_in_memory().unwrap();
+fn setup_rusqlite_connection() -> rusqlite::Connection {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
     conn.execute(CREATE_TABLE_SQL, []).unwrap();
     conn
 }
-#[cfg(any(feature = "turso", feature = "libsql"))]
-async fn setup_raw_connection() -> Connection {
-    let db = Builder::new_local(":memory:")
+
+#[cfg(feature = "turso")]
+async fn setup_turso_connection() -> turso::Connection {
+    let db = turso::Builder::new_local(":memory:")
+        .build()
+        .await
+        .expect("create in memory");
+    let conn = db.connect().expect("connect to db");
+    conn.execute(CREATE_TABLE_SQL, ())
+        .await
+        .expect("create table");
+    conn
+}
+
+#[cfg(feature = "libsql")]
+async fn setup_libsql_connection() -> libsql::Connection {
+    let db = libsql::Builder::new_local(":memory:")
         .build()
         .await
         .expect("create in memory");
@@ -59,22 +63,37 @@ async fn setup_raw_connection() -> Connection {
 }
 
 #[cfg(feature = "rusqlite")]
-fn setup_drizzle() -> (drizzle_rs::sqlite::Drizzle<Schema>, User) {
-    let conn = Connection::open_in_memory().unwrap();
-    let (db, Schema { user }) = drizzle!(conn, Schema);
+fn setup_rusqlite_drizzle() -> (drizzle_rs::rusqlite::Drizzle<Schema>, User) {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let (db, Schema { user }) = drizzle_rs::rusqlite::Drizzle::new(conn, Schema::new());
     db.create().expect("create tables");
 
     (db, user)
 }
 
-#[cfg(any(feature = "turso", feature = "libsql"))]
-async fn setup_drizzle() -> (drizzle_rs::sqlite::Drizzle<Schema>, User) {
-    let db = Builder::new_local(":memory:")
+#[cfg(feature = "turso")]
+async fn setup_turso_drizzle() -> (drizzle_rs::turso::Drizzle<Schema>, User) {
+    let db = turso::Builder::new_local(":memory:")
         .build()
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    let (db, schema) = drizzle!(conn, Schema);
+    let (db, schema) = drizzle_rs::turso::Drizzle::new(conn, Schema::new());
+    let Schema { user } = schema;
+
+    db.execute(user.sql()).await.expect("create table");
+
+    (db, user)
+}
+
+#[cfg(feature = "libsql")]
+async fn setup_libsql_drizzle() -> (drizzle_rs::libsql::Drizzle<Schema>, User) {
+    let db = libsql::Builder::new_local(":memory:")
+        .build()
+        .await
+        .expect("create in memory");
+    let conn = db.connect().expect("connect to db");
+    let (db, schema) = drizzle_rs::libsql::Drizzle::new(conn, Schema::new());
     let Schema { user } = schema;
 
     db.execute(user.sql()).await.expect("create table");
@@ -95,7 +114,7 @@ mod select {
             .with_inputs(|| {
                 #[cfg(feature = "rusqlite")]
                 {
-                    let conn = setup_raw_connection();
+                    let conn = setup_rusqlite_connection();
                     for i in 0..100 {
                         conn.execute(
                             "INSERT INTO users (name, email) VALUES (?1, ?2)",
@@ -108,7 +127,7 @@ mod select {
 
                 #[cfg(any(feature = "turso", feature = "libsql"))]
                 rt.block_on(async {
-                    let conn = setup_raw_connection().await;
+                    let conn = setup_rusqlite_connection().await;
                     for i in 0..100 {
                         conn.execute(
                             "INSERT INTO users (name, email) VALUES (?1, ?2)",
@@ -177,25 +196,31 @@ mod select {
             });
     }
 
+    #[cfg(feature = "rusqlite")]
     #[divan::bench]
-    fn drizzle_rs(bencher: Bencher) {
-        #[cfg(any(feature = "turso", feature = "libsql"))]
+    fn rusqlite_drizzle(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
+                let (db, users) = setup_rusqlite_drizzle();
+                let data = (0..100).map(|i| {
+                    InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
+                });
+                db.insert(users).values(data).execute().unwrap();
+                (db, users)
+            })
+            .bench_values(|(db, users)| {
+                let results: Vec<SelectUser> = db.select(()).from(users).all().unwrap();
+                black_box(results);
+            });
+    }
+    #[cfg(feature = "turso")]
+    #[divan::bench]
+    fn turso_drizzle(bencher: Bencher) {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         bencher
             .with_inputs(|| {
-                #[cfg(feature = "rusqlite")]
-                {
-                    let (db, users) = setup_drizzle();
-                    let data = (0..100).map(|i| {
-                        InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
-                    });
-                    db.insert(users).values(data).execute().unwrap();
-                    (db, users)
-                }
-
-                #[cfg(any(feature = "turso", feature = "libsql"))]
                 rt.block_on(async {
-                    let (db, users) = setup_drizzle().await;
+                    let (db, users) = setup_turso_drizzle().await;
                     let data = (0..100).map(|i| {
                         InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
                     });
@@ -204,9 +229,27 @@ mod select {
                 })
             })
             .bench_values(|(db, users)| {
-                #[cfg(feature = "rusqlite")]
-                let results: Vec<SelectUser> = db.select(()).from(users).all().unwrap();
-                #[cfg(any(feature = "turso", feature = "libsql"))]
+                let results: Vec<SelectUser> =
+                    rt.block_on(async { db.select(()).from(users).all().await.unwrap() });
+                black_box(results);
+            });
+    }
+    #[cfg(feature = "libsql")]
+    #[divan::bench]
+    fn libsql_drizzle(bencher: Bencher) {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        bencher
+            .with_inputs(|| {
+                rt.block_on(async {
+                    let (db, users) = setup_libsql_drizzle().await;
+                    let data = (0..100).map(|i| {
+                        InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
+                    });
+                    db.insert(users).values(data).execute().await.unwrap();
+                    (db, users)
+                })
+            })
+            .bench_values(|(db, users)| {
                 let results: Vec<SelectUser> =
                     rt.block_on(async { db.select(()).from(users).all().await.unwrap() });
                 black_box(results);
@@ -221,7 +264,7 @@ mod select {
             .with_inputs(|| {
                 #[cfg(feature = "rusqlite")]
                 {
-                    let (db, users) = setup_drizzle();
+                    let (db, users) = setup_rusqlite_drizzle();
                     let data = (0..100).map(|i| {
                         InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
                     });
@@ -232,7 +275,7 @@ mod select {
                 }
                 #[cfg(any(feature = "turso", feature = "libsql"))]
                 rt.block_on(async {
-                    let (db, users) = setup_drizzle().await;
+                    let (db, users) = setup_rusqlite_drizzle().await;
                     let data = (0..100).map(|i| {
                         InsertUser::new(format!("User {}", i), format!("user{}@example.com", i))
                     });
@@ -261,7 +304,7 @@ mod insert {
     #[divan::bench]
     fn rusqlite(bencher: Bencher) {
         bencher
-            .with_inputs(|| setup_raw_connection())
+            .with_inputs(|| setup_rusqlite_connection())
             .bench_values(|conn| {
                 conn.execute(
                     "INSERT INTO users (name, email) VALUES (?1, ?2)",
@@ -275,7 +318,7 @@ mod insert {
     fn turso(bencher: Bencher) {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         bencher
-            .with_inputs(|| rt.block_on(async { setup_raw_connection().await }))
+            .with_inputs(|| rt.block_on(async { setup_rusqlite_connection().await }))
             .bench_values(|conn| {
                 rt.block_on(async {
                     conn.execute(
@@ -293,7 +336,7 @@ mod insert {
     fn libsql(bencher: Bencher) {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         bencher
-            .with_inputs(|| rt.block_on(async { setup_raw_connection().await }))
+            .with_inputs(|| rt.block_on(async { setup_rusqlite_connection().await }))
             .bench_values(|conn| {
                 rt.block_on(async {
                     conn.execute(
@@ -314,10 +357,10 @@ mod insert {
             .with_inputs(|| {
                 #[cfg(feature = "rusqlite")]
                 {
-                    setup_drizzle()
+                    setup_rusqlite_drizzle()
                 }
                 #[cfg(any(feature = "turso", feature = "libsql"))]
-                rt.block_on(async { setup_drizzle().await })
+                rt.block_on(async { setup_rusqlite_drizzle().await })
             })
             .bench_values(|(db, user)| {
                 #[cfg(feature = "rusqlite")]
@@ -344,7 +387,7 @@ mod insert {
             .with_inputs(|| {
                 #[cfg(feature = "rusqlite")]
                 {
-                    let (db, users) = setup_drizzle();
+                    let (db, users) = setup_rusqlite_drizzle();
                     let prepared = db
                         .insert(users)
                         .values([InsertUser::new("user", "user@example.com")])
@@ -355,7 +398,7 @@ mod insert {
                 }
                 #[cfg(any(feature = "turso", feature = "libsql"))]
                 rt.block_on(async {
-                    let (db, users) = setup_drizzle().await;
+                    let (db, users) = setup_rusqlite_drizzle().await;
                     let prepared = db
                         .insert(users)
                         .values([InsertUser::new("user", "user@example.com")])
@@ -385,7 +428,7 @@ mod bulk_insert {
     fn rusqlite(bencher: Bencher) {
         bencher
             .with_inputs(|| {
-                let conn = setup_raw_connection();
+                let conn = setup_rusqlite_connection();
 
                 let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
                 let mut params: Vec<String> = Vec::with_capacity(2000);
@@ -413,7 +456,7 @@ mod bulk_insert {
         bencher
             .with_inputs(|| {
                 rt.block_on(async {
-                    let conn = setup_raw_connection().await;
+                    let conn = setup_rusqlite_connection().await;
 
                     let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
                     let mut params: Vec<String> = Vec::with_capacity(2000);
@@ -445,7 +488,7 @@ mod bulk_insert {
         bencher
             .with_inputs(|| {
                 rt.block_on(async {
-                    let conn = setup_raw_connection().await;
+                    let conn = setup_rusqlite_connection().await;
 
                     let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
                     let mut params: Vec<String> = Vec::with_capacity(2000);
@@ -526,7 +569,7 @@ mod bulk_insert {
             .with_inputs(|| {
                 #[cfg(feature = "rusqlite")]
                 {
-                    let (db, users) = setup_drizzle();
+                    let (db, users) = setup_rusqlite_drizzle();
 
                     let data: Vec<_> = (0..1000)
                         .map(|i| {
@@ -541,7 +584,7 @@ mod bulk_insert {
                 }
                 #[cfg(any(feature = "turso", feature = "libsql"))]
                 rt.block_on(async {
-                    let (db, users) = setup_drizzle().await;
+                    let (db, users) = setup_rusqlite_drizzle().await;
 
                     let data: Vec<_> = (0..1000)
                         .map(|i| {

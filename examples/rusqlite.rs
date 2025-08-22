@@ -1,6 +1,6 @@
 mod schema;
 #[cfg(feature = "rusqlite")]
-use drizzle_rs::{FromRow, core::eq, drizzle};
+use drizzle_rs::FromRow;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
@@ -19,8 +19,10 @@ fn main() {
 
     #[cfg(feature = "rusqlite")]
     {
+        use drizzle_rs::core::eq;
+
         let conn = Connection::open_in_memory().expect("open connection");
-        let (db, Schema { users, posts }) = drizzle!(conn, Schema);
+        let (db, Schema { users, posts }) = drizzle_rs::rusqlite::Drizzle::new(conn, Schema::new());
         // create tables do not have IF NOT EXISTS so we can support migrations in the furture, so only do this on a fresh db
         db.create().expect("create tables");
 

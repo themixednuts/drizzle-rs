@@ -4,6 +4,7 @@ mod common;
 
 use common::Complex;
 use common::{InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
+use drizzle_rs::libsql::Drizzle;
 use drizzle_rs::prelude::*;
 use libsql::{Builder, Connection};
 
@@ -35,7 +36,7 @@ async fn test_basic_libsql_insert_select() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Test basic insert
     let data = InsertSimple::new("libsql_test");
@@ -55,7 +56,7 @@ async fn test_libsql_get_single_row() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert test data
     let data = InsertSimple::new("single_row_test");
@@ -75,7 +76,7 @@ async fn test_libsql_column_tuple_select() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert test data
     let data = InsertSimple::new("column_tuple_test");
@@ -101,7 +102,7 @@ async fn test_libsql_complex_types() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+    let (db, ComplexSchema { complex }) = Drizzle::new(conn, ComplexSchema::new());
 
     // Test complex type insertion
     let complex_data = InsertComplex::new("libsql_complex", true, Role::User)
@@ -136,7 +137,7 @@ async fn test_libsql_json_fields() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+    let (db, ComplexSchema { complex }) = Drizzle::new(conn, ComplexSchema::new());
 
     let metadata = UserMetadata {
         preferences: vec!["dark_mode".to_string(), "notifications".to_string()],
@@ -168,7 +169,7 @@ async fn test_libsql_update_operations() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert initial data
     let data = InsertSimple::new("update_test");
@@ -196,7 +197,7 @@ async fn test_libsql_delete_operations() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert test data
     let data = InsertSimple::new("delete_test");
@@ -222,7 +223,7 @@ async fn test_libsql_error_handling() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Test error when trying to get from empty table
     let result: Result<SelectSimple, _> = db.select(()).from(simple).get().await;
@@ -242,7 +243,7 @@ async fn test_libsql_prepared_statements() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert test data
     let data = InsertSimple::new("prepared_test");
@@ -261,7 +262,7 @@ async fn test_libsql_transactions() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert data in a transaction context
     let data1 = InsertSimple::new("trans_test1");
@@ -280,7 +281,7 @@ async fn test_libsql_where_conditions() {
     let conn = setup_libsql_connection().await;
     setup_test_tables(&conn).await;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+    let (db, SimpleSchema { simple }) = Drizzle::new(conn, SimpleSchema::new());
 
     // Insert multiple test records
     let data1 = InsertSimple::new("where_test1");
