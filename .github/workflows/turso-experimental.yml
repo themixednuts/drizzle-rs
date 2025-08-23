@@ -53,7 +53,7 @@ jobs:
     - name: Run turso tests with ${{ matrix.features }}
       run: |
         echo "::notice::Testing turso with features: ${{ matrix.features }}"
-        if cargo test --workspace --features "${{ matrix.features }}" --verbose; then
+        if cargo test --workspace --features "${{ matrix.features }}" --verbose -- --test-threads=1; then
           echo "::notice::✅ Turso tests passed with features: ${{ matrix.features }}"
         else
           echo "::warning::❌ Turso tests failed with features: ${{ matrix.features }} (experimental)"

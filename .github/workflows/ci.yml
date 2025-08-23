@@ -72,7 +72,12 @@ jobs:
       uses: Swatinem/rust-cache@v2
     
     - name: Run tests with ${{ matrix.features }}
-      run: cargo test --workspace --features "${{ matrix.features }}" --verbose
+      run: |
+        if [[ "${{ matrix.features }}" == *"libsql"* ]]; then
+          cargo test --workspace --features "${{ matrix.features }}" --verbose -- --test-threads=1
+        else
+          cargo test --workspace --features "${{ matrix.features }}" --verbose
+        fi
     
     - name: Run examples with ${{ matrix.features }}
       run: cargo run --example rusqlite --features "${{ matrix.features }}"
