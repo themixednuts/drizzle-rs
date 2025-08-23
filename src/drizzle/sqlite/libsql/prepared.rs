@@ -6,7 +6,7 @@ use drizzle_core::{
         owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,
     },
 };
-use drizzle_core::{ParamBind, SQLParam, ToSQL};
+use drizzle_core::{ParamBind, ToSQL};
 use drizzle_sqlite::{SQLiteValue, values::OwnedSQLiteValue};
 use std::borrow::Cow;
 
