@@ -7,11 +7,9 @@ mod common;
 use uuid::Uuid;
 
 #[cfg(feature = "uuid")]
-use crate::common::{
-    Complex, FullBlogSchema, InsertComplex, InsertPost, Post, SelectPost, setup_db,
-};
+use crate::common::{Complex, InsertComplex, InsertPost, Post, SelectPost};
 #[cfg(not(feature = "uuid"))]
-use crate::common::{FullBlogSchema, InsertPost, Post, SelectPost, setup_db};
+use crate::common::{FullBlogSchema, InsertPost, Post, SelectPost};
 
 #[test]
 fn test_foreign_key_generation() {
