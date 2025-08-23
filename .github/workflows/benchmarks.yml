@@ -25,6 +25,10 @@ jobs:
           - os: macos-latest
             platform: mac
     runs-on: ${{ matrix.os }}
+    outputs:
+      linux-results: ${{ steps.upload-results.outputs.linux-results }}
+      windows-results: ${{ steps.upload-results.outputs.windows-results }}
+      mac-results: ${{ steps.upload-results.outputs.mac-results }}
     
     steps:
     - uses: actions/checkout@v4
@@ -53,32 +57,71 @@ jobs:
     
     - name: Create benchmark report
       shell: bash
+      run: |        
+        echo "# Performance Benchmark Results - ${{ matrix.platform }}" > "${{ matrix.platform }}.md"
+        echo "" >> "${{ matrix.platform }}.md"
+        echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${{ matrix.platform }}.md"
+        echo "**Commit:** ${{ github.sha }}" >> "${{ matrix.platform }}.md"
+        echo "**Platform:** ${{ runner.os }} - ${{ runner.arch }}" >> "${{ matrix.platform }}.md"
+        echo "" >> "${{ matrix.platform }}.md"
+        echo '```' >> "${{ matrix.platform }}.md"
+        cat benchmark_output.txt >> "${{ matrix.platform }}.md"
+        echo '```' >> "${{ matrix.platform }}.md"
+    
+    - name: Upload platform results as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-${{ matrix.platform }}
+        path: ${{ matrix.platform }}.md
+        retention-days: 1
+
+  commit-results:
+    name: Commit All Benchmark Results  
+    needs: benchmark
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Download all benchmark artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Organize benchmark files
+      shell: bash
       run: |
         mkdir -p benchmarks
         
-        echo "# Performance Benchmark Results - ${{ matrix.platform }}" > "benchmarks/${{ matrix.platform }}.md"
-        echo "" >> "benchmarks/${{ matrix.platform }}.md"
-        echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "benchmarks/${{ matrix.platform }}.md"
-        echo "**Commit:** ${{ github.sha }}" >> "benchmarks/${{ matrix.platform }}.md"
-        echo "**Platform:** ${{ runner.os }} - ${{ runner.arch }}" >> "benchmarks/${{ matrix.platform }}.md"
-        echo "" >> "benchmarks/${{ matrix.platform }}.md"
-        echo '```' >> "benchmarks/${{ matrix.platform }}.md"
-        cat benchmark_output.txt >> "benchmarks/${{ matrix.platform }}.md"
-        echo '```' >> "benchmarks/${{ matrix.platform }}.md"
+        # Move each platform's results to the benchmarks directory
+        for platform in linux windows mac; do
+          if [ -d "artifacts/benchmark-$platform" ]; then
+            cp "artifacts/benchmark-$platform/$platform.md" "benchmarks/$platform.md"
+          fi
+        done
     
     - name: Configure git
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
     
-    - name: Commit benchmark results
+    - name: Commit all benchmark results
       shell: bash
       run: |
-        git add "benchmarks/${{ matrix.platform }}.md"
+        git add benchmarks/
         
         if git diff --staged --quiet; then
           echo "No benchmark changes to commit"
         else
-          git commit -m "chore: update ${{ matrix.platform }} benchmark results [skip ci]"
+          git commit -m "chore: update benchmark results for all platforms [skip ci]
+
+          Updated benchmark results for:$(ls benchmarks/*.md | sed 's/benchmarks\///g' | sed 's/\.md//g' | tr '\n' ' ')
+          
+          Commit: ${{ github.sha }}
+          Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          
           git push
         fi
