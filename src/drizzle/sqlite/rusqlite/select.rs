@@ -12,7 +12,7 @@ use drizzle_sqlite::{
 
 use crate::drizzle::sqlite::rusqlite::DrizzleBuilder;
 #[cfg(feature = "sqlite")]
-use crate::join_impl;
+use crate::drizzle_builder_join_impl;
 
 impl<'a, Schema>
     DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
@@ -99,7 +99,7 @@ where
             state: PhantomData,
         }
     }
-    join_impl!();
+    drizzle_builder_join_impl!();
 }
 
 #[cfg(feature = "sqlite")]
@@ -150,7 +150,7 @@ where
             state: PhantomData,
         }
     }
-    join_impl!();
+    drizzle_builder_join_impl!();
 }
 
 #[cfg(feature = "sqlite")]

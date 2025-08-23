@@ -1,15 +1,14 @@
 mod delete;
 mod insert;
+mod prepared;
 mod select;
 mod update;
 
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
+use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::{IsInSchema, SQLTable};
-#[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
-#[cfg(feature = "rusqlite")]
-use drizzle_sqlite::builder::{InsertOnConflictSet, InsertReturningSet, InsertValuesSet};
 use rusqlite::{Connection, params_from_iter};
 use std::marker::PhantomData;
 
@@ -38,8 +37,9 @@ where
 {
     /// Creates a prepared statement that can be executed multiple times
     #[inline]
-    pub fn prepare(self) -> drizzle_sqlite::builder::prepared::PreparedStatement<'a> {
-        self.builder.prepare()
+    pub fn prepare(self) -> prepared::PreparedStatement<'a> {
+        let inner = prepare_render(self.to_sql().clone());
+        prepared::PreparedStatement { inner }
     }
 }
 
@@ -81,7 +81,6 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a SELECT query builder.
-    #[cfg(feature = "sqlite")]
     pub fn select<'a, 'b, T>(
         &'a self,
         query: T,
@@ -101,7 +100,6 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates an INSERT query builder.
-    #[cfg(feature = "sqlite")]
     pub fn insert<'a, Table>(
         &'a self,
         table: Table,
@@ -118,7 +116,6 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates an UPDATE query builder.
-    #[cfg(feature = "sqlite")]
     pub fn update<'a, Table>(
         &'a self,
         table: Table,
@@ -135,7 +132,6 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a DELETE query builder.
-    #[cfg(feature = "sqlite")]
     pub fn delete<'a, T>(
         &'a self,
         table: T,
@@ -152,7 +148,6 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a query with CTE (Common Table Expression).
-    #[cfg(feature = "sqlite")]
     pub fn with<'a, Q, C>(
         &'a self,
         cte: C,
@@ -236,11 +231,7 @@ impl<Schema> Drizzle<Schema> {
     where
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let tx = if matches!(tx_type, SQLiteTransactionType::Deferred) {
-            self.conn.transaction()?
-        } else {
-            self.conn.transaction_with_behavior(tx_type.into())?
-        };
+        let tx = self.conn.transaction_with_behavior(tx_type.into())?;
 
         let transaction = Transaction::new(tx, tx_type);
 
@@ -285,7 +276,6 @@ where
 }
 
 // CTE (WITH) Builder Implementation for RusQLite
-#[cfg(feature = "rusqlite")]
 impl<'a, Schema>
     DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
@@ -323,10 +313,7 @@ impl<'a, Schema>
     }
 }
 
-// Execution Methods for RusQLite
-
 // Rusqlite-specific execution methods for all ExecutableState QueryBuilders
-#[cfg(feature = "rusqlite")]
 impl<'a, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
 where

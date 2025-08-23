@@ -1,5 +1,5 @@
 use crate::drizzle::sqlite::turso::DrizzleBuilder;
-use crate::join_impl;
+use crate::drizzle_builder_join_impl;
 use drizzle_core::ToSQL;
 use drizzle_core::{IsInSchema, SQLTable};
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
@@ -93,7 +93,7 @@ where
             state: PhantomData,
         }
     }
-    join_impl!();
+    drizzle_builder_join_impl!();
 }
 
 #[cfg(feature = "sqlite")]
@@ -144,7 +144,7 @@ where
             state: PhantomData,
         }
     }
-    join_impl!();
+    drizzle_builder_join_impl!();
 }
 
 #[cfg(feature = "sqlite")]

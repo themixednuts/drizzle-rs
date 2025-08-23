@@ -168,7 +168,7 @@ mod tests {
             comment,
         } = Schema::new();
         let builder = QueryBuilder::new::<Schema>();
-        let tables = Schema::new().tables().cloned();
+        let tables = Schema::new().items();
 
         let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);

@@ -1,10 +1,12 @@
 mod delete;
 mod insert;
+mod prepared;
 mod select;
 mod update;
 
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
+use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -38,8 +40,9 @@ where
 {
     /// Creates a prepared statement that can be executed multiple times
     #[inline]
-    pub fn prepare(self) -> drizzle_sqlite::builder::prepared::PreparedStatement<'a> {
-        self.builder.prepare()
+    pub fn prepare(self) -> prepared::PreparedStatement<'a> {
+        let inner = prepare_render(self.to_sql());
+        prepared::PreparedStatement { inner }
     }
 }
 
