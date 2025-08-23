@@ -3,7 +3,19 @@
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 
-// JSON field equality - column->>'field' = value (using SQLite ->> operator for text comparison)
+/// Create a JSON field equality condition using SQLite ->> operator
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_eq;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_eq(column, "theme", "dark");
+/// assert_eq!(condition.sql(), "metadata ->>'theme' = ?");
+/// # }
+/// ```
 pub fn json_eq<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -14,7 +26,19 @@ where
         .append(value.to_sql())
 }
 
-// JSON field inequality - column->>'field' != value
+/// Create a JSON field inequality condition
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_ne;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_ne(column, "theme", "light");
+/// assert_eq!(condition.sql(), "metadata ->>'theme' != ?");
+/// # }
+/// ```
 pub fn json_ne<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -25,7 +49,19 @@ where
         .append(value.to_sql())
 }
 
-// JSON field contains - json_extract(column, '$.field') = value
+/// Create a JSON field contains condition using json_extract
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_contains;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_contains(column, "$.preferences[0]", "dark_theme");
+/// assert_eq!(condition.sql(), "json_extract(metadata, '$.preferences[0]') = ?");
+/// # }
+/// ```
 pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -37,7 +73,19 @@ where
         .append(value.to_sql())
 }
 
-// JSON field exists - json_type(column, '$.field') IS NOT NULL
+/// Create a JSON field exists condition using json_type
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_exists;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_exists(column, "$.theme");
+/// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NOT NULL");
+/// # }
+/// ```
 pub fn json_exists<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -47,7 +95,19 @@ where
         .append(SQL::raw(format!(", '{}') IS NOT NULL", path)))
 }
 
-// JSON field does not exist - json_type(column, '$.field') IS NULL
+/// Create a JSON field does not exist condition
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_not_exists;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_not_exists(column, "$.theme");
+/// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NULL");
+/// # }
+/// ```
 pub fn json_not_exists<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -57,7 +117,19 @@ where
         .append(SQL::raw(format!(", '{}') IS NULL", path)))
 }
 
-// JSON array contains value - EXISTS(SELECT 1 FROM json_each(column, '$.path') WHERE value = ?)
+/// Create a JSON array contains value condition
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_array_contains;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_array_contains(column, "$.preferences", "dark_theme");
+/// assert_eq!(condition.sql(), "EXISTS(SELECT 1 FROM json_each(metadata, '$.preferences') WHERE value = ?)");
+/// # }
+/// ```
 pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -70,7 +142,19 @@ where
         .append_raw(")")
 }
 
-// JSON object contains key - json_type(column, '$.path.key') IS NOT NULL
+/// Create a JSON object contains key condition
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_object_contains_key;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_object_contains_key(column, "$", "theme");
+/// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NOT NULL");
+/// # }
+/// ```
 pub fn json_object_contains_key<'a, L>(
     left: L,
     path: &'a str,
@@ -90,7 +174,19 @@ where
         .append(SQL::raw(format!(", '{}') IS NOT NULL", full_path)))
 }
 
-// JSON text search in value - instr(lower(json_extract(column, '$.path')), lower(?)) > 0
+/// Create a JSON text search condition using case-insensitive matching
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_text_contains;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_text_contains(column, "$.description", "user");
+/// assert_eq!(condition.sql(), "instr(lower(json_extract(metadata, '$.description'))), lower(?)) > 0");
+/// # }
+/// ```
 pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -103,7 +199,17 @@ where
         .append_raw(")) > 0")
 }
 
-// JSON comparison functions for numbers
+/// Create a JSON numeric greater-than condition
+///
+/// # Example
+/// ```ignore
+/// # use crate::conditions::json_gt;
+/// # use drizzle_core::SQL;
+/// # use crate::values::SQLiteValue;
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let condition = json_gt(column, "$.score", 85.0);
+/// assert_eq!(condition.sql(), "CAST(json_extract(metadata, '$.score') AS NUMERIC) > ?");
+/// ```
 pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -115,7 +221,19 @@ where
         .append(value.to_sql())
 }
 
-// Helper function for the JSON arrow-arrow operators (extract as Value)
+/// Helper function for JSON extraction using ->> operator
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_extract;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let extract_expr = json_extract(column, "theme");
+/// assert_eq!(extract_expr.sql(), "metadata ->>'theme'");
+/// # }
+/// ```
 pub fn json_extract<'a, L>(left: L, path: impl AsRef<str>) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
@@ -124,7 +242,19 @@ where
         .append(SQL::raw(format!("->>'{}'", path.as_ref())))
 }
 
-// Helper function for the JSON arrow operators (extract as JSON text)
+/// Helper function for JSON extraction as JSON text using -> operator
+///
+/// # Example
+/// ```
+/// # use drizzle_sqlite::conditions::json_extract_text;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// # fn main() {
+/// let column = SQL::<SQLiteValue>::raw("metadata");
+/// let extract_expr = json_extract_text(column, "preferences");
+/// assert_eq!(extract_expr.sql(), "metadata ->'preferences'");
+/// # }
+/// ```
 pub fn json_extract_text<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
