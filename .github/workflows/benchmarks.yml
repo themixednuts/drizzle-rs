@@ -2,7 +2,9 @@ name: Performance Benchmarks
 
 on:
   push:
-    branches: [ master ]
+    tags:
+      - 'v*' # Trigger on version tags like v1.0.0, v0.1.2, etc.
+  workflow_dispatch: # Allow manual trigger
 
 permissions:
   contents: write # to commit benchmark results back to repo
