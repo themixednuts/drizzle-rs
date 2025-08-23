@@ -3,7 +3,6 @@
 use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
 use drizzle_core::SQLSchema;
 use rand::seq::IndexedRandom;
-#[cfg(feature = "turso")]
 use turso::Connection;
 #[cfg(feature = "uuid")]
 use turso::params;
