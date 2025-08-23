@@ -225,6 +225,33 @@ impl<'a> From<&'a OwnedSQLiteValue> for SQLiteValue<'a> {
         }
     }
 }
+impl<'a> From<&'a SQLiteValue<'a>> for SQLiteValue<'a> {
+    fn from(value: &'a SQLiteValue<'a>) -> Self {
+        match value {
+            SQLiteValue::Integer(f) => SQLiteValue::Integer(*f),
+            SQLiteValue::Real(r) => SQLiteValue::Real(*r),
+            SQLiteValue::Text(v) => SQLiteValue::Text(Cow::Borrowed(v)),
+            SQLiteValue::Blob(v) => SQLiteValue::Blob(Cow::Borrowed(v)),
+            SQLiteValue::Null => SQLiteValue::Null,
+        }
+    }
+}
+impl<'a> From<Cow<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
+    fn from(value: Cow<'a, SQLiteValue<'a>>) -> Self {
+        match value {
+            Cow::Borrowed(r) => r.into(),
+            Cow::Owned(o) => o,
+        }
+    }
+}
+impl<'a> From<&'a Cow<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
+    fn from(value: &'a Cow<'a, SQLiteValue<'a>>) -> Self {
+        match value {
+            Cow::Borrowed(r) => (*r).into(),
+            Cow::Owned(o) => o.into(),
+        }
+    }
+}
 
 impl<'a> std::fmt::Display for SQLiteValue<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

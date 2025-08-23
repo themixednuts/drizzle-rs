@@ -17,7 +17,6 @@ pub struct PreparedStatement<'a> {
 }
 
 impl<'a> PreparedStatement<'a> {
-
     pub fn into_owned(&self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
@@ -74,8 +73,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
     }
 }
 
-impl OwnedPreparedStatement {
-}
+impl OwnedPreparedStatement {}
 
 impl<'a> std::fmt::Display for PreparedStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
