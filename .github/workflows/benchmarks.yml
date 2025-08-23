@@ -4,6 +4,9 @@ on:
   push:
     branches: [ master ]
 
+permissions:
+  contents: write # to commit benchmark results back to repo
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
