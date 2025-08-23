@@ -66,23 +66,25 @@ where
         sql.push_str(text_segment);
 
         if let Some(param) = param_iter.next() {
-            if let Some(name) = param_name_fn(param) {
-                // Named parameter
+            // Always add the placeholder
+            sql.push_str(&placeholder_fn(param));
+            
+            // For parameters, prioritize internal values first, then external bindings
+            if let Some(value) = param_value_fn(param) {
+                // Use internal parameter value (from prepared statement)
+                bound_params.push(value.clone());
+            } else if let Some(name) = param_name_fn(param) {
+                // If no internal value, try external binding for named parameters
                 if let Some(value) = param_map.get(name) {
                     bound_params.push(value.clone());
-                    sql.push_str(&placeholder_fn(param));
-                } else {
-                    // Parameter not found, keep placeholder
-                    sql.push_str(&placeholder_fn(param));
-                }
-            } else {
-                // Positional parameter - use existing value if any
-                if let Some(value) = param_value_fn(param) {
-                    bound_params.push(value.clone());
-                    sql.push_str(&placeholder_fn(param));
                 }
             }
         }
+    }
+
+    // Add any additional external parameters that weren't matched to internal params
+    for (_, value) in param_map {
+        bound_params.push(value);
     }
 
     (sql, bound_params.into_iter())
