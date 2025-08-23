@@ -14,6 +14,8 @@ use uuid::Uuid;
 pub struct Schema {
     pub users: Users,
     pub posts: Posts,
+    pub user_email_idx: UserEmailIdx,
+    pub user_email_username_idx: UserEmailUsernameIdx,
 }
 
 #[SQLiteTable(name = "users")]
@@ -22,6 +24,8 @@ pub struct Users {
     pub id: Uuid,
     #[text]
     pub name: String,
+    #[text]
+    pub email: String,
     #[integer]
     pub age: u64,
 }
@@ -35,6 +39,13 @@ pub struct Posts {
     #[text]
     pub context: Option<String>,
 }
+
+// Index definitions
+#[SQLiteIndex(unique)]
+pub struct UserEmailUsernameIdx(Users::email, Users::name);
+
+#[SQLiteIndex]
+pub struct UserEmailIdx(Users::email);
 ```
 
 ### UUID Storage Options
@@ -53,26 +64,21 @@ pub id: Uuid,
 
 ### Indexes
 
-Create indexes as separate structs:
+Indexes are defined as separate structs and included in your schema. They reference table columns using the `Table::column` syntax:
 
 ```rust
-use drizzle_rs::sqlite::{SQLiteTable, SQLiteIndex};
-#[SQLiteTable]
-struct User {
-    #[integer(primary)]
-    id: i32,
-    #[text]
-    email: String,
-    #[text]
-    username: String,
-}
+use drizzle_rs::sqlite::SQLiteIndex;
 
+// Unique compound index on email and name
 #[SQLiteIndex(unique)]
-struct UserEmailUsernameIdx(User::email, User::username);
+pub struct UserEmailUsernameIdx(Users::email, Users::name);
 
+// Simple index on email column
 #[SQLiteIndex]
-struct UserEmailIdx(User::email);
+pub struct UserEmailIdx(Users::email);
 ```
+
+The indexes are automatically created when you call `db.create()` and must be included as fields in your schema struct.
 
 ## Basic Usage
 
@@ -294,3 +300,89 @@ struct Users {
     config: Option<UserMetadata>,
 }
 ```
+
+## FromRow Derive Macro
+
+The `FromRow` derive macro automatically generates `TryFrom<&Row>` implementations for converting database rows into your structs. It supports all SQLite drivers (rusqlite, libsql, turso).
+
+### Basic Usage
+
+```rust
+use drizzle_rs::FromRow;
+
+#[derive(FromRow, Debug)]
+struct User {
+    id: i32,
+    name: String,
+    email: String,
+}
+
+// Query returns User structs directly
+let users: Vec<User> = db.select(()).from(users_table).all()?;
+```
+
+### Column Mapping
+
+Use the `#[column]` attribute to map struct fields to specific table columns:
+
+```rust
+#[derive(FromRow, Debug)]
+struct UserInfo {
+    #[column(Users::id)]
+    user_id: i32,
+    #[column(Users::name)] 
+    full_name: String,
+    #[column(Users::email)]
+    email_address: String,
+}
+
+// Use in SELECT queries with custom column mapping
+let info: Vec<UserInfo> = db
+    .select(UserInfo::default())
+    .from(users)
+    .all()?;
+```
+
+### JOIN Queries
+
+Perfect for handling JOIN query results:
+
+```rust
+#[derive(FromRow, Debug)]
+struct UserPost {
+    #[column(Users::id)]
+    user_id: i32,
+    #[column(Users::name)]
+    user_name: String,
+    #[column(Posts::id)]
+    post_id: i32,
+    #[column(Posts::title)]
+    post_title: String,
+}
+
+let results: Vec<UserPost> = db
+    .select(UserPost::default())
+    .from(users)
+    .inner_join(posts, eq(users.id, posts.user_id))
+    .all()?;
+```
+
+### Tuple Structs
+
+Also works with tuple structs for simple cases:
+
+```rust
+#[derive(FromRow, Debug)]
+struct UserName(String);
+
+let names: Vec<UserName> = db
+    .select(users.name)
+    .from(users)
+    .all()?;
+```
+
+The macro automatically handles:
+- Type conversions between SQLite types and Rust types
+- Optional fields (`Option<T>`)
+- All supported column types (integers, text, blobs, JSON, enums)
+- Multiple SQLite drivers with feature-gated implementations

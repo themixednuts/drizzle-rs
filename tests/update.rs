@@ -48,7 +48,8 @@ drizzle_test!(simple_update, SimpleSchema, {
     assert_eq!(insert_result, 1);
 
     // Update the record
-    let stmt = db.update(simple)
+    let stmt = db
+        .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(eq(Simple::name, "original"));
     println!("{}", stmt.to_sql());
@@ -99,7 +100,8 @@ drizzle_test!(complex_update, ComplexSchema, {
     assert_eq!(insert_result, 1);
 
     // Update multiple fields
-    let stmt = db.update(complex)
+    let stmt = db
+        .update(complex)
         .set(
             UpdateComplex::default()
                 .with_email("new@example.com".to_string())
@@ -157,7 +159,8 @@ drizzle_test!(feature_gated_update, ComplexSchema, {
     assert_eq!(insert_result, 1);
 
     // Update feature-gated fields using UUID primary key
-    let stmt = db.update(complex)
+    let stmt = db
+        .update(complex)
         .set(
             UpdateComplex::default()
                 .with_metadata(common::UserMetadata {
