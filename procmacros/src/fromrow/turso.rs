@@ -41,21 +41,33 @@ pub(crate) fn generate_field_assignment(
 }
 
 /// Handle JSON fields
-fn handle_json_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
+fn handle_json_field(
+    idx: usize,
+    name: Option<&syn::Ident>,
+    is_optional: bool,
+) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_text());
     let converter = quote!(#accessor.map(|v| serde_json::from_str(v)).transpose()?);
     Ok(wrap_optional(converter, name, is_optional))
 }
 
 /// Handle UUID fields  
-fn handle_uuid_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
+fn handle_uuid_field(
+    idx: usize,
+    name: Option<&syn::Ident>,
+    is_optional: bool,
+) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_blob());
     let converter = quote!(#accessor.map(|v| uuid::Uuid::from_slice(v)).transpose()?);
     Ok(wrap_optional(converter, name, is_optional))
 }
 
 /// Handle boolean fields
-fn handle_bool_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
+fn handle_bool_field(
+    idx: usize,
+    name: Option<&syn::Ident>,
+    is_optional: bool,
+) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_integer());
     let converter = quote!(#accessor.map(|&v| v != 0));
     Ok(wrap_optional(converter, name, is_optional))
@@ -99,14 +111,22 @@ fn handle_float_field(
 }
 
 /// Handle text/string fields
-fn handle_text_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
+fn handle_text_field(
+    idx: usize,
+    name: Option<&syn::Ident>,
+    is_optional: bool,
+) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_text());
     let converter = quote!(#accessor.map(|s| s.to_string()));
     Ok(wrap_optional(converter, name, is_optional))
 }
 
 /// Handle blob/Vec<u8> fields
-fn handle_blob_field(idx: usize, name: Option<&syn::Ident>, is_optional: bool) -> Result<TokenStream> {
+fn handle_blob_field(
+    idx: usize,
+    name: Option<&syn::Ident>,
+    is_optional: bool,
+) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_blob());
     let converter = quote!(#accessor.map(|v| v.to_vec()));
     Ok(wrap_optional(converter, name, is_optional))
@@ -147,32 +167,36 @@ fn is_uuid_type(type_str: &str) -> bool {
 }
 
 fn is_integer_type(base_type_str: &str) -> bool {
-    base_type_str.contains("i8")
-        || base_type_str.contains("i16")
-        || base_type_str.contains("i32")
-        || base_type_str.contains("i64")
+    base_type_str.eq("i8")
+        || base_type_str.eq("i16")
+        || base_type_str.eq("i32")
+        || base_type_str.eq("i64")
+        || base_type_str.eq("isize")
+        || base_type_str.eq("u8")
+        || base_type_str.eq("u16")
+        || base_type_str.eq("u32")
+        || base_type_str.eq("u64")
+        || base_type_str.eq("usize")
 }
 
 fn is_float_type(base_type_str: &str) -> bool {
-    base_type_str.contains("f32") || base_type_str.contains("f64")
+    base_type_str.eq("f32") || base_type_str.eq("f64")
 }
 
 /// Extract base type from Option<T> or T
 fn extract_base_type(type_str: &str) -> String {
-    if let Some(inner) = type_str.strip_prefix("Option < ") {
-        if let Some(inner) = inner.strip_suffix(" >") {
-            return inner.trim().to_string();
-        }
+    if let Some(inner) = type_str.strip_prefix("Option < ")
+        && let Some(inner) = inner.strip_suffix(" >")
+    {
+        return inner.trim().to_string();
     }
     type_str.to_string()
 }
 
 /// Check if field has json attribute
 fn has_json_attribute(field: &Field) -> bool {
-    field.attrs.iter().any(|attr| {
-        attr.path()
-            .get_ident()
-            .map_or(false, |ident| ident == "json")
-    })
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
 }
-

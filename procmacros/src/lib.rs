@@ -45,7 +45,6 @@ mod rusqlite;
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-
 /// Derive macro for creating SQLite-compatible enums.
 ///
 /// This macro allows enums to be stored in SQLite databases as either TEXT (variant names)
@@ -533,12 +532,14 @@ pub fn sql(input: TokenStream) -> TokenStream {
 ///
 /// - `drizzle_exec!(operation)` - Execute operation with proper async/sync handling
 /// - `drizzle_try!(operation)` - Try operation with proper async/sync handling
+/// - `drizzle_tx!(tx_type, { body })` - Execute transaction with proper async/sync handling
 ///
 /// # Variables Available in Test Body
 ///
 /// - `db` - The Drizzle instance for the current driver
 /// - `schema` - The schema instance with all tables
+/// - `tx` - The transaction instance (within drizzle_tx! blocks)
 #[proc_macro]
-pub fn drivers_test(input: TokenStream) -> TokenStream {
+pub fn drizzle_test(input: TokenStream) -> TokenStream {
     crate::drivers_test::drivers_test_impl(input)
 }

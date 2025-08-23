@@ -58,13 +58,12 @@ fn generate_rusqlite_test(
 ) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_rusqlite", test_name), test_name.span());
     let test_name_str = test_name.to_string();
-
     quote! {
         #[cfg(feature = "rusqlite")]
         #[test]
-        fn #test_fn_name() {
+        fn #test_fn_name() -> std::result::Result<(), drizzle_rs::error::DrizzleError> {
             use crate::common::helpers::rusqlite_setup;
-            let (db, schema) = rusqlite_setup::setup_db::<#schema_type>();
+            let (mut db, schema) = rusqlite_setup::setup_db::<#schema_type>();
 
             // Debug prints
             println!("🔧 RUSQLITE Driver: Test {} starting", #test_name_str);
@@ -80,10 +79,24 @@ fn generate_rusqlite_test(
             macro_rules! drizzle_try {
                 ($operation:expr) => { $operation };
             }
+            #[allow(unused_macros)]
+            macro_rules! drizzle_tx {
+                ($tx:ident, $body:block) => {
+                    $body
+                };
+            }
+            #[allow(unused_macros)]
+            macro_rules! drizzle_catch_unwind {
+                ($operation:expr) => {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
+                };
+            }
+
 
             #test_body
 
             println!("✅ RUSQLITE Driver: Test {} completed", #test_name_str);
+            Ok(())
         }
     }
 }
@@ -91,13 +104,12 @@ fn generate_rusqlite_test(
 fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_libsql", test_name), test_name.span());
     let test_name_str = test_name.to_string();
-
     quote! {
         #[cfg(feature = "libsql")]
         #[tokio::test]
-        async fn #test_fn_name() {
+        async fn #test_fn_name() -> std::result::Result<(), drizzle_rs::error::DrizzleError> {
             use crate::common::helpers::libsql_setup;
-            let (db, schema) = libsql_setup::setup_db::<#schema_type>().await;
+            let (mut db, schema) = libsql_setup::setup_db::<#schema_type>().await;
 
             // Debug prints
             println!("🔧 LIBSQL Driver: Test {} starting", #test_name_str);
@@ -113,10 +125,26 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
             macro_rules! drizzle_try {
                 ($operation:expr) => { $operation.await };
             }
+            #[allow(unused_macros)]
+            macro_rules! drizzle_tx {
+                ($tx:ident, $body:block) => {
+                    Box::pin(async move $body)
+                };
+            }
+            #[allow(unused_macros)]
+            macro_rules! drizzle_catch_unwind {
+                ($operation:expr) => {
+                    futures_util::future::FutureExt::catch_unwind(
+                        std::panic::AssertUnwindSafe($operation)
+                    ).await
+                };
+            }
+
 
             #test_body
 
             println!("✅ LIBSQL Driver: Test {} completed", #test_name_str);
+            Ok(())
         }
     }
 }
@@ -124,13 +152,12 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
 fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_turso", test_name), test_name.span());
     let test_name_str = test_name.to_string();
-
     quote! {
         #[cfg(feature = "turso")]
         #[tokio::test]
-        async fn #test_fn_name() {
+        async fn #test_fn_name() -> std::result::Result<(), drizzle_rs::error::DrizzleError> {
             use crate::common::helpers::turso_setup;
-            let (db, schema) = turso_setup::setup_db::<#schema_type>().await;
+            let (mut db, schema) = turso_setup::setup_db::<#schema_type>().await;
 
             // Debug prints
             println!("🔧 TURSO Driver: Test {} starting", #test_name_str);
@@ -146,10 +173,26 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
             macro_rules! drizzle_try {
                 ($operation:expr) => { $operation.await };
             }
+            #[allow(unused_macros)]
+            macro_rules! drizzle_tx {
+                ($tx:ident, $body:block) => {
+                    Box::pin(async move $body)
+                };
+            }
+            #[allow(unused_macros)]
+            macro_rules! drizzle_catch_unwind {
+                ($operation:expr) => {
+                    futures_util::future::FutureExt::catch_unwind(
+                        std::panic::AssertUnwindSafe($operation)
+                    ).await
+                };
+            }
+
 
             #test_body
 
             println!("✅ TURSO Driver: Test {} completed", #test_name_str);
+            Ok(())
         }
     }
 }
