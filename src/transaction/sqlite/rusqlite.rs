@@ -1,18 +1,22 @@
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::{IsInSchema, SQLTable};
+#[cfg(feature = "sqlite")]
+use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use rusqlite::params_from_iter;
 use std::marker::PhantomData;
+
+pub mod delete;
+pub mod insert;
+pub mod select;
+pub mod update;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     SQLiteTransactionType, SQLiteValue,
     builder::{
-        self, QueryBuilder,
-        delete::{self, DeleteBuilder},
-        insert::{self, InsertBuilder},
-        select::{self, SelectBuilder},
-        update::{self, UpdateBuilder},
+        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+        update::UpdateBuilder,
     },
 };
 
@@ -63,8 +67,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         'a,
         'conn,
         Schema,
-        SelectBuilder<'b, Schema, select::SelectInitial>,
-        select::SelectInitial,
+        SelectBuilder<'b, Schema, SelectInitial>,
+        SelectInitial,
     >
     where
         T: ToSQL<'b, SQLiteValue<'b>>,
@@ -89,8 +93,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         'a,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, insert::InsertInitial, Table>,
-        insert::InsertInitial,
+        InsertBuilder<'a, Schema, InsertInitial, Table>,
+        InsertInitial,
     >
     where
         Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
@@ -112,8 +116,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         'a,
         'conn,
         Schema,
-        UpdateBuilder<'a, Schema, update::UpdateInitial, Table>,
-        update::UpdateInitial,
+        UpdateBuilder<'a, Schema, UpdateInitial, Table>,
+        UpdateInitial,
     >
     where
         Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
@@ -135,8 +139,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         'a,
         'conn,
         Schema,
-        DeleteBuilder<'a, Schema, delete::DeleteInitial, T>,
-        delete::DeleteInitial,
+        DeleteBuilder<'a, Schema, DeleteInitial, T>,
+        DeleteInitial,
     >
     where
         T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
