@@ -1,23 +1,18 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
+use drizzle_macros::drizzle_test;
 use drizzle_rs::{
     FromRow,
     core::{and, eq},
-    drizzle,
     sqlite::{SQLiteValue, params},
 };
 
 mod common;
-#[cfg(feature = "uuid")]
-use common::{Complex, SimpleComplexSchema};
-use common::{InsertSimple, SelectSimple, Simple, SimpleSchema};
+use common::{InsertSimple, SelectSimple, SimpleSchema};
 
-#[tokio::test]
-async fn test_prepare_with_placeholder() {
-    let conn = setup_test_db!();
-    // Insert specific test data instead of using random seed
+drizzle_test!(test_prepare_with_placeholder, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
@@ -44,7 +39,7 @@ async fn test_prepare_with_placeholder() {
     // Verify we have the right parameter count and value
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Alice");
-}
+});
 
 #[test]
 fn test_prepare_render_basic() {
@@ -81,11 +76,12 @@ fn test_prepare_with_multiple_parameters() {
         .append_raw(")");
 
     let prepared = prepare_render(sql);
-    let (final_sql, bound_params) = prepared.bind(params![
+    let (final_sql, bound_params_iter) = prepared.bind(params![
         {name: "alice"},
         {age: 25i32},
         {active: true}
     ]);
+    let bound_params: Vec<_> = bound_params_iter.collect();
 
     // Verify SQL structure
     assert!(final_sql.contains("INSERT INTO users (name, age, active) VALUES ("));
@@ -163,7 +159,8 @@ fn test_prepare_with_no_parameters() {
     assert_eq!(prepared.text_segments[0], "SELECT COUNT(*) FROM users");
 
     // Binding no parameters should work
-    let (final_sql, bound_params) = prepared.bind([]);
+    let (final_sql, bound_params_iter) = prepared.bind::<SQLiteValue<'_>>([]);
+    let bound_params: Vec<_> = bound_params_iter.collect();
     assert_eq!(final_sql, "SELECT COUNT(*) FROM users");
     assert_eq!(bound_params.len(), 0);
 }
@@ -180,10 +177,11 @@ fn test_prepare_complex_query() {
         .append(SQL::placeholder("search_pattern"));
 
     let prepared = prepare_render(sql);
-    let (final_sql, bound_params) = prepared.bind(params![
+    let (final_sql, bound_params_iter) = prepared.bind(params![
         {root_id: 1i32},
         {search_pattern: "%electronics%"}
     ]);
+    let bound_params: Vec<_> = bound_params_iter.collect();
 
     // Verify complex SQL is reconstructed correctly
     assert!(final_sql.contains("WITH RECURSIVE category_tree AS"));
@@ -194,11 +192,8 @@ fn test_prepare_complex_query() {
     assert_eq!(bound_params[1], SQLiteValue::from("%electronics%"));
 }
 
-#[tokio::test]
-async fn test_prepared_performance_comparison() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
-
+drizzle_test!(test_prepared_performance_comparison, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
     // Insert test data
     let test_data: Vec<_> = (0..1000)
         .map(|i| InsertSimple::new(format!("User{}", i)))
@@ -241,12 +236,11 @@ async fn test_prepared_performance_comparison() {
         prepared_duration <= regular_duration * 2,
         "Prepared statements shouldn't be significantly slower"
     );
-}
+});
 
-#[tokio::test]
-async fn test_prepared_insert_performance() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_prepared_insert_performance, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+    // Insert test data
 
     // Test regular insert performance
     let start = std::time::Instant::now();
@@ -290,4 +284,4 @@ async fn test_prepared_insert_performance() {
         prepared_duration <= regular_duration * 2,
         "Prepared statements shouldn't be significantly slower"
     );
-}
+});

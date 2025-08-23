@@ -3,7 +3,7 @@
     feature = "uuid"
 ))]
 
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 use uuid::Uuid;
 
@@ -73,7 +73,7 @@ struct UuidBlobDefaultSchema {
     uuid_blob_default: UuidBlobDefault,
 }
 
-drivers_test!(test_uuid_text_storage, UuidTextSchema, {
+drizzle_test!(test_uuid_text_storage, UuidTextSchema, {
     let table = schema.uuid_text_test;
 
     // Generate test UUID
@@ -108,7 +108,7 @@ drivers_test!(test_uuid_text_storage, UuidTextSchema, {
     dbg!(&result);
 });
 
-drivers_test!(test_uuid_blob_storage, UuidBlobSchema, {
+drizzle_test!(test_uuid_blob_storage, UuidBlobSchema, {
     let table = schema.uuid_blob_test;
 
     // Generate test UUID
@@ -143,7 +143,7 @@ drivers_test!(test_uuid_blob_storage, UuidBlobSchema, {
     assert_eq!(result.0, "blob");
 });
 
-drivers_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
+drizzle_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
     // Test TEXT storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_text_test;
@@ -159,7 +159,7 @@ drivers_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
     assert_eq!(results[0].uuid_field, test_uuid);
 });
 
-drivers_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
+drizzle_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
     // Test BLOB storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_blob_test;
@@ -175,7 +175,7 @@ drivers_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
     assert_eq!(results[0].uuid_field, test_uuid);
 });
 
-drivers_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
+drizzle_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     let table = schema.uuid_text_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -208,7 +208,7 @@ drivers_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     assert_eq!(result.0, "text");
 });
 
-drivers_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
+drizzle_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     let table = schema.uuid_blob_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -241,7 +241,7 @@ drivers_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     assert_eq!(result.0, "blob");
 });
 
-drivers_test!(
+drizzle_test!(
     test_uuid_text_default_fn_uniqueness,
     UuidTextDefaultSchema,
     {
@@ -267,7 +267,7 @@ drivers_test!(
     }
 );
 
-drivers_test!(
+drizzle_test!(
     test_uuid_blob_default_fn_uniqueness,
     UuidBlobDefaultSchema,
     {

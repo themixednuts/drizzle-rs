@@ -1,16 +1,16 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use common::InsertSimple;
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
-use common::{InsertSimple, Simple, setup_db};
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 use drizzle_rs::sqlite::builder::Conflict;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-use crate::common::SimpleSchema;
 #[cfg(feature = "uuid")]
-use crate::common::{ComplexSchema, SimpleComplexSchema};
+use crate::common::ComplexSchema;
+use crate::common::SimpleSchema;
 
 mod common;
 
@@ -40,7 +40,7 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-drivers_test!(simple_insert, SimpleSchema, {
+drizzle_test!(simple_insert, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert Simple record
@@ -51,8 +51,7 @@ drivers_test!(simple_insert, SimpleSchema, {
 
     // Verify insertion by selecting the record
     let results: Vec<SimpleResult> = drizzle_exec!(
-        db
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "test"))
             .all()
@@ -63,7 +62,7 @@ drivers_test!(simple_insert, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drivers_test!(complex_insert, ComplexSchema, {
+drizzle_test!(complex_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with various field types
@@ -90,17 +89,16 @@ drivers_test!(complex_insert, ComplexSchema, {
 
     // Verify insertion by selecting the record
     let results: Vec<ComplexResult> = drizzle_exec!(
-        db
-            .select((
-                complex.id,
-                complex.name,
-                complex.email,
-                complex.age,
-                complex.description,
-            ))
-            .from(complex)
-            .r#where(eq(Complex::name, "complex_user"))
-            .all()
+        db.select((
+            complex.id,
+            complex.name,
+            complex.email,
+            complex.age,
+            complex.description,
+        ))
+        .from(complex)
+        .r#where(eq(Complex::name, "complex_user"))
+        .all()
     );
 
     assert_eq!(results.len(), 1);
@@ -110,7 +108,7 @@ drivers_test!(complex_insert, ComplexSchema, {
     assert_eq!(results[0].description, Some("Test description".to_string()));
 });
 
-drivers_test!(conflict_resolution, SimpleSchema, {
+drizzle_test!(conflict_resolution, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert initial Simple record
@@ -121,8 +119,7 @@ drivers_test!(conflict_resolution, SimpleSchema, {
     // Try to insert duplicate - should conflict and be ignored
     let duplicate_data = InsertSimple::new("conflict_test").with_id(1);
     let result = drizzle_exec!(
-        db
-            .insert(simple)
+        db.insert(simple)
             .values([duplicate_data])
             .on_conflict(Conflict::default())
             .execute()
@@ -132,8 +129,7 @@ drivers_test!(conflict_resolution, SimpleSchema, {
 
     // Verify only one record exists
     let results: Vec<SimpleResult> = drizzle_exec!(
-        db
-            .select((simple.id, simple.name))
+        db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "conflict_test"))
             .all()
@@ -145,7 +141,7 @@ drivers_test!(conflict_resolution, SimpleSchema, {
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[cfg(feature = "uuid")]
-drivers_test!(feature_gated_insert, ComplexSchema, {
+drizzle_test!(feature_gated_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record using feature-gated fields
@@ -168,17 +164,16 @@ drivers_test!(feature_gated_insert, ComplexSchema, {
 
     // Verify insertion
     let results: Vec<ComplexResult> = drizzle_exec!(
-        db
-            .select((
-                complex.id,
-                complex.name,
-                complex.email,
-                complex.age,
-                complex.description,
-            ))
-            .from(complex)
-            .r#where(eq(complex.name, "feature_test"))
-            .all()
+        db.select((
+            complex.id,
+            complex.name,
+            complex.email,
+            complex.age,
+            complex.description,
+        ))
+        .from(complex)
+        .r#where(eq(complex.name, "feature_test"))
+        .all()
     );
 
     assert_eq!(results.len(), 1);

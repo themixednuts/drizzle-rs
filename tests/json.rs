@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 mod common;
 
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ struct Schema {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-drivers_test!(json_storage, Schema, {
+drizzle_test!(json_storage, Schema, {
     let Schema { jsonuser } = schema;
 
     let profile = Profile {
@@ -59,7 +59,11 @@ drivers_test!(json_storage, Schema, {
     let stmt = db
         .select((
             jsonuser.id,
-            cast(drizzle_rs::sqlite::conditions::json_extract(jsonuser.profile, "age"), "INTEGER").alias("age"),
+            cast(
+                drizzle_rs::sqlite::conditions::json_extract(jsonuser.profile, "age"),
+                "INTEGER",
+            )
+            .alias("age"),
         ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));

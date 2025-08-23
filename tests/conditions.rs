@@ -3,6 +3,7 @@
 use common::{ComplexSchema, InsertComplex, SelectComplex};
 use common::{InsertSimple, Role, SelectSimple, SimpleSchema};
 use drizzle_core::expressions::conditions::*;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 mod common;
@@ -17,11 +18,8 @@ struct ConcatResult {
     concat: String,
 }
 
-#[tokio::test]
-async fn test_basic_comparison_conditions() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
-
+drizzle_test!(test_basic_comparison_conditions, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
     let test_data = vec![
         InsertSimple::new("Item A").with_id(1),
         InsertSimple::new("Item B").with_id(2),
@@ -68,12 +66,10 @@ async fn test_basic_comparison_conditions() {
     let result: Vec<SelectSimple> =
         drizzle_exec!(db.select(()).from(simple).r#where(lte(simple.id, 2)).all());
     assert_eq!(result.len(), 2);
-}
+});
 
-#[tokio::test]
-async fn test_in_array_conditions() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_in_array_conditions, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("Apple").with_id(1),
@@ -127,13 +123,11 @@ async fn test_in_array_conditions() {
             .all()
     );
     assert_eq!(result.len(), 0);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_null_conditions() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_null_conditions, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
     // User A: has email set
@@ -194,13 +188,11 @@ async fn test_null_conditions() {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User C");
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_between_conditions() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_between_conditions, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     let test_data = vec![
         InsertComplex::new("User A", true, Role::User)
@@ -243,12 +235,10 @@ async fn test_between_conditions() {
             .all()
     );
     assert_eq!(result.len(), 2);
-}
+});
 
-#[tokio::test]
-async fn test_like_conditions() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_like_conditions, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("Apple Pie").with_id(1),
@@ -294,13 +284,11 @@ async fn test_like_conditions() {
             .all()
     );
     assert_eq!(result.len(), 2);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_logical_conditions() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_logical_conditions, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     let test_data = vec![
         InsertComplex::new("Active Admin", true, Role::Admin).with_age(30),
@@ -353,12 +341,10 @@ async fn test_logical_conditions() {
             .all()
     );
     assert_eq!(result.len(), 2);
-}
+});
 
-#[tokio::test]
-async fn test_single_condition_logical_operations() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_single_condition_logical_operations, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert test data - both have same pattern (both set id)
     drizzle_exec!(
@@ -393,12 +379,10 @@ async fn test_single_condition_logical_operations() {
     // Test no condition (get all records)
     let result: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
     assert_eq!(result.len(), 2); // No condition should return all
-}
+});
 
-#[tokio::test]
-async fn test_string_operations() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_string_operations, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("Hello").with_id(1),
@@ -417,16 +401,14 @@ async fn test_string_operations() {
     let concats: Vec<String> = result.iter().map(|r| r.concat.clone()).collect();
     assert!(concats.contains(&"Hello - Suffix".to_string()));
     assert!(concats.contains(&"World - Suffix".to_string()));
-}
+});
 
 #[cfg(all(feature = "sqlite", feature = "serde"))]
-#[tokio::test]
-async fn test_sqlite_json_conditions() {
+drizzle_test!(test_sqlite_json_conditions, ComplexSchema, {
     use crate::common::{ComplexSchema, UserMetadata};
     use drizzle_rs::sqlite::conditions::*;
 
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+    let ComplexSchema { complex } = schema;
 
     // Insert test data with JSON metadata
     let metadata = UserMetadata {
@@ -458,12 +440,10 @@ async fn test_sqlite_json_conditions() {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].extract, "dark");
-}
+});
 
-#[tokio::test]
-async fn test_condition_edge_cases() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_condition_edge_cases, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
 
@@ -489,4 +469,4 @@ async fn test_condition_edge_cases() {
             .all()
     );
     assert_eq!(result.len(), 1);
-}
+});

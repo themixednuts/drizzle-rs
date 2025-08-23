@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -237,7 +237,7 @@ struct NullableTestSchema {
     nullable_test: NullableTest,
 }
 
-drivers_test!(test_all_column_types, AllTypesSchema, {
+drizzle_test!(test_all_column_types, AllTypesSchema, {
     let all_types = schema.all_types;
 
     // Test insertion with all column types
@@ -247,7 +247,7 @@ drivers_test!(test_all_column_types, AllTypesSchema, {
     assert_eq!(result, 1);
 });
 
-drivers_test!(
+drizzle_test!(
     test_primary_key_autoincrement,
     PrimaryKeyVariationsSchema,
     {
@@ -277,7 +277,7 @@ drivers_test!(
     }
 );
 
-drivers_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
+drizzle_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
     let manual_pk = schema.manual_pk;
 
     let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
@@ -301,7 +301,7 @@ drivers_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
     assert_eq!(results[0].1, "Test description");
 });
 
-drivers_test!(test_unique_constraints, UniqueFieldsSchema, {
+drizzle_test!(test_unique_constraints, UniqueFieldsSchema, {
     let unique_table = schema.unique_fields;
 
     // Insert first record
@@ -319,7 +319,7 @@ drivers_test!(test_unique_constraints, UniqueFieldsSchema, {
     assert!(result2.is_err()); // Should fail due to unique constraint
 });
 
-drivers_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
+drizzle_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
     let defaults_table = schema.compile_defaults;
 
     // Insert with minimal data - defaults should be used
@@ -352,7 +352,7 @@ drivers_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
     assert_eq!(results[0].4, "pending");
 });
 
-drivers_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
+drizzle_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
     let RuntimeDefaultsSchema { runtime_defaults } = schema;
 
     // Insert with minimal data - runtime defaults should be used
@@ -381,7 +381,7 @@ drivers_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
     assert_eq!(results[0].2, "test");
 });
 
-drivers_test!(test_enum_storage_types, EnumFieldsSchema, {
+drizzle_test!(test_enum_storage_types, EnumFieldsSchema, {
     let enum_table = schema.enum_fields;
 
     // Test different enum storage types
@@ -415,7 +415,7 @@ drivers_test!(test_enum_storage_types, EnumFieldsSchema, {
 });
 
 #[cfg(feature = "serde")]
-drivers_test!(test_json_storage_types, JsonFieldsSchema, {
+drizzle_test!(test_json_storage_types, JsonFieldsSchema, {
     let json_table = schema.json_fields;
 
     let json_data = JsonData {
@@ -445,7 +445,7 @@ drivers_test!(test_json_storage_types, JsonFieldsSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drivers_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
+drizzle_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
     let uuid_table = schema.uuid_fields;
 
     // Insert without specifying UUID - default_fn should generate one
@@ -467,12 +467,12 @@ drivers_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].1, "uuid test");
-    
+
     // Validate UUID format and version
     let generated_uuid = results[0].0;
     assert_ne!(generated_uuid, uuid::Uuid::nil());
     assert_eq!(generated_uuid.get_version(), Some(uuid::Version::Random));
-    
+
     // Verify UUID storage type using typeof
     let id_col = uuid_table.id;
     let type_query = db
@@ -483,12 +483,12 @@ drivers_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
     #[derive(FromRow, Debug)]
     struct TypeResult(String);
     let type_results: Vec<TypeResult> = drizzle_exec!(db.all(type_query));
-    
+
     assert_eq!(type_results.len(), 1);
     assert_eq!(type_results[0].0, "blob"); // blob(primary) stores UUIDs as BLOB
 });
 
-drivers_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
+drizzle_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
     let nullable_table = schema.nullable_test;
 
     // Test 1: Insert with all required fields, no optional fields

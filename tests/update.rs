@@ -2,6 +2,7 @@
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex, UpdateComplex};
 use common::{InsertSimple, Simple, UpdateSimple, setup_db};
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 #[cfg(feature = "rusqlite")]
@@ -39,10 +40,8 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-#[tokio::test]
-async fn simple_update() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(simple_update, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
     // Insert initial Simple record
     let insert_data = InsertSimple::new("original");
     let insert_result = drizzle_exec!(db.insert(simple).values([insert_data]).execute());
@@ -77,13 +76,11 @@ async fn simple_update() {
     );
 
     assert_eq!(old_results.len(), 0);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn complex_update() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(complex_update, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert initial Complex record
     #[cfg(not(feature = "uuid"))]
@@ -138,13 +135,11 @@ async fn complex_update() {
         results[0].description,
         Some("Updated description".to_string())
     );
-}
+});
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[tokio::test]
-async fn feature_gated_update() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(feature_gated_update, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
     let insert_data = InsertComplex::new("feature_user", true, common::Role::User)
@@ -204,4 +199,4 @@ async fn feature_gated_update() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_user");
     assert_eq!(results[0].id, test_id);
-}
+});

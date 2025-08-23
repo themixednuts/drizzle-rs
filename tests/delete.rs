@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use common::{Complex, InsertComplex};
 use common::{InsertSimple, Simple};
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
@@ -36,7 +36,7 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-drivers_test!(simple_delete, SimpleSchema, {
+drizzle_test!(simple_delete, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test records
@@ -82,7 +82,7 @@ drivers_test!(simple_delete, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drivers_test!(feature_gated_delete, SimpleComplexSchema, {
+drizzle_test!(feature_gated_delete, SimpleComplexSchema, {
     let SimpleComplexSchema { simple, complex } = schema;
 
     // Insert test records with UUIDs

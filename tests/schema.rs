@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 mod common;
@@ -83,7 +83,7 @@ struct AppTestSchema {
     user_name_idx: UserNameIdx,
 }
 
-drivers_test!(test_schema_derive, AppTestSchema, {
+drizzle_test!(test_schema_derive, AppTestSchema, {
     // Test table SQL generation
     let user_sql = User::SQL.sql();
     assert_eq!(
@@ -124,7 +124,7 @@ drivers_test!(test_schema_derive, AppTestSchema, {
     assert!(!schema.user_name_idx.is_unique());
 });
 
-drivers_test!(test_schema_with_drizzle_macro, AppTestSchema, {
+drizzle_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     // Test that we can use the schema for queries
     let insert_data = InsertUser::new("test@example.com", "Test User");
     let result = drizzle_exec!(db.insert(schema.user).values([insert_data]).execute());
@@ -143,7 +143,7 @@ drivers_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     assert_eq!(users[0].name, "Test User");
 });
 
-drivers_test!(test_schema_destructuring, AppTestSchema, {
+drizzle_test!(test_schema_destructuring, AppTestSchema, {
     // Test destructuring the schema into individual components
     let (user, _, _) = schema.into();
 
@@ -219,11 +219,11 @@ struct ComplexTestSchema {
     department: Department,
 }
 
-drivers_test!(test_deterministic_ordering, ComplexTestSchema, {
+drizzle_test!(test_deterministic_ordering, ComplexTestSchema, {
     // Get the create statements - this should be deterministically ordered
     let statements = schema.create_statements();
-    
-    // Expected order: departments first (no deps), then employees (deps on departments), 
+
+    // Expected order: departments first (no deps), then employees (deps on departments),
     // then projects (deps on employees), with indexes after each table
     let expected = vec![
         // Department table first (no dependencies)
@@ -238,58 +238,73 @@ drivers_test!(test_deterministic_ordering, ComplexTestSchema, {
         // Project indexes after Project table
         "CREATE UNIQUE INDEX \"project_title_idx\" ON \"projects\" (title)",
     ];
-    
-    assert_eq!(statements.len(), expected.len(), "Number of statements should match");
-    
+
+    assert_eq!(
+        statements.len(),
+        expected.len(),
+        "Number of statements should match"
+    );
+
     for (i, (actual, expected)) in statements.iter().zip(expected.iter()).enumerate() {
-        assert_eq!(actual, expected, "Statement {} should match expected order", i);
+        assert_eq!(
+            actual, expected,
+            "Statement {} should match expected order",
+            i
+        );
     }
-    
+
     // Verify that foreign key relationships are properly detected
-    let (_project_title_idx, project, _employee_manager_idx, employee, _employee_dept_idx, department) = schema.items();
-    
+    let (
+        _project_title_idx,
+        project,
+        _employee_manager_idx,
+        employee,
+        _employee_dept_idx,
+        department,
+    ) = schema.items();
+
     // Test Department (no dependencies)
     assert_eq!(department.name(), "departments");
     assert_eq!(department.dependencies().len(), 0);
-    
-    // Test Employee (depends on Department and itself) 
+
+    // Test Employee (depends on Department and itself)
     assert_eq!(employee.name(), "employees");
     let emp_deps = employee.dependencies();
     assert_eq!(emp_deps.len(), 2); // Department and Employee (self-reference)
     // Dependencies should be sorted by name for deterministic order
     assert_eq!(emp_deps[0].name(), "departments");
     assert_eq!(emp_deps[1].name(), "employees");
-    
+
     // Test Project (depends on Employee)
     assert_eq!(project.name(), "projects");
     let proj_deps = project.dependencies();
     assert_eq!(proj_deps.len(), 1);
     assert_eq!(proj_deps[0].name(), "employees");
-    
+
     // Test foreign key column references
     let dept_id_col = &employee.columns()[2]; // department_id column
     assert_eq!(dept_id_col.name(), "department_id");
-    
+
     if let Some(fk_col) = dept_id_col.foreign_key() {
         assert_eq!(fk_col.name(), "id");
         assert_eq!(fk_col.table().name(), "departments");
     } else {
         panic!("department_id should have foreign key reference");
     }
-    
+
     let manager_id_col = &employee.columns()[3]; // manager_id column  
     assert_eq!(manager_id_col.name(), "manager_id");
-    
+
     if let Some(fk_col) = manager_id_col.foreign_key() {
         assert_eq!(fk_col.name(), "id");
         assert_eq!(fk_col.table().name(), "employees"); // Self-reference
     } else {
         panic!("manager_id should have foreign key reference");
     }
-    
+
     let lead_id_col = &project.columns()[2]; // lead_id column
     assert_eq!(lead_id_col.name(), "lead_id");
-    
+
     if let Some(fk_col) = lead_id_col.foreign_key() {
         assert_eq!(fk_col.name(), "id");
         assert_eq!(fk_col.table().name(), "employees");

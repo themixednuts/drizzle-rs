@@ -1,14 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 mod common;
-
-#[cfg(feature = "libsql")]
-use libsql::{Builder, Connection};
-#[cfg(feature = "rusqlite")]
-use rusqlite::Connection;
-#[cfg(feature = "turso")]
-use turso::{Builder, Connection};
 
 // Test struct with various data types for FromRow
 #[derive(FromRow, Debug, PartialEq)]
@@ -84,10 +78,8 @@ pub struct TypeTestSchema {
     type_test: TypeTest,
 }
 
-#[tokio::test]
-async fn test_fromrow_with_all_data_types() {
-    let conn = setup_test_db!();
-    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+drizzle_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
+    let TypeTestSchema { type_test } = schema;
 
     // Create tables
     drizzle_exec!(db.create());
@@ -110,18 +102,15 @@ async fn test_fromrow_with_all_data_types() {
 
     assert_eq!(result, expected);
     println!("✅ All data types test passed: {:?}", result);
+});
+
+#[derive(SQLSchema)]
+struct IntegerSchema {
+    integer_test: IntegerTest,
 }
-
-#[tokio::test]
-async fn test_fromrow_with_integer_sizes() {
-    #[derive(SQLSchema)]
-    struct Schema {
-        integer_test: IntegerTest,
-    }
-    let conn = setup_test_db!();
-    let (db, Schema { integer_test }) = drizzle!(conn, Schema);
-
+drizzle_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
     // Create tables
+    let IntegerSchema { integer_test } = schema;
     drizzle_exec!(db.create());
 
     // Insert test data with different integer sizes
@@ -140,17 +129,14 @@ async fn test_fromrow_with_integer_sizes() {
 
     assert_eq!(result, expected);
     println!("✅ Integer types test passed: {:?}", result);
+});
+
+#[derive(SQLSchema)]
+struct FloatSchema {
+    float_test: FloatTest,
 }
-
-#[tokio::test]
-async fn test_fromrow_with_float_types() {
-    #[derive(SQLSchema)]
-    struct Schema {
-        float_test: FloatTest,
-    }
-    let conn = setup_test_db!();
-    let (db, Schema { float_test }) = drizzle!(conn, Schema);
-
+drizzle_test!(test_fromrow_with_float_types, FloatSchema, {
+    let FloatSchema { float_test } = schema;
     // Create tables
     drizzle_exec!(db.create());
 
@@ -169,12 +155,10 @@ async fn test_fromrow_with_float_types() {
 
     assert_eq!(result, expected);
     println!("✅ Float types test passed: {:?}", result);
-}
+});
 
-#[tokio::test]
-async fn test_fromrow_type_conversion_edge_cases() {
-    let conn = setup_test_db!();
-    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+drizzle_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
+    let TypeTestSchema { type_test } = schema;
 
     // Create tables
     drizzle_exec!(db.create());
@@ -197,7 +181,7 @@ async fn test_fromrow_type_conversion_edge_cases() {
 
     assert_eq!(result, expected);
     println!("✅ Edge cases test passed: {:?}", result);
-}
+});
 
 // Test FromRow derive macro with partial selection
 #[derive(FromRow, Debug, Default)]
@@ -214,27 +198,27 @@ struct DerivedSimpleWithColumns {
     table_name: String,
 }
 
-#[tokio::test]
-async fn test_fromrow_derive_with_partial_selection() {
-    let conn = setup_test_db!();
-    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+drizzle_test!(
+    test_fromrow_derive_with_partial_selection,
+    TypeTestSchema,
+    {
+        let TypeTestSchema { type_test } = schema;
 
-    // Create tables
-    drizzle_exec!(db.create());
+        // Create tables
+        drizzle_exec!(db.create());
 
-    let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
-    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+        let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
+        drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
-    // Test the derived implementation with partial selection
-    let result: DerivedPartialSimple =
-        drizzle_exec!(db.select(type_test.name).from(type_test).get());
-    assert_eq!(result.name, "derive_test");
-}
+        // Test the derived implementation with partial selection
+        let result: DerivedPartialSimple =
+            drizzle_exec!(db.select(type_test.name).from(type_test).get());
+        assert_eq!(result.name, "derive_test");
+    }
+);
 
-#[tokio::test]
-async fn test_fromrow_with_column_mapping() {
-    let conn = setup_test_db!();
-    let (db, TypeTestSchema { type_test }) = drizzle!(conn, TypeTestSchema);
+drizzle_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
+    let TypeTestSchema { type_test } = schema;
 
     // Create tables
     drizzle_exec!(db.create());
@@ -251,4 +235,4 @@ async fn test_fromrow_with_column_mapping() {
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
-}
+});

@@ -7,7 +7,7 @@ use common::{Complex, InsertComplex};
 #[cfg(feature = "uuid")]
 use common::{Post, Simple};
 use drizzle_core::OrderBy;
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 #[cfg(feature = "uuid")]
@@ -46,7 +46,7 @@ struct JoinResult {
     title: String,
 }
 
-drivers_test!(simple_select_with_conditions, SimpleSchema, {
+drizzle_test!(simple_select_with_conditions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     // Insert test data
     let test_data = vec![
@@ -98,7 +98,7 @@ drivers_test!(simple_select_with_conditions, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drivers_test!(complex_select_with_conditions, ComplexSchema, {
+drizzle_test!(complex_select_with_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -164,7 +164,7 @@ drivers_test!(complex_select_with_conditions, ComplexSchema, {
 });
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-drivers_test!(feature_gated_select, ComplexSchema, {
+drizzle_test!(feature_gated_select, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with feature-gated fields

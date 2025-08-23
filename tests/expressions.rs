@@ -3,9 +3,10 @@
 use std::marker::PhantomData;
 
 #[cfg(feature = "uuid")]
-use common::{Complex, ComplexSchema, InsertComplex};
-use common::{InsertSimple, Role, SelectSimple, Simple};
+use common::{ComplexSchema, InsertComplex};
+use common::{InsertSimple, Role, SelectSimple};
 use drizzle_core::expressions::*;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 use drizzle_rs::sql;
 
@@ -95,10 +96,8 @@ struct CoalesceAvgResult {
     coalesce: f64,
 }
 
-#[tokio::test]
-async fn test_aggregate_functions() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_aggregate_functions, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("Item A").with_id(10),
@@ -136,13 +135,11 @@ async fn test_aggregate_functions() {
     let result: Vec<AvgResult> =
         drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple).all());
     assert_eq!(result[0].avg, 25.0);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_aggregate_functions_with_real_numbers() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     let test_data = vec![
         InsertComplex::new("User A", true, Role::User).with_score(85.5),
@@ -192,12 +189,10 @@ async fn test_aggregate_functions_with_real_numbers() {
             .all()
     );
     assert!((result[0].max - 92.0).abs() < 0.1);
-}
+});
 
-#[tokio::test]
-async fn test_distinct_expression() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_distinct_expression, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("Apple").with_id(1),
@@ -228,13 +223,11 @@ async fn test_distinct_expression() {
             .all()
     );
     assert_eq!(result[0].count, 3);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_coalesce_expression() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_coalesce_expression, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
     // Users A and C: have email set
@@ -280,12 +273,10 @@ async fn test_coalesce_expression() {
     assert_eq!(result.len(), 3);
     // All should be 0 since we didn't set any ages
     assert!(result.iter().all(|r| r.coalesce == 0));
-}
+});
 
-#[tokio::test]
-async fn test_alias_expression() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_alias_expression, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test Item").with_id(1)];
 
@@ -314,13 +305,11 @@ async fn test_alias_expression() {
             .all()
     );
     assert_eq!(result[0].id_sum, 1);
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_complex_expressions() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_complex_expressions, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
     // Users A and B: have both age and score set
@@ -366,18 +355,18 @@ async fn test_complex_expressions() {
             .all()
     );
     assert!((result[0].coalesce - 85.266).abs() < 0.1);
-}
+});
 
-pub struct Test<T = (TestNameNotSet, TestEmailNotSet)> {
+pub(crate) struct Test<T = (TestNameNotSet, TestEmailNotSet)> {
     name: &'static str,
     email: &'static str,
     _phantom: PhantomData<T>,
 }
 
-struct TestNameSet {}
-struct TestNameNotSet {}
-struct TestEmailSet {}
-struct TestEmailNotSet {}
+pub(crate) struct TestNameSet {}
+pub(crate) struct TestNameNotSet {}
+pub(crate) struct TestEmailSet {}
+pub(crate) struct TestEmailNotSet {}
 
 impl<'a, TestName, TestEmail> Test<(TestName, TestEmail)> {
     pub fn with_name(self, name: &'static str) -> Test<(TestNameSet, TestEmail)> {
@@ -397,10 +386,8 @@ impl<'a, TestName, TestEmail> Test<(TestName, TestEmail)> {
 }
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_expressions_with_conditions() {
-    let conn = setup_test_db!();
-    let (db, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_expressions_with_conditions, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     let test_data = [
         InsertComplex::new("Active User", true, Role::User).with_score(85.5),
@@ -437,12 +424,10 @@ async fn test_expressions_with_conditions() {
             .all()
     );
     assert!((result[0].max - 88.7).abs() < 0.1);
-}
+});
 
-#[tokio::test]
-async fn test_aggregate_with_empty_result() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_aggregate_with_empty_result, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // No data inserted, test aggregate functions on empty table
 
@@ -457,12 +442,10 @@ async fn test_aggregate_with_empty_result() {
     // Other aggregates on empty table should handle NULL appropriately
     // Note: Different databases handle this differently, but typically return NULL
     // which would be handled by the driver
-}
+});
 
-#[tokio::test]
-async fn test_expression_edge_cases() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_expression_edge_cases, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = [
         InsertSimple::new("").with_id(0), // Empty string and zero id
@@ -503,12 +486,10 @@ async fn test_expression_edge_cases() {
             .all()
     );
     assert_eq!(result[0].coalesce, ""); // Empty string is not NULL, so coalesce returns it
-}
+});
 
-#[tokio::test]
-async fn test_multiple_aliases() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_multiple_aliases, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let test_data = [
         InsertSimple::new("Item A").with_id(1),
@@ -537,7 +518,7 @@ async fn test_multiple_aliases() {
     assert_eq!(result[0].identifier, 1);
     assert_eq!(result[0].item_name, "Item A");
     assert_eq!(result[0].total, 2);
-}
+});
 
 #[test]
 fn test_cte_basic() {
@@ -584,10 +565,8 @@ fn test_cte_to_sql() {
     assert_eq!(name_sql.sql(), "active_users");
 }
 
-#[tokio::test]
-async fn test_cte_integration_simple() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_cte_integration_simple, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert test data
     let test_data = [
@@ -610,12 +589,10 @@ async fn test_cte_integration_simple() {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Bob");
     assert_eq!(result[1].name, "Charlie");
-}
+});
 
-#[tokio::test]
-async fn test_cte_integration_with_aggregation() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_cte_integration_with_aggregation, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert test data
     let test_data = [
@@ -638,12 +615,10 @@ async fn test_cte_integration_with_aggregation() {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3);
-}
+});
 
-#[tokio::test]
-async fn test_cte_complex_two_levels() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_cte_complex_two_levels, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert test data
     let test_data = [
@@ -689,4 +664,4 @@ async fn test_cte_complex_two_levels() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3); // Should have 3 users with id > 2 (Charlie, David, Eve)
     assert_eq!(result[0].category, "high_id_users");
-}
+});

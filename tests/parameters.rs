@@ -2,6 +2,7 @@
 
 use common::{InsertSimple, Simple, SimpleSchema};
 use drizzle_core::{SQL, prepared::prepare_render};
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 use drizzle_sqlite::{SQLiteValue, params};
 
@@ -61,7 +62,7 @@ fn test_sql_parameter_binding() {
     assert!(final_sql.contains(":active"));
 
     // Verify we have the correct bound parameters
-    assert_eq!(bound_params.len(), 2);
+    assert_eq!(bound_params.collect::<Box<_>>().len(), 2);
 }
 
 #[test]
@@ -75,17 +76,15 @@ fn test_placeholder_styles() {
     // Parameters contain placeholder name internally
 }
 
-#[cfg(all(feature = "rusqlite", feature = "serde", feature = "uuid"))]
-#[tokio::test]
-async fn test_insert_with_placeholders() {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+#[cfg(all(feature = "serde", feature = "uuid"))]
+drizzle_test!(test_insert_with_placeholders, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Create insert model with explicit placeholders
     let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
 
     // Insert the data (should preserve the placeholder in the SQL)
-    let insert_result = drizzle.insert(simple).values([insert_data]);
+    let insert_result = db.insert(simple).values([insert_data]);
 
     // Check that the generated SQL contains the placeholder
     let sql_string = insert_result.to_sql().sql();
@@ -104,98 +103,98 @@ async fn test_insert_with_placeholders() {
         params.is_empty(),
         "Should have no bound parameters since we used a placeholder"
     );
-}
+});
 
-#[tokio::test]
-async fn test_insert_with_placeholders_execute_and_retrieve() {
-    use drizzle_core::{SQL, prepared::prepare_render};
-    use drizzle_sqlite::{InsertValue, SQLiteValue, params, values::ValueWrapper};
+drizzle_test!(
+    test_insert_with_placeholders_execute_and_retrieve,
+    SimpleSchema,
+    {
+        #[derive(FromRow, Debug)]
+        struct SimpleResult {
+            id: i32,
+            name: String,
+        }
 
-    #[derive(FromRow, Debug)]
-    struct SimpleResult {
-        id: i32,
-        name: String,
+        let SimpleSchema { simple } = schema;
+
+        // Create insert model with explicit placeholders
+        let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
+
+        // Prepare the insert statement and execute it with bound parameters
+        let prepared_insert = db.insert(simple).values([insert_data]).prepare();
+
+        // Execute the prepared insert with bound parameters
+        let row_count = drizzle_exec!(prepared_insert.execute(
+            db.conn(),
+            params![
+                {user_name: "Alice"}
+            ]
+        ));
+        assert_eq!(row_count, 1, "Should have inserted one row");
+
+        // Retrieve the data to verify it was inserted correctly
+        let results: Vec<SimpleResult> = drizzle_exec!(
+            db.select((simple.id, simple.name))
+                .from(simple)
+                .r#where(eq(simple.name, "Alice"))
+                .all()
+        );
+
+        assert_eq!(results.len(), 1, "Should have found one result");
+        assert_eq!(
+            results[0].name, "Alice",
+            "Name should match the bound placeholder value"
+        );
+
+        println!("Successfully inserted and retrieved: {:?}", results[0]);
     }
+);
 
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drizzle_test!(
+    test_parameter_integration_with_query_builder,
+    SimpleSchema,
+    {
+        #[derive(FromRow, Default)]
+        struct SimpleResult(String);
+        let SimpleSchema { simple } = schema;
 
-    // Create insert model with explicit placeholders
-    let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
+        // Insert test data
+        let test_data = vec![
+            InsertSimple::new("alice"),
+            InsertSimple::new("bob"),
+            InsertSimple::new("charlie"),
+        ];
+        drizzle_exec!(db.insert(simple).values(test_data).execute());
 
-    // Prepare the insert statement and execute it with bound parameters
-    let prepared_insert = drizzle.insert(simple).values([insert_data]).prepare();
+        // Test that normal query builder still works (this uses internal parameter binding)
+        let results: Vec<SimpleResult> = drizzle_exec!(
+            db.select(simple.name)
+                .from(simple)
+                .r#where(eq(simple.name, "alice"))
+                .all()
+        );
 
-    // Execute the prepared insert with bound parameters
-    let row_count = drizzle_exec!(prepared_insert.execute(
-        drizzle.conn(),
-        params![
-            {user_name: "Alice"}
-        ]
-    ));
-    assert_eq!(row_count, 1, "Should have inserted one row");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "alice");
 
-    // Retrieve the data to verify it was inserted correctly
-    let results: Vec<SimpleResult> = drizzle_exec!(
-        drizzle
-            .select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "Alice"))
-            .all()
-    );
+        // Test multiple parameter conditions using multiple queries
+        let alice_results: Vec<SimpleResult> = drizzle_exec!(
+            db.select(simple.name)
+                .from(simple)
+                .r#where(eq(simple.name, "alice"))
+                .all()
+        );
 
-    assert_eq!(results.len(), 1, "Should have found one result");
-    assert_eq!(
-        results[0].name, "Alice",
-        "Name should match the bound placeholder value"
-    );
+        let bob_results: Vec<SimpleResult> = drizzle_exec!(
+            db.select(simple.name)
+                .from(simple)
+                .r#where(eq(simple.name, "bob"))
+                .all()
+        );
 
-    println!("Successfully inserted and retrieved: {:?}", results[0]);
-}
-
-#[tokio::test]
-async fn test_parameter_integration_with_query_builder() {
-    #[derive(FromRow, Default)]
-    struct SimpleResult(String);
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
-
-    // Insert test data
-    let test_data = vec![
-        InsertSimple::new("alice"),
-        InsertSimple::new("bob"),
-        InsertSimple::new("charlie"),
-    ];
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
-
-    // Test that normal query builder still works (this uses internal parameter binding)
-    let results: Vec<SimpleResult> = drizzle_exec!(
-        db.select(simple.name)
-            .from(simple)
-            .r#where(eq(simple.name, "alice"))
-            .all()
-    );
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0, "alice");
-
-    // Test multiple parameter conditions using multiple queries
-    let alice_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select(simple.name)
-            .from(simple)
-            .r#where(eq(simple.name, "alice"))
-            .all()
-    );
-
-    let bob_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select(simple.name)
-            .from(simple)
-            .r#where(eq(simple.name, "bob"))
-            .all()
-    );
-
-    assert_eq!(alice_results.len(), 1);
-    assert_eq!(bob_results.len(), 1);
-    assert_eq!(alice_results[0].0, "alice");
-    assert_eq!(bob_results[0].0, "bob");
-}
+        assert_eq!(alice_results.len(), 1);
+        assert_eq!(bob_results.len(), 1);
+        assert_eq!(alice_results[0].0, "alice");
+        assert_eq!(bob_results[0].0, "bob");
+    }
+);

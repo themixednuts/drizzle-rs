@@ -1,8 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post, PostCategory};
+use common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post};
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 use std::array;
@@ -38,7 +38,7 @@ struct PostCategoryResult {
 }
 
 #[cfg(feature = "uuid")]
-drivers_test!(simple_inner_join, ComplexPostSchema, {
+drizzle_test!(simple_inner_join, ComplexPostSchema, {
     let ComplexPostSchema { complex, post } = schema;
 
     #[cfg(not(feature = "uuid"))]
@@ -79,8 +79,7 @@ drivers_test!(simple_inner_join, ComplexPostSchema, {
 
     // Test inner join: only authors with posts should appear
     let join_results: Vec<AuthorPostResult> = drizzle_exec!(
-        db
-            .select(AuthorPostResult::default())
+        db.select(AuthorPostResult::default())
             .from(complex)
             .inner_join(post, eq(complex.id, post.author_id))
             .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
@@ -117,8 +116,7 @@ drivers_test!(simple_inner_join, ComplexPostSchema, {
 
     // Verify that we can filter join results
     let alice_posts: Vec<AuthorPostResult> = drizzle_exec!(
-        db
-            .select(AuthorPostResult::default())
+        db.select(AuthorPostResult::default())
             .from(complex)
             .inner_join(post, eq(complex.id, post.author_id))
             .r#where(eq(complex.name, "alice"))
@@ -131,7 +129,7 @@ drivers_test!(simple_inner_join, ComplexPostSchema, {
     });
 });
 
-drivers_test!(many_to_many_join, FullBlogSchema, {
+drizzle_test!(many_to_many_join, FullBlogSchema, {
     let FullBlogSchema {
         category,
         post,
@@ -166,12 +164,7 @@ drivers_test!(many_to_many_join, FullBlogSchema, {
         InsertPostCategory::new(3, 1),
     ];
 
-    let junction_result = drizzle_exec!(
-        db
-            .insert(post_category)
-            .values(post_categories)
-            .execute()
-    );
+    let junction_result = drizzle_exec!(db.insert(post_category).values(post_categories).execute());
     assert_eq!(junction_result, 4);
 
     // Test many-to-many join: posts with their categories
@@ -216,8 +209,7 @@ drivers_test!(many_to_many_join, FullBlogSchema, {
 
     // Test filtering: only published posts
     let published_results: Vec<PostCategoryResult> = drizzle_exec!(
-        db
-            .select(PostCategoryResult::default())
+        db.select(PostCategoryResult::default())
             .from(post)
             .join(post_category, eq(post.id, post_category.post_id))
             .join(category, eq(post_category.category_id, category.id))

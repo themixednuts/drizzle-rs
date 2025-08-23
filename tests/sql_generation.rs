@@ -2,6 +2,7 @@
 #[cfg(feature = "uuid")]
 use common::Complex;
 use common::Simple;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::{error::DrizzleError, prelude::*, sql};
 
 #[cfg(feature = "uuid")]
@@ -10,10 +11,8 @@ use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
 
 mod common;
 
-#[tokio::test]
-async fn test_simple_select_all_sql_generation() {
-    let conn = setup_test_db!();
-    let (db, SimpleSchema { simple }) = drizzle!(conn, SimpleSchema);
+drizzle_test!(test_simple_select_all_sql_generation, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let query = db.select(()).from(simple);
     let sql = query.to_sql();
@@ -36,16 +35,14 @@ async fn test_simple_select_all_sql_generation() {
             sql_string
         );
     }
-}
+});
 
 #[cfg(feature = "uuid")]
-#[tokio::test]
-async fn test_complex_select_all_sql_generation() {
-    let conn = setup_test_db!();
-    let (drizzle, ComplexSchema { complex }) = drizzle!(conn, ComplexSchema);
+drizzle_test!(test_complex_select_all_sql_generation, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
     // Test select(()).from(complex) - should generate all complex table columns
-    let query = drizzle.select(()).from(complex);
+    let query = db.select(()).from(complex);
     let sql = query.to_sql();
 
     println!("Complex select all SQL: {}", sql.sql());
@@ -68,18 +65,13 @@ async fn test_complex_select_all_sql_generation() {
             sql_string
         );
     }
-}
+});
 
-#[tokio::test]
-async fn test_select_all_with_where_clause() {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drizzle_test!(test_select_all_with_where_clause, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Test select(()).from(table).where(...) - should still work with qualified columns
-    let query = drizzle
-        .select(())
-        .from(simple)
-        .r#where(eq(Simple::name, "test"));
+    let query = db.select(()).from(simple).r#where(eq(Simple::name, "test"));
 
     let sql = query.to_sql();
     println!("Select all with WHERE SQL: {}", sql.sql());
@@ -100,16 +92,14 @@ async fn test_select_all_with_where_clause() {
         !params.is_empty(),
         "Should have parameters for WHERE clause"
     );
-}
+});
 
-#[tokio::test]
-async fn test_select_specific_columns_vs_select_all() {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drizzle_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Compare select(()) vs select(columns![...])
-    let select_all_query = drizzle.select(()).from(simple);
-    let select_specific_query = drizzle.select((simple.id, simple.name)).from(simple);
+    let select_all_query = db.select(()).from(simple);
+    let select_specific_query = db.select((simple.id, simple.name)).from(simple);
 
     let select_all_sql = select_all_query.to_sql().sql();
     let select_specific_sql = select_specific_query.to_sql().sql();
@@ -126,17 +116,14 @@ async fn test_select_specific_columns_vs_select_all() {
     // Both should have FROM clause
     assert!(select_all_sql.contains(r#"FROM "simple""#));
     assert!(select_specific_sql.contains(r#"FROM "simple""#));
-}
+});
 
-#[tokio::test]
-async fn test_sql_macro() -> Result<(), DrizzleError> {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drizzle_test!(test_sql_macro, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let id = 4;
     drizzle_try!(
-        drizzle
-            .insert(simple)
+        db.insert(simple)
             .values([InsertSimple::new("test").with_id(id)])
             .execute()
     )?;
@@ -149,25 +136,19 @@ async fn test_sql_macro() -> Result<(), DrizzleError> {
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
 
-    let results: Vec<SelectSimple> = drizzle_try!(drizzle.all(query))?;
+    let results: Vec<SelectSimple> = drizzle_try!(db.all(query))?;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, id);
     assert_eq!(results[0].name, "test");
+});
 
-    Ok(())
-}
-
-#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-#[tokio::test]
-async fn test_sql_printf_style() -> Result<(), DrizzleError> {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drizzle_test!(test_sql_printf_style, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
     let id = 5;
     let name = "printf_test";
 
     drizzle_try!(
-        drizzle
-            .insert(simple)
+        db.insert(simple)
             .values([InsertSimple::new(name).with_id(id)])
             .execute()
     )?;
@@ -180,21 +161,15 @@ async fn test_sql_printf_style() -> Result<(), DrizzleError> {
     assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
+});
 
-    Ok(())
-}
-
-#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-#[tokio::test]
-async fn test_sql_mixed_named_positional() -> Result<(), DrizzleError> {
-    let db = setup_test_db!();
-    let (drizzle, SimpleSchema { simple }) = drizzle!(db, SimpleSchema);
+drizzle_test!(test_sql_mixed_named_positional, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
     let id = 6;
     let name = "mixed_test";
 
     drizzle_try!(
-        drizzle
-            .insert(simple)
+        db.insert(simple)
             .values([InsertSimple::new(name).with_id(id)])
             .execute()
     )?;
@@ -207,6 +182,4 @@ async fn test_sql_mixed_named_positional() -> Result<(), DrizzleError> {
     assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
-
-    Ok(())
-}
+});

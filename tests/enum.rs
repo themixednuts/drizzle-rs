@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 mod common;
-use drizzle_macros::drivers_test;
+use drizzle_macros::drizzle_test;
 use drizzle_rs::prelude::*;
 
 // Test enums with different representations
@@ -82,7 +82,7 @@ struct UserAccountResult {
     status: i32,  // INTEGER representation
 }
 
-drivers_test!(test_enum_database_roundtrip, Schema, {
+drizzle_test!(test_enum_database_roundtrip, Schema, {
     let Schema { user_account } = schema;
 
     // Insert test data with different enum values
