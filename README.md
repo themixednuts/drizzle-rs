@@ -199,10 +199,7 @@ db.transaction(SQLiteTransactionType::Deferred, |tx| {
 })?;
 ```
 
-Transaction types:
-- `SQLiteTransactionType::Deferred` - Default, begins when first read/write
-- `SQLiteTransactionType::Immediate` - Begins immediately with write lock
-- `SQLiteTransactionType::Exclusive` - Exclusive access to database
+For more details on transaction types, see the [SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html).
 
 ## Table Attributes
 
