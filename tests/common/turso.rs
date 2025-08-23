@@ -72,7 +72,7 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
         #[cfg(feature = "uuid")]
         let id = Uuid::new_v4();
         #[cfg(not(feature = "uuid"))]
-        let id = Uuid::new_v4().to_string();
+        let id = format!("user_{}", rng.random_range(100000..999999));
 
         complex_ids.push(id.clone());
 
@@ -127,22 +127,27 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
         .await
         .unwrap();
 
-        #[cfg(feature = "uuid")]
+        #[cfg(not(feature = "uuid"))]
         conn.execute(
             r#"
             INSERT INTO complex (
-                id, name, email, age, score, active, description, data_blob, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                id, name, email, age, score, active, role, description, data_blob, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
-            params![
-                id.as_bytes(),
+            turso::params![
+                id,
                 name.clone(),
                 email.clone(),
                 age,
                 score,
                 active,
+                if rng.random_bool(0.3) {
+                    Role::Admin
+                } else {
+                    Role::User
+                },
                 "Generated user",
-                vec![rng.random_range(0..=255), rng.random_range(0..=255)],
+                bytes,
                 "2025-08-11T12:00:00Z",
             ],
         )
@@ -186,12 +191,12 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
             ).await.unwrap();
         }
 
-        #[cfg(feature = "uuid")]
+        #[cfg(not(feature = "uuid"))]
         {
             let author_id = complex_ids.choose(&mut rng).unwrap();
             conn.execute(
                 "INSERT INTO posts (title, content, author_id, published, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                turso::params![title.clone(), content.clone(), author_id.as_bytes(), published, created_at.clone()],
+                turso::params![title.clone(), content.clone(), Some(author_id.clone()), published, created_at.clone()],
             ).await.unwrap();
         }
     }
