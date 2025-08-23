@@ -1,4 +1,3 @@
-use drizzle_core::prepared::prepare_render;
 // Re-export common enums and traits from core
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
@@ -11,11 +10,11 @@ use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
 pub mod delete;
+pub mod execution;
 pub mod insert;
 pub mod prepared;
 pub mod select;
 pub mod update;
-
 
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
@@ -217,19 +216,6 @@ where
 
 // Marker trait to indicate a query builder state is executable
 pub trait ExecutableState {}
-
-impl<'a, Schema, State, Table> QueryBuilder<'a, Schema, State, Table>
-where
-    State: ExecutableState,
-{
-    /// Creates a prepared statement that can be executed multiple times
-    pub fn prepare(&self) -> prepared::PreparedStatement<'a> {
-        let inner = prepare_render(self.sql.clone());
-
-        prepared::PreparedStatement { inner }
-    }
-}
-
 
 #[cfg(test)]
 mod tests {

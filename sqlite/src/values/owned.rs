@@ -40,6 +40,17 @@ impl<'a> From<SQLiteValue<'a>> for OwnedSQLiteValue {
         }
     }
 }
+impl<'a> From<&SQLiteValue<'a>> for OwnedSQLiteValue {
+    fn from(value: &SQLiteValue<'a>) -> Self {
+        match value {
+            SQLiteValue::Integer(i) => Self::Integer(*i),
+            SQLiteValue::Real(r) => Self::Real(*r),
+            SQLiteValue::Text(cow) => Self::Text(cow.clone().into_owned()),
+            SQLiteValue::Blob(cow) => Self::Blob(cow.clone().into_owned().into_boxed_slice()),
+            SQLiteValue::Null => Self::Null,
+        }
+    }
+}
 
 impl std::fmt::Display for OwnedSQLiteValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

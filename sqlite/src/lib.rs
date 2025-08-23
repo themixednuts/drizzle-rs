@@ -33,6 +33,39 @@ pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
 // Re-export ParamBind for use in macros
 pub use drizzle_core::ParamBind;
 
+/// Reference to different SQLite driver connection types
+#[derive(Debug)]
+pub enum ConnectionRef<'a> {
+    #[cfg(feature = "libsql")]
+    LibSql(&'a libsql::Connection),
+    #[cfg(feature = "rusqlite")]
+    Rusqlite(&'a rusqlite::Connection),
+    #[cfg(feature = "turso")]
+    Turso(&'a turso::Connection),
+}
+
+// Implement Into trait for each connection type
+#[cfg(feature = "libsql")]
+impl<'a> From<&'a libsql::Connection> for ConnectionRef<'a> {
+    fn from(conn: &'a libsql::Connection) -> Self {
+        ConnectionRef::LibSql(conn)
+    }
+}
+
+#[cfg(feature = "rusqlite")]
+impl<'a> From<&'a rusqlite::Connection> for ConnectionRef<'a> {
+    fn from(conn: &'a rusqlite::Connection) -> Self {
+        ConnectionRef::Rusqlite(conn)
+    }
+}
+
+#[cfg(feature = "turso")]
+impl<'a> From<&'a turso::Connection> for ConnectionRef<'a> {
+    fn from(conn: &'a turso::Connection) -> Self {
+        ConnectionRef::Turso(conn)
+    }
+}
+
 /// SQLite transaction types
 #[derive(Default, Debug, Clone, Copy)]
 pub enum SQLiteTransactionType {
