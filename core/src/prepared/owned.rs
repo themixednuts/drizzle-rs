@@ -43,7 +43,7 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
             &self.params,
             param_binds,
             |p| p.placeholder.name,
-            |_p| None, // OwnedParam doesn't store values, only placeholders
+            |p| p.value.as_ref(), // OwnedParam can store values
             |p| {
                 if let Some(name) = &p.placeholder.name {
                     format!(":{}", name)
