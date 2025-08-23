@@ -48,12 +48,11 @@ drizzle_test!(simple_update, SimpleSchema, {
     assert_eq!(insert_result, 1);
 
     // Update the record
-    let update_result = drizzle_exec!(
-        db.update(simple)
-            .set(UpdateSimple::default().with_name("updated"))
-            .r#where(eq(Simple::name, "original"))
-            .execute()
-    );
+    let stmt = db.update(simple)
+        .set(UpdateSimple::default().with_name("updated"))
+        .r#where(eq(Simple::name, "original"));
+    println!("{}", stmt.to_sql());
+    let update_result = drizzle_exec!(stmt.execute());
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
@@ -100,17 +99,16 @@ drizzle_test!(complex_update, ComplexSchema, {
     assert_eq!(insert_result, 1);
 
     // Update multiple fields
-    let update_result = drizzle_exec!(
-        db.update(complex)
-            .set(
-                UpdateComplex::default()
-                    .with_email("new@example.com".to_string())
-                    .with_age(30)
-                    .with_description("Updated description".to_string()),
-            )
-            .r#where(eq(Complex::name, "user"))
-            .execute()
-    );
+    let stmt = db.update(complex)
+        .set(
+            UpdateComplex::default()
+                .with_email("new@example.com".to_string())
+                .with_age(30)
+                .with_description("Updated description".to_string()),
+        )
+        .r#where(eq(Complex::name, "user"));
+    println!("{}", stmt.to_sql());
+    let update_result = drizzle_exec!(stmt.execute());
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
@@ -159,27 +157,26 @@ drizzle_test!(feature_gated_update, ComplexSchema, {
     assert_eq!(insert_result, 1);
 
     // Update feature-gated fields using UUID primary key
-    let update_result = drizzle_exec!(
-        db.update(complex)
-            .set(
-                UpdateComplex::default()
-                    .with_metadata(common::UserMetadata {
-                        preferences: vec!["admin_mode".to_string(), "updated".to_string()],
-                        last_login: Some("2023-12-15".to_string()),
-                        theme: "admin".to_string(),
-                    })
-                    .with_config(common::UserConfig {
-                        notifications: false,
-                        language: "en".to_string(),
-                        settings: std::collections::HashMap::from([(
-                            "updated".to_string(),
-                            "true".to_string(),
-                        )]),
-                    }),
-            )
-            .r#where(eq(Complex::id, test_id))
-            .execute()
-    );
+    let stmt = db.update(complex)
+        .set(
+            UpdateComplex::default()
+                .with_metadata(common::UserMetadata {
+                    preferences: vec!["admin_mode".to_string(), "updated".to_string()],
+                    last_login: Some("2023-12-15".to_string()),
+                    theme: "admin".to_string(),
+                })
+                .with_config(common::UserConfig {
+                    notifications: false,
+                    language: "en".to_string(),
+                    settings: std::collections::HashMap::from([(
+                        "updated".to_string(),
+                        "true".to_string(),
+                    )]),
+                }),
+        )
+        .r#where(eq(Complex::id, test_id));
+    println!("{}", stmt.to_sql());
+    let update_result = drizzle_exec!(stmt.execute());
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting with UUID

@@ -42,6 +42,8 @@ struct Schema {
 drizzle_test!(json_storage, Schema, {
     let Schema { jsonuser } = schema;
 
+    println!("{}", jsonuser.sql());
+
     let profile = Profile {
         age: 30,
         name: "John".to_string(),
@@ -50,11 +52,13 @@ drizzle_test!(json_storage, Schema, {
 
     let id = Uuid::new_v4();
 
-    drizzle_exec!(
-        db.insert(jsonuser)
-            .values([InsertJsonUser::new(id, "john@test.com", profile)])
-            .execute()
-    );
+    let stmt = db
+        .insert(jsonuser)
+        .values([InsertJsonUser::new(id, "john@test.com", profile)]);
+
+    println!("{}", stmt.to_sql());
+
+    drizzle_exec!(stmt.execute());
 
     let stmt = db
         .select((
@@ -68,8 +72,7 @@ drizzle_test!(json_storage, Schema, {
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let sql = stmt.to_sql();
-    println!("{sql}");
+    println!("{}", stmt.to_sql());
 
     let user: UserResult = drizzle_exec!(stmt.get());
 

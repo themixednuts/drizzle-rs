@@ -117,11 +117,11 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             match <#field_types as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::TYPE {
                 ::drizzle_rs::core::SQLSchemaType::Table(table_info) => {
                     let table_name = table_info.name();
-                    let table_sql = <_ as ::drizzle_rs::core::ToSQL<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::to_sql(&self.#field_names).sql();
+                    let table_sql = <_ as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
                 ::drizzle_rs::core::SQLSchemaType::Index(index_info) => {
-                    let index_sql = <_ as ::drizzle_rs::core::ToSQL<'_, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::to_sql(&self.#field_names).sql();
+                    let index_sql = <_ as ::drizzle_rs::core::SQLSchema<'_, ::drizzle_rs::core::SQLSchemaType, ::drizzle_rs::sqlite::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     let table_name = index_info.table().name();
                     indexes
                         .entry(table_name)

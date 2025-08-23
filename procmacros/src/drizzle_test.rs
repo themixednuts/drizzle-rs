@@ -27,7 +27,7 @@ impl syn::parse::Parse for DriversTestInput {
 }
 
 /// Generates test functions for all enabled SQLite drivers
-pub fn drivers_test_impl(input: TokenStream) -> TokenStream {
+pub fn drizzle_test_impl(input: TokenStream) -> TokenStream {
     let DriversTestInput {
         test_name,
         schema_type,

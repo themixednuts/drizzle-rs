@@ -30,7 +30,7 @@
 
 extern crate proc_macro;
 
-mod drivers_test;
+mod drizzle_test;
 mod fromrow;
 mod schema;
 mod sql;
@@ -541,5 +541,5 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// - `tx` - The transaction instance (within drizzle_tx! blocks)
 #[proc_macro]
 pub fn drizzle_test(input: TokenStream) -> TokenStream {
-    crate::drivers_test::drivers_test_impl(input)
+    crate::drizzle_test::drizzle_test_impl(input)
 }

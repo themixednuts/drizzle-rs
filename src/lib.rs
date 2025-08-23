@@ -162,13 +162,8 @@ mod tests {
     #[test]
     fn test_schema_macro() {
         // Create a schema with the User table using schema! macro
-        let Schema {
-            user,
-            post,
-            comment,
-        } = Schema::new();
+        let Schema { user, .. } = Schema::new();
         let builder = QueryBuilder::new::<Schema>();
-        let tables = Schema::new().items();
 
         let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);

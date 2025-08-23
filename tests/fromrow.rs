@@ -81,9 +81,6 @@ pub struct TypeTestSchema {
 drizzle_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
-    // Create tables
-    drizzle_exec!(db.create());
-
     // Insert test data with all data types
     let test_data = InsertTypeTest::new("test_user", 25, 98.5, true, [1, 2, 3, 4, 5]);
     drizzle_exec!(db.insert(type_test).values([test_data]).execute());
@@ -108,10 +105,9 @@ drizzle_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
 struct IntegerSchema {
     integer_test: IntegerTest,
 }
+
 drizzle_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
-    // Create tables
     let IntegerSchema { integer_test } = schema;
-    drizzle_exec!(db.create());
 
     // Insert test data with different integer sizes
     let test_data = InsertIntegerTest::new(9223372036854775806i64, 32000i16, 100i8);
@@ -137,8 +133,6 @@ struct FloatSchema {
 }
 drizzle_test!(test_fromrow_with_float_types, FloatSchema, {
     let FloatSchema { float_test } = schema;
-    // Create tables
-    drizzle_exec!(db.create());
 
     // Insert test data with different float types
     let test_data = InsertFloatTest::new(3.141592653589793, 2.718f32);
@@ -159,9 +153,6 @@ drizzle_test!(test_fromrow_with_float_types, FloatSchema, {
 
 drizzle_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
-
-    // Create tables
-    drizzle_exec!(db.create());
 
     // Insert test data with edge case values
     let test_data = InsertTypeTest::new("edge_case", 0, 0.0, false, []);
@@ -204,9 +195,6 @@ drizzle_test!(
     {
         let TypeTestSchema { type_test } = schema;
 
-        // Create tables
-        drizzle_exec!(db.create());
-
         let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
         drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
@@ -219,9 +207,6 @@ drizzle_test!(
 
 drizzle_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
-
-    // Create tables
-    drizzle_exec!(db.create());
 
     let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
     drizzle_exec!(db.insert(type_test).values([test_data]).execute());

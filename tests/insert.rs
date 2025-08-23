@@ -118,12 +118,13 @@ drizzle_test!(conflict_resolution, SimpleSchema, {
 
     // Try to insert duplicate - should conflict and be ignored
     let duplicate_data = InsertSimple::new("conflict_test").with_id(1);
-    let result = drizzle_exec!(
-        db.insert(simple)
-            .values([duplicate_data])
-            .on_conflict(Conflict::default())
-            .execute()
-    );
+    let stmt = db
+        .insert(simple)
+        .values([duplicate_data])
+        .on_conflict(Conflict::default());
+    println!("{}", stmt.to_sql());
+
+    let result = drizzle_exec!(stmt.execute());
 
     assert_eq!(result, 0); // No rows affected due to conflict
 

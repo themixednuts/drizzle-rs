@@ -168,13 +168,12 @@ mod turso_tests {
 
         // Test update
         let update_data = UpdateSimple::default().with_name("updated_test");
-        let updated = db
+        let stmt = db
             .update(simple)
             .set(update_data)
-            .r#where(eq(simple.name, "update_test"))
-            .execute()
-            .await
-            .unwrap();
+            .r#where(eq(simple.name, "update_test"));
+        println!("{}", stmt.to_sql());
+        let updated = stmt.execute().await.unwrap();
 
         assert_eq!(updated, 1);
 
