@@ -39,7 +39,16 @@ jobs:
     
     - name: Run benchmarks
       run: |
-        cargo bench --bench performance_comparison --features "rusqlite,libsql,uuid,serde" > benchmark_output.txt 2>&1 || true
+        cargo bench --bench performance_comparison --features "rusqlite,libsql,uuid,serde" > benchmark_raw.txt 2>&1 || true
+        
+        # Extract only the benchmark results starting from "Timer precision"
+        if grep -q "Timer precision" benchmark_raw.txt; then
+          sed -n '/Timer precision/,$p' benchmark_raw.txt > benchmark_output.txt
+        else
+          # Fallback if Timer precision line is not found
+          echo "No benchmark results found" > benchmark_output.txt
+          cat benchmark_raw.txt >> benchmark_output.txt
+        fi
     
     - name: Create benchmark report
       shell: bash
