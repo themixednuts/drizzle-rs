@@ -1,4 +1,3 @@
-use drizzle_core::ParamBind;
 use drizzle_core::error::{DrizzleError, Result};
 use drizzle_core::{
     OwnedParam, Param,
@@ -7,6 +6,7 @@ use drizzle_core::{
         owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,
     },
 };
+use drizzle_core::{ParamBind, SQLParam, ToSQL};
 use drizzle_sqlite::{SQLiteValue, values::OwnedSQLiteValue};
 use std::borrow::Cow;
 
@@ -192,5 +192,17 @@ impl<'a> std::fmt::Display for PreparedStatement<'a> {
 impl std::fmt::Display for OwnedPreparedStatement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
+    }
+}
+
+impl<'a> ToSQL<'a, SQLiteValue<'a>> for PreparedStatement<'a> {
+    fn to_sql(&self) -> drizzle_core::SQL<'a, SQLiteValue<'a>> {
+        self.inner.to_sql()
+    }
+}
+
+impl<'a> ToSQL<'a, OwnedSQLiteValue> for OwnedPreparedStatement {
+    fn to_sql(&self) -> drizzle_core::SQL<'a, OwnedSQLiteValue> {
+        self.inner.to_sql()
     }
 }
