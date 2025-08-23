@@ -38,6 +38,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
     
     - name: Run benchmarks
+      shell: bash
       run: |
         cargo bench --bench performance_comparison --features "rusqlite,libsql,uuid,serde" > benchmark_raw.txt 2>&1 || true
         
