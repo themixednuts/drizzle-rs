@@ -41,7 +41,7 @@ pub mod sqlite {
     // SQLite builders and helpers
     pub use drizzle_sqlite::builder;
     pub use drizzle_sqlite::conditions;
-    pub use drizzle_sqlite::{SQLiteTransactionType, params};
+    pub use drizzle_sqlite::{SQLiteTransactionType, params, pragma};
 
     // SQLite types and traits
     pub use drizzle_sqlite::traits::{SQLiteColumn, SQLiteColumnInfo};

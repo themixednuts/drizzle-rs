@@ -383,3 +383,16 @@ The macro automatically handles:
 - Optional fields (`Option<T>`)
 - All supported column types (integers, text, blobs, JSON, enums)
 - Multiple SQLite drivers with feature-gated implementations
+
+## SQLite PRAGMA Support
+
+```rust
+use drizzle_rs::sqlite::pragma::{Pragma, JournalMode};
+
+// Type-safe pragma statements
+let pragma = Pragma::foreign_keys(true);
+let sql = pragma.to_sql();
+
+// Execute with drizzle
+db.execute(sql)?;
+```

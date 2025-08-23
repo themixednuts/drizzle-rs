@@ -10,6 +10,7 @@ pub mod builder;
 pub mod common;
 pub mod conditions;
 pub mod helpers;
+pub mod pragma;
 pub mod traits;
 pub mod values;
 
@@ -19,6 +20,7 @@ pub mod values;
 
 /// A prelude module that re-exports commonly used types and traits
 pub mod prelude {
+    pub use crate::pragma::Pragma;
     pub use crate::SQLiteTransactionType;
     pub use crate::traits::SQLiteColumn;
     pub use crate::values::SQLiteValue;
@@ -33,6 +35,8 @@ pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
 // Re-export ParamBind for use in macros
 pub use drizzle_core::ParamBind;
 
+use std::marker::PhantomData;
+
 /// Reference to different SQLite driver connection types
 #[derive(Debug)]
 pub enum ConnectionRef<'a> {
@@ -42,6 +46,8 @@ pub enum ConnectionRef<'a> {
     Rusqlite(&'a rusqlite::Connection),
     #[cfg(feature = "turso")]
     Turso(&'a turso::Connection),
+    #[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
+    _Phantom(PhantomData<&'a ()>),
 }
 
 // Implement Into trait for each connection type
