@@ -103,7 +103,9 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
 
 fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     // Extract field names and types for easier iteration
+    #[allow(unused_variables)]
     let field_names: Vec<_> = fields.iter().map(|(name, _)| *name).collect();
+    #[allow(unused_variables)]
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     // Generate different implementations based on available features
