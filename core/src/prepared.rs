@@ -82,10 +82,8 @@ where
         }
     }
 
-    // Add any additional external parameters that weren't matched to internal params
-    for (_, value) in param_map {
-        bound_params.push(value);
-    }
+    // Note: We don't add unmatched external parameters as they should only be used
+    // for parameters that have corresponding placeholders in the SQL
 
     (sql, bound_params.into_iter())
 }
