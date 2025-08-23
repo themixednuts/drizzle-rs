@@ -33,6 +33,7 @@ struct JsonUser {
     #[blob(json)]
     profile: Profile,
 }
+#[cfg(all(feature = "serde", feature = "uuid"))]
 #[derive(SQLSchema)]
 struct Schema {
     jsonuser: JsonUser,
