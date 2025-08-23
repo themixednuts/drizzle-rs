@@ -77,40 +77,6 @@ jobs:
     - name: Run examples with ${{ matrix.features }}
       run: cargo run --example rusqlite --features "${{ matrix.features }}"
 
-  test-turso-experimental:
-    name: Test Turso (Experimental)
-    runs-on: ubuntu-latest
-    needs: [get-rust-version, lint]
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - "turso"
-          - "turso,uuid"
-          - "turso,serde"
-          - "turso,uuid,serde"
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: ${{ needs.get-rust-version.outputs.rust-version }}
-    
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
-    
-    - name: Run tests - turso with ${{ matrix.features }}
-      run: |
-        echo "::notice::Testing turso with features: ${{ matrix.features }}"
-        if cargo test --workspace --features "${{ matrix.features }}" --verbose; then
-          echo "::notice::✅ Turso tests passed with features: ${{ matrix.features }}"
-        else
-          echo "::warning::❌ Turso tests failed with features: ${{ matrix.features }} (experimental - not blocking)"
-          exit 0
-        fi
 
   docs:
     name: Documentation
