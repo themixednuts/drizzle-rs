@@ -275,7 +275,8 @@ mod rusqlite {
                             )
                         })
                         .collect();
-                    let prepared = db.insert(users).values(data).prepare().into_owned();
+                    let stmt = db.insert(users).values(data);
+                    let prepared = stmt.prepare().into_owned();
                     (db, prepared)
                 })
                 .bench_values(|(db, prepared)| {
@@ -721,6 +722,7 @@ mod libsql {
                             })
                             .collect();
                         let prepared = db.insert(users).values(data).prepare().into_owned();
+                        // println!("{}", prepared.to_sql());
                         (db, prepared)
                     })
                 })
