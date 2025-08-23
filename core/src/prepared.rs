@@ -5,7 +5,7 @@ use crate::{
 };
 use compact_str::CompactString;
 use smallvec::SmallVec;
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, collections::HashMap, fmt};
 
 /// A pre-rendered SQL statement with parameter placeholders
 /// Structure: [text, param, text, param, text] where text segments
@@ -33,42 +33,75 @@ impl<'a, V: SQLParam + std::fmt::Display> std::fmt::Display for PreparedStatemen
     }
 }
 
-impl<'a, V: SQLParam> PreparedStatement<'a, V> {
-    /// Bind parameters and render final SQL string
-    pub fn bind(self, param_binds: impl IntoIterator<Item = ParamBind<'a, V>>) -> (String, Vec<V>) {
-        use std::collections::HashMap;
+/// Internal helper for binding parameters with optimizations
+/// Returns SQL string and an iterator over bound parameter values
+pub(crate) fn bind_parameters_internal<'a, V, T, P>(
+    text_segments: &[CompactString],
+    params: &[P],
+    param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
+    param_name_fn: impl Fn(&P) -> Option<&str>,
+    param_value_fn: impl Fn(&P) -> Option<&V>,
+    placeholder_fn: impl Fn(&P) -> String,
+) -> (String, impl Iterator<Item = V>)
+where
+    V: SQLParam + Clone,
+    T: SQLParam + Into<V>,
+{
+    // Collect param binds into HashMap for efficient lookup
+    let param_map: HashMap<&str, V> = param_binds
+        .into_iter()
+        .map(|p| (p.name, p.value.into()))
+        .collect();
 
-        let param_map: HashMap<&str, V> =
-            param_binds.into_iter().map(|p| (p.name, p.value)).collect();
+    // Pre-allocate string capacity based on text segments total length
+    let estimated_capacity: usize =
+        text_segments.iter().map(|s| s.len()).sum::<usize>() + params.len() * 8;
+    let mut sql = String::with_capacity(estimated_capacity);
+    let mut bound_params = SmallVec::<[V; 8]>::new_const();
 
-        let mut sql = String::new();
-        let mut bound_params = Vec::new();
+    // Use iterator to avoid bounds checking
+    let mut param_iter = params.iter();
 
-        // Zip text segments with params: text[0], param[0], text[1], param[1], text[2]
-        for (i, text_segment) in self.text_segments.iter().enumerate() {
-            sql.push_str(text_segment);
+    for text_segment in text_segments {
+        sql.push_str(text_segment);
 
-            // Add param if there's one at this position
-            if let Some(param) = self.params.get(i) {
-                if let Some(name) = param.placeholder.name {
-                    if let Some(value) = param_map.get(name) {
-                        bound_params.push(value.clone());
-                        sql.push_str(&param.placeholder.to_string());
-                    } else {
-                        // Parameter not found, keep placeholder
-                        sql.push_str(&param.placeholder.to_string());
-                    }
+        if let Some(param) = param_iter.next() {
+            if let Some(name) = param_name_fn(param) {
+                // Named parameter
+                if let Some(value) = param_map.get(name) {
+                    bound_params.push(value.clone());
+                    sql.push_str(&placeholder_fn(param));
                 } else {
-                    // Positional parameter - use existing value if any
-                    if let Some(value) = &param.value {
-                        bound_params.push(value.as_ref().clone());
-                        sql.push_str(&param.placeholder.to_string());
-                    }
+                    // Parameter not found, keep placeholder
+                    sql.push_str(&placeholder_fn(param));
+                }
+            } else {
+                // Positional parameter - use existing value if any
+                if let Some(value) = param_value_fn(param) {
+                    bound_params.push(value.clone());
+                    sql.push_str(&placeholder_fn(param));
                 }
             }
         }
+    }
 
-        (sql, bound_params)
+    (sql, bound_params.into_iter())
+}
+
+impl<'a, V: SQLParam> PreparedStatement<'a, V> {
+    /// Bind parameters and render final SQL string
+    pub fn bind<T: SQLParam + Into<V>>(
+        &self,
+        param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
+    ) -> (String, impl Iterator<Item = V>) {
+        bind_parameters_internal(
+            &self.text_segments,
+            &self.params,
+            param_binds,
+            |p| p.placeholder.name,
+            |p| p.value.as_ref().map(|v| v.as_ref()),
+            |p| p.placeholder.to_string(),
+        )
     }
 }
 

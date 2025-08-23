@@ -50,7 +50,7 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     fn r#type(&self) -> &str;
     fn table(&self) -> &dyn SQLTableInfo;
     fn has_default(&self) -> bool;
-    
+
     /// Returns the foreign key reference if this column has one
     fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
         None
@@ -142,7 +142,7 @@ pub trait SQLTableInfo: Any + Send + Sync {
     fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]>;
     fn without_rowid(&self) -> bool;
     fn strict(&self) -> bool;
-    
+
     /// Returns all tables this table depends on via foreign keys
     fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
         self.columns()

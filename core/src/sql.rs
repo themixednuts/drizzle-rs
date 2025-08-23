@@ -386,8 +386,15 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    pub fn bind(self, params: impl IntoIterator<Item = ParamBind<'a, V>>) -> SQL<'a, V> {
-        let param_map: HashMap<&str, V> = params.into_iter().map(|p| (p.name, p.value)).collect();
+    pub fn bind<T: SQLParam + Into<V>>(
+        self,
+        params: impl IntoIterator<Item: Into<ParamBind<'a, T>>>,
+    ) -> SQL<'a, V> {
+        let param_map: HashMap<&str, V> = params
+            .into_iter()
+            .map(Into::into)
+            .map(|p| (p.name, p.value.into()))
+            .collect();
 
         let bound_chunks = self
             .into_iter()
