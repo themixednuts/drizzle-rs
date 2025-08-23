@@ -1,0 +1,71 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: mac
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@nightly
+    
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+    
+    - name: Run benchmarks
+      run: |
+        cargo bench --bench performance_comparison --features "rusqlite,libsql,uuid,serde" > benchmark_output.txt 2>&1 || true
+    
+    - name: Create benchmark report
+      shell: bash
+      run: |
+        mkdir -p benchmarks
+        
+        echo "# Performance Benchmark Results - ${{ matrix.platform }}" > "benchmarks/${{ matrix.platform }}.md"
+        echo "" >> "benchmarks/${{ matrix.platform }}.md"
+        echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "benchmarks/${{ matrix.platform }}.md"
+        echo "**Commit:** ${{ github.sha }}" >> "benchmarks/${{ matrix.platform }}.md"
+        echo "**Platform:** ${{ runner.os }} - ${{ runner.arch }}" >> "benchmarks/${{ matrix.platform }}.md"
+        echo "" >> "benchmarks/${{ matrix.platform }}.md"
+        echo '```' >> "benchmarks/${{ matrix.platform }}.md"
+        cat benchmark_output.txt >> "benchmarks/${{ matrix.platform }}.md"
+        echo '```' >> "benchmarks/${{ matrix.platform }}.md"
+    
+    - name: Configure git
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+    
+    - name: Commit benchmark results
+      shell: bash
+      run: |
+        git add "benchmarks/${{ matrix.platform }}.md"
+        
+        if git diff --staged --quiet; then
+          echo "No benchmark changes to commit"
+        else
+          git commit -m "chore: update ${{ matrix.platform }} benchmark results [skip ci]"
+          git push
+        fi

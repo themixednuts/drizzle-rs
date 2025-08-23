@@ -68,7 +68,7 @@ where
         if let Some(param) = param_iter.next() {
             // Always add the placeholder
             sql.push_str(&placeholder_fn(param));
-            
+
             // For parameters, prioritize internal values first, then external bindings
             if let Some(value) = param_value_fn(param) {
                 // Use internal parameter value (from prepared statement)
