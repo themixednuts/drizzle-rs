@@ -39,11 +39,6 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
             ctx,
         ));
     }
-
-    #[allow(unused_variables)]
-    let partial_impl = quote! {};
-
-    #[cfg(feature = "rusqlite")]
     let partial_impl = quote! {
             // Partial Select Model - all fields are optional for selective querying
             #[derive(Debug, Clone, PartialEq, Default)]
@@ -55,12 +50,12 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
             }
 
             // Implement SQLPartial trait for SelectModel
-            impl<'a> ::drizzle_rs::core::SQLPartial<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_ident {
+            impl<'a> ::drizzle::core::SQLPartial<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_ident {
                 type Partial = #select_model_partial_ident;
             }
 
-            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_partial_ident {
-                fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+            impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_partial_ident {
+                fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
                     unimplemented!()
                     // Only include columns that are Some() for selective querying
                     // let mut selected_columns = Vec::new();
@@ -74,9 +69,9 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
                     //         unimplemented!()
                     //         // If no fields selected, default to all columns
                     //         // const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
-                    //         // ::drizzle_rs::core::SQL::join(ALL_COLUMNS, ", ")
+                    //         // ::drizzle::core::SQL::join(ALL_COLUMNS, ", ")
                     // } else {
-                    //     ::drizzle_rs::core::SQL::join(&selected_columns, ", ")
+                    //     ::drizzle::core::SQL::join(&selected_columns, ", ")
                     // }
                 }
             }
@@ -90,12 +85,12 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
         // For libsql and turso: partial select models are disabled due to index-based access limitations
         // Use full select model or specific column tuples instead
-        impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #select_model_ident {
-            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_ident {
+            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
                 unimplemented!()
                 // Generate column list for SELECT
                 // const COLUMN_NAMES: &'static [&'static str] = &[#(#select_column_names,)*];
-                // ::drizzle_rs::core::SQL::join(COLUMN_NAMES, ", ")
+                // ::drizzle::core::SQL::join(COLUMN_NAMES, ", ")
             }
         }
 

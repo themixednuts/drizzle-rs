@@ -74,10 +74,10 @@ impl<'a> MacroContext<'a> {
                         crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
                         _ => quote! { ::uuid::Uuid },
                     };
-                    quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>)
+                    quote!(::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #insert_value_type>)
                 } else {
                     // All other insert fields use InsertValue for three-state handling with owned data
-                    quote!(::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>)
+                    quote!(::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #base_type>)
                 }
             }
             ModelType::Update => quote!(Option<#base_type>),
@@ -101,7 +101,7 @@ impl<'a> MacroContext<'a> {
 
         // Handle compile-time SQL defaults or any other case
         // Default to Omit so database can handle defaults
-        quote! { #name: ::drizzle_rs::sqlite::InsertValue::Omit }
+        quote! { #name: ::drizzle::sqlite::values::InsertValue::Omit }
     }
 
     /// Generates field conversion for insert ToSQL
@@ -111,7 +111,7 @@ impl<'a> MacroContext<'a> {
         let value_conversion = if field.is_enum {
             quote! { val.clone().into() }
         } else {
-            quote! { val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null) }
+            quote! { val.clone().try_into().unwrap_or(::drizzle::sqlite::values::SQLiteValue::Null) }
         };
 
         // Handle the three states of InsertValue (Omit, Null, Value)
@@ -119,13 +119,13 @@ impl<'a> MacroContext<'a> {
             // For runtime defaults, we always include the field (either default or user value)
             quote! {
                 match &self.#name {
-                    ::drizzle_rs::sqlite::InsertValue::Omit => {
+                    ::drizzle::sqlite::values::InsertValue::Omit => {
                         // Use runtime default for omitted values
                         let default_val = self.#name.clone(); // This should never be Omit due to default logic
                         #value_conversion
                     },
-                    ::drizzle_rs::sqlite::InsertValue::Null => ::drizzle_rs::sqlite::SQLiteValue::Null,
-                    ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                    ::drizzle::sqlite::values::InsertValue::Null => ::drizzle::sqlite::values::SQLiteValue::Null,
+                    ::drizzle::sqlite::values::InsertValue::Value(wrapper) => {
                         // Values and placeholders are both handled as SQL
                         continue; // Skip in ToSQL, handled in values() method
                     },
@@ -135,12 +135,12 @@ impl<'a> MacroContext<'a> {
             // For compile-time defaults or no defaults, we may omit the field
             quote! {
                 match &self.#name {
-                    ::drizzle_rs::sqlite::InsertValue::Omit => {
+                    ::drizzle::sqlite::values::InsertValue::Omit => {
                         // This field will be omitted from the column list entirely
                         continue;
                     },
-                    ::drizzle_rs::sqlite::InsertValue::Null => ::drizzle_rs::sqlite::SQLiteValue::Null,
-                    ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                    ::drizzle::sqlite::values::InsertValue::Null => ::drizzle::sqlite::values::SQLiteValue::Null,
+                    ::drizzle::sqlite::values::InsertValue::Value(wrapper) => {
                         // Values and placeholders are both handled as SQL
                         continue; // Skip in ToSQL, handled in values() method
                     },
@@ -160,15 +160,15 @@ impl<'a> MacroContext<'a> {
             let uuid_conversion = match field.column_type {
                 SQLiteType::Text => {
                     // Store UUID as TEXT (string format)
-                    quote! { ::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Owned(val.to_string())) }
+                    quote! { ::drizzle::sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Owned(val.to_string())) }
                 }
                 SQLiteType::Blob => {
                     // Store UUID as BLOB (binary format)
-                    quote! { ::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
+                    quote! { ::drizzle::sqlite::values::SQLiteValue::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
                 }
                 _ => {
                     // Fallback to generic conversion for other types
-                    quote! { val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null) }
+                    quote! { val.clone().try_into().unwrap_or(::drizzle::sqlite::values::SQLiteValue::Null) }
                 }
             };
 
@@ -183,7 +183,7 @@ impl<'a> MacroContext<'a> {
         let conversion = if field.is_enum {
             quote! { val.clone().into() }
         } else {
-            quote! { val.clone().try_into().unwrap_or(::drizzle_rs::sqlite::SQLiteValue::Null) }
+            quote! { val.clone().try_into().unwrap_or(::drizzle::sqlite::values::SQLiteValue::Null) }
         };
 
         quote! {

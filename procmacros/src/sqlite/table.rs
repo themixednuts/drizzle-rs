@@ -1,12 +1,3 @@
-#[cfg(feature = "rusqlite")]
-pub mod rusqlite;
-
-#[cfg(feature = "turso")]
-pub mod turso;
-
-#[cfg(feature = "libsql")]
-pub mod libsql;
-
 mod attributes;
 mod column_definitions;
 mod context;
@@ -15,6 +6,15 @@ mod models;
 mod sql_generation;
 mod traits;
 mod validation;
+
+#[cfg(feature = "rusqlite")]
+pub mod rusqlite;
+
+#[cfg(feature = "turso")]
+pub mod turso;
+
+#[cfg(feature = "libsql")]
+pub mod libsql;
 
 use super::field::FieldInfo;
 pub use attributes::TableAttributes;
@@ -176,6 +176,5 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         #libsql_impls
     };
 
-    // eprintln!("{expanded}");
     Ok(expanded)
 }

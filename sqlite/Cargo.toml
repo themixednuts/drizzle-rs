@@ -24,7 +24,6 @@ paste = { workspace = true }
 turso = { workspace = true, optional = true }
 
 
-
 [features]
 rusqlite = ["dep:rusqlite", "drizzle-core/rusqlite"]
 libsql = ["dep:libsql", "drizzle-core/libsql"]

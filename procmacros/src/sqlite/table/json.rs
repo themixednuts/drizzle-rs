@@ -25,7 +25,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             first_json_field.ident,
             format!(
                 "The 'serde' feature must be enabled to use JSON fields.\n\
-             Add to Cargo.toml: drizzle-rs = {{ version = \"*\", features = [\"serde\"] }}\n\
+             Add to Cargo.toml: drizzle = {{ version = \"*\", features = [\"serde\"] }}\n\
              See: {SQLITE_JSON_URL}"
             ),
         ));
@@ -72,11 +72,11 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             let core_conversion = match storage_type {
                 SQLiteType::Text => quote! {
                     let json = serde_json::to_string(&self)?;
-                    Ok(::drizzle_rs::sqlite::SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
+                    Ok(::drizzle::sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
                 },
                 SQLiteType::Blob => quote! {
                     let json = serde_json::to_vec(&self)?;
-                    Ok(::drizzle_rs::sqlite::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
+                    Ok(::drizzle::sqlite::values::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
                 },
                 _ => return Err(syn::Error::new_spanned(
                     info.ident,
@@ -86,10 +86,10 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
             Ok(quote! {
                 // Core TryInto implementation for SQLiteValue (needed for all drivers)
-                impl<'a> ::std::convert::TryInto<::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
+                impl<'a> ::std::convert::TryInto<::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_name {
                     type Error = serde_json::Error;
 
-                    fn try_into(self) -> Result<::drizzle_rs::sqlite::SQLiteValue<'a>, Self::Error> {
+                    fn try_into(self) -> Result<::drizzle::sqlite::values::SQLiteValue<'a>, Self::Error> {
                         #core_conversion
                     }
                 }

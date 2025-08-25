@@ -35,7 +35,7 @@ pub(crate) fn generate_convenience_method(
                     quote! {
                         pub fn #method_name<V>(mut self, value: V) -> Self
                         where
-                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>>
+                            V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #insert_value_type>>
                         {
                             #assignment
                             self
@@ -45,7 +45,7 @@ pub(crate) fn generate_convenience_method(
                 (_, s) if s.contains("String") => quote! {
                     pub fn #method_name<V>(mut self, value: V) -> Self
                     where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>>
+                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::string::String>>
                     {
                         #assignment
                         self
@@ -54,7 +54,7 @@ pub(crate) fn generate_convenience_method(
                 (_, s) if s.contains("Vec") && s.contains("u8") => quote! {
                     pub fn #method_name<V>(mut self, value: V) -> Self
                     where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
+                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
                     {
                         #assignment
                         self
@@ -63,7 +63,7 @@ pub(crate) fn generate_convenience_method(
                 _ => quote! {
                     pub fn #method_name<V>(mut self, value: V) -> Self
                     where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>>
+                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #base_type>>
                     {
                         #assignment
                         self

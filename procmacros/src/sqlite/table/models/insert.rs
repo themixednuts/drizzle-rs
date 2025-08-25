@@ -88,20 +88,20 @@ pub(crate) fn generate_insert_model(
                         _ => quote! { ::uuid::Uuid },
                     };
                     (
-                        quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>> },
+                        quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #insert_value_type>> },
                         quote! { #field_name: #field_name.into() },
                     )
                 }
                 (_, s) if s.contains("String") => (
-                    quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>> },
+                    quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },
                 ),
                 (_, s) if s.contains("Vec") && s.contains("u8") => (
-                    quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
+                    quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
                     quote! { #field_name: #field_name.into() },
                 ),
                 _ => (
-                    quote! { #field_name: impl Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>> },
+                    quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #base_type>> },
                     quote! { #field_name: #field_name.into() },
                 ),
             };
@@ -174,7 +174,7 @@ pub(crate) fn generate_insert_model(
                     impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                         pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                         where
-                            V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #insert_value_type>>
+                            V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #insert_value_type>>
                         {
                             #insert_model {
                                 #(#field_assignments,)*
@@ -188,7 +188,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::string::String>>
+                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::string::String>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -201,7 +201,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
+                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -214,7 +214,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_rs::sqlite::InsertValue<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>, #base_type>>
+                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -270,24 +270,24 @@ pub(crate) fn generate_insert_model(
         // Convenience methods for setting fields with pattern tracking
         #(#convenience_methods_with_pattern)*
 
-        impl<'a, T> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+        impl<'a, T> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
+            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
                 // For insert models, ToSQL delegates to the values() method
                 // which now handles mixed placeholders and values correctly
-                ::drizzle_rs::core::SQLModel::values(self)
+                ::drizzle::core::SQLModel::values(self)
             }
         }
 
-        impl<'a, T> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
+        impl<'a, T> ::drizzle::core::SQLModel<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
+            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
                 // For insert model, return only non-omitted columns to match values()
                 static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = ::drizzle_rs::core::SQLTableInfo::columns(&TABLE);
+                let all_columns = ::drizzle::core::SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle_rs::sqlite::InsertValue::Omit => {
+                        ::drizzle::sqlite::values::InsertValue::Omit => {
                             // Skip omitted fields
                         }
                         _ => {
@@ -300,25 +300,25 @@ pub(crate) fn generate_insert_model(
                 result_columns.into_boxed_slice()
             }
 
-            fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+            fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
 
                 let mut sql_parts = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle_rs::sqlite::InsertValue::Omit => {
+                        ::drizzle::sqlite::values::InsertValue::Omit => {
                             // Skip omitted fields
                         }
-                        ::drizzle_rs::sqlite::InsertValue::Null => {
-                            sql_parts.push(::drizzle_rs::core::SQL::parameter(::drizzle_rs::sqlite::SQLiteValue::Null));
+                        ::drizzle::sqlite::values::InsertValue::Null => {
+                            sql_parts.push(::drizzle::core::SQL::parameter(::drizzle::sqlite::values::SQLiteValue::Null));
                         }
-                        ::drizzle_rs::sqlite::InsertValue::Value(wrapper) => {
+                        ::drizzle::sqlite::values::InsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
                         }
                     }
                 )*
 
-                ::drizzle_rs::core::SQL::join(sql_parts, ", ")
+                ::drizzle::core::SQL::join(sql_parts, ", ")
             }
         }
     })

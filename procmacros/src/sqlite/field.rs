@@ -59,7 +59,7 @@ impl Display for SQLiteType {
 impl SQLiteType {
     /// Convert from attribute name to enum variant
     pub(crate) fn from_attribute_name(name: &str) -> Option<Self> {
-        match name {
+        match name.to_lowercase().as_str() {
             "integer" => Some(Self::Integer),
             "text" => Some(Self::Text),
             "blob" => Some(Self::Blob),

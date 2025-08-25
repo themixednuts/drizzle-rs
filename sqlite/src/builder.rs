@@ -10,7 +10,6 @@ use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
 pub mod delete;
-pub mod execution;
 pub mod insert;
 pub mod prepared;
 pub mod select;

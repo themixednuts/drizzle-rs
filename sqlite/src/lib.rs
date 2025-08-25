@@ -20,8 +20,8 @@ pub mod values;
 
 /// A prelude module that re-exports commonly used types and traits
 pub mod prelude {
-    pub use crate::pragma::Pragma;
     pub use crate::SQLiteTransactionType;
+    pub use crate::pragma::Pragma;
     pub use crate::traits::SQLiteColumn;
     pub use crate::values::SQLiteValue;
 
@@ -34,7 +34,9 @@ pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
 
 // Re-export ParamBind for use in macros
 pub use drizzle_core::ParamBind;
+use drizzle_core::SQL;
 
+#[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
 use std::marker::PhantomData;
 
 /// Reference to different SQLite driver connection types
@@ -192,3 +194,5 @@ macro_rules! params_internal {
         $crate::ParamBind::new("", $crate::SQLiteValue::from($value))
     };
 }
+
+pub type SQLiteSQL<'a> = SQL<'a, SQLiteValue<'a>>;
