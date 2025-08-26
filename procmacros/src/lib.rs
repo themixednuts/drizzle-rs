@@ -12,7 +12,7 @@
 //! ## Example Usage
 //!
 //! ```ignore
-//! use drizzle_rs::prelude::*;
+//! use drizzle::prelude::*;
 //!
 //! // Define your schema
 //! #[SQLiteTable(name = "users")]
@@ -32,7 +32,6 @@ extern crate proc_macro;
 
 mod drizzle_test;
 mod fromrow;
-mod schema;
 mod sql;
 mod utils;
 
@@ -41,6 +40,9 @@ mod sqlite;
 
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
+
+#[cfg(feature = "postgres")]
+mod postgres;
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
@@ -62,7 +64,7 @@ use syn::parse_macro_input;
 ///
 /// ## Text Storage (Variant Names)
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum UserRole {
@@ -83,7 +85,7 @@ use syn::parse_macro_input;
 ///
 /// ## Integer Storage (Discriminants)
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
@@ -184,7 +186,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Basic Table
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
@@ -201,7 +203,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Table with Defaults
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 ///
 /// #[SQLiteTable(name = "posts", strict)]
 /// struct Posts {
@@ -218,7 +220,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Enums and JSON
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 /// # #[cfg(feature = "serde")]
 /// use serde::{Serialize, Deserialize};
 ///
@@ -259,7 +261,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// Use `Option<T>` for nullable fields, or `T` for NOT NULL constraints:
 ///
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 ///
 /// #[SQLiteTable]
 /// struct Example {
@@ -343,7 +345,7 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ```ignore
-/// use drizzle_rs::prelude::*;
+/// use drizzle::prelude::*;
 ///
 /// #[SQLiteTable]
 /// struct Users {
@@ -378,11 +380,23 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// # #[cfg(feature = "rusqlite")]
 /// # db.create().unwrap(); // Creates tables, then indexes
 /// ```
-#[proc_macro_derive(SQLSchema)]
-pub fn schema_derive(input: TokenStream) -> TokenStream {
+#[cfg(feature = "sqlite")]
+#[proc_macro_derive(SQLiteSchema)]
+pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::schema::generate_schema_derive_impl(input) {
+    match crate::sqlite::schema::generate_schema_derive_impl(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+#[cfg(feature = "postgres")]
+#[proc_macro_derive(PostgresSchema)]
+pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::postgres::generate_postgres_schema_derive_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -402,7 +416,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## String Literal Syntax
 /// ```ignore
-/// # use drizzle_rs::{sql, prelude::*};
+/// # use drizzle::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
 /// # #[cfg(any(feature = "libsql", feature = "turso"))]
@@ -419,7 +433,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Printf-Style Syntax
 /// ```ignore
-/// # use drizzle_rs::{sql, prelude::*};
+/// # use drizzle::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
 /// # #[cfg(any(feature = "libsql", feature = "turso"))]
@@ -438,7 +452,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Basic Usage
 /// ```ignore
-/// # use drizzle_rs::{sql, prelude::*};
+/// # use drizzle::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
 /// # #[cfg(any(feature = "libsql", feature = "turso"))]
@@ -456,7 +470,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Multiple Expressions
 /// ```ignore
-/// # use drizzle_rs::{sql, prelude::*};
+/// # use drizzle::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
 /// # #[SQLiteTable] pub struct Posts { #[integer(primary)] pub id: i32, #[integer] pub author: i32 }
@@ -476,7 +490,7 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 /// ## Escaped Braces
 /// Use `{{` and `}}` for literal braces in the SQL:
 /// ```ignore
-/// # use drizzle_rs::{sql, prelude::*};
+/// # use drizzle::{sql, prelude::*};
 /// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
 /// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
 /// # #[cfg(any(feature = "libsql", feature = "turso"))]
@@ -542,4 +556,293 @@ pub fn sql(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn drizzle_test(input: TokenStream) -> TokenStream {
     crate::drizzle_test::drizzle_test_impl(input)
+}
+
+/// Derive macro for creating PostgreSQL-compatible enums.
+///
+/// This macro allows enums to be stored in PostgreSQL databases as either TEXT (variant names)
+/// or INTEGER (discriminant values) depending on the column attribute used.
+///
+/// The enum can be used with `#[text(enum)]` or `#[integer(enum)]` column attributes.
+///
+/// # Requirements
+///
+/// - Enum must have at least one variant
+/// - For `#[integer(enum)]`, variants can have explicit discriminants
+/// - Must derive `Default` to specify the default variant
+///
+/// # Examples
+///
+/// ## Text Storage (Variant Names)
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+/// enum UserRole {
+///     #[default]
+///     User,      // Stored as "User"
+///     Admin,     // Stored as "Admin"
+///     Moderator, // Stored as "Moderator"
+/// }
+///
+/// #[PostgresTable]
+/// struct Users {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text(enum)] // Stores variant names as TEXT
+///     role: UserRole,
+/// }
+/// ```
+///
+/// ## Integer Storage (Discriminants)
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+/// enum Priority {
+///     #[default]
+///     Low = 1,    // Stored as 1
+///     Medium = 5, // Stored as 5
+///     High = 10,  // Stored as 10
+/// }
+///
+/// #[PostgresTable]
+/// struct Tasks {
+///     #[integer(primary)]
+///     id: i32,
+///     #[integer(enum)] // Stores discriminants as INTEGER
+///     priority: Priority,
+/// }
+/// ```
+///
+/// ## Native PostgreSQL Enums
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+/// enum Color {
+///     #[default]
+///     Red,
+///     Green,
+///     Blue,
+/// }
+///
+/// #[PostgresTable]
+/// struct Items {
+///     #[integer(primary)]
+///     id: i32,
+///     #[enum(Color)] // Uses PostgreSQL native ENUM type
+///     color: Color,
+/// }
+/// ```
+#[cfg(feature = "postgres")]
+#[proc_macro_derive(PostgresEnum)]
+pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
+    use quote::quote;
+    use syn::{Data, DeriveInput, parse_macro_input};
+
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    // Check if this is an enum
+    match &input.data {
+        Data::Enum(data) => {
+            // Check if the enum has any variants
+            if data.variants.is_empty() {
+                return quote! {
+                    compile_error!("PostgresEnum cannot be derived for empty enums");
+                }
+                .into();
+            }
+
+            // Generate implementation for enum
+            match crate::postgres::r#enum::generate_enum_impl(name, data) {
+                Ok(ts) => ts.into(),
+                Err(e) => e.to_compile_error().into(),
+            }
+        }
+        _ => quote! {
+            compile_error!("PostgresEnum can only be derived for enums");
+        }
+        .into(),
+    }
+}
+
+/// Define a PostgreSQL table schema with type-safe column definitions.
+///
+/// This attribute macro transforms a Rust struct into a complete PostgreSQL table definition
+/// with generated types for INSERT, SELECT, and UPDATE operations.
+///
+/// See [PostgreSQL CREATE TABLE documentation](https://www.postgresql.org/docs/current/sql-createtable.html) for
+/// the underlying SQL concepts.
+///
+/// # Table Attributes
+///
+/// - `name = "table_name"` - Custom table name (defaults to struct name in snake_case)
+/// - `unlogged` - Create UNLOGGED table for better performance  
+/// - `temporary` - Create TEMPORARY table
+/// - `if_not_exists` - Add IF NOT EXISTS clause
+/// - `inherits = "parent_table"` - Inherit from parent table
+/// - `tablespace = "tablespace_name"` - Specify tablespace
+///
+/// # Field Attributes
+///
+/// ## Column Types
+/// - `#[integer]` - PostgreSQL INTEGER type
+/// - `#[bigint]` - PostgreSQL BIGINT type
+/// - `#[smallint]` - PostgreSQL SMALLINT type
+/// - `#[serial]` - PostgreSQL SERIAL type (auto-increment)
+/// - `#[bigserial]` - PostgreSQL BIGSERIAL type
+/// - `#[text]` - PostgreSQL TEXT type
+/// - `#[varchar]` - PostgreSQL VARCHAR type
+/// - `#[real]` - PostgreSQL REAL type
+/// - `#[double_precision]` - PostgreSQL DOUBLE PRECISION type
+/// - `#[boolean]` - PostgreSQL BOOLEAN type
+/// - `#[bytea]` - PostgreSQL BYTEA type (binary data)
+/// - `#[uuid]` - PostgreSQL UUID type (requires uuid feature)
+/// - `#[json]` - PostgreSQL JSON type (requires serde feature)
+/// - `#[jsonb]` - PostgreSQL JSONB type (requires serde feature)
+/// - `#[enum(MyEnum)]` - PostgreSQL native ENUM type
+///
+/// ## Constraints
+/// - `primary` - Primary key constraint
+/// - `unique` - Unique constraint
+/// - `not_null` - NOT NULL constraint
+/// - `generated_identity` - GENERATED ALWAYS AS IDENTITY
+/// - `check = "constraint"` - CHECK constraint
+///
+/// ## Defaults
+/// - `default = value` - Compile-time default value
+/// - `default_fn = function` - Runtime default function
+///
+/// ## Special Types
+/// - `enum` - Store enum as TEXT or INTEGER (our mapping)
+/// - `json` - JSON serialization (requires serde feature)
+/// - `references = Table::column` - Foreign key reference
+///
+/// # Examples
+///
+/// ## Basic Table
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[PostgresTable(name = "users")]
+/// struct Users {
+///     #[serial(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
+///     #[text(unique)]
+///     email: String,
+///     #[integer]
+///     age: Option<i32>, // Nullable field
+/// }
+/// ```
+///
+/// ## Table with PostgreSQL Features
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[PostgresTable(name = "posts", unlogged, if_not_exists)]
+/// struct Posts {
+///     #[bigserial(primary)]
+///     id: i64,
+///     #[text]
+///     title: String,
+///     #[text(default = "draft")]
+///     status: String,
+///     #[timestamptz(default_fn = || "NOW()")]
+///     created_at: String,
+///     #[text(check = "LENGTH(content) > 0")]
+///     content: String,
+/// }
+/// ```
+///
+/// ## Native Enums and JSON
+/// ```ignore
+/// use drizzle::prelude::*;
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+/// enum Priority {
+///     #[default]
+///     Low,
+///     Medium,
+///     High,
+/// }
+///
+/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+/// struct Metadata { theme: String }
+///
+/// #[PostgresTable(name = "tasks")]
+/// struct Tasks {
+///     #[serial(primary)]
+///     id: i32,
+///     #[enum(Priority)]  // Native PostgreSQL ENUM
+///     priority: Priority,
+///     #[text(enum)]      // Our enum -> TEXT mapping
+///     status: Status,
+///     #[jsonb]           // Binary JSON
+///     metadata: Option<Metadata>,
+/// }
+/// ```
+#[cfg(feature = "postgres")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let attr_result = syn::parse_macro_input!(attr as crate::postgres::table::TableAttributes);
+
+    match crate::postgres::table::table_attr_macro(input, attr_result) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Attribute macro for creating PostgreSQL indexes
+///
+/// This macro generates PostgreSQL-specific index definitions with support for
+/// various PostgreSQL index features like partial indexes, different methods, etc.
+///
+/// # Examples
+///
+/// ## Basic Index
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[PostgresIndex(unique)]
+/// struct UserEmailIdx(Users::email);
+/// ```
+///
+/// ## Advanced Index with PostgreSQL Features
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[PostgresIndex(
+///     method = "gin",
+///     concurrent,
+///     if_not_exists,
+///     where = "deleted_at IS NULL"
+/// )]
+/// struct ActiveUsersSearchIdx(Users::search_vector);
+/// ```
+///
+/// ## Composite Index
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[PostgresIndex(unique)]
+/// struct UserOrgIdx(Users::email, Users::organization_id);
+/// ```
+#[cfg(feature = "postgres")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let attr_input = syn::parse_macro_input!(attr as crate::postgres::index::IndexAttributes);
+
+    match crate::postgres::index::postgres_index_attr_macro(attr_input, input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }

@@ -20,16 +20,6 @@ rand = { version = "0.8.5" }
 heck = { version = "0.5.0" }
 paste = { workspace = true }
 
-[dev-dependencies]
-rusqlite = { workspace = true }
-libsql = { workspace = true }
-turso = { workspace = true }
-uuid = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-chrono = { version = "0.4" }
-tokio = { workspace = true }
-
 [features]
 default = []
 serde = []
@@ -39,5 +29,5 @@ mysql = []
 uuid = []
 rusqlite = ["sqlite"]
 libsql = ["sqlite"]
-libsql-rusqlite = ["sqlite"]
 turso = ["sqlite"]
+# sqlx-postgres = ["postgres"]
