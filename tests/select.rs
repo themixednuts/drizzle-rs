@@ -8,7 +8,7 @@ use common::{Complex, InsertComplex};
 use common::{Post, Simple};
 use drizzle_core::OrderBy;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 
 #[cfg(feature = "uuid")]
 use crate::common::ComplexSchema;

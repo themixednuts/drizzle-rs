@@ -5,10 +5,11 @@ use std::marker::PhantomData;
 #[cfg(feature = "uuid")]
 use common::{ComplexSchema, InsertComplex};
 use common::{InsertSimple, Role, SelectSimple};
+use drizzle::prelude::*;
+use drizzle::sql;
 use drizzle_core::expressions::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
-use drizzle_rs::sql;
+use drizzle_sqlite::SQLiteSQL;
 
 use crate::common::SimpleSchema;
 
@@ -524,8 +525,8 @@ drizzle_test!(test_multiple_aliases, SimpleSchema, {
 fn test_cte_basic() {
     use drizzle_core::SQL;
 
-    let cte_query = SQL::<SQLiteValue>::raw("SELECT id, name FROM users WHERE id = 42");
-    let main_query = SQL::<SQLiteValue>::raw("SELECT * FROM sq");
+    let cte_query = SQLiteSQL::raw("SELECT id, name FROM users WHERE id = 42");
+    let main_query = SQLiteSQL::raw("SELECT * FROM sq");
 
     let sq = cte("sq").r#as(cte_query);
     let result = with(sq, main_query);
@@ -541,7 +542,7 @@ fn test_cte_basic() {
 fn test_cte_name_access() {
     use drizzle_core::SQL;
 
-    let cte_query = SQL::<SQLiteValue>::raw("SELECT * FROM users");
+    let cte_query = SQLiteSQL::raw("SELECT * FROM users");
     let sq = cte("my_cte").r#as(cte_query);
 
     assert_eq!(sq.name(), "my_cte");
@@ -551,7 +552,7 @@ fn test_cte_name_access() {
 fn test_cte_to_sql() {
     use drizzle_core::SQL;
 
-    let cte_query = SQL::<SQLiteValue>::raw("SELECT id FROM users WHERE active = 1");
+    let cte_query = SQLiteSQL::raw("SELECT id FROM users WHERE active = 1");
     let sq = cte("active_users").r#as(cte_query);
 
     let cte_sql = sq.definition();

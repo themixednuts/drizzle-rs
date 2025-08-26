@@ -4,7 +4,7 @@ use common::{ComplexSchema, InsertComplex, SelectComplex};
 use common::{InsertSimple, Role, SelectSimple, SimpleSchema};
 use drizzle_core::expressions::conditions::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 
 mod common;
 
@@ -406,7 +406,7 @@ drizzle_test!(test_string_operations, SimpleSchema, {
 #[cfg(all(feature = "sqlite", feature = "serde"))]
 drizzle_test!(test_sqlite_json_conditions, ComplexSchema, {
     use crate::common::{ComplexSchema, UserMetadata};
-    use drizzle_rs::sqlite::conditions::*;
+    use drizzle::sqlite::conditions::*;
 
     let ComplexSchema { complex } = schema;
 

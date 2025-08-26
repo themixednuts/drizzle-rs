@@ -1,4 +1,4 @@
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 
 #[test]
 fn test_alias_functionality() {

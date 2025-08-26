@@ -3,7 +3,7 @@ use common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post};
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 
 use std::array;
 #[cfg(feature = "uuid")]

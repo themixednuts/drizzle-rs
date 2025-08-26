@@ -1,14 +1,15 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
-use drizzle_macros::drizzle_test;
-use drizzle_rs::{
+use drizzle::{
     FromRow,
     core::{and, eq},
-    sqlite::{SQLiteValue, params},
+    sqlite::params,
 };
+use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
+use drizzle_macros::drizzle_test;
 
 mod common;
 use common::{InsertSimple, SelectSimple, SimpleSchema};
+use drizzle_sqlite::{SQLiteSQL, SQLiteValue};
 
 drizzle_test!(test_prepare_with_placeholder, SimpleSchema, {
     let SimpleSchema { simple } = schema;
@@ -44,7 +45,7 @@ drizzle_test!(test_prepare_with_placeholder, SimpleSchema, {
 #[test]
 fn test_prepare_render_basic() {
     // Test the basic prepare_render functionality
-    let sql = SQL::<SQLiteValue>::raw("SELECT * FROM users WHERE id = ")
+    let sql = SQLiteSQL::raw("SELECT * FROM users WHERE id = ")
         .append(SQL::placeholder("user_id"))
         .append_raw(" AND name = ")
         .append(SQL::placeholder("user_name"));
@@ -67,7 +68,7 @@ fn test_prepare_render_basic() {
 #[test]
 fn test_prepare_with_multiple_parameters() {
     // Test preparing SQL with multiple parameters of different types
-    let sql = SQL::<SQLiteValue>::raw("INSERT INTO users (name, age, active) VALUES (")
+    let sql = SQLiteSQL::raw("INSERT INTO users (name, age, active) VALUES (")
         .append(SQL::placeholder("name"))
         .append_raw(", ")
         .append(SQL::placeholder("age"))

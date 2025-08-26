@@ -2,7 +2,7 @@ mod common;
 
 #[cfg(feature = "turso")]
 mod turso_tests {
-    use drizzle_rs::{prelude::*, turso::Drizzle};
+    use drizzle::{prelude::*, turso::Drizzle};
     use turso::{Builder, Connection};
 
     use crate::common::{

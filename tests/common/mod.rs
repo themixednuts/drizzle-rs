@@ -14,7 +14,7 @@ pub use libsql::*;
 
 pub mod helpers;
 
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -261,67 +261,67 @@ pub struct PostCategory {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct SimpleComplexSchema {
     pub simple: Simple,
     pub complex: Complex,
 }
 
 #[cfg(not(feature = "uuid"))]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct SimpleComplexSchema {
     pub simple: Simple,
     pub complex: Complex,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct SimpleSchema {
     pub simple: Simple,
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct ComplexSchema {
     pub complex: Complex,
 }
 
 #[cfg(not(feature = "uuid"))]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct ComplexSchema {
     pub complex: Complex,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct PostSchema {
     pub post: Post,
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct ComplexPostSchema {
     pub complex: Complex,
     pub post: Post,
 }
 
 #[cfg(not(feature = "uuid"))]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct ComplexPostSchema {
     pub complex: Complex,
     pub post: Post,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct CategorySchema {
     pub category: Category,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct PostCategorySchema {
     pub post_category: PostCategory,
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct FullBlogSchema {
     pub simple: Simple,
     pub complex: Complex,
@@ -331,7 +331,7 @@ pub struct FullBlogSchema {
 }
 
 #[cfg(not(feature = "uuid"))]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct FullBlogSchema {
     pub simple: Simple,
     pub complex: Complex,

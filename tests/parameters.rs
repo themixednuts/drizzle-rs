@@ -3,7 +3,7 @@
 use common::{InsertSimple, Simple, SimpleSchema};
 use drizzle_core::{SQL, prepared::prepare_render};
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 use drizzle_sqlite::{SQLiteValue, params};
 
 mod common;

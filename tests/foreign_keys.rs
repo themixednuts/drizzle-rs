@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
 mod common;
 
 #[cfg(feature = "uuid")]
@@ -38,7 +38,7 @@ fn test_foreign_key_generation() {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct ComplexPostSchema {
     pub complex: Complex,
     pub post: Post,

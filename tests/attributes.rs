@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
+use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -180,59 +180,59 @@ struct NullableTest {
 }
 
 // Schemas for individual table tests
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct AllTypesSchema {
     all_types: AllTypes,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct PrimaryKeyVariationsSchema {
     pk_variations: PrimaryKeyVariations,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct ManualPrimaryKeySchema {
     manual_pk: ManualPrimaryKey,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct UniqueFieldsSchema {
     unique_fields: UniqueFields,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct CompileTimeDefaultsSchema {
     compile_defaults: CompileTimeDefaults,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct RuntimeDefaultsSchema {
     runtime_defaults: RuntimeDefaults,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct EnumFieldsSchema {
     enum_fields: EnumFields,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct ComplexEnumFieldsSchema {
     complex_enum_fields: ComplexEnumFields,
 }
 
 #[cfg(feature = "serde")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct JsonFieldsSchema {
     json_fields: JsonFields,
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct UuidFieldsSchema {
     uuid_fields: UuidFields,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct NullableTestSchema {
     nullable_test: NullableTest,
 }

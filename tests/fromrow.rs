@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
 
 mod common;
 
@@ -73,7 +73,7 @@ struct FloatTest {
     compact: f32,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct TypeTestSchema {
     type_test: TypeTest,
 }
@@ -101,7 +101,7 @@ drizzle_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
     println!("✅ All data types test passed: {:?}", result);
 });
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct IntegerSchema {
     integer_test: IntegerTest,
 }
@@ -127,7 +127,7 @@ drizzle_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
     println!("✅ Integer types test passed: {:?}", result);
 });
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct FloatSchema {
     float_test: FloatTest,
 }

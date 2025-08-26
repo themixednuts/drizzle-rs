@@ -1,9 +1,9 @@
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite_setup {
-    use drizzle_rs::rusqlite::Drizzle;
+    use drizzle::rusqlite::Drizzle;
     use rusqlite::Connection;
 
-    pub fn setup_db<S: Default + drizzle_rs::core::SQLSchemaImpl>() -> (Drizzle<S>, S) {
+    pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (Drizzle<S>, S) {
         let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
         let schema = S::default();
         let (db, schema) = Drizzle::new(conn, schema);
@@ -14,10 +14,10 @@ pub mod rusqlite_setup {
 
 #[cfg(feature = "libsql")]
 pub mod libsql_setup {
-    use drizzle_rs::libsql::Drizzle;
+    use drizzle::libsql::Drizzle;
     use libsql::{Builder, Connection};
 
-    pub async fn setup_db<S: Default + drizzle_rs::core::SQLSchemaImpl>() -> (Drizzle<S>, S) {
+    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (Drizzle<S>, S) {
         let db = Builder::new_local(":memory:")
             .build()
             .await
@@ -32,10 +32,10 @@ pub mod libsql_setup {
 
 #[cfg(feature = "turso")]
 pub mod turso_setup {
-    use drizzle_rs::turso::Drizzle;
+    use drizzle::turso::Drizzle;
     use turso::Builder;
 
-    pub async fn setup_db<S: Default + drizzle_rs::core::SQLSchemaImpl>() -> (Drizzle<S>, S) {
+    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (Drizzle<S>, S) {
         let db = Builder::new_local(":memory:")
             .build()
             .await

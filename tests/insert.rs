@@ -3,8 +3,8 @@ use common::InsertSimple;
 #[cfg(feature = "uuid")]
 use common::{Complex, InsertComplex};
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
-use drizzle_rs::sqlite::builder::Conflict;
+use drizzle::prelude::*;
+use drizzle::sqlite::builder::Conflict;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 

@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 mod common;
+use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
 
 // Test enums with different representations
 #[derive(SQLiteEnum, PartialEq, Clone, Default, Debug)]
@@ -33,7 +33,7 @@ struct UserAccount {
     status: AccountStatus,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct Schema {
     user_account: UserAccount,
 }

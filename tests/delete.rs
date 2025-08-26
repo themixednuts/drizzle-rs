@@ -2,7 +2,7 @@
 use common::{Complex, InsertComplex};
 use common::{InsertSimple, Simple};
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
+use drizzle::prelude::*;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Row;
 #[cfg(feature = "uuid")]

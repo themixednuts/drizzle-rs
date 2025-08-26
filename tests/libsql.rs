@@ -4,8 +4,8 @@ mod common;
 
 use common::Complex;
 use common::{InsertSimple, Role, SelectSimple, Simple, UpdateSimple};
-use drizzle_rs::libsql::Drizzle;
-use drizzle_rs::prelude::*;
+use drizzle::libsql::Drizzle;
+use drizzle::prelude::*;
 use libsql::{Builder, Connection};
 
 use crate::common::SimpleSchema;

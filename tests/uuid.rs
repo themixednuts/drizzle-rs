@@ -3,8 +3,8 @@
     feature = "uuid"
 ))]
 
+use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
 use uuid::Uuid;
 
 mod common;
@@ -53,22 +53,22 @@ struct UuidBlobDefault {
     name: String,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct UuidTextSchema {
     uuid_text_test: UuidTextTest,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct UuidBlobSchema {
     uuid_blob_test: UuidBlobTest,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct UuidTextDefaultSchema {
     uuid_text_default: UuidTextDefault,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct UuidBlobDefaultSchema {
     uuid_blob_default: UuidBlobDefault,
 }

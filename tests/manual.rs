@@ -1,6 +1,6 @@
 // use drizzle_core::{SQLColumn, SQLSchema, SQLSchemaType, SQLTable};
-// use drizzle_rs::core::{SQL, SQLModel, ToSQL};
-// use drizzle_rs::sqlite::SQLiteValue;
+// use drizzle::core::{SQL, SQLModel, ToSQL};
+// use drizzle::sqlite::SQLiteValue;
 // use rusqlite::Connection;
 
 // // Manual implementation of SQLTable trait

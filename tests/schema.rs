@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
+use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-use drizzle_rs::prelude::*;
 
 mod common;
 
@@ -76,7 +76,7 @@ struct UserEmailIdx(User::email);
 #[SQLiteIndex]
 struct UserNameIdx(User::name);
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct AppTestSchema {
     user: User,
     user_email_idx: UserEmailIdx,
@@ -206,7 +206,7 @@ struct EmployeeDeptIdx(Employee::department_id);
 struct EmployeeManagerIdx(Employee::manager_id);
 
 // Deliberately out-of-order schema: starts with index, then dependent tables first
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 struct ComplexTestSchema {
     // Start with an index (should be moved to after its table)
     project_title_idx: ProjectTitleIdx,

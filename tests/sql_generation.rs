@@ -1,12 +1,12 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use common::Complex;
 use common::Simple;
+use drizzle::{prelude::*, sql};
 use drizzle_macros::drizzle_test;
-use drizzle_rs::{error::DrizzleError, prelude::*, sql};
+use drizzle_sqlite::values::SQLiteValue;
 
 #[cfg(feature = "uuid")]
-use crate::common::{ComplexSchema, SimpleComplexSchema};
+use crate::common::ComplexSchema;
 use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
 
 mod common;
