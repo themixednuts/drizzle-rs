@@ -1,16 +1,36 @@
 use crate::{SQLIndexInfo, SQLTableInfo, ToSQL, sql::SQL, traits::SQLParam};
+use std::any::Any;
 
-/// The type of SQLite database object
-#[derive(Debug, Clone)]
-pub enum SQLSchemaType {
-    /// A regular table
-    Table(&'static dyn SQLTableInfo),
-    /// A view
-    View,
-    /// An index
-    Index(&'static dyn SQLIndexInfo),
-    /// A trigger
-    Trigger,
+/// Trait for database enum types that can be part of a schema
+pub trait SQLEnumInfo: Any + Send + Sync {
+    /// The name of this enum type
+    fn name(&self) -> &'static str;
+
+    /// The SQL CREATE TYPE statement for this enum
+    fn create_type_sql(&self) -> String;
+
+    /// All possible values of this enum
+    fn variants(&self) -> &'static [&'static str];
+}
+
+/// Helper trait for converting enum info objects to trait objects
+pub trait AsEnumInfo: SQLEnumInfo {
+    fn as_enum(&self) -> &dyn SQLEnumInfo;
+}
+
+impl<T: SQLEnumInfo> AsEnumInfo for T {
+    fn as_enum(&self) -> &dyn SQLEnumInfo {
+        self
+    }
+}
+
+impl std::fmt::Debug for dyn SQLEnumInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SQLEnumInfo")
+            .field("name", &self.name())
+            .field("variants", &self.variants())
+            .finish()
+    }
 }
 
 /// Sort direction for ORDER BY clauses

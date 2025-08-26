@@ -1,4 +1,4 @@
-use crate::{SQL, SQLTable, ToSQL, traits::SQLParam};
+use crate::{SQL, SQLSchemaType, SQLTable, ToSQL, traits::SQLParam};
 
 /// Helper function to create a SELECT statement with the given columns
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
@@ -72,27 +72,30 @@ where
 }
 
 /// Helper function to create an UPDATE statement using table generic
-pub fn update<'a, T, Value>(table: T) -> SQL<'a, Value>
+pub fn update<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, Value>,
+    Table: SQLTable<'a, Type, Value>,
+    Type: SQLSchemaType,
     Value: SQLParam + 'a,
 {
     SQL::raw("UPDATE").append(&table)
 }
 
 /// Helper function to create a SET clause for UPDATE
-pub fn set<'a, Table, Value>(assignments: Table::Update) -> SQL<'a, Value>
+pub fn set<'a, Table, Type, Value>(assignments: Table::Update) -> SQL<'a, Value>
 where
     Value: SQLParam + 'a,
-    Table: SQLTable<'a, Value>,
+    Table: SQLTable<'a, Type, Value>,
+    Type: SQLSchemaType,
 {
     SQL::raw("SET").append(assignments.to_sql())
 }
 
 /// Helper function to create a DELETE FROM statement using table generic
-pub fn delete<'a, T, Value>(table: T) -> SQL<'a, Value>
+pub fn delete<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
 where
-    T: SQLTable<'a, Value>,
+    Table: SQLTable<'a, Type, Value>,
+    Type: SQLSchemaType,
     Value: SQLParam + 'a,
 {
     SQL::raw("DELETE FROM").append(&table)
