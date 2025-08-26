@@ -7,7 +7,7 @@ A type-safe SQL query builder for Rust inspired by Drizzle ORM.
 First, create a `schema.rs` file to define your database tables. All schema items must be `pub` for proper destructuring:
 
 ```rust
-use drizzle_rs::{SQLSchema, sqlite::SQLiteTable};
+use drizzle::{SQLSchema, sqlite::SQLiteTable};
 use uuid::Uuid;
 
 #[derive(SQLSchema)]
@@ -57,7 +57,7 @@ Choose between binary (BLOB) or string (TEXT) storage:
 #[blob(primary, default_fn = Uuid::new_v4)]
 pub id: Uuid,
 
-// String storage (36 characters) - human readable  
+// String storage (36 characters) - human readable
 #[text(primary, default_fn = || Uuid::new_v4)]
 pub id: Uuid,
 ```
@@ -67,7 +67,7 @@ pub id: Uuid,
 Indexes are defined as separate structs and included in your schema. They reference table columns using the `Table::column` syntax:
 
 ```rust
-use drizzle_rs::sqlite::SQLiteIndex;
+use drizzle::sqlite::SQLiteIndex;
 
 // Unique compound index on email and name
 #[SQLiteIndex(unique)]
@@ -87,18 +87,18 @@ In your `main.rs`, use the schema without feature flags:
 ```rust
 mod schema;
 
-use drizzle_rs::{core::eq, drizzle};
+use drizzle::{core::eq, drizzle};
 use procmacros::FromRow;
 use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
-             // drizzle_rs::error::Result<()>
-fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
+             // drizzle::error::Result<()>
+fn main() -> Result<(), drizzle::error::DrizzleError> {
     let conn = Connection::open_in_memory()?;
     let (db, Schema { users, posts }) = drizzle!(conn, Schema);
-    
+
     // Create tables (only on fresh database)
     db.create()?;
 
@@ -148,6 +148,7 @@ fn main() -> Result<(), drizzle_rs::error::DrizzleError> {
 InsertUsers::new("John Doe", 25)
     .with_email("john@example.com") // Optional fields via .with_*
 ```
+
 > [!WARNING]  
 > Avoid using `InsertUsers::default()`, as it will fail at runtime if required fields are not provided.
 
@@ -176,27 +177,49 @@ db.insert(users)
 For multiple different operations or when you need ACID guarantees, use transactions:
 
 ```rust
-use drizzle_rs::sqlite::SQLiteTransactionType;
+use drizzle::sqlite::SQLiteTransactionType;
 
+// sync drivers
 db.transaction(SQLiteTransactionType::Deferred, |tx| {
     // Insert users
     tx.insert(users)
         .values([InsertUsers::new("Alice", 30)])
         .execute()?;
-    
-    // Insert posts  
+
+    // Insert posts
     tx.insert(posts)
         .values([InsertPosts::new(user_id)])
         .execute()?;
-    
+
     // Update data
     tx.update(users)
         .set(UpdateUsers::default().with_age(31))
         .r#where(eq(users.name, "Alice"))
         .execute()?;
-    
+
     Ok(())
 })?;
+
+// async drivers - api is wip as I think pinning here is gross.
+db.transaction(SQLiteTransactionType::Deferred, |tx| Box::pin(async move {
+    // Insert users
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 30)])
+        .execute()?;
+
+    // Insert posts
+    tx.insert(posts)
+        .values([InsertPosts::new(user_id)])
+        .execute()?;
+
+    // Update data
+    tx.update(users)
+        .set(UpdateUsers::default().with_age(31))
+        .r#where(eq(users.name, "Alice"))
+        .execute()?;
+
+    Ok(())
+}))?;
 ```
 
 For more details on transaction types, see the [SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html).
@@ -216,7 +239,7 @@ For more details on transaction types, see the [SQLite Transaction Documentation
 ```rust
 // Column types
 #[integer] // INTEGER column
-#[text]    // TEXT column  
+#[text]    // TEXT column
 #[real]    // REAL column
 #[blob]    // BLOB column
 #[boolean] // Stored as INTEGER (0/1)
@@ -234,7 +257,7 @@ For more details on transaction types, see the [SQLite Transaction Documentation
 
 // Special types
 #[text(enum)]    // Store enum as TEXT
-#[integer(enum)] // Store enum as INTEGER  
+#[integer(enum)] // Store enum as INTEGER
 #[text(json)]    // JSON serialized to TEXT
 #[blob(json)]    // JSON serialized to BLOB
 
@@ -251,7 +274,7 @@ Nullability is controlled by Rust's type system:
 struct Example {
     #[integer(primary)]
     id: i32,           // NOT NULL - required field
-    #[text] 
+    #[text]
     name: String,      // NOT NULL - required field
     #[text]
     email: Option<String>, // NULL allowed - optional field
@@ -300,12 +323,12 @@ struct Users {
 
 ## FromRow Derive Macro
 
-The `FromRow` derive macro automatically generates `TryFrom<&Row>` implementations for converting database rows into your structs. It supports all SQLite drivers (rusqlite, libsql, turso).
+The `FromRow` derive macro automatically generates `TryFrom<&Row>` implementations for converting database rows into your structs.
 
 ### Basic Usage
 
 ```rust
-use drizzle_rs::FromRow;
+use drizzle::FromRow;
 
 #[derive(FromRow, Debug)]
 struct User {
@@ -327,13 +350,14 @@ Use the `#[column]` attribute to map struct fields to specific table columns:
 struct UserInfo {
     #[column(Users::id)]
     user_id: i32,
-    #[column(Users::name)] 
+    #[column(Users::name)]
     full_name: String,
     #[column(Users::email)]
     email_address: String,
 }
 
 // Use in SELECT queries with custom column mapping
+// You can collect into your favorite container
 let info: Vec<UserInfo> = db
     .select(UserInfo::default())
     .from(users)
@@ -379,20 +403,18 @@ let names: Vec<UserName> = db
 ```
 
 The macro automatically handles:
+
 - Type conversions between SQLite types and Rust types
 - Optional fields (`Option<T>`)
 - All supported column types (integers, text, blobs, JSON, enums)
-- Multiple SQLite drivers with feature-gated implementations
 
 ## SQLite PRAGMA Support
 
 ```rust
-use drizzle_rs::sqlite::pragma::{Pragma, JournalMode};
+use drizzle::sqlite::pragma::{Pragma, JournalMode};
 
 // Type-safe pragma statements
 let pragma = Pragma::foreign_keys(true);
-let sql = pragma.to_sql();
-
 // Execute with drizzle
-db.execute(sql)?;
+db.execute(pragma)?;
 ```
