@@ -199,6 +199,7 @@ pub(crate) fn generate_column_definitions<'a>(
 
             impl<'a> ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #zst_ident {
                 type Table = #struct_ident;
+                type TableType = ::drizzle::sqlite::common::SQLiteSchemaType;
                 type Type = #rust_type;
 
                 const PRIMARY_KEY: bool = #is_primary;

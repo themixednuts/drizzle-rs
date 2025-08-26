@@ -59,19 +59,19 @@ pub(crate) fn generate_table_impls(
     };
 
     Ok(quote! {
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::core::SQLSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a> > for #struct_ident {
+        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a> > for #struct_ident {
             const NAME: &'a str = #table_name;
-            const TYPE: ::drizzle::core::SQLSchemaType = {
+            const TYPE: ::drizzle::sqlite::common::SQLiteSchemaType = {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                ::drizzle::core::SQLSchemaType::Table(&TABLE_INSTANCE)
+                ::drizzle::sqlite::common::SQLiteSchemaType::Table(&TABLE_INSTANCE)
             };
             #sql_const
             #sql_method
         }
 
 
-        impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
+        impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
             type Select = #select_model;
             type Insert<T> = #insert_model<'a, T>;
             type Update = #update_model;
@@ -80,10 +80,7 @@ pub(crate) fn generate_table_impls(
 
         impl ::drizzle::core::SQLTableInfo for #struct_ident {
             fn name(&self) -> &str {
-                <Self as ::drizzle::core::SQLSchema<'_, ::drizzle::core::SQLSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::NAME
-            }
-            fn r#type(&self) -> ::drizzle::core::SQLSchemaType {
-                <Self as ::drizzle::core::SQLSchema<'_, ::drizzle::core::SQLSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::TYPE
+                <Self as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::NAME
             }
             fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
                 #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
@@ -93,6 +90,10 @@ pub(crate) fn generate_table_impls(
         }
 
         impl ::drizzle::sqlite::traits::SQLiteTableInfo for #struct_ident {
+            fn r#type(&self) -> & ::drizzle::sqlite::common::SQLiteSchemaType {
+                &<Self as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::TYPE
+            }
+
             fn strict(&self) -> bool {
                 #strict
             }

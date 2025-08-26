@@ -61,7 +61,7 @@ fn generate_rusqlite_test(
     quote! {
         #[cfg(feature = "rusqlite")]
         #[test]
-        fn #test_fn_name() -> std::result::Result<(), drizzle_rs::error::DrizzleError> {
+        fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
             use crate::common::helpers::rusqlite_setup;
             let (mut db, schema) = rusqlite_setup::setup_db::<#schema_type>();
 
@@ -107,7 +107,7 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
     quote! {
         #[cfg(feature = "libsql")]
         #[tokio::test]
-        async fn #test_fn_name() -> std::result::Result<(), drizzle_rs::error::DrizzleError> {
+        async fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
             use crate::common::helpers::libsql_setup;
             let (mut db, schema) = libsql_setup::setup_db::<#schema_type>().await;
 
@@ -155,7 +155,7 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
     quote! {
         #[cfg(feature = "turso")]
         #[tokio::test]
-        async fn #test_fn_name() -> std::result::Result<(), drizzle_rs::error::DrizzleError> {
+        async fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
             use crate::common::helpers::turso_setup;
             let (mut db, schema) = turso_setup::setup_db::<#schema_type>().await;
 

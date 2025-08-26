@@ -126,7 +126,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         let turso_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = ::drizzle_rs::error::DrizzleError;
+                    type Error = ::drizzle::error::DrizzleError;
 
                     fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self(
@@ -138,7 +138,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         } else {
             quote! {
                 impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = ::drizzle_rs::error::DrizzleError;
+                    type Error = ::drizzle::error::DrizzleError;
 
                     fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self {
@@ -174,7 +174,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         let libsql_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = ::drizzle_rs::error::DrizzleError;
+                    type Error = ::drizzle::error::DrizzleError;
 
                     fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self(
@@ -186,7 +186,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         } else {
             quote! {
                 impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = ::drizzle_rs::error::DrizzleError;
+                    type Error = ::drizzle::error::DrizzleError;
 
                     fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self {
@@ -223,32 +223,32 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 } else {
                     // Fallback to field name as raw SQL
                     quote! {
-                        columns.push(::drizzle_rs::core::SQL::raw(#field_name_str));
+                        columns.push(::drizzle::core::SQL::raw(#field_name_str));
                     }
                 }
             })
             .collect::<Vec<_>>();
 
         quote! {
-            impl<'a> ::drizzle_rs::core::ToSQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
-                fn to_sql(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+            impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_name {
+                fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
                     let mut columns = Vec::new();
                     #(#column_specs)*
-                    ::drizzle_rs::core::SQL::join(columns, ", ")
+                    ::drizzle::core::SQL::join(columns, ", ")
                 }
             }
 
-            // impl<'a> ::drizzle_rs::core::SQLModel<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> for #struct_name {
-            //     fn columns(&self) -> Box<[&'static dyn ::drizzle_rs::core::SQLColumnInfo]> {
+            // impl<'a> ::drizzle::core::SQLModel<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_name {
+            //     fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
             //         // This is a simplified implementation since we don't have access to table info
             //         // In practice, FromRow structs used with .select() will typically be generated
             //         // by the table macro which provides proper column info
             //         Box::new([])
             //     }
 
-            //     fn values(&self) -> ::drizzle_rs::core::SQL<'a, ::drizzle_rs::sqlite::SQLiteValue<'a>> {
+            //     fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
             //         // FromRow structs are primarily for result mapping, not value generation
-            //         ::drizzle_rs::core::SQL::empty()
+            //         ::drizzle::core::SQL::empty()
             //     }
             // }
         }
