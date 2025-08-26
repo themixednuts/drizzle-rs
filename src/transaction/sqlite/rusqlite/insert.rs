@@ -1,11 +1,12 @@
 use crate::transaction::sqlite::rusqlite::TransactionBuilder;
-use drizzle_core::{SQLModel, SQLTable, ToSQL};
+use drizzle_core::{SQLModel, ToSQL};
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{
         Conflict, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
         insert::InsertBuilder,
     },
+    traits::SQLiteTable,
 };
 use std::marker::PhantomData;
 
@@ -30,7 +31,7 @@ impl<'a, 'conn, Schema, Table>
         InsertValuesSet,
     >
     where
-        Table: SQLTable<'a, SQLiteValue<'a>>,
+        Table: SQLiteTable<'a>,
         Table::Insert<T>: SQLModel<'a, SQLiteValue<'a>>,
     {
         let builder = self.builder.values(values);
@@ -55,7 +56,7 @@ impl<'a, 'conn, Schema, Table>
         InsertValuesSet,
     >
 where
-    Table: SQLTable<'a, SQLiteValue<'a>>,
+    Table: SQLiteTable<'a>,
 {
     /// Adds conflict resolution clause
     pub fn on_conflict<TI>(

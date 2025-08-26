@@ -5,9 +5,11 @@ mod update;
 
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::IsInSchema;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
+#[cfg(feature = "sqlite")]
+use drizzle_sqlite::traits::SQLiteTable;
 use libsql::Row;
 use std::marker::PhantomData;
 
@@ -97,7 +99,7 @@ impl<Schema> Transaction<Schema> {
         InsertInitial,
     >
     where
-        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         TransactionBuilder {
@@ -119,7 +121,7 @@ impl<Schema> Transaction<Schema> {
         UpdateInitial,
     >
     where
-        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         TransactionBuilder {
@@ -136,7 +138,7 @@ impl<Schema> Transaction<Schema> {
         table: T,
     ) -> TransactionBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        T: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         TransactionBuilder {

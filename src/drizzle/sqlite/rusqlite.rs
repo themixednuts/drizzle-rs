@@ -7,8 +7,9 @@ mod update;
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::IsInSchema;
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
+use drizzle_sqlite::traits::SQLiteTable;
 use rusqlite::{Connection, params_from_iter};
 use std::marker::PhantomData;
 
@@ -105,7 +106,7 @@ impl<Schema> Drizzle<Schema> {
         table: Table,
     ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
     where
-        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
@@ -121,7 +122,7 @@ impl<Schema> Drizzle<Schema> {
         table: Table,
     ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
     where
-        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -137,7 +138,7 @@ impl<Schema> Drizzle<Schema> {
         table: T,
     ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        T: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {

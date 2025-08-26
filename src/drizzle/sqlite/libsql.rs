@@ -7,9 +7,11 @@ mod update;
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::IsInSchema;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
+#[cfg(feature = "sqlite")]
+use drizzle_sqlite::traits::SQLiteTable;
 use libsql::{Connection, Row};
 use std::future::Future;
 use std::marker::PhantomData;
@@ -112,7 +114,7 @@ impl<Schema> Drizzle<Schema> {
         table: T,
     ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, T>, InsertInitial>
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>> + 'a,
+        T: IsInSchema<Schema> + SQLiteTable<'a> + 'a,
     {
         use drizzle_sqlite::builder::QueryBuilder;
 
@@ -131,7 +133,7 @@ impl<Schema> Drizzle<Schema> {
         table: T,
     ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, T>, UpdateInitial>
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        T: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -148,7 +150,7 @@ impl<Schema> Drizzle<Schema> {
         table: T,
     ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        T: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
@@ -261,9 +263,8 @@ impl<Schema> Drizzle<Schema> {
     where
         F: for<'t> FnOnce(
             &'t Transaction<Schema>,
-        ) -> Pin<
-            Box<dyn Future<Output = Result<R, drizzle_rs::error::DrizzleError>> + Send + 't>,
-        >,
+        )
+            -> Pin<Box<dyn Future<Output = Result<R, DrizzleError>> + Send + 't>>,
     {
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
         let transaction = Transaction::new(tx, tx_type);

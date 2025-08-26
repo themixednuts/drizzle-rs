@@ -3,11 +3,14 @@ use std::marker::PhantomData;
 use drizzle_core::ToSQL;
 #[cfg(feature = "sqlite")]
 use drizzle_core::{IsInSchema, SQLTable};
-#[cfg(feature = "sqlite")]
-use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
+};
+#[cfg(feature = "sqlite")]
+use drizzle_sqlite::{
+    builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet},
+    traits::{SQLiteTable, ToSQLiteSQL},
 };
 
 use crate::drizzle::sqlite::rusqlite::DrizzleBuilder;
@@ -38,7 +41,7 @@ impl<'a, Schema>
 impl<'a, Schema, T>
     DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     #[inline]
     pub fn r#where(
@@ -87,10 +90,10 @@ where
     pub fn join<U>(
         self,
         table: U,
-        on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        on_condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        U: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, on_condition);
         DrizzleBuilder {
@@ -106,7 +109,7 @@ where
 impl<'a, Schema, T>
     DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn r#where(
         self,
@@ -138,10 +141,10 @@ where
     pub fn join<U>(
         self,
         table: U,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        U: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, condition);
         DrizzleBuilder {
@@ -157,7 +160,7 @@ where
 impl<'a, Schema, T>
     DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn limit(
         self,
@@ -191,7 +194,7 @@ where
 impl<'a, Schema, T>
     DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn offset(
         self,
@@ -210,7 +213,7 @@ where
 impl<'a, Schema, T>
     DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn limit(
         self,

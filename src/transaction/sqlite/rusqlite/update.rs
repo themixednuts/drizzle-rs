@@ -1,10 +1,9 @@
-use std::marker::PhantomData;
-
-use drizzle_core::SQLTable;
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{UpdateInitial, UpdateSetClauseSet, UpdateWhereSet, update::UpdateBuilder},
+    traits::SQLiteTable,
 };
+use std::marker::PhantomData;
 
 use crate::transaction::sqlite::rusqlite::TransactionBuilder;
 
@@ -17,7 +16,7 @@ impl<'a, 'conn, Schema, Table>
         UpdateInitial,
     >
 where
-    Table: SQLTable<'a, SQLiteValue<'a>>,
+    Table: SQLiteTable<'a>,
 {
     #[inline]
     pub fn set(

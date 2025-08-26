@@ -3,6 +3,7 @@ use crate::transaction_builder_join_impl;
 use drizzle_core::ToSQL;
 use drizzle_core::{IsInSchema, SQLTable};
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
+use drizzle_sqlite::traits::{SQLiteTable, ToSQLiteSQL};
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
@@ -44,7 +45,7 @@ impl<'a, 'conn, Schema, T>
         SelectFromSet,
     >
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     #[inline]
     pub fn r#where(
@@ -109,7 +110,7 @@ where
     pub fn join<U>(
         self,
         table: U,
-        on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        on_condition: impl ToSQLiteSQL<'a>,
     ) -> TransactionBuilder<
         'a,
         'conn,
@@ -118,7 +119,7 @@ where
         SelectJoinSet,
     >
     where
-        U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        U: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, on_condition);
         TransactionBuilder {
@@ -140,7 +141,7 @@ impl<'a, 'conn, Schema, T>
         SelectJoinSet,
     >
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn r#where(
         self,
@@ -184,7 +185,7 @@ where
     pub fn join<U>(
         self,
         table: U,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> TransactionBuilder<
         'a,
         'conn,
@@ -193,7 +194,7 @@ where
         SelectJoinSet,
     >
     where
-        U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        U: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, condition);
         TransactionBuilder {
@@ -215,7 +216,7 @@ impl<'a, 'conn, Schema, T>
         SelectWhereSet,
     >
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn limit(
         self,
@@ -266,7 +267,7 @@ impl<'a, 'conn, Schema, T>
         SelectLimitSet,
     >
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn offset(
         self,
@@ -296,7 +297,7 @@ impl<'a, 'conn, Schema, T>
         SelectOrderSet,
     >
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     pub fn limit(
         self,

@@ -32,7 +32,7 @@ macro_rules! drizzle_builder_join_impl {
             pub fn [<$type _join>]<U>(
                 self,
                 table: U,
-                on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+                on_condition: impl ToSQLiteSQL<'a>,
             ) -> DrizzleBuilder<
                 'a,
                 Schema,
@@ -40,7 +40,7 @@ macro_rules! drizzle_builder_join_impl {
                 SelectJoinSet,
             >
             where
-                U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+                U: IsInSchema<Schema> + SQLiteTable<'a>,
             {
                 let builder = self.builder.[<$type _join>](table, on_condition);
                 DrizzleBuilder {
@@ -77,7 +77,7 @@ macro_rules! transaction_builder_join_impl {
             pub fn [<$type _join>]<U>(
                 self,
                 table: U,
-                on_condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+                on_condition: impl ToSQLiteSQL<'a>,
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,
@@ -85,7 +85,7 @@ macro_rules! transaction_builder_join_impl {
                 SelectJoinSet,
             >
             where
-                U: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+                U: IsInSchema<Schema> + SQLiteTable<'a>,
             {
                 let builder = self.builder.[<$type _join>](table, on_condition);
                 TransactionBuilder {
