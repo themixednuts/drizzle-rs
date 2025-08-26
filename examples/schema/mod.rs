@@ -1,6 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 
-use drizzle_rs::{SQLSchema, sqlite::SQLiteTable};
+use drizzle::sqlite::SQLiteTable;
+use drizzle_macros::SQLiteSchema;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -48,7 +49,7 @@ pub struct Posts {
     context: Option<String>,
 }
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct Schema {
     pub users: Users,
     pub posts: Posts,

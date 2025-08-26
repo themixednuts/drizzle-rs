@@ -1,4 +1,5 @@
 use crate::helpers;
+use crate::traits::{SQLiteTable, ToSQLiteSQL};
 use crate::values::SQLiteValue;
 use drizzle_core::traits::{IsInSchema, SQLTable};
 use drizzle_core::{SQL, ToSQL};
@@ -117,10 +118,10 @@ macro_rules! join_impl {
     };
     ($type:ident) => {
         paste! {
-            pub fn [<$type _join>]<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
+            pub fn [<$type _join>]<U: IsInSchema<S> + SQLiteTable<'a>>(
                 self,
                 table: U,
-                condition: SQL<'a, SQLiteValue<'a>>,
+                condition: impl ToSQLiteSQL<'a>,
             ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
                 SelectBuilder {
                     sql: self.sql.append(helpers::[<$type _join>](table, condition)),
@@ -176,14 +177,14 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
 
 impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T>
 where
-    T: SQLTable<'a, SQLiteValue<'a>>,
+    T: SQLiteTable<'a>,
 {
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
+    pub fn join<U: IsInSchema<S> + SQLiteTable<'a>>(
         self,
         table: U,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::join(table, condition)),
@@ -297,10 +298,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     }
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: IsInSchema<S> + SQLTable<'a, SQLiteValue<'a>>>(
+    pub fn join<U: IsInSchema<S> + SQLiteTable<'a>>(
         self,
         table: U,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::join(table, condition)),

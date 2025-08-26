@@ -1,5 +1,7 @@
+use crate::common::SQLiteSchemaType;
+use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, SQLTable, ToSQL};
+use drizzle_core::{SQL, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -44,7 +46,7 @@ pub type UpdateBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 
 impl<'a, Schema, Table> UpdateBuilder<'a, Schema, UpdateInitial, Table>
 where
-    Table: SQLTable<'a, SQLiteValue<'a>>,
+    Table: SQLiteTable<'a>,
 {
     /// Sets the values to update and transitions to the SetClauseSet state
     #[inline]
@@ -52,7 +54,7 @@ where
         self,
         values: Table::Update,
     ) -> UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table> {
-        let sql = crate::helpers::set::<'a, Table, SQLiteValue<'a>>(values);
+        let sql = crate::helpers::set::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(values);
         UpdateBuilder {
             sql: self.sql.append(sql),
             schema: PhantomData,

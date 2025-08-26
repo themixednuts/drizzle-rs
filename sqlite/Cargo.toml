@@ -16,7 +16,6 @@ compact_str = { workspace = true }
 
 rusqlite = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
-libsql-rusqlite = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
@@ -27,7 +26,6 @@ turso = { workspace = true, optional = true }
 [features]
 rusqlite = ["dep:rusqlite", "drizzle-core/rusqlite"]
 libsql = ["dep:libsql", "drizzle-core/libsql"]
-libsql-rusqlite = ["dep:libsql-rusqlite"]
 serde = ["dep:serde_json", "dep:serde", "drizzle-core/serde"]
 uuid = ["dep:uuid", "drizzle-core/uuid"]
 turso = ["dep:turso", "drizzle-core/turso"]

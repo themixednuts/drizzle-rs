@@ -1,3 +1,4 @@
+use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, SQLModel, SQLTable, ToSQL};
 use std::fmt::Debug;
@@ -121,7 +122,7 @@ pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schem
 
 impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
-    Table: SQLTable<'a, SQLiteValue<'a>>,
+    Table: SQLiteTable<'a>,
 {
     /// Sets values to insert and transitions to ValuesSet state
     #[inline]

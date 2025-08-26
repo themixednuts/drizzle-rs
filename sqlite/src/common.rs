@@ -1,4 +1,21 @@
-use drizzle_core::{SQL, ToSQL, traits::SQLParam};
+use drizzle_core::{SQL, SQLEnumInfo, SQLIndexInfo, SQLSchemaType, ToSQL, traits::SQLParam};
+
+use crate::traits::SQLiteTableInfo;
+
+/// The type of database object
+#[derive(Debug, Clone)]
+pub enum SQLiteSchemaType {
+    /// A regular table
+    Table(&'static dyn SQLiteTableInfo),
+    /// A view
+    View,
+    /// An index
+    Index(&'static dyn SQLIndexInfo),
+    /// A trigger
+    Trigger,
+}
+
+impl SQLSchemaType for SQLiteSchemaType {}
 
 //------------------------------------------------------------------------------
 // Number Type

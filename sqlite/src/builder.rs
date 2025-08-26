@@ -5,7 +5,11 @@ pub use drizzle_core::{
 };
 
 // Local imports
-use crate::values::SQLiteValue;
+use crate::{
+    common::SQLiteSchemaType,
+    traits::{SQLiteSQL, SQLiteTable},
+    values::SQLiteValue,
+};
 use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
@@ -78,7 +82,7 @@ pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
 impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
     for QueryBuilder<'a, Schema, State, Table>
 {
-    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+    fn to_sql(&self) -> SQLiteSQL<'a> {
         self.sql.clone()
     }
 }
@@ -155,7 +159,7 @@ where
         table: Table,
     ) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, Table>
     where
-        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
         let sql = crate::helpers::insert(table);
 
@@ -172,9 +176,9 @@ where
         table: Table,
     ) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, Table>
     where
-        Table: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
-        let sql = crate::helpers::update::<'a, Table, SQLiteValue<'a>>(table);
+        let sql = crate::helpers::update::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(table);
 
         update::UpdateBuilder {
             sql,
@@ -184,11 +188,14 @@ where
         }
     }
 
-    pub fn delete<T>(&self, table: T) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, T>
+    pub fn delete<Table>(
+        &self,
+        table: Table,
+    ) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, Table>
     where
-        T: IsInSchema<Schema> + SQLTable<'a, SQLiteValue<'a>>,
+        Table: IsInSchema<Schema> + SQLiteTable<'a>,
     {
-        let sql = crate::helpers::delete::<'a, T, SQLiteValue<'a>>(table);
+        let sql = crate::helpers::delete::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(table);
 
         delete::DeleteBuilder {
             sql,

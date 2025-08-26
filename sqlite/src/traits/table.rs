@@ -1,13 +1,16 @@
 use drizzle_core::{SQLTable, SQLTableInfo};
 
-use crate::{SQLiteValue, traits::SQLiteColumnInfo};
+use crate::{SQLiteValue, common::SQLiteSchemaType, traits::SQLiteColumnInfo};
 
-pub trait SQLiteTable<'a>: SQLTable<'a, SQLiteValue<'a>> + SQLiteTableInfo {
+pub trait SQLiteTable<'a>:
+    SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>> + SQLiteTableInfo
+{
     const WITHOUT_ROWID: bool;
     const STRICT: bool;
 }
 
 pub trait SQLiteTableInfo: SQLTableInfo {
+    fn r#type(&self) -> &SQLiteSchemaType;
     fn without_rowid(&self) -> bool;
     fn strict(&self) -> bool;
 

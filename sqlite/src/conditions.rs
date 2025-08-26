@@ -1,6 +1,6 @@
 // SQLite specific condition functions, particularly for JSON
 
-use crate::values::SQLiteValue;
+use crate::{traits::SQLiteSQL, values::SQLiteValue};
 use drizzle_core::{SQL, ToSQL};
 
 /// Create a JSON field equality condition using SQLite ->> operator
@@ -16,7 +16,7 @@ use drizzle_core::{SQL, ToSQL};
 /// assert_eq!(condition.sql(), "metadata ->>'theme' = ?");
 /// # }
 /// ```
-pub fn json_eq<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_eq<'a, L, R>(left: L, field: &'a str, value: R) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -39,7 +39,7 @@ where
 /// assert_eq!(condition.sql(), "metadata ->>'theme' != ?");
 /// # }
 /// ```
-pub fn json_ne<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_ne<'a, L, R>(left: L, field: &'a str, value: R) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -62,7 +62,7 @@ where
 /// assert_eq!(condition.sql(), "json_extract(metadata, '$.preferences[0]') = ?");
 /// # }
 /// ```
-pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -86,7 +86,7 @@ where
 /// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NOT NULL");
 /// # }
 /// ```
-pub fn json_exists<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_exists<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -108,7 +108,7 @@ where
 /// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NULL");
 /// # }
 /// ```
-pub fn json_not_exists<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_not_exists<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -130,7 +130,7 @@ where
 /// assert_eq!(condition.sql(), "EXISTS(SELECT 1 FROM json_each(metadata, '$.preferences') WHERE value = ?)");
 /// # }
 /// ```
-pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -155,11 +155,7 @@ where
 /// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NOT NULL");
 /// # }
 /// ```
-pub fn json_object_contains_key<'a, L>(
-    left: L,
-    path: &'a str,
-    key: &'a str,
-) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_object_contains_key<'a, L>(left: L, path: &'a str, key: &'a str) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -187,7 +183,7 @@ where
 /// assert_eq!(condition.sql(), "instr(lower(json_extract(metadata, '$.description'))), lower(?)) > 0");
 /// # }
 /// ```
-pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -210,7 +206,7 @@ where
 /// let condition = json_gt(column, "$.score", 85.0);
 /// assert_eq!(condition.sql(), "CAST(json_extract(metadata, '$.score') AS NUMERIC) > ?");
 /// ```
-pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -234,7 +230,7 @@ where
 /// assert_eq!(extract_expr.sql(), "metadata ->>'theme'");
 /// # }
 /// ```
-pub fn json_extract<'a, L>(left: L, path: impl AsRef<str>) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_extract<'a, L>(left: L, path: impl AsRef<str>) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -255,7 +251,7 @@ where
 /// assert_eq!(extract_expr.sql(), "metadata ->'preferences'");
 /// # }
 /// ```
-pub fn json_extract_text<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
+pub fn json_extract_text<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
