@@ -63,10 +63,121 @@ impl ExecutableState for BuilderInit {}
 
 impl ExecutableState for CTEInit {}
 
-/// Main query builder for SQLite
+/// Main query builder for SQLite operations.
 ///
-/// The `S` type parameter represents the schema type, which is used
-/// to ensure type safety when building queries.
+/// `QueryBuilder` provides a type-safe, fluent API for building SQL queries. It uses compile-time
+/// type checking to ensure queries are valid and properly structured.
+///
+/// ## Type Parameters
+///
+/// - `Schema`: The database schema type, ensuring queries only reference valid tables
+/// - `State`: The current builder state, enforcing proper query construction order
+/// - `Table`: The table type being operated on (for single-table operations)
+///
+/// ## Basic Usage
+///
+/// ```rust,ignore
+/// use drizzle_sqlite::builder::QueryBuilder;
+/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+///
+/// #[SQLiteTable(name = "users")]
+/// struct User {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
+/// }
+///
+/// # #[derive(SQLiteSchema)]
+/// struct Schema {
+///     user: User,
+/// }
+///
+/// // Create a query builder for your schema
+/// let builder = QueryBuilder::new::<Schema>();
+/// let Schema { user } = Schema::new();
+///
+/// // Build queries using the fluent API
+/// let query = builder
+///     .select(user.name)
+///     .from(user)
+///     .where_(user.id.eq(1));
+/// ```
+///
+/// ## Query Types
+///
+/// The builder supports all major SQL operations:
+///
+/// ### SELECT Queries
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// let query = builder.select(user.name).from(user);
+/// let query = builder.select((user.id, user.name)).from(user).where_(user.id.gt(10));
+/// ```
+///
+/// ### INSERT Queries
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// let query = builder
+///     .insert(user)
+///     .values([InsertUser::new("Alice")]);
+/// ```
+///
+/// ### UPDATE Queries
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// let query = builder
+///     .update(user)
+///     .set(user.name.eq("Bob"))
+///     .where_(user.id.eq(1));
+/// ```
+///
+/// ### DELETE Queries  
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// let query = builder
+///     .delete(user)
+///     .where_(user.id.lt(10));
+/// ```
+///
+/// ## Common Table Expressions (CTEs)
+///
+/// The builder supports WITH clauses for complex queries:
+///
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// # let user_query = builder.select(user.name).from(user);
+/// let cte = user_query.as_cte("active_users");
+/// let query = builder
+///     .with(cte)
+///     .select(())
+///     .from(cte);
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
     pub sql: SQL<'a, SQLiteValue<'a>>,
@@ -88,7 +199,32 @@ impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
 }
 
 impl<'a> QueryBuilder<'a> {
-    /// Creates a new query builder for the given schema
+    /// Creates a new query builder for the given schema type.
+    ///
+    /// This is the entry point for building SQL queries. The schema type parameter
+    /// ensures that only valid tables from your schema can be used in queries.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use drizzle_sqlite::builder::QueryBuilder;
+    /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    ///
+    /// #[SQLiteTable(name = "users")]
+    /// struct User {
+    ///     #[integer(primary)]
+    ///     id: i32,
+    ///     #[text]
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(SQLiteSchema)]
+    /// struct MySchema {
+    ///     user: User,
+    /// }
+    ///
+    /// let builder = QueryBuilder::new::<MySchema>();
+    /// ```
     pub const fn new<S>() -> QueryBuilder<'a, S, BuilderInit> {
         QueryBuilder {
             sql: SQL::empty(),
@@ -103,6 +239,29 @@ impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
 where
     State: BuilderState,
 {
+    /// Begins a SELECT query with the specified columns.
+    ///
+    /// This method starts building a SELECT statement. You can select individual columns,
+    /// multiple columns as a tuple, or use `()` to select all columns.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::ToSQL;
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// // Select a single column
+    /// let query = builder.select(user.name).from(user);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
+    ///
+    /// // Select multiple columns
+    /// let query = builder.select((user.id, user.name)).from(user);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."id", "users"."name" FROM "users""#);
+    /// ```
     pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -154,6 +313,26 @@ impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
 where
     State: BuilderState,
 {
+    /// Begins an INSERT query for the specified table.
+    ///
+    /// This method starts building an INSERT statement. The table must be part of the schema
+    /// and will be type-checked at compile time.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::ToSQL;
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder
+    ///     .insert(user)
+    ///     .values([InsertUser::new("Alice")]);
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
+    /// ```
     pub fn insert<Table>(
         &self,
         table: Table,
@@ -171,6 +350,27 @@ where
         }
     }
 
+    /// Begins an UPDATE query for the specified table.
+    ///
+    /// This method starts building an UPDATE statement. The table must be part of the schema
+    /// and will be type-checked at compile time.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder
+    ///     .update(user)
+    ///     .set(eq(user.name, "Bob"))
+    ///     .r#where(eq(user.id, 1));
+    /// assert_eq!(query.to_sql().sql(), r#"UPDATE "users" SET "name" = ? WHERE "users"."id" = ?"#);
+    /// ```
     pub fn update<Table>(
         &self,
         table: Table,
@@ -188,6 +388,26 @@ where
         }
     }
 
+    /// Begins a DELETE query for the specified table.
+    ///
+    /// This method starts building a DELETE statement. The table must be part of the schema
+    /// and will be type-checked at compile time.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::{ToSQL, expressions::conditions::lt};
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder
+    ///     .delete(user)
+    ///     .r#where(lt(user.id, 10));
+    /// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "users" WHERE "users"."id" < ?"#);
+    /// ```
     pub fn delete<Table>(
         &self,
         table: Table,
