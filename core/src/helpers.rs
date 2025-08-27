@@ -19,12 +19,12 @@ where
 }
 
 /// Helper function to create a WHERE clause
-pub fn r#where<'a, V>(condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn r#where<'a, V>(condition: impl ToSQL<'a, V>) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
     let sql = SQL::raw("WHERE");
-    sql.append(condition)
+    sql.append(condition.to_sql())
 }
 
 /// Helper function to create a GROUP BY clause

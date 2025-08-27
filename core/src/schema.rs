@@ -1,4 +1,4 @@
-use crate::{SQLIndexInfo, SQLTableInfo, ToSQL, sql::SQL, traits::SQLParam};
+use crate::{ToSQL, sql::SQL, traits::SQLParam};
 use std::any::Any;
 
 /// Trait for database enum types that can be part of a schema

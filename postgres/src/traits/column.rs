@@ -4,6 +4,7 @@ use std::any::Any;
 use crate::{PostgresValue, traits::PostgresTableInfo};
 
 pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {}
+impl<'a, T: SQLColumn<'a, PostgresValue<'a>>> PostgresColumn<'a> for T {}
 
 pub trait PostgresColumnInfo: SQLColumnInfo + Any {
     fn table(&self) -> &dyn PostgresTableInfo;

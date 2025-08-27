@@ -17,10 +17,15 @@ compact_str = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true, default-features = false, features = [
+  "alloc",
+] }
 uuid = { workspace = true, optional = true }
 paste = { workspace = true }
 turso = { workspace = true, optional = true }
+
+[dev-dependencies]
+drizzle-macros = { workspace = true, features = ["sqlite"] }
 
 
 [features]
