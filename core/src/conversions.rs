@@ -114,19 +114,49 @@ where
     }
 }
 
-impl<'a, V> ToSQL<'a, V> for i32
+impl<'a, V> ToSQL<'a, V> for i8
 where
-    V: SQLParam + 'a + From<i64>,
+    V: SQLParam + 'a + From<i8>,
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self as i64))
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for i16
+where
+    V: SQLParam + 'a + From<i16>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for i32
+where
+    V: SQLParam + 'a + From<i32>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
     }
 }
 
 impl<'a, V> ToSQL<'a, V> for i64
 where
     V: SQLParam + 'a + From<i64>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for f32
+where
+    V: SQLParam + 'a + From<f32>,
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
@@ -146,11 +176,71 @@ where
 
 impl<'a, V> ToSQL<'a, V> for bool
 where
-    V: SQLParam + 'a + From<i64>,
+    V: SQLParam + 'a + From<bool>,
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self as i64))
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for u8
+where
+    V: SQLParam + 'a + From<u8>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for u16
+where
+    V: SQLParam + 'a + From<u16>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for u32
+where
+    V: SQLParam + 'a + From<u32>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for u64
+where
+    V: SQLParam + 'a + From<u64>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for isize
+where
+    V: SQLParam + 'a + From<isize>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for usize
+where
+    V: SQLParam + 'a + From<usize>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::parameter(V::from(*self))
     }
 }
 
