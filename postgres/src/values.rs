@@ -1,6 +1,6 @@
 //! PostgreSQL value conversion traits and types
 
-use drizzle_core::{Placeholder, SQL, SQLParam, ToSQL, error::DrizzleError};
+use drizzle_core::{Placeholder, SQL, SQLParam, error::DrizzleError};
 
 mod owned;
 pub use owned::OwnedPostgresValue;
@@ -379,6 +379,19 @@ impl<'a> From<PostgresValue<'a>> for SQL<'a, PostgresValue<'a>> {
 
 // --- Integer Types ---
 
+// i8 → SMALLINT (PostgreSQL doesn't have a native i8 type)
+impl<'a> From<i8> for PostgresValue<'a> {
+    fn from(value: i8) -> Self {
+        PostgresValue::Smallint(value as i16)
+    }
+}
+
+impl<'a> From<&'a i8> for PostgresValue<'a> {
+    fn from(value: &'a i8) -> Self {
+        PostgresValue::Smallint(*value as i16)
+    }
+}
+
 // i16 (SMALLINT)
 impl<'a> From<i16> for PostgresValue<'a> {
     fn from(value: i16) -> Self {
@@ -415,6 +428,84 @@ impl<'a> From<i64> for PostgresValue<'a> {
 impl<'a> From<&'a i64> for PostgresValue<'a> {
     fn from(value: &'a i64) -> Self {
         PostgresValue::Bigint(*value)
+    }
+}
+
+// u8 → SMALLINT (PostgreSQL doesn't have unsigned types)
+impl<'a> From<u8> for PostgresValue<'a> {
+    fn from(value: u8) -> Self {
+        PostgresValue::Smallint(value as i16)
+    }
+}
+
+impl<'a> From<&'a u8> for PostgresValue<'a> {
+    fn from(value: &'a u8) -> Self {
+        PostgresValue::Smallint(*value as i16)
+    }
+}
+
+// u16 → INTEGER (cast to larger signed type)
+impl<'a> From<u16> for PostgresValue<'a> {
+    fn from(value: u16) -> Self {
+        PostgresValue::Integer(value as i32)
+    }
+}
+
+impl<'a> From<&'a u16> for PostgresValue<'a> {
+    fn from(value: &'a u16) -> Self {
+        PostgresValue::Integer(*value as i32)
+    }
+}
+
+// u32 → BIGINT (cast to larger signed type since u32 max > i32 max)
+impl<'a> From<u32> for PostgresValue<'a> {
+    fn from(value: u32) -> Self {
+        PostgresValue::Bigint(value as i64)
+    }
+}
+
+impl<'a> From<&'a u32> for PostgresValue<'a> {
+    fn from(value: &'a u32) -> Self {
+        PostgresValue::Bigint(*value as i64)
+    }
+}
+
+// u64 → BIGINT (cast with potential overflow since u64 max > i64 max)
+impl<'a> From<u64> for PostgresValue<'a> {
+    fn from(value: u64) -> Self {
+        PostgresValue::Bigint(value as i64)
+    }
+}
+
+impl<'a> From<&'a u64> for PostgresValue<'a> {
+    fn from(value: &'a u64) -> Self {
+        PostgresValue::Bigint(*value as i64)
+    }
+}
+
+// isize → BIGINT (platform-dependent size)
+impl<'a> From<isize> for PostgresValue<'a> {
+    fn from(value: isize) -> Self {
+        PostgresValue::Bigint(value as i64)
+    }
+}
+
+impl<'a> From<&'a isize> for PostgresValue<'a> {
+    fn from(value: &'a isize) -> Self {
+        PostgresValue::Bigint(*value as i64)
+    }
+}
+
+// usize → BIGINT (platform-dependent size)
+impl<'a> From<usize> for PostgresValue<'a> {
+    fn from(value: usize) -> Self {
+        PostgresValue::Bigint(value as i64)
+    }
+}
+
+impl<'a> From<&'a usize> for PostgresValue<'a> {
+    fn from(value: &'a usize) -> Self {
+        PostgresValue::Bigint(*value as i64)
     }
 }
 
