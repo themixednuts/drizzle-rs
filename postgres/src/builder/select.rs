@@ -99,6 +99,7 @@ impl SelectOffsetSet {
     }
 }
 
+#[doc(hidden)]
 macro_rules! join_impl {
     () => {
         join_impl!(natural);

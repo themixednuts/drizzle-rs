@@ -98,6 +98,7 @@ impl SelectOffsetSet {
     }
 }
 
+#[doc(hidden)]
 macro_rules! join_impl {
     () => {
         join_impl!(natural);
@@ -147,7 +148,97 @@ impl ExecutableState for SelectJoinSet {}
 // SelectBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a SELECT query specifically for SQLite
+/// Builds a SELECT query specifically for SQLite.
+///
+/// `SelectBuilder` provides a type-safe, fluent API for constructing SELECT statements
+/// with compile-time verification of query structure and table relationships.
+///
+/// ## Type Parameters
+///
+/// - `Schema`: The database schema type, ensuring only valid tables can be referenced
+/// - `State`: The current builder state, enforcing proper query construction order
+/// - `Table`: The primary table being queried (when applicable)
+///
+/// ## Query Building Flow
+///
+/// 1. Start with `QueryBuilder::select()` to specify columns
+/// 2. Add `from()` to specify the source table
+/// 3. Optionally add joins, conditions, grouping, ordering, and limits
+///
+/// ## Basic Usage
+///
+/// ```rust,ignore
+/// use drizzle_sqlite::builder::QueryBuilder;
+/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// use drizzle_core::ToSQL;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct User {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
+///     #[text]
+///     email: Option<String>,
+/// }
+///
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     user: User,
+/// }
+///
+/// let builder = QueryBuilder::new::<Schema>();
+/// let Schema { user } = Schema::new();
+///
+/// // Basic SELECT
+/// let query = builder.select(user.name).from(user);
+/// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
+///
+/// // SELECT with WHERE clause
+/// use drizzle_core::expressions::conditions::gt;
+/// let query = builder
+///     .select((user.id, user.name))
+///     .from(user)
+///     .r#where(gt(user.id, 10));
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?"#
+/// );
+/// ```
+///
+/// ## Advanced Queries
+///
+/// ### JOIN Operations
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::{ToSQL, expressions::conditions::eq};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "posts")] struct Post { #[integer(primary)] id: i32, #[integer] user_id: i32, #[text] title: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User, post: Post }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user, post } = Schema::new();
+/// let query = builder
+///     .select((user.name, post.title))
+///     .from(user)
+///     .join(post, eq(user.id, post.user_id));
+/// ```
+///
+/// ### Ordering and Limiting
+/// ```rust,ignore
+/// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::{ToSQL, OrderBy};
+/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// let query = builder
+///     .select(user.name)
+///     .from(user)
+///     .order_by(user.name, OrderBy::Asc)
+///     .limit(10);
+/// ```
 pub type SelectBuilder<'a, Schema, State, Table = ()> =
     super::QueryBuilder<'a, Schema, State, Table>;
 
@@ -156,7 +247,25 @@ pub type SelectBuilder<'a, Schema, State, Table = ()> =
 //------------------------------------------------------------------------------
 
 impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
-    /// Specifies the table to select FROM and transitions state
+    /// Specifies the table or subquery to select FROM.
+    ///
+    /// This method transitions the builder from the initial state to the FROM state,
+    /// enabling subsequent WHERE, JOIN, ORDER BY, and other clauses.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::ToSQL;
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// // Select from a table
+    /// let query = builder.select(user.name).from(user);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
+    /// ```
     #[inline]
     pub fn from<T>(self, query: T) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
@@ -179,7 +288,32 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T>
 where
     T: SQLiteTable<'a>,
 {
-    /// Adds a JOIN clause to the query
+    /// Adds an INNER JOIN clause to the query.
+    ///
+    /// Joins another table to the current query using the specified condition.
+    /// The joined table must be part of the schema and the condition should
+    /// relate columns from both tables.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "posts")] struct Post { #[integer(primary)] id: i32, #[integer] user_id: i32, #[text] title: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User, post: Post }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user, post } = Schema::new();
+    /// let query = builder
+    ///     .select((user.name, post.title))
+    ///     .from(user)
+    ///     .join(post, eq(user.id, post.user_id));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"SELECT "users"."name", "posts"."title" FROM "users" JOIN "posts" ON "users"."id" = "posts"."user_id""#
+    /// );
+    /// ```
     #[inline]
     pub fn join<U: IsInSchema<S> + SQLiteTable<'a>>(
         self,
@@ -196,10 +330,41 @@ where
 
     join_impl!();
 
+    /// Adds a WHERE clause to filter query results.
+    ///
+    /// This method applies conditions to filter the rows returned by the query.
+    /// You can use various condition functions from `drizzle_core::expressions::conditions`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use drizzle_sqlite::builder::QueryBuilder;
+    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # use drizzle_core::{ToSQL, expressions::conditions::{eq, gt, and}};
+    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[integer] age: Option<i32> }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// // Single condition
+    /// let query = builder
+    ///     .select(user.name)
+    ///     .from(user)
+    ///     .r#where(gt(user.id, 10));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"SELECT "users"."name" FROM "users" WHERE "users"."id" > ?"#
+    /// );
+    ///
+    /// // Multiple conditions
+    /// let query = builder
+    ///     .select(user.name)  
+    ///     .from(user)
+    ///     .r#where(and([gt(user.id, 10), eq(user.name, "Alice")]));
+    /// ```
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::r#where(condition)),
