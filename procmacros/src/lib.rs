@@ -30,7 +30,7 @@
 
 extern crate proc_macro;
 
-mod combinators;
+mod generators;
 mod drizzle_test;
 mod fromrow;
 mod sql;

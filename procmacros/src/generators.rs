@@ -1,8 +1,8 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-/// Generic combinator for SQLColumnInfo trait implementations
-pub fn sql_column_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLColumnInfo trait implementation
+pub fn generate_sql_column_info(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl ::drizzle::core::SQLColumnInfo for #struct_ident {
             #body
@@ -10,8 +10,8 @@ pub fn sql_column_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenStr
     }
 }
 
-/// Generic combinator for SQLTableInfo trait implementations
-pub fn sql_table_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLTableInfo trait implementation
+pub fn generate_sql_table_info(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl ::drizzle::core::SQLTableInfo for #struct_ident {
             #body
@@ -19,8 +19,8 @@ pub fn sql_table_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenStre
     }
 }
 
-/// Generic combinator for basic struct definitions with common derives
-pub fn basic_struct_def(
+/// Generate basic struct with common derives
+pub fn generate_struct(
     struct_vis: &syn::Visibility, 
     struct_ident: &Ident, 
     fields: TokenStream,
@@ -42,8 +42,8 @@ pub fn basic_struct_def(
     }
 }
 
-/// Generic combinator for impl blocks with common patterns
-pub fn basic_impl_block(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate basic impl block
+pub fn generate_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl #struct_ident {
             #body

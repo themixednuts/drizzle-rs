@@ -1,8 +1,8 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-/// SQLite-specific ToSQL implementation combinator
-pub fn to_sql_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite ToSQL trait implementation
+pub fn generate_to_sql(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
             fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
@@ -12,8 +12,8 @@ pub fn to_sql_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     }
 }
 
-/// SQLite-specific SQLColumn implementation combinator
-pub fn sql_column_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLColumn trait implementation
+pub fn generate_sql_column(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
             #body
@@ -21,8 +21,8 @@ pub fn sql_column_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     }
 }
 
-/// SQLite-specific SQLiteColumnInfo implementation combinator
-pub fn sqlite_column_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLiteColumnInfo trait implementation
+pub fn generate_sqlite_column_info(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl ::drizzle::sqlite::traits::SQLiteColumnInfo for #struct_ident {
             #body
@@ -30,8 +30,8 @@ pub fn sqlite_column_info_impl(struct_ident: &Ident, body: TokenStream) -> Token
     }
 }
 
-/// SQLite-specific SQLiteColumn implementation combinator
-pub fn sqlite_column_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLiteColumn trait implementation
+pub fn generate_sqlite_column(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::sqlite::traits::SQLiteColumn<'a> for #struct_ident {
             #body
@@ -39,8 +39,8 @@ pub fn sqlite_column_impl(struct_ident: &Ident, body: TokenStream) -> TokenStrea
     }
 }
 
-/// SQLite-specific SQLiteTableInfo implementation combinator
-pub fn sqlite_table_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLiteTableInfo trait implementation
+pub fn generate_sqlite_table_info(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl ::drizzle::sqlite::traits::SQLiteTableInfo for #struct_ident {
             #body
@@ -48,8 +48,8 @@ pub fn sqlite_table_info_impl(struct_ident: &Ident, body: TokenStream) -> TokenS
     }
 }
 
-/// SQLite-specific SQLiteTable implementation combinator
-pub fn sqlite_table_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLiteTable trait implementation
+pub fn generate_sqlite_table(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::sqlite::traits::SQLiteTable<'a> for #struct_ident {
             #body
@@ -57,8 +57,8 @@ pub fn sqlite_table_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream
     }
 }
 
-/// SQLite-specific SQLTable implementation combinator
-pub fn sql_table_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLTable trait implementation
+pub fn generate_sql_table(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
             #body
@@ -66,8 +66,8 @@ pub fn sql_table_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     }
 }
 
-/// SQLite-specific SQLSchema implementation combinator
-pub fn sql_schema_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLSchema trait implementation
+pub fn generate_sql_schema(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
             #body
@@ -75,8 +75,8 @@ pub fn sql_schema_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     }
 }
 
-/// SQLite-specific SQLSchema for fields implementation combinator
-pub fn sql_schema_field_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// Generate SQLite SQLSchema for fields trait implementation
+pub fn generate_sql_schema_field(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl<'a> ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
             #body
@@ -84,8 +84,8 @@ pub fn sql_schema_field_impl(struct_ident: &Ident, body: TokenStream) -> TokenSt
     }
 }
 
-/// Combinator for generating method that forwards to original field
-pub fn forward_to_original_field(
+/// Generate method that forwards to original field
+pub fn generate_forward_method(
     method_name: &Ident,
     original_field_type: &Ident,
     return_type: TokenStream,
