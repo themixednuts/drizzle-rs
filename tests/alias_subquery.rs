@@ -4,7 +4,7 @@ use drizzle::prelude::*;
 fn test_alias_functionality() {
     // Test basic alias
     let table_alias: SQL<String> = SQL::raw("users").alias("u");
-    assert_eq!(table_alias.sql(), "users AS u");
+    assert_eq!(table_alias.sql(), "users AS \"u\"");
 
     #[allow(unused_doc_comments)]
     ///```
@@ -14,7 +14,7 @@ fn test_alias_functionality() {
     ///
     /// ```
     let column_alias: SQL<String> = SQL::raw("user_name").alias("name");
-    assert_eq!(column_alias.sql(), "user_name AS name");
+    assert_eq!(column_alias.sql(), "user_name AS \"name\"");
 }
 
 #[test]
@@ -48,6 +48,6 @@ fn test_aliased_subquery() {
         .alias("post_count");
     assert_eq!(
         aliased_subquery.sql(),
-        "(SELECT COUNT(*) FROM posts) AS post_count"
+        "(SELECT COUNT(*) FROM posts) AS \"post_count\""
     );
 }

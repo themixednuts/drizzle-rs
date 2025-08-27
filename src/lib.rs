@@ -90,15 +90,6 @@ pub mod error {
 }
 
 /// Core functionality shared across all database implementations.
-///
-/// This module provides the foundational traits, types, and utilities that power
-/// Drizzle's type-safe SQL generation and query building capabilities.
-///
-/// Key components:
-/// - **Traits**: Core database abstraction traits
-/// - **SQL Types**: SQL generation and parameter binding
-/// - **Prepared Statements**: Cached query execution
-/// - **Expressions**: Condition building and SQL functions
 pub mod core {
     // Core traits and types
     pub use drizzle_core::traits::*;
@@ -117,15 +108,6 @@ pub mod core {
 }
 
 /// SQLite-specific functionality and components.
-///
-/// This module provides SQLite-specific query building, macros, and utilities.
-/// Available when the `sqlite` feature is enabled.
-///
-/// Key components:
-/// - **QueryBuilder**: SQLite query construction
-/// - **Macros**: Table, schema, enum, and index derive macros
-/// - **Pragma**: SQLite pragma statement support
-/// - **Transactions**: SQLite transaction management
 #[cfg(feature = "sqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
@@ -272,7 +254,7 @@ pub mod prelude {
 #[cfg(test)]
 mod sqlite_tests {
     use drizzle::prelude::*;
-    use drizzle_macros::{PostgresSchema, PostgresTable, SQLiteTable};
+    use drizzle_macros::SQLiteTable;
 
     use drizzle_sqlite::builder::QueryBuilder;
     #[cfg(feature = "rusqlite")]
@@ -319,6 +301,17 @@ mod sqlite_tests {
 
         let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);
+    }
+
+    #[test]
+    fn test_alias() {
+        let qb = QueryBuilder::new::<Schema>();
+        let u = User::alias("u");
+
+        let stmt = qb.select(()).from(u).r#where(eq(u.id, 1));
+        let sql = stmt.to_sql();
+
+        println!("{sql}");
     }
 
     #[cfg(feature = "rusqlite")]
@@ -384,7 +377,6 @@ mod sqlite_tests {
 #[cfg(feature = "postgres")]
 #[cfg(test)]
 mod postgres_tests {
-    use super::*;
     use drizzle_core::{SQLColumnInfo, ToSQL, expressions::conditions::eq};
     use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresSchema, PostgresTable};
 
@@ -477,7 +469,7 @@ mod postgres_tests {
     fn test_postgres_stuff() {
         use crate::postgres::QueryBuilder;
 
-        let Schema { user, post, .. } = Schema::new();
+        let Schema { user, .. } = Schema::new();
         let qb = QueryBuilder::new::<Schema>();
 
         let stmt = qb.select(user.id).from(user).r#where(eq(user.id, 12));

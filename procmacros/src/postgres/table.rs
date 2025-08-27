@@ -1,3 +1,4 @@
+mod alias;
 mod attributes;
 mod column_definitions;
 mod context;
@@ -11,6 +12,7 @@ mod validation;
 
 use super::field::FieldInfo;
 pub use attributes::TableAttributes;
+use alias::generate_aliased_table;
 use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
@@ -98,6 +100,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
+    let alias_definitions = generate_aliased_table(&ctx)?;
 
     // Generate fields for new() method
     let new_method_fields = field_infos
@@ -132,6 +135,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #column_definitions
         #table_impls
         #model_definitions
+        #alias_definitions
         // #json_impls
 
         // Database-specific implementations

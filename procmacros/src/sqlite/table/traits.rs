@@ -1,6 +1,6 @@
 use super::context::MacroContext;
 use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::Result;
 
 /// Generates the `SQLSchema` and `SQLTable` implementations.
@@ -120,6 +120,5 @@ pub(crate) fn generate_table_impls(
                 ::drizzle::core::SQL::table(&INSTANCE)
             }
         }
-
     })
 }

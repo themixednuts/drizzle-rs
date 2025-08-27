@@ -269,7 +269,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     #[inline]
     pub fn from<T>(self, query: T) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQLiteSQL<'a>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::from(query)),

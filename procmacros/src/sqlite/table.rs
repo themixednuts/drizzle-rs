@@ -1,3 +1,4 @@
+mod alias;
 mod attributes;
 mod column_definitions;
 mod context;
@@ -18,6 +19,7 @@ pub mod libsql;
 
 use super::field::FieldInfo;
 pub use attributes::TableAttributes;
+use alias::generate_aliased_table;
 use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
@@ -135,6 +137,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let json_impls = generate_json_impls(&ctx)?;
+    let alias_definitions = generate_aliased_table(&ctx)?;
 
     #[cfg(feature = "rusqlite")]
     let rusqlite_impls = rusqlite::generate_rusqlite_impls(&ctx)?;
@@ -171,6 +174,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         #table_impls
         #model_definitions
         #json_impls
+        #alias_definitions
         #rusqlite_impls
         #turso_impls
         #libsql_impls

@@ -118,8 +118,9 @@ impl<'a, V: SQLParam + 'a> SQLChunk<'a, V> {
             }
             SQLChunk::Alias { chunk, alias } => {
                 chunk.write_to_buffer(buf);
-                buf.push_str(" AS ");
+                buf.push_str(" AS \"");
                 buf.push_str(alias);
+                buf.push('"');
             }
             SQLChunk::Subquery(sql) => {
                 buf.push('(');
@@ -491,8 +492,9 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             }
             SQLChunk::Alias { chunk, alias } => {
                 chunk.write_to_buffer(buf);
-                buf.push_str(" AS ");
+                buf.push_str(" AS \"");
                 buf.push_str(alias);
+                buf.push('"');
             }
             SQLChunk::Subquery(sql) => {
                 buf.push('(');
