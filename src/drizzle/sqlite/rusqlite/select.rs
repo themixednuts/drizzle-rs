@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use drizzle_core::ToSQL;
 #[cfg(feature = "sqlite")]
-use drizzle_core::{IsInSchema, SQLTable};
+use drizzle_core::IsInSchema;
+use drizzle_core::ToSQL;
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},

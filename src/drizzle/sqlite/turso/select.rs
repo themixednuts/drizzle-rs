@@ -1,7 +1,7 @@
 use crate::drizzle::sqlite::turso::DrizzleBuilder;
 use crate::drizzle_builder_join_impl;
+use drizzle_core::IsInSchema;
 use drizzle_core::ToSQL;
-use drizzle_core::{IsInSchema, SQLTable};
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::traits::{SQLiteTable, ToSQLiteSQL};
 use drizzle_sqlite::{
@@ -38,7 +38,7 @@ where
     #[inline]
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
     {
         let builder = self.builder.r#where(condition);

@@ -1,7 +1,7 @@
 use crate::transaction::sqlite::rusqlite::TransactionBuilder;
 use crate::transaction_builder_join_impl;
+use drizzle_core::IsInSchema;
 use drizzle_core::ToSQL;
-use drizzle_core::{IsInSchema, SQLTable};
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::traits::{SQLiteTable, ToSQLiteSQL};
 use drizzle_sqlite::{
