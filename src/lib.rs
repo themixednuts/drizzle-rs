@@ -1,19 +1,104 @@
+//! # Drizzle for Rust
+//!
+//! Drizzle is a type-safe SQL query builder for Rust, supporting multiple database
+//! drivers including SQLite (via rusqlite, libsql, turso) and PostgreSQL (via sqlx).
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use drizzle::prelude::*;
+//! use drizzle::rusqlite::Drizzle;
+//!
+//! #[SQLiteTable(name = "Users")]
+//! struct User {
+//!     #[integer(primary)]
+//!     id: i32,
+//!     #[text]
+//!     name: String,
+//!     #[text]
+//!     email: Option<String>,
+//! }
+//!
+//! #[derive(SQLiteSchema)]
+//! struct Schema {
+//!     user: User,
+//! }
+//!
+//! # fn main() -> drizzle::Result<()> {
+//! // Connect to database and perform operations
+//! let conn = rusqlite::Connection::open_in_memory()?;
+//! let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::new());
+//!
+//! // Create tables
+//! db.create()?;
+//!
+//! // Insert data
+//! db.insert(user)
+//!     .values([InsertUser::new("John Doe").with_email("john@example.com")])
+//!     .execute()?;
+//!
+//! // Query data
+//! let users: Vec<SelectUser> = db.select(()).from(user).all()?;
+//! assert_eq!(users.len(), 1);
+//! assert_eq!(users[0].id, 1);
+//! assert_eq!(users[0].name, "John Doe");
+//! assert_eq!(users[0].email, Some("john@example.com".to_string()));
+//! # Ok(())
+//! # }
+//! ```
+//!
+//!
+//! ## Database Support
+//!
+//! | Database   | Driver    | Feature Flag   | Status |
+//! |------------|-----------|----------------|--------|
+//! | SQLite     | rusqlite  | `rusqlite`     | ✅     |
+//! | SQLite     | libsql    | `libsql`       | ✅     |
+//! | SQLite     | turso     | `turso`        | ✅     |
+//! | PostgreSQL | sqlx      | `sqlx-postgres`| 🚧     |
+//! | MySQL      | sqlx      | `mysql`        | 🚧     |
+
+#![cfg_attr(docsrs, feature(doc_cfg, rustdoc_internals))]
+
 mod drizzle;
 mod transaction;
+#[macro_use]
+mod macros;
+
+#[doc(hidden)]
+pub(crate) use drizzle_builder_join_impl;
+#[doc(hidden)]
+pub(crate) use transaction_builder_join_impl;
 
 // Essential re-exports
 pub use drizzle_core::error::Result;
 pub use drizzle_macros::sql;
 
 #[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso")))
+)]
 pub use drizzle_macros::FromRow;
 
-// Error types
+/// Error types and result handling.
+///
+/// This module provides access to [`DrizzleError`] for comprehensive error handling
+/// across all database operations and SQL generation.
 pub mod error {
     pub use drizzle_core::error::DrizzleError;
 }
 
-/// Core functionality
+/// Core functionality shared across all database implementations.
+///
+/// This module provides the foundational traits, types, and utilities that power
+/// Drizzle's type-safe SQL generation and query building capabilities.
+///
+/// Key components:
+/// - **Traits**: Core database abstraction traits
+/// - **SQL Types**: SQL generation and parameter binding
+/// - **Prepared Statements**: Cached query execution
+/// - **Expressions**: Condition building and SQL functions
 pub mod core {
     // Core traits and types
     pub use drizzle_core::traits::*;
@@ -31,8 +116,18 @@ pub mod core {
     pub use drizzle_core::expressions::{alias, cast, r#typeof};
 }
 
-// Shared SQLite components
+/// SQLite-specific functionality and components.
+///
+/// This module provides SQLite-specific query building, macros, and utilities.
+/// Available when the `sqlite` feature is enabled.
+///
+/// Key components:
+/// - **QueryBuilder**: SQLite query construction
+/// - **Macros**: Table, schema, enum, and index derive macros
+/// - **Pragma**: SQLite pragma statement support
+/// - **Transactions**: SQLite transaction management
 #[cfg(feature = "sqlite")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
     pub use drizzle_sqlite::builder::QueryBuilder;
 
@@ -49,22 +144,40 @@ pub mod sqlite {
     pub use drizzle_sqlite::values;
 }
 
-// Rusqlite driver
+/// Rusqlite driver implementation.
+///
+/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
+/// for working with SQLite databases via the rusqlite crate.
+///
+/// Enabled with the `rusqlite` feature flag.
 #[cfg(feature = "rusqlite")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
 pub mod rusqlite {
     pub use crate::drizzle::sqlite::rusqlite::Drizzle;
     pub use crate::transaction::sqlite::rusqlite::Transaction;
 }
 
-// LibSQL driver
+/// LibSQL driver implementation.
+///
+/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
+/// for working with SQLite databases via the libsql crate.
+///
+/// Enabled with the `libsql` feature flag.
 #[cfg(feature = "libsql")]
+#[cfg_attr(docsrs, doc(cfg(feature = "libsql")))]
 pub mod libsql {
     pub use crate::drizzle::sqlite::libsql::Drizzle;
     pub use crate::transaction::sqlite::libsql::Transaction;
 }
 
-// Turso driver
+/// Turso driver implementation.
+///
+/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
+/// for working with Turso (libSQL-compatible) databases.
+///
+/// Enabled with the `turso` feature flag.
 #[cfg(feature = "turso")]
+#[cfg_attr(docsrs, doc(cfg(feature = "turso")))]
 pub mod turso {
     pub use crate::drizzle::sqlite::turso::Drizzle;
     pub use crate::transaction::sqlite::turso::Transaction;
@@ -77,8 +190,20 @@ pub mod turso {
 //     pub use crate::transaction::postgres::sqlx::Transaction;
 // }
 
-// Shared PostgreSQL components
+/// PostgreSQL-specific functionality and components.
+///
+/// This module provides PostgreSQL-specific query building, macros, and utilities.
+/// Available when the `postgres` feature is enabled.
+///
+/// Key components:
+/// - **QueryBuilder**: PostgreSQL query construction
+/// - **Macros**: Table, schema, enum, and index derive macros
+/// - **Enums**: Native PostgreSQL enum support
+/// - **Transactions**: PostgreSQL transaction management
+///
+/// Note: Currently under development (🚧).
 #[cfg(feature = "postgres")]
+#[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
 pub mod postgres {
     pub use drizzle_postgres::builder::QueryBuilder;
 
@@ -95,6 +220,12 @@ pub mod postgres {
     pub use drizzle_postgres::values;
 }
 
+/// MySQL-specific functionality and components.
+///
+/// This module will provide MySQL-specific query building, macros, and utilities.
+/// Available when the `mysql` feature is enabled.
+///
+/// Note: Currently under development (🚧).
 #[cfg(feature = "mysql")]
 pub mod mysql {
     // pub use querybuilder::mysql::...;
@@ -105,7 +236,7 @@ pub mod mysql {
 /// This includes all shared functionality but NOT the `Drizzle` struct.
 /// Users must explicitly import the driver they want:
 ///
-/// ```ignore
+/// ```
 /// use drizzle::prelude::*;           // Shared functionality
 /// use drizzle::rusqlite::Drizzle;    // Explicit driver choice
 /// ```
@@ -141,7 +272,7 @@ pub mod prelude {
 #[cfg(test)]
 mod sqlite_tests {
     use drizzle::prelude::*;
-    use drizzle_macros::SQLiteTable;
+    use drizzle_macros::{PostgresSchema, PostgresTable, SQLiteTable};
 
     use drizzle_sqlite::builder::QueryBuilder;
     #[cfg(feature = "rusqlite")]
@@ -253,8 +384,9 @@ mod sqlite_tests {
 #[cfg(feature = "postgres")]
 #[cfg(test)]
 mod postgres_tests {
-    use drizzle_core::{SQLColumnInfo, ToSQL};
-    use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresTable};
+    use super::*;
+    use drizzle_core::{SQLColumnInfo, ToSQL, expressions::conditions::eq};
+    use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresSchema, PostgresTable};
 
     #[derive(Debug, Clone, Default, PostgresEnum)]
     pub enum Status {
@@ -298,6 +430,13 @@ mod postgres_tests {
     #[PostgresIndex(unique)]
     pub struct UserEmailIdx(User::email);
 
+    #[derive(PostgresSchema)]
+    pub struct Schema {
+        pub user: User,
+        pub post: Post,
+        pub user_email_idx: UserEmailIdx,
+    }
+
     #[test]
     fn test_postgres_table_creation() {
         let user = User::new();
@@ -335,8 +474,21 @@ mod postgres_tests {
     }
 
     #[test]
-    fn test_postgress_stuff() {
-        use drizzle_core::ToSQL;
+    fn test_postgres_stuff() {
+        use crate::postgres::QueryBuilder;
+
+        let Schema { user, post, .. } = Schema::new();
+        let qb = QueryBuilder::new::<Schema>();
+
+        let stmt = qb.select(user.id).from(user).r#where(eq(user.id, 12));
+        let sql = stmt.to_sql();
+        println!("{sql}");
+
+        assert_eq!(
+            sql.sql(),
+            r#"SELECT "users"."id" FROM "users" WHERE "users"."id" = ?"#
+        );
+
         let sql = InsertUser::new("name", Status::Active, Priority::Low).with_email("test@email");
     }
 }
