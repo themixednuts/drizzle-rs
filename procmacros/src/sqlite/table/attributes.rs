@@ -6,6 +6,7 @@ pub struct TableAttributes {
     pub(crate) name: Option<String>,
     pub(crate) strict: bool,
     pub(crate) without_rowid: bool,
+    pub(crate) crate_name: Option<String>,
 }
 
 impl Parse for TableAttributes {
@@ -25,6 +26,18 @@ impl Parse for TableAttributes {
                     return Err(syn::Error::new(
                         nv.span(),
                         "Expected a string literal for 'name'",
+                    ));
+                }
+                Meta::NameValue(nv) if nv.path.is_ident("crate") => {
+                    if let syn::Expr::Lit(lit) = nv.clone().value
+                        && let syn::Lit::Str(str_lit) = lit.lit
+                    {
+                        attrs.crate_name = Some(str_lit.value());
+                        continue;
+                    }
+                    return Err(syn::Error::new(
+                        nv.span(),
+                        "Expected a string literal for 'crate'",
                     ));
                 }
                 Meta::Path(path) if path.is_ident("strict") => attrs.strict = true,

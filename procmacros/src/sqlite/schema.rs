@@ -47,6 +47,7 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let items_method = generate_items_method(&all_fields);
 
     // Generate IsInSchema implementations for all fields
+
     let is_in_schema_impls = all_fields.iter().map(|(_, ty)| {
         quote! {
             #[allow(non_local_definitions)]
@@ -108,6 +109,8 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     #[allow(unused_variables)]
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
+    // Generate path references for the current context
+
     // Generate different implementations based on available features
     #[cfg(feature = "sqlite")]
     let impl_tokens = quote! {
@@ -117,12 +120,12 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Collect all tables and indexes
         #(
             match <#field_types as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::TYPE {
-                ::drizzle::sqlite::common::SQLiteSchemaType::Table(table_info) => {
+             ::drizzle::sqlite::common::SQLiteSchemaType::Table(table_info) => {
                     let table_name = table_info.name();
                     let table_sql = <_ as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
-                ::drizzle::sqlite::common::SQLiteSchemaType::Index(index_info) => {
+             ::drizzle::sqlite::common::SQLiteSchemaType::Index(index_info) => {
                     let index_sql = <_ as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     let table_name = index_info.table().name();
                     indexes
@@ -130,10 +133,10 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                         .or_insert_with(Vec::new)
                         .push(index_sql);
                 }
-                ::drizzle::sqlite::common::SQLiteSchemaType::View => {
+             ::drizzle::sqlite::common::SQLiteSchemaType::View => {
                     // Views not implemented yet
                 }
-                ::drizzle::sqlite::common::SQLiteSchemaType::Trigger => {
+             ::drizzle::sqlite::common::SQLiteSchemaType::Trigger => {
                     // Triggers not implemented yet
                 }
             }

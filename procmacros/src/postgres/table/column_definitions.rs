@@ -75,6 +75,26 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                         ::drizzle::postgres::values::PostgresValue::Bigint(bigint)
                     },
                 ),
+                PostgreSQLType::Serial => (
+                    quote! {
+                        let integer: i32 = value.into();
+                        ::drizzle::postgres::values::PostgresValue::Integer(integer)
+                    },
+                    quote! {
+                        let integer: i32 = value.into();
+                        ::drizzle::postgres::values::PostgresValue::Integer(integer)
+                    },
+                ),
+                PostgreSQLType::Bigserial => (
+                    quote! {
+                        let bigint: i64 = value.into();
+                        ::drizzle::postgres::values::PostgresValue::Bigint(bigint)
+                    },
+                    quote! {
+                        let bigint: i64 = value.into();
+                        ::drizzle::postgres::values::PostgresValue::Bigint(bigint)
+                    },
+                ),
                 PostgreSQLType::Text | PostgreSQLType::Varchar | PostgreSQLType::Char => (
                     quote! {
                         let text: &str = value.into();

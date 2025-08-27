@@ -1,10 +1,7 @@
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use std::{collections::HashSet, fmt::Display};
-use syn::{
-    Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type,
-    parse::ParseStream,
-};
+use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type};
 
 /// Enum representing supported PostgreSQL column types.
 ///
@@ -234,31 +231,31 @@ impl PostgreSQLType {
             "smallint" | "int2" => Some(Self::Smallint),
             "serial" | "serial4" => Some(Self::Serial),
             "bigserial" | "serial8" => Some(Self::Bigserial),
-            
+
             // Text types and aliases
             "text" => Some(Self::Text),
             "varchar" | "character_varying" => Some(Self::Varchar),
             "char" | "character" => Some(Self::Char),
-            
+
             // Float types and aliases
             "real" | "float4" => Some(Self::Real),
             "double_precision" | "float8" | "double" => Some(Self::DoublePrecision),
             "numeric" | "decimal" => Some(Self::Numeric),
-            
+
             // Other basic types
             "boolean" | "bool" => Some(Self::Boolean),
             "bytea" => Some(Self::Bytea),
-            
+
             // UUID
             #[cfg(feature = "uuid")]
             "uuid" => Some(Self::Uuid),
-            
+
             // JSON types
             #[cfg(feature = "serde")]
             "json" => Some(Self::Json),
             #[cfg(feature = "serde")]
             "jsonb" => Some(Self::Jsonb),
-            
+
             // Date/time types and aliases
             "timestamp" | "timestamp_without_time_zone" => Some(Self::Timestamp),
             "timestamptz" | "timestamp_with_time_zone" => Some(Self::Timestamptz),
@@ -267,11 +264,11 @@ impl PostgreSQLType {
             "timetz" | "time_with_time_zone" => Some(Self::Timetz),
             #[cfg(feature = "chrono")]
             "interval" => Some(Self::Interval),
-            
+
             // Decimal alias (rust_decimal feature)
             #[cfg(feature = "rust_decimal")]
             "decimal" => Some(Self::Decimal),
-            
+
             // Network address types
             #[cfg(feature = "ipnet")]
             "inet" => Some(Self::Inet),
@@ -281,7 +278,7 @@ impl PostgreSQLType {
             "macaddr" => Some(Self::MacAddr),
             #[cfg(feature = "ipnet")]
             "macaddr8" => Some(Self::MacAddr8),
-            
+
             // Geometric types
             #[cfg(feature = "geo-types")]
             "point" => Some(Self::Point),
@@ -297,13 +294,13 @@ impl PostgreSQLType {
             "polygon" => Some(Self::Polygon),
             #[cfg(feature = "geo-types")]
             "circle" => Some(Self::Circle),
-            
+
             // Bit string types
             #[cfg(feature = "bitvec")]
             "bit" => Some(Self::Bit),
             #[cfg(feature = "bitvec")]
             "varbit" | "bit_varying" => Some(Self::Varbit),
-            
+
             "enum" => None, // enum() requires a parameter, handled separately
             _ => None,
         }

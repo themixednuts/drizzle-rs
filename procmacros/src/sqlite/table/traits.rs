@@ -23,6 +23,7 @@ pub(crate) fn generate_table_impls(
     );
 
     // Generate SQL implementation based on whether table has foreign keys
+
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
         if let Some(ref runtime_sql) = ctx.create_table_sql_runtime {

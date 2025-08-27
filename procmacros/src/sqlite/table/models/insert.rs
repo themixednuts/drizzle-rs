@@ -273,7 +273,6 @@ pub(crate) fn generate_insert_model(
         impl<'a, T> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
             fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
                 // For insert models, ToSQL delegates to the values() method
-                // which now handles mixed placeholders and values correctly
                 ::drizzle::core::SQLModel::values(self)
             }
         }
