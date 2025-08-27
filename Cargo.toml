@@ -34,11 +34,14 @@ drizzle-sqlite = { path = "./sqlite", version = "0.1" }
 anyhow = "1.0.75"
 compact_str = { version = "0.9.0" }
 futures-util = { version = "0.3" }
-libsql = { version = "0.9", default-features = false }
+libsql = { version = "0.9" }
 paste = { version = "1.0.15" }
 rand = { version = "0.9.2" }
-rusqlite = { version = "0.34.0", default-features = false }
-serde = { version = "1.0", features = ["derive"], default-features = false }
+rusqlite = { version = "0.34.0", features = ["bundled"] }
+serde = { version = "1.0", features = [
+  "derive",
+  "alloc",
+], default-features = false }
 serde_json = { version = "1.0", default-features = false }
 smallvec = { version = "1.15.1", features = [
   "union",
@@ -129,6 +132,28 @@ uuid = [
   "drizzle-core/uuid",
   "rusqlite?/uuid",
   # "sqlx?/uuid",
+]
+
+# PostgreSQL feature flags for optional types
+chrono = [
+  "drizzle-postgres?/chrono",
+  "drizzle-macros/chrono",
+]
+rust_decimal = [
+  "drizzle-postgres?/rust_decimal",
+  "drizzle-macros/rust_decimal",
+]
+ipnet = [
+  "drizzle-postgres?/ipnet",
+  "drizzle-macros/ipnet",
+]
+geo-types = [
+  "drizzle-postgres?/geo-types",
+  "drizzle-macros/geo-types",
+]
+bitvec = [
+  "drizzle-postgres?/bitvec",
+  "drizzle-macros/bitvec",
 ]
 
 # Add dialect-specific features back for gating re-exports

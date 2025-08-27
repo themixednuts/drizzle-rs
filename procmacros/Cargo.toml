@@ -18,6 +18,7 @@ proc-macro2 = { version = "1.0.89" }
 syn = { version = "2.0.87", features = ["full"] }
 rand = { version = "0.8.5" }
 heck = { version = "0.5.0" }
+proc-macro-crate = "3.3.0"
 paste = { workspace = true }
 
 [features]
@@ -27,6 +28,12 @@ sqlite = []
 postgres = []
 mysql = []
 uuid = []
+# PostgreSQL optional type features
+chrono = []
+rust_decimal = []
+ipnet = []
+geo-types = []
+bitvec = []
 rusqlite = ["sqlite"]
 libsql = ["sqlite"]
 turso = ["sqlite"]
