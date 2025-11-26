@@ -1,14 +1,17 @@
+//! Error types for drizzle-core
+
 use thiserror::Error;
 
+/// Core error type for drizzle operations
 #[derive(Debug, Error)]
 pub enum DrizzleError {
     /// Error executing a query
     #[error("Execution error: {0}")]
-    ExecutionError(String),
+    ExecutionError(compact_str::CompactString),
 
     /// Error preparing a statement
     #[error("Prepare error: {0}")]
-    PrepareError(String),
+    PrepareError(compact_str::CompactString),
 
     /// No rows returned when at least one was expected
     #[error("No rows found")]
@@ -16,47 +19,47 @@ pub enum DrizzleError {
 
     /// Error with transaction
     #[error("Transaction error: {0}")]
-    TransactionError(String),
+    TransactionError(compact_str::CompactString),
 
     /// Error mapping data
     #[error("Mapping error: {0}")]
-    Mapping(String),
+    Mapping(compact_str::CompactString),
 
     /// Error in statement
     #[error("Statement error: {0}")]
-    Statement(String),
+    Statement(compact_str::CompactString),
 
     /// Error in query
     #[error("Query error: {0}")]
-    Query(String),
+    Query(compact_str::CompactString),
 
-    /// Error converting parameters (e.g. JSON serialization failure)
+    /// Error converting parameters
     #[error("Parameter conversion error: {0}")]
-    ParameterError(String),
+    ParameterError(compact_str::CompactString),
 
     /// Integer conversion error
     #[error("Integer conversion error: {0}")]
-    TryFromInt(#[from] std::num::TryFromIntError),
+    TryFromInt(#[from] core::num::TryFromIntError),
 
     /// Parse int error
     #[error("Parse int error: {0}")]
-    ParseInt(#[from] std::num::ParseIntError),
+    ParseInt(#[from] core::num::ParseIntError),
 
     /// Parse float error
     #[error("Parse float error: {0}")]
-    ParseFloat(#[from] std::num::ParseFloatError),
+    ParseFloat(#[from] core::num::ParseFloatError),
 
     /// Parse bool error
     #[error("Parse bool error: {0}")]
-    ParseBool(#[from] std::str::ParseBoolError),
+    ParseBool(#[from] core::str::ParseBoolError),
 
     /// Type conversion error
     #[error("Type conversion error: {0}")]
-    ConversionError(String),
+    ConversionError(compact_str::CompactString),
 
     /// Generic error
     #[error("Database error: {0}")]
-    Other(String),
+    Other(compact_str::CompactString),
 
     /// Rusqlite specific errors
     #[cfg(feature = "rusqlite")]
@@ -85,8 +88,8 @@ pub enum DrizzleError {
 
     /// Infallible conversion error (should never happen)
     #[error("Infallible conversion error")]
-    Infallible(#[from] std::convert::Infallible),
+    Infallible(#[from] core::convert::Infallible),
 }
 
 /// Result type for database operations
-pub type Result<T> = std::result::Result<T, DrizzleError>;
+pub type Result<T> = core::result::Result<T, DrizzleError>;

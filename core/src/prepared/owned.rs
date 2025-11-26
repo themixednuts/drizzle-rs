@@ -1,13 +1,12 @@
-use std::{borrow::Cow, fmt};
-
-use compact_str::CompactString;
-use smallvec::SmallVec;
-
+use crate::prelude::*;
 use crate::{
     OwnedParam, ParamBind, SQL, SQLChunk, ToSQL,
     prepared::{PreparedStatement, bind_parameters_internal},
     traits::SQLParam,
 };
+use compact_str::CompactString;
+use core::fmt;
+use smallvec::SmallVec;
 
 /// An owned version of PreparedStatement with no lifetime dependencies
 #[derive(Debug, Clone)]
@@ -17,7 +16,7 @@ pub struct OwnedPreparedStatement<V: SQLParam> {
     /// Parameter placeholders (in order) - only placeholders, no values
     pub params: Box<[OwnedParam<V>]>,
 }
-impl<V: SQLParam + std::fmt::Display + 'static> std::fmt::Display for OwnedPreparedStatement<V> {
+impl<V: SQLParam + core::fmt::Display + 'static> core::fmt::Display for OwnedPreparedStatement<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_sql())
     }
@@ -66,7 +65,7 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for OwnedPreparedStatement<V> {
         let mut param_iter = self.params.iter();
 
         for text_segment in &self.text_segments {
-            chunks.push(SQLChunk::Text(Cow::Owned(text_segment.clone())));
+            chunks.push(SQLChunk::Raw(Cow::Owned(text_segment.to_string())));
 
             // Add corresponding param if available
             if let Some(param) = param_iter.next() {

@@ -1,11 +1,13 @@
 pub mod owned;
+
+use crate::prelude::*;
 use crate::{
     Param, ParamBind, SQL, SQLChunk, ToSQL, prepared::owned::OwnedPreparedStatement,
     traits::SQLParam,
 };
 use compact_str::CompactString;
+use core::fmt;
 use smallvec::SmallVec;
-use std::{borrow::Cow, collections::HashMap, fmt};
 
 /// A pre-rendered SQL statement with parameter placeholders
 /// Structure: [text, param, text, param, text] where text segments
@@ -27,7 +29,7 @@ impl<'a, V: SQLParam> From<OwnedPreparedStatement<V>> for PreparedStatement<'a, 
     }
 }
 
-impl<'a, V: SQLParam + std::fmt::Display> std::fmt::Display for PreparedStatement<'a, V> {
+impl<'a, V: SQLParam + core::fmt::Display> core::fmt::Display for PreparedStatement<'a, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_sql())
     }
@@ -116,7 +118,7 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
         let mut param_iter = self.params.iter();
 
         for text_segment in &self.text_segments {
-            chunks.push(SQLChunk::Text(Cow::Owned(text_segment.clone())));
+            chunks.push(SQLChunk::Raw(Cow::Owned(text_segment.to_string())));
 
             // Add corresponding param if available
             if let Some(param) = param_iter.next() {
@@ -128,122 +130,32 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
     }
 }
 /// Pre-render SQL by processing chunks and separating text from parameters
-/// This preserves the original SQL pattern detection logic while creating a PreparedSQL
-/// that can be efficiently bound and executed multiple times
 pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a, V> {
     let mut text_segments = Vec::new();
     let mut params = Vec::new();
-    let mut current_text = CompactString::default();
+    let mut current_text = String::new();
 
-    // Process chunks with original pattern detection logic preserved
     for (i, chunk) in sql.chunks.iter().enumerate() {
         match chunk {
             SQLChunk::Param(param) => {
-                // End current text segment and start a new one
-                text_segments.push(current_text);
-                current_text = CompactString::default();
+                text_segments.push(CompactString::new(&current_text));
+                current_text.clear();
                 params.push(param.clone());
             }
-            SQLChunk::Text(text) if text.is_empty() => {
-                // Handle empty text - check for SELECT-FROM-TABLE pattern
-                if let Some(table) = sql.detect_pattern_at(i) {
-                    sql.write_qualified_columns(&mut current_text, table);
-                }
-            }
-            SQLChunk::Text(text) if text.trim().eq_ignore_ascii_case("SELECT") => {
-                // Check if this is a SELECT-FROM-TABLE pattern (SELECT with no columns)
-                if let Some(table) = sql.detect_select_from_table_pattern(i) {
-                    current_text.push_str("SELECT ");
-                    sql.write_qualified_columns(&mut current_text, table);
-                } else {
-                    current_text.push_str(text);
-                }
-            }
-            SQLChunk::Text(text) => {
-                current_text.push_str(text);
-            }
-            SQLChunk::Table(table) => {
-                current_text.push('"');
-                current_text.push_str(table.name());
-                current_text.push('"');
-            }
-            SQLChunk::Column(column) => {
-                current_text.push('"');
-                current_text.push_str(column.table().name());
-                current_text.push_str(r#"".""#);
-                current_text.push_str(column.name());
-                current_text.push('"');
-            }
-            SQLChunk::Alias { chunk, alias } => {
-                // Process the nested chunk first
-                sql.write_chunk(&mut current_text, chunk, i);
-                current_text.push_str(" AS ");
-                current_text.push_str(alias);
-            }
-            SQLChunk::Subquery(sql) => {
-                // Process subquery like nested SQL but with parentheses
-                current_text.push('(');
-                let nested_prepared = prepare_render(sql.as_ref().clone());
-
-                // Merge the nested prepared SQL into current one
-                for (j, text_segment) in nested_prepared.text_segments.iter().enumerate() {
-                    if j == 0 {
-                        // First segment goes into current text
-                        current_text.push_str(text_segment);
-                    } else {
-                        // Subsequent segments create new text segments with params between
-                        if let Some(param) = nested_prepared.params.get(j - 1) {
-                            text_segments.push(current_text);
-                            current_text = CompactString::default();
-                            params.push(param.clone());
-                        }
-                        current_text.push_str(text_segment);
-                    }
-                }
-
-                // Add any remaining parameters from the nested prepared
-                for remaining_param in nested_prepared
-                    .params
-                    .iter()
-                    .skip(nested_prepared.text_segments.len() - 1)
-                {
-                    text_segments.push(current_text);
-                    current_text = CompactString::default();
-                    params.push(remaining_param.clone());
-                }
-
-                current_text.push(')');
-            }
-            SQLChunk::SQL(nested_sql) => {
-                // Recursively process nested SQL
-                let nested_prepared = prepare_render(nested_sql.as_ref().clone());
-
-                // Merge the nested prepared SQL into current one
-                for (j, text_segment) in nested_prepared.text_segments.iter().enumerate() {
-                    if j == 0 {
-                        // First segment goes into current text
-                        current_text.push_str(text_segment);
-                    } else {
-                        // Subsequent segments create new text segments with params between
-                        if let Some(param) = nested_prepared.params.get(j - 1) {
-                            text_segments.push(current_text);
-                            current_text = CompactString::default();
-                            params.push(param.clone());
-                        }
-                        current_text.push_str(text_segment);
-                    }
-                }
+            _ => {
+                sql.write_chunk_to(&mut current_text, chunk, i);
             }
         }
 
-        // Add spacing between chunks if needed
-        if sql.needs_space(i) {
-            current_text.push(' ');
+        // Add space if needed between chunks
+        if let Some(next) = sql.chunks.get(i + 1) {
+            if chunk.is_word_like() && next.is_word_like() {
+                current_text.push(' ');
+            }
         }
     }
 
-    // Don't forget the final text segment
-    text_segments.push(current_text);
+    text_segments.push(CompactString::new(&current_text));
 
     PreparedStatement {
         text_segments: text_segments.into_boxed_slice(),

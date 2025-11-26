@@ -1,17 +1,17 @@
-use std::any::Any;
-
-use crate::{SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
+use crate::prelude::*;
+use crate::{SQL, SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
+use core::any::Any;
 
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
     fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]>;
-    fn values(&self) -> crate::SQL<'a, V>;
+    fn values(&self) -> SQL<'a, V>;
 }
 
 /// Trait for models that support partial selection of fields
 pub trait SQLPartial<'a, Value: SQLParam> {
     /// The type representing a partial model where all fields are optional
     /// for selective querying
-    type Partial: ToSQL<'a, Value> + SQLModel<'a, Value> + Default + 'a;
+    type Partial: SQLModel<'a, Value> + Default + 'a;
 
     fn partial() -> Self::Partial {
         Default::default()
@@ -46,8 +46,8 @@ pub trait SQLTableInfo: Any + Send + Sync {
     }
 }
 
-impl std::fmt::Debug for dyn SQLTableInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for dyn SQLTableInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLTableInfo")
             .field("name", &self.name())
             .field("columns", &self.columns())
@@ -55,11 +55,7 @@ impl std::fmt::Debug for dyn SQLTableInfo {
     }
 }
 
-pub trait AsTableInfo: SQLTableInfo {
-    fn as_table(&self) -> &dyn SQLTableInfo;
-}
-
-impl<T: SQLTableInfo> AsTableInfo for T {
+pub trait AsTableInfo: Sized + SQLTableInfo {
     fn as_table(&self) -> &dyn SQLTableInfo {
         self
     }

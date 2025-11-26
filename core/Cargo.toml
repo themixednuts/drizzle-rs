@@ -18,18 +18,34 @@ rusqlite = { workspace = true, optional = true }
 paste = { workspace = true }
 smallvec = { workspace = true }
 compact_str = { workspace = true }
+hashbrown = { workspace = true }
 turso = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
+puffin = { workspace = true, optional = true }
 
 [features]
-default = ["col16"]
+default = ["std", "col16"]
+
+# Standard library support (enabled by default)
+std = ["compact_str/std", "smallvec/write", "thiserror/std"]
+
+# Allocator support for no_std environments (compact_str is no_std by default)
+alloc = []
+
+# Serialization
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]
-sqlite = []
-rusqlite = ["dep:rusqlite"]
-turso = ["dep:turso"]
-libsql = ["dep:libsql"]
 
+# Database backends
+sqlite = []
+rusqlite = ["std", "dep:rusqlite"]
+turso = ["std", "dep:turso"]
+libsql = ["std", "dep:libsql"]
+
+# Profiling
+profiling = ["std", "dep:puffin"]
+
+# Column count variants
 col8 = []
 col16 = []
 col32 = []

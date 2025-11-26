@@ -1,5 +1,6 @@
+use crate::prelude::*;
 use crate::{ToSQL, sql::SQL, traits::SQLParam};
-use std::any::Any;
+use core::any::Any;
 
 /// Trait for database enum types that can be part of a schema
 pub trait SQLEnumInfo: Any + Send + Sync {
@@ -24,8 +25,8 @@ impl<T: SQLEnumInfo> AsEnumInfo for T {
     }
 }
 
-impl std::fmt::Debug for dyn SQLEnumInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for dyn SQLEnumInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLEnumInfo")
             .field("name", &self.name())
             .field("variants", &self.variants())
@@ -47,7 +48,7 @@ impl OrderBy {
         V: SQLParam + 'a,
         T: ToSQL<'a, V>,
     {
-        column.to_sql().append(Self::Asc.to_sql())
+        column.to_sql().append(&Self::Asc)
     }
 
     /// Creates a descending ORDER BY clause: "column DESC"
@@ -56,7 +57,7 @@ impl OrderBy {
         V: SQLParam + 'a,
         T: ToSQL<'a, V>,
     {
-        column.to_sql().append(Self::Desc.to_sql())
+        column.to_sql().append(&Self::Desc)
     }
 }
 

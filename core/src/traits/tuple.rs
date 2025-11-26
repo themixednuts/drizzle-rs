@@ -1,4 +1,4 @@
-use crate::{SQL, SQLParam, ToSQL};
+use crate::{SQL, SQLParam, ToSQL, Token};
 
 // A macro to implement ColumnsTuple for tuples of various sizes.
 macro_rules! impl_tuple {
@@ -12,7 +12,7 @@ macro_rules! impl_tuple {
                     $([<$T $idx>]: ToSQL<'a, V>,)*
                 {
                     fn to_sql(&self) -> SQL<'a, V> {
-                        SQL::join([$(self.$idx.to_sql(),)*], ", ")
+                        SQL::join([$(self.$idx.to_sql(),)*], Token::COMMA)
                     }
                 }
 

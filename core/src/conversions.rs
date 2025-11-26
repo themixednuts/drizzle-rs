@@ -1,14 +1,18 @@
+use crate::prelude::*;
 use crate::{
+    Token,
     sql::SQL,
     traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
 };
-use std::borrow::Cow;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 pub trait ToSQL<'a, V: SQLParam> {
     fn to_sql(&self) -> SQL<'a, V>;
+    fn alias(&self, alias: &'static str) -> SQL<'a, V> {
+        self.to_sql().alias(alias)
+    }
 }
 
 impl<'a, T, V> From<&T> for SQL<'a, V>
@@ -42,7 +46,7 @@ where
     T: ToSQL<'a, V>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+        SQL::join(self.iter().map(ToSQL::to_sql), Token::COMMA)
     }
 }
 
@@ -52,7 +56,7 @@ where
     T: ToSQL<'a, V>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+        SQL::join(self.iter().map(ToSQL::to_sql), Token::COMMA)
     }
 }
 
@@ -62,7 +66,7 @@ where
     T: ToSQL<'a, V>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(ToSQL::to_sql), ", ")
+        SQL::join(self.iter().map(ToSQL::to_sql), Token::COMMA)
     }
 }
 
@@ -81,13 +85,13 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'static dyn SQLColumnInfo {
 
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'static dyn SQLColumnInfo]> {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(|&v| SQL::column(v)), ", ")
+        SQL::join(self.iter().map(|&v| SQL::column(v)), Token::COMMA)
     }
 }
 
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'static dyn SQLTableInfo]> {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(|&v| SQL::table(v)), ", ")
+        SQL::join(self.iter().map(|&v| SQL::table(v)), Token::COMMA)
     }
 }
 
@@ -99,7 +103,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(self))
+        SQL::param(V::from(self))
     }
 }
 
@@ -110,7 +114,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(self.clone()))
+        SQL::param(V::from(self.clone()))
     }
 }
 
@@ -120,7 +124,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -130,7 +134,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -140,7 +144,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -150,7 +154,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -160,7 +164,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -170,7 +174,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -180,7 +184,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -190,7 +194,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -200,7 +204,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -210,7 +214,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -220,7 +224,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -230,7 +234,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -240,7 +244,7 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
 
@@ -265,6 +269,6 @@ where
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::parameter(V::from(*self))
+        SQL::param(V::from(*self))
     }
 }
