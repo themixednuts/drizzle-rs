@@ -1,9 +1,11 @@
 mod column;
 mod table;
+mod value;
 
 pub use column::*;
 use drizzle_core::{SQL, ToSQL};
 pub use table::*;
+pub use value::*;
 
 use crate::SQLiteValue;
 

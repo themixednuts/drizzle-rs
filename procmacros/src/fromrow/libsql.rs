@@ -201,92 +201,31 @@ fn has_json_attribute(field: &Field) -> bool {
         .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
 }
 
-/// Handle unknown types using TryFrom conversion (for enums and custom types)
-/// This generates code that tries to convert from either Integer or Text values
+/// Handle unknown types using DrizzleRow::get_column (for enums and custom types)
+/// This uses the FromSQLiteValue trait for clean, unified conversion
 fn handle_try_from_field(
     idx: i32,
     name: Option<syn::Ident>,
-    is_optional: bool,
+    _is_optional: bool,
     field_type: &syn::Type,
 ) -> Result<TokenStream> {
-    // Extract the base type for TryFrom conversion
-    let base_type = if is_optional {
-        // For Option<T>, extract T
-        if let syn::Type::Path(type_path) = field_type {
-            if let Some(segment) = type_path.path.segments.last() {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                        inner_type.clone()
-                    } else {
-                        field_type.clone()
-                    }
-                } else {
-                    field_type.clone()
-                }
-            } else {
-                field_type.clone()
-            }
-        } else {
-            field_type.clone()
-        }
-    } else {
-        field_type.clone()
-    };
-
-    // Generate code that handles both Integer and Text storage
-    let accessor = if is_optional {
-        quote! {
-            {
-                let value = row.get_value(#idx)?;
-                match value {
-                    ::libsql::Value::Integer(i) => Some(<#base_type>::try_from(i).map_err(|e| 
-                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
-                    )?),
-                    ::libsql::Value::Text(ref s) => Some(<#base_type>::try_from(s.as_str()).map_err(|e| 
-                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
-                    )?),
-                    ::libsql::Value::Null => None,
-                    _ => return Err(::drizzle::error::DrizzleError::ConversionError(
-                        format!("Cannot convert {:?} to {}", value, stringify!(#base_type)).into()
-                    )),
-                }
-            }
-        }
-    } else {
-        quote! {
-            {
-                let value = row.get_value(#idx)?;
-                match value {
-                    ::libsql::Value::Integer(i) => <#base_type>::try_from(i).map_err(|e| 
-                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
-                    )?,
-                    ::libsql::Value::Text(ref s) => <#base_type>::try_from(s.as_str()).map_err(|e| 
-                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
-                    )?,
-                    _ => return Err(::drizzle::error::DrizzleError::ConversionError(
-                        format!("Cannot convert {:?} to {}", value, stringify!(#base_type)).into()
-                    )),
-                }
-            }
+    // Use DrizzleRow::get_column which handles all conversions via FromSQLiteValue trait
+    // The trait implementation handles Option types automatically
+    let idx_usize = idx as usize;
+    let accessor = quote! {
+        {
+            use ::drizzle::sqlite::traits::DrizzleRow;
+            <_ as DrizzleRow>::get_column::<#field_type>(row, #idx_usize)
         }
     };
 
-    Ok(format_field_assignment_no_question(name, accessor))
-}
-
-/// Helper function for try_from fields - doesn't add ? since the accessor already handles errors
-fn format_field_assignment_no_question(
-    name: Option<syn::Ident>,
-    accessor: proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
     if let Some(field_name) = name {
-        quote! {
-            #field_name: #accessor,
-        }
+        Ok(quote! {
+            #field_name: #accessor?,
+        })
     } else {
-        // Tuple struct
-        quote! {
-            #accessor,
-        }
+        Ok(quote! {
+            #accessor?,
+        })
     }
 }

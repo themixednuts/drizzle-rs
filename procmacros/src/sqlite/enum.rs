@@ -386,8 +386,39 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote! {};
 
+    // Generate FromSQLiteValue implementation for libsql/turso
+    // This trait provides a unified interface for value conversion
+    #[cfg(any(feature = "libsql", feature = "turso"))]
+    let from_sqlite_value_impl = quote! {
+        impl ::drizzle::sqlite::traits::FromSQLiteValue for #name {
+            fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, ::drizzle::error::DrizzleError> {
+                Self::try_from(value).map_err(Into::into)
+            }
+
+            fn from_sqlite_text(value: &str) -> ::std::result::Result<Self, ::drizzle::error::DrizzleError> {
+                Self::try_from(value).map_err(Into::into)
+            }
+
+            fn from_sqlite_real(_value: f64) -> ::std::result::Result<Self, ::drizzle::error::DrizzleError> {
+                Err(::drizzle::error::DrizzleError::ConversionError(
+                    format!("cannot convert REAL to {}", stringify!(#name)).into()
+                ))
+            }
+
+            fn from_sqlite_blob(_value: &[u8]) -> ::std::result::Result<Self, ::drizzle::error::DrizzleError> {
+                Err(::drizzle::error::DrizzleError::ConversionError(
+                    format!("cannot convert BLOB to {}", stringify!(#name)).into()
+                ))
+            }
+        }
+    };
+
+    #[cfg(not(any(feature = "libsql", feature = "turso")))]
+    let from_sqlite_value_impl = quote! {};
+
     Ok(quote! {
         #base_impls
         #rusqlite_impls
+        #from_sqlite_value_impl
     })
 }

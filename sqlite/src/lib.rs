@@ -24,6 +24,7 @@ pub mod prelude {
     pub use crate::SQLiteTransactionType;
     pub use crate::pragma::Pragma;
     pub use crate::traits::SQLiteColumn;
+    pub use crate::traits::{DrizzleRow, FromSQLiteValue};
     pub use crate::values::SQLiteValue;
 
     // Re-export rusqlite trait implementations when the feature is enabled

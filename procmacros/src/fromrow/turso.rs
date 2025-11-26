@@ -201,89 +201,30 @@ fn has_json_attribute(field: &Field) -> bool {
         .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
 }
 
-/// Handle unknown types using TryFrom conversion (for enums and custom types)
-/// This generates code that tries to convert from either Integer or Text values
+/// Handle unknown types using DrizzleRow::get_column (for enums and custom types)
+/// This uses the FromSQLiteValue trait for clean, unified conversion
 fn handle_try_from_field(
     idx: usize,
     name: Option<&syn::Ident>,
-    is_optional: bool,
+    _is_optional: bool,
     field_type: &syn::Type,
 ) -> Result<TokenStream> {
-    // Extract the base type for TryFrom conversion
-    let base_type = if is_optional {
-        // For Option<T>, extract T
-        if let syn::Type::Path(type_path) = field_type {
-            if let Some(segment) = type_path.path.segments.last() {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                        inner_type.clone()
-                    } else {
-                        field_type.clone()
-                    }
-                } else {
-                    field_type.clone()
-                }
-            } else {
-                field_type.clone()
-            }
-        } else {
-            field_type.clone()
-        }
-    } else {
-        field_type.clone()
-    };
-
-    // Generate code that handles both Integer and Text storage using turso's API
-    let converter = if is_optional {
-        quote! {
-            {
-                let value = row.get_value(#idx)?;
-                if value.is_null() {
-                    None
-                } else if let Some(&i) = value.as_integer() {
-                    Some(<#base_type>::try_from(i).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
-                        format!("Failed to convert integer to {}: {:?}", stringify!(#base_type), e).into()
-                    ))?)
-                } else if let Some(s) = value.as_text() {
-                    Some(<#base_type>::try_from(s).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
-                        format!("Failed to convert text to {}: {:?}", stringify!(#base_type), e).into()
-                    ))?)
-                } else {
-                    return Err(::drizzle::error::DrizzleError::ConversionError(
-                        format!("Cannot convert value to {}", stringify!(#base_type)).into()
-                    ));
-                }
-            }
-        }
-    } else {
-        quote! {
-            {
-                let value = row.get_value(#idx)?;
-                if let Some(&i) = value.as_integer() {
-                    <#base_type>::try_from(i).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
-                        format!("Failed to convert integer to {}: {:?}", stringify!(#base_type), e).into()
-                    ))?
-                } else if let Some(s) = value.as_text() {
-                    <#base_type>::try_from(s).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
-                        format!("Failed to convert text to {}: {:?}", stringify!(#base_type), e).into()
-                    ))?
-                } else {
-                    return Err(::drizzle::error::DrizzleError::ConversionError(
-                        format!("Cannot convert value to required field {}", stringify!(#base_type)).into()
-                    ));
-                }
-            }
+    // Use DrizzleRow::get_column which handles all conversions via FromSQLiteValue trait
+    // The trait implementation handles Option types automatically
+    let accessor = quote! {
+        {
+            use ::drizzle::sqlite::traits::DrizzleRow;
+            <_ as DrizzleRow>::get_column::<#field_type>(row, #idx)
         }
     };
 
-    // Use the no-question-mark formatter since the converter already handles errors
     if let Some(field_name) = name {
         Ok(quote! {
-            #field_name: #converter,
+            #field_name: #accessor?,
         })
     } else {
         Ok(quote! {
-            #converter,
+            #accessor?,
         })
     }
 }
