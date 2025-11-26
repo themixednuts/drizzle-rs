@@ -362,19 +362,6 @@ impl<'a> From<&'a i32> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> TryFrom<SQLiteValue<'a>> for i32 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i32", value).into(),
-            )),
-        }
-    }
-}
-
 // i64
 impl<'a> From<i64> for SQLiteValue<'a> {
     fn from(value: i64) -> Self {
@@ -600,421 +587,89 @@ impl<'a> From<&'a SQLiteValue<'a>> for Cow<'a, SQLiteValue<'a>> {
 
 //------------------------------------------------------------------------------
 // TryFrom<SQLiteValue> implementations
+// Uses the FromSQLiteValue trait via convert() for unified conversion logic
 //------------------------------------------------------------------------------
 
-// --- Integer Types ---
+/// Macro to implement TryFrom<SQLiteValue> for types implementing FromSQLiteValue
+macro_rules! impl_try_from_sqlite_value {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl<'a> TryFrom<SQLiteValue<'a>> for $ty {
+                type Error = DrizzleError;
 
-impl<'a> TryFrom<SQLiteValue<'a>> for i8 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i8", value).into(),
-            )),
-        }
-    }
+                #[inline]
+                fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
+                    value.convert()
+                }
+            }
+        )*
+    };
 }
 
-impl<'a> TryFrom<SQLiteValue<'a>> for i16 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i16", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for i64 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i64", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for isize {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to isize", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for u8 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u8", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for u16 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u16", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for u32 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u32", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for u64 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u64", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for usize {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to usize", value).into(),
-            )),
-        }
-    }
-}
-
-// --- Floating Point Types ---
-
-impl<'a> TryFrom<SQLiteValue<'a>> for f32 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Real(f) => Ok(f as f32),
-            SQLiteValue::Integer(i) => Ok(i as f32),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f32", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<SQLiteValue<'a>> for f64 {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Real(f) => Ok(f),
-            SQLiteValue::Integer(i) => Ok(i as f64),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f64", value).into(),
-            )),
-        }
-    }
-}
-
-// --- Boolean ---
-
-impl<'a> TryFrom<SQLiteValue<'a>> for bool {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(0) => Ok(false),
-            SQLiteValue::Integer(_) => Ok(true),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to bool", value).into(),
-            )),
-        }
-    }
-}
-
-// --- String Types ---
-
-impl<'a> TryFrom<SQLiteValue<'a>> for String {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Text(cow) => Ok(cow.into_owned()),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to String", value).into(),
-            )),
-        }
-    }
-}
-
-// --- Binary Data ---
-
-impl<'a> TryFrom<SQLiteValue<'a>> for Vec<u8> {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Blob(cow) => Ok(cow.into_owned()),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Vec<u8>", value).into(),
-            )),
-        }
-    }
-}
-
-// --- UUID ---
+impl_try_from_sqlite_value!(
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    f32,
+    f64,
+    bool,
+    String,
+    Vec<u8>,
+);
 
 #[cfg(feature = "uuid")]
-impl<'a> TryFrom<SQLiteValue<'a>> for Uuid {
-    type Error = DrizzleError;
-
-    fn try_from(value: SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Blob(cow) => {
-                let bytes: [u8; 16] = cow.as_ref().try_into().map_err(|_| {
-                    DrizzleError::ConversionError("UUID blob must be exactly 16 bytes".into())
-                })?;
-                Ok(Uuid::from_bytes(bytes))
-            }
-            SQLiteValue::Text(cow) => Ok(Uuid::parse_str(cow.as_ref())?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to UUID", value).into(),
-            )),
-        }
-    }
-}
+impl_try_from_sqlite_value!(Uuid);
 
 //------------------------------------------------------------------------------
 // TryFrom<&SQLiteValue> implementations for borrowing without consuming
+// Uses the FromSQLiteValue trait via convert_ref() for unified conversion logic
 //------------------------------------------------------------------------------
 
-// --- Integer Types ---
+/// Macro to implement TryFrom<&SQLiteValue> for types implementing FromSQLiteValue
+macro_rules! impl_try_from_sqlite_value_ref {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl<'a> TryFrom<&SQLiteValue<'a>> for $ty {
+                type Error = DrizzleError;
 
-impl<'a> TryFrom<&SQLiteValue<'a>> for i8 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i8", value).into(),
-            )),
-        }
-    }
+                #[inline]
+                fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
+                    value.convert_ref()
+                }
+            }
+        )*
+    };
 }
 
-impl<'a> TryFrom<&SQLiteValue<'a>> for i16 {
-    type Error = DrizzleError;
+impl_try_from_sqlite_value_ref!(
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    f32,
+    f64,
+    bool,
+    String,
+    Vec<u8>,
+);
 
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i16", value).into(),
-            )),
-        }
-    }
-}
+#[cfg(feature = "uuid")]
+impl_try_from_sqlite_value_ref!(Uuid);
 
-impl<'a> TryFrom<&SQLiteValue<'a>> for i32 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i32", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for i64 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok(*i),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i64", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for isize {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to isize", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for u8 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u8", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for u16 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u16", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for u32 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u32", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for u64 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to u64", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for usize {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(i) => Ok((*i).try_into()?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to usize", value).into(),
-            )),
-        }
-    }
-}
-
-// --- Floating Point Types ---
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for f32 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Real(f) => Ok(*f as f32),
-            SQLiteValue::Integer(i) => Ok(*i as f32),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f32", value).into(),
-            )),
-        }
-    }
-}
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for f64 {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Real(f) => Ok(*f),
-            SQLiteValue::Integer(i) => Ok(*i as f64),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f64", value).into(),
-            )),
-        }
-    }
-}
-
-// --- Boolean ---
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for bool {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Integer(0) => Ok(false),
-            SQLiteValue::Integer(_) => Ok(true),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to bool", value).into(),
-            )),
-        }
-    }
-}
-
-// --- String Types ---
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for String {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Text(cow) => Ok(cow.to_string()),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to String", value).into(),
-            )),
-        }
-    }
-}
+// --- Borrowed reference types (cannot use FromSQLiteValue) ---
 
 impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a str {
     type Error = DrizzleError;
@@ -1029,21 +684,6 @@ impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a str {
     }
 }
 
-// --- Binary Data ---
-
-impl<'a> TryFrom<&SQLiteValue<'a>> for Vec<u8> {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Blob(cow) => Ok(cow.to_vec()),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Vec<u8>", value).into(),
-            )),
-        }
-    }
-}
-
 impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a [u8] {
     type Error = DrizzleError;
 
@@ -1052,28 +692,6 @@ impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a [u8] {
             SQLiteValue::Blob(cow) => Ok(cow.as_ref()),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to &[u8]", value).into(),
-            )),
-        }
-    }
-}
-
-// --- UUID ---
-
-#[cfg(feature = "uuid")]
-impl<'a> TryFrom<&SQLiteValue<'a>> for Uuid {
-    type Error = DrizzleError;
-
-    fn try_from(value: &SQLiteValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Blob(cow) => {
-                let bytes: [u8; 16] = cow.as_ref().try_into().map_err(|_| {
-                    DrizzleError::ConversionError("UUID blob must be exactly 16 bytes".into())
-                })?;
-                Ok(Uuid::from_bytes(bytes))
-            }
-            SQLiteValue::Text(cow) => Ok(Uuid::parse_str(cow.as_ref())?),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to UUID", value).into(),
             )),
         }
     }

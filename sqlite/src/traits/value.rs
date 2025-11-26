@@ -52,149 +52,101 @@ pub trait DrizzleRow {
 // Primitive implementations
 // =============================================================================
 
-impl FromSQLiteValue for i64 {
-    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-        Ok(value)
-    }
+/// Macro to implement FromSQLiteValue for integer types (handles narrowing conversion from i64)
+macro_rules! impl_from_sqlite_value_int {
+    // Special case for i64 - no conversion needed
+    (i64) => {
+        impl FromSQLiteValue for i64 {
+            fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+                Ok(value)
+            }
 
-    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
-            DrizzleError::ConversionError(format!("cannot parse '{}' as i64: {}", value, e).into())
-        })
-    }
+            fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+                value.parse().map_err(|e| {
+                    DrizzleError::ConversionError(format!("cannot parse '{}' as i64: {}", value, e).into())
+                })
+            }
 
-    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i64)
-    }
+            fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+                Ok(value as i64)
+            }
 
-    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "cannot convert BLOB to i64".into(),
-        ))
-    }
+            fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+                Err(DrizzleError::ConversionError("cannot convert BLOB to i64".into()))
+            }
+        }
+    };
+    // General case for other integer types - uses try_into for narrowing
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl FromSQLiteValue for $ty {
+                fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+                    value.try_into().map_err(|e| {
+                        DrizzleError::ConversionError(
+                            format!("i64 {} out of range for {}: {}", value, stringify!($ty), e).into(),
+                        )
+                    })
+                }
+
+                fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+                    value.parse().map_err(|e| {
+                        DrizzleError::ConversionError(
+                            format!("cannot parse '{}' as {}: {}", value, stringify!($ty), e).into()
+                        )
+                    })
+                }
+
+                fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+                    Ok(value as $ty)
+                }
+
+                fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+                    Err(DrizzleError::ConversionError(
+                        concat!("cannot convert BLOB to ", stringify!($ty)).into()
+                    ))
+                }
+            }
+        )+
+    };
 }
 
-impl FromSQLiteValue for i32 {
-    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-        value.try_into().map_err(|e| {
-            DrizzleError::ConversionError(
-                format!("i64 {} out of range for i32: {}", value, e).into(),
-            )
-        })
-    }
+/// Macro to implement FromSQLiteValue for float types
+macro_rules! impl_from_sqlite_value_float {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl FromSQLiteValue for $ty {
+                fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+                    Ok(value as $ty)
+                }
 
-    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
-            DrizzleError::ConversionError(format!("cannot parse '{}' as i32: {}", value, e).into())
-        })
-    }
+                fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+                    value.parse().map_err(|e| {
+                        DrizzleError::ConversionError(
+                            format!("cannot parse '{}' as {}: {}", value, stringify!($ty), e).into()
+                        )
+                    })
+                }
 
-    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i32)
-    }
+                fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+                    Ok(value as $ty)
+                }
 
-    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "cannot convert BLOB to i32".into(),
-        ))
-    }
+                fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+                    Err(DrizzleError::ConversionError(
+                        concat!("cannot convert BLOB to ", stringify!($ty)).into()
+                    ))
+                }
+            }
+        )+
+    };
 }
 
-impl FromSQLiteValue for i16 {
-    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-        value.try_into().map_err(|e| {
-            DrizzleError::ConversionError(
-                format!("i64 {} out of range for i16: {}", value, e).into(),
-            )
-        })
-    }
+// Integer types
+impl_from_sqlite_value_int!(i64);
+impl_from_sqlite_value_int!(i8, i16, i32, isize, u8, u16, u32, u64, usize);
 
-    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
-            DrizzleError::ConversionError(format!("cannot parse '{}' as i16: {}", value, e).into())
-        })
-    }
-
-    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i16)
-    }
-
-    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "cannot convert BLOB to i16".into(),
-        ))
-    }
-}
-
-impl FromSQLiteValue for i8 {
-    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-        value.try_into().map_err(|e| {
-            DrizzleError::ConversionError(
-                format!("i64 {} out of range for i8: {}", value, e).into(),
-            )
-        })
-    }
-
-    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
-            DrizzleError::ConversionError(format!("cannot parse '{}' as i8: {}", value, e).into())
-        })
-    }
-
-    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i8)
-    }
-
-    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "cannot convert BLOB to i8".into(),
-        ))
-    }
-}
-
-impl FromSQLiteValue for f64 {
-    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-        Ok(value as f64)
-    }
-
-    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
-            DrizzleError::ConversionError(format!("cannot parse '{}' as f64: {}", value, e).into())
-        })
-    }
-
-    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value)
-    }
-
-    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "cannot convert BLOB to f64".into(),
-        ))
-    }
-}
-
-impl FromSQLiteValue for f32 {
-    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-        Ok(value as f32)
-    }
-
-    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
-            DrizzleError::ConversionError(format!("cannot parse '{}' as f32: {}", value, e).into())
-        })
-    }
-
-    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as f32)
-    }
-
-    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "cannot convert BLOB to f32".into(),
-        ))
-    }
-}
+// Float types
+impl_from_sqlite_value_float!(f32, f64);
 
 impl FromSQLiteValue for bool {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
