@@ -25,13 +25,13 @@ impl<Schema> Transaction<Schema> {
     /// Commit the transaction
     pub async fn commit(self) -> drizzle_core::error::Result<()> {
         self.tx.commit().await
-            .map_err(|e| DrizzleError::Other(e.to_string()))
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 
     /// Rollback the transaction
     pub async fn rollback(self) -> drizzle_core::error::Result<()> {
         self.tx.rollback().await
-            .map_err(|e| DrizzleError::Other(e.to_string()))
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 
     /// Get the transaction type

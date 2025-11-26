@@ -4,14 +4,12 @@ mod prepared;
 mod select;
 mod update;
 
+use crate::transaction::postgres::sqlx::Transaction;
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::SQLTable;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
-use sqlx::PgPool;
-use std::marker::PhantomData;
-
 use drizzle_postgres::{
     PostgresTransactionType, PostgresValue,
     builder::{
@@ -19,6 +17,8 @@ use drizzle_postgres::{
         update::UpdateBuilder,
     },
 };
+use sqlx::PgPool;
+use std::marker::PhantomData;
 
 /// Sqlx-specific drizzle builder
 #[derive(Debug)]
@@ -27,8 +27,6 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
     builder: Builder,
     state: PhantomData<(Schema, State)>,
 }
-
-use crate::transaction::postgres::sqlx::Transaction;
 
 // Generic prepare method for sqlx DrizzleBuilder
 impl<'a, S, Schema, State, Table>
@@ -101,7 +99,7 @@ impl<Schema> Drizzle<Schema> {
         table: Table,
     ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
     where
-        Table: IsInSchema<Schema> + PostgresTable<'a>,
+        Table: PostgresTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
@@ -117,7 +115,7 @@ impl<Schema> Drizzle<Schema> {
         table: Table,
     ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
     where
-        Table: IsInSchema<Schema> + PostgresTable<'a>,
+        Table: PostgresTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -133,7 +131,7 @@ impl<Schema> Drizzle<Schema> {
         table: T,
     ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: IsInSchema<Schema> + PostgresTable<'a>,
+        T: PostgresTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
@@ -204,7 +202,7 @@ impl<Schema> Drizzle<Schema> {
         let rows = sqlx_query
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let results = rows
             .iter()
@@ -237,7 +235,7 @@ impl<Schema> Drizzle<Schema> {
         let row = sqlx_query
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -256,13 +254,13 @@ impl<Schema> Drizzle<Schema> {
             .pool
             .begin()
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         // Set isolation level
         sqlx::query(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type))
             .execute(&mut *tx)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let transaction = Transaction::new(tx, tx_type);
 
@@ -293,7 +291,7 @@ where
             sqlx::query(&statement)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| DrizzleError::Other(e.to_string()))?;
+                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         }
 
         Ok(())
@@ -360,7 +358,7 @@ where
         let result = sqlx_query
             .execute(self.drizzle.pool())
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         Ok(result.rows_affected())
     }
@@ -387,7 +385,7 @@ where
         let rows = sqlx_query
             .fetch_all(self.drizzle.pool())
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let results = rows
             .iter()
@@ -418,7 +416,7 @@ where
         let row = sqlx_query
             .fetch_one(self.drizzle.pool())
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         R::try_from(&row).map_err(Into::into)
     }

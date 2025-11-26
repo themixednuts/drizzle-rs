@@ -1,7 +1,5 @@
 use std::marker::PhantomData;
 
-#[cfg(feature = "sqlite")]
-use drizzle_core::IsInSchema;
 use drizzle_core::ToSQL;
 use drizzle_sqlite::{
     SQLiteValue,
@@ -93,7 +91,7 @@ where
         on_condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLiteTable<'a>,
+        U: SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, on_condition);
         DrizzleBuilder {
@@ -144,7 +142,7 @@ where
         condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLiteTable<'a>,
+        U: SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, condition);
         DrizzleBuilder {

@@ -1,17 +1,15 @@
-use std::marker::PhantomData;
-
-use drizzle_core::IsInSchema;
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{DeleteInitial, DeleteWhereSet, delete::DeleteBuilder},
     traits::SQLiteTable,
 };
+use std::marker::PhantomData;
 
 use crate::drizzle::sqlite::rusqlite::DrizzleBuilder;
 
 impl<'a, S, T> DrizzleBuilder<'a, S, DeleteBuilder<'a, S, DeleteInitial, T>, DeleteInitial>
 where
-    T: IsInSchema<S> + SQLiteTable<'a>,
+    T: SQLiteTable<'a>,
 {
     pub fn r#where(
         self,

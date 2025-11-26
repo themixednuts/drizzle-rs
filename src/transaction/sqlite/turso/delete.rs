@@ -1,18 +1,15 @@
-use std::marker::PhantomData;
-
-use drizzle_core::IsInSchema;
+use crate::transaction::sqlite::turso::TransactionBuilder;
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{DeleteInitial, DeleteWhereSet, delete::DeleteBuilder},
     traits::SQLiteTable,
 };
-
-use crate::transaction::sqlite::turso::TransactionBuilder;
+use std::marker::PhantomData;
 
 impl<'a, 'conn, S, T>
     TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteInitial, T>, DeleteInitial>
 where
-    T: IsInSchema<S> + SQLiteTable<'a>,
+    T: SQLiteTable<'a>,
 {
     pub fn r#where(
         self,

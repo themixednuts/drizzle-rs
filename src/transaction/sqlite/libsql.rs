@@ -5,7 +5,6 @@ mod update;
 
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
-use drizzle_core::traits::IsInSchema;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 #[cfg(feature = "sqlite")]
@@ -99,7 +98,7 @@ impl<Schema> Transaction<Schema> {
         InsertInitial,
     >
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         TransactionBuilder {
@@ -121,7 +120,7 @@ impl<Schema> Transaction<Schema> {
         UpdateInitial,
     >
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         TransactionBuilder {
@@ -138,7 +137,7 @@ impl<Schema> Transaction<Schema> {
         table: T,
     ) -> TransactionBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: IsInSchema<Schema> + SQLiteTable<'a>,
+        T: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         TransactionBuilder {

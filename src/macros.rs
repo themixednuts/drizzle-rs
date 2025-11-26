@@ -30,7 +30,7 @@ macro_rules! drizzle_builder_join_impl {
                 SelectJoinSet,
             >
             where
-                U: IsInSchema<Schema> + SQLiteTable<'a>,
+                U:  SQLiteTable<'a>,
             {
                 let builder = self.builder.[<$type _join>](table, on_condition);
                 DrizzleBuilder {
@@ -75,7 +75,7 @@ macro_rules! transaction_builder_join_impl {
                 SelectJoinSet,
             >
             where
-                U: IsInSchema<Schema> + SQLiteTable<'a>,
+                U:  SQLiteTable<'a>,
             {
                 let builder = self.builder.[<$type _join>](table, on_condition);
                 TransactionBuilder {

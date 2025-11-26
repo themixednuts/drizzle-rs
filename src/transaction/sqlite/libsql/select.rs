@@ -1,6 +1,5 @@
 use crate::transaction::sqlite::libsql::TransactionBuilder;
 use crate::transaction_builder_join_impl;
-use drizzle_core::IsInSchema;
 use drizzle_core::ToSQL;
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::traits::SQLiteTable;
@@ -86,7 +85,7 @@ where
         on_condition: impl ToSQLiteSQL<'a>,
     ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLiteTable<'a>,
+        U: SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, on_condition);
         TransactionBuilder {
@@ -138,7 +137,7 @@ where
         condition: impl ToSQLiteSQL<'a>,
     ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLiteTable<'a>,
+        U: SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, condition);
         TransactionBuilder {

@@ -7,7 +7,7 @@ mod update;
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
-use drizzle_core::traits::IsInSchema;
+use drizzle_core::sql::DefinedCTE;
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_sqlite::traits::SQLiteTable;
 use rusqlite::{Connection, params_from_iter};
@@ -106,7 +106,7 @@ impl<Schema> Drizzle<Schema> {
         table: Table,
     ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
@@ -122,7 +122,7 @@ impl<Schema> Drizzle<Schema> {
         table: Table,
     ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -138,7 +138,7 @@ impl<Schema> Drizzle<Schema> {
         table: T,
     ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: IsInSchema<Schema> + SQLiteTable<'a>,
+        T: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
@@ -155,7 +155,7 @@ impl<Schema> Drizzle<Schema> {
     ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
         Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         DrizzleBuilder {
@@ -193,7 +193,7 @@ impl<Schema> Drizzle<Schema> {
         let mut stmt = self
             .conn
             .prepare(&sql_str)
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let rows = stmt.query_map(params_from_iter(params), |row| {
             Ok(R::try_from(row).map_err(Into::into))
@@ -303,7 +303,7 @@ impl<'a, Schema>
     ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
         Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
     {
         let builder = self.builder.with(cte);
         DrizzleBuilder {

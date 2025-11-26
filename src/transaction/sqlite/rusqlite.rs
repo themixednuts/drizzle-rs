@@ -1,6 +1,5 @@
 use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
-use drizzle_core::traits::IsInSchema;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 #[cfg(feature = "sqlite")]
@@ -99,7 +98,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         InsertInitial,
     >
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         TransactionBuilder {
@@ -122,7 +121,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         UpdateInitial,
     >
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         TransactionBuilder {
@@ -145,7 +144,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         DeleteInitial,
     >
     where
-        T: IsInSchema<Schema> + SQLiteTable<'a>,
+        T: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         TransactionBuilder {
@@ -183,7 +182,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let mut stmt = self
             .tx
             .prepare(&sql_str)
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let rows = stmt.query_map(params_from_iter(params), |row| {
             Ok(R::try_from(row).map_err(Into::into))
@@ -260,13 +259,13 @@ where
             .transaction
             .tx
             .prepare(&sql_str)
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let rows = stmt
             .query_map(params_from_iter(params), |row| {
                 Ok(R::try_from(row).map_err(Into::into))
             })
-            .map_err(|e| DrizzleError::Other(e.to_string()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let mut results = Vec::new();
         for row in rows {

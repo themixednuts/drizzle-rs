@@ -94,7 +94,7 @@ pub mod core {
     // Core traits and types
     pub use drizzle_core::traits::*;
     pub use drizzle_core::{
-        OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL,
+        OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL, Token,
     };
 
     // Prepared statements
@@ -104,7 +104,7 @@ pub mod core {
     pub use drizzle_core::expressions::conditions::*;
 
     // Expression functions
-    pub use drizzle_core::expressions::{alias, cast, r#typeof};
+    pub use drizzle_core::expressions::*;
 }
 
 /// SQLite-specific functionality and components.
@@ -117,6 +117,7 @@ pub mod sqlite {
     pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteSchema, SQLiteTable};
 
     pub use drizzle_sqlite::conditions;
+    pub use drizzle_sqlite::expression;
     pub use drizzle_sqlite::{SQLiteTransactionType, params, pragma};
 
     // SQLite types and traits
@@ -227,19 +228,31 @@ pub mod prelude {
     pub use crate::core::*;
 
     // Expression helpers
-    pub use drizzle_core::expressions::{alias, cast, r#typeof};
+    pub use drizzle_core::expressions::{cast, r#in, r#typeof};
 
     // Essential macros
     pub use drizzle_macros::FromRow;
 
-    // #[cfg(feature = "sqlite")]
-    // pub use crate::sqlite::*;
+    // Error type for generated code
+    pub use drizzle_core::error::DrizzleError;
+
+    // SQLite types and traits needed by macro-generated code
+    #[cfg(feature = "sqlite")]
+    pub use drizzle_sqlite::{
+        common::SQLiteSchemaType,
+        expression::{json, jsonb},
+        values::{InsertValue, SQLiteValue, ValueWrapper},
+    };
 
     #[cfg(feature = "sqlite")]
     pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteSchema, SQLiteTable};
 
-    // #[cfg(feature = "postgres")]
-    // pub use crate::postgres::*;
+    // PostgreSQL types and traits needed by macro-generated code
+    #[cfg(feature = "postgres")]
+    pub use drizzle_postgres::{
+        common::PostgresSchemaType,
+        values::{InsertValue as PostgresInsertValue, PostgresValue},
+    };
 
     #[cfg(feature = "postgres")]
     pub use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresSchema, PostgresTable};
@@ -377,8 +390,8 @@ mod sqlite_tests {
 #[cfg(feature = "postgres")]
 #[cfg(test)]
 mod postgres_tests {
+    use crate::prelude::*;
     use drizzle_core::{SQLColumnInfo, ToSQL, expressions::conditions::eq};
-    use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresSchema, PostgresTable};
 
     #[derive(Debug, Clone, Default, PostgresEnum)]
     pub enum Status {

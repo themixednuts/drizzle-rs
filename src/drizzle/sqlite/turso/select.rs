@@ -1,6 +1,5 @@
 use crate::drizzle::sqlite::turso::DrizzleBuilder;
 use crate::drizzle_builder_join_impl;
-use drizzle_core::IsInSchema;
 use drizzle_core::ToSQL;
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::traits::{SQLiteTable, ToSQLiteSQL};
@@ -85,7 +84,7 @@ where
         on_condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLiteTable<'a>,
+        U: SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, on_condition);
         DrizzleBuilder {
@@ -136,7 +135,7 @@ where
         condition: impl ToSQLiteSQL<'a>,
     ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
-        U: IsInSchema<Schema> + SQLiteTable<'a>,
+        U: SQLiteTable<'a>,
     {
         let builder = self.builder.join(table, condition);
         DrizzleBuilder {
