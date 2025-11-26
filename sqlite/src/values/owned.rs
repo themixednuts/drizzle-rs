@@ -533,9 +533,18 @@ macro_rules! impl_try_from_owned_sqlite_value {
 }
 
 impl_try_from_owned_sqlite_value!(
-    i8, i16, i32, i64, isize,
-    u8, u16, u32, u64, usize,
-    f32, f64,
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    f32,
+    f64,
     bool,
     String,
     Vec<u8>,
@@ -566,9 +575,18 @@ macro_rules! impl_try_from_owned_sqlite_value_ref {
 }
 
 impl_try_from_owned_sqlite_value_ref!(
-    i8, i16, i32, i64, isize,
-    u8, u16, u32, u64, usize,
-    f32, f64,
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    f32,
+    f64,
     bool,
     String,
     Vec<u8>,
