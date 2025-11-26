@@ -1,12 +1,10 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use common::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
+use crate::common::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
 use drizzle::error::DrizzleError;
 use drizzle::prelude::*;
 use drizzle::sqlite::SQLiteTransactionType;
 use drizzle_macros::drizzle_test;
-
-mod common;
 
 drizzle_test!(test_transaction_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
@@ -60,7 +58,7 @@ drizzle_test!(test_transaction_rollback, SimpleSchema, {
             )?;
 
             // Simulate an error to trigger rollback
-            Err(DrizzleError::Other("Intentional rollback".to_string()))
+            Err(DrizzleError::Other("Intentional rollback".to_string().into()))
         })
     ));
 
@@ -328,7 +326,7 @@ drizzle_test!(
 
                 if affected == 0 {
                     return Err(DrizzleError::Other(
-                        "No rows affected by update".to_string(),
+                        "No rows affected by update".to_string().into(),
                     ));
                 }
 
@@ -367,7 +365,7 @@ drizzle_test!(test_large_transaction_rollback, SimpleSchema, {
 
             // Force rollback
             Err(DrizzleError::Other(
-                "Intentional rollback of large transaction".to_string(),
+                "Intentional rollback of large transaction".to_string().into(),
             ))
         })
     ));

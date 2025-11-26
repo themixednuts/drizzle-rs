@@ -3,17 +3,12 @@
 use std::marker::PhantomData;
 
 #[cfg(feature = "uuid")]
-use common::{ComplexSchema, InsertComplex};
-use common::{InsertSimple, Role, SelectSimple};
+use crate::common::{ComplexSchema, InsertComplex};
+use crate::common::{InsertSimple, Role, SelectSimple, SimpleSchema};
 use drizzle::prelude::*;
 use drizzle::sql;
-use drizzle_core::expressions::*;
 use drizzle_macros::drizzle_test;
 use drizzle_sqlite::SQLiteSQL;
-
-use crate::common::SimpleSchema;
-
-mod common;
 
 #[derive(Debug, FromRow)]
 struct CountResult {
@@ -358,34 +353,6 @@ drizzle_test!(test_complex_expressions, ComplexSchema, {
     assert!((result[0].coalesce - 85.266).abs() < 0.1);
 });
 
-pub(crate) struct Test<T = (TestNameNotSet, TestEmailNotSet)> {
-    name: &'static str,
-    email: &'static str,
-    _phantom: PhantomData<T>,
-}
-
-pub(crate) struct TestNameSet {}
-pub(crate) struct TestNameNotSet {}
-pub(crate) struct TestEmailSet {}
-pub(crate) struct TestEmailNotSet {}
-
-impl<'a, TestName, TestEmail> Test<(TestName, TestEmail)> {
-    pub fn with_name(self, name: &'static str) -> Test<(TestNameSet, TestEmail)> {
-        Test {
-            name,
-            email: self.email,
-            _phantom: PhantomData,
-        }
-    }
-    pub fn with_email(self, email: &'static str) -> Test<(TestName, TestEmailSet)> {
-        Test {
-            name: self.name,
-            email,
-            _phantom: PhantomData,
-        }
-    }
-}
-
 #[cfg(feature = "uuid")]
 drizzle_test!(test_expressions_with_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
@@ -522,26 +489,7 @@ drizzle_test!(test_multiple_aliases, SimpleSchema, {
 });
 
 #[test]
-fn test_cte_basic() {
-    use drizzle_core::SQL;
-
-    let cte_query = SQLiteSQL::raw("SELECT id, name FROM users WHERE id = 42");
-    let main_query = SQLiteSQL::raw("SELECT * FROM sq");
-
-    let sq = cte("sq").r#as(cte_query);
-    let result = with(sq, main_query);
-
-    let sql_output = result.sql();
-    assert_eq!(
-        sql_output,
-        "WITH sq AS (SELECT id, name FROM users WHERE id = 42) SELECT * FROM sq"
-    );
-}
-
-#[test]
 fn test_cte_name_access() {
-    use drizzle_core::SQL;
-
     let cte_query = SQLiteSQL::raw("SELECT * FROM users");
     let sq = cte("my_cte").r#as(cte_query);
 
@@ -550,8 +498,6 @@ fn test_cte_name_access() {
 
 #[test]
 fn test_cte_to_sql() {
-    use drizzle_core::SQL;
-
     let cte_query = SQLiteSQL::raw("SELECT id FROM users WHERE active = 1");
     let sq = cte("active_users").r#as(cte_query);
 

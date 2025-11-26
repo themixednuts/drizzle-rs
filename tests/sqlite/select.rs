@@ -1,20 +1,15 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::InsertSimple;
+#[cfg(feature = "uuid")]
+use crate::common::InsertComplex;
+use crate::common::{InsertSimple, Role, SimpleSchema, UserConfig, UserMetadata};
 #[cfg(not(feature = "uuid"))]
 use common::Simple;
-#[cfg(feature = "uuid")]
-use common::{Complex, InsertComplex};
-#[cfg(feature = "uuid")]
-use common::{Post, Simple};
+use drizzle::prelude::*;
 use drizzle_core::OrderBy;
 use drizzle_macros::drizzle_test;
-use drizzle::prelude::*;
 
 #[cfg(feature = "uuid")]
 use crate::common::ComplexSchema;
-use crate::common::SimpleSchema;
-
-mod common;
 
 #[derive(Debug, FromRow)]
 struct SimpleResult {
@@ -56,41 +51,45 @@ drizzle_test!(simple_select_with_conditions, SimpleSchema, {
         InsertSimple::new("delta"),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    let stmt = db.insert(simple).values(test_data);
+    println!("Insert stmt: {}", stmt.to_sql());
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "beta"));
+    println!("Select where stmt: {}", stmt.to_sql());
 
     // Test WHERE condition
-    let where_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "beta"))
-            .all()
-    );
+    let where_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
 
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([OrderBy::asc(simple.name)])
+        .limit(2);
+    println!("Select order stmt: {}", stmt.to_sql());
     // Test ORDER BY with LIMIT
-    let ordered_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .order_by([OrderBy::asc(simple.name)])
-            .limit(2)
-            .all()
-    );
+    let ordered_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
     assert_eq!(ordered_results[1].name, "beta");
 
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([OrderBy::asc(simple.name)])
+        .limit(2)
+        .offset(2);
+    println!("Select limit stmt: {}", stmt.to_sql());
+
     // Test LIMIT with OFFSET
-    let offset_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .order_by([OrderBy::asc(simple.name)])
-            .limit(2)
-            .offset(2)
-            .all()
-    );
+    let offset_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
@@ -116,15 +115,15 @@ drizzle_test!(complex_select_with_conditions, ComplexSchema, {
 
     #[cfg(feature = "uuid")]
     let test_data = [
-        InsertComplex::new("young", true, common::Role::User)
+        InsertComplex::new("young", true, Role::User)
             .with_id(uuid::Uuid::new_v4())
             .with_email("young@test.com".to_string())
             .with_age(20),
-        InsertComplex::new("middle", true, common::Role::User)
+        InsertComplex::new("middle", true, Role::User)
             .with_id(uuid::Uuid::new_v4())
             .with_email("middle@test.com".to_string())
             .with_age(35),
-        InsertComplex::new("old", true, common::Role::User)
+        InsertComplex::new("old", true, Role::User)
             .with_id(uuid::Uuid::new_v4())
             .with_email("old@test.com".to_string())
             .with_age(50),
@@ -169,14 +168,14 @@ drizzle_test!(feature_gated_select, ComplexSchema, {
 
     // Insert Complex record with feature-gated fields
     let test_id = uuid::Uuid::new_v4();
-    let data = InsertComplex::new("feature_user", true, common::Role::User)
+    let data = InsertComplex::new("feature_user", true, Role::User)
         .with_id(test_id)
-        .with_metadata(common::UserMetadata {
+        .with_metadata(UserMetadata {
             preferences: vec!["admin_panel".to_string()],
             last_login: Some("2023-12-01".to_string()),
             theme: "admin".to_string(),
         })
-        .with_config(common::UserConfig {
+        .with_config(UserConfig {
             notifications: false,
             language: "en".to_string(),
             settings: std::collections::HashMap::new(),

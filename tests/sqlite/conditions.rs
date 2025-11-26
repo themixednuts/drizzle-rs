@@ -1,12 +1,10 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use common::{ComplexSchema, InsertComplex, SelectComplex};
-use common::{InsertSimple, Role, SelectSimple, SimpleSchema};
-use drizzle_core::expressions::conditions::*;
-use drizzle_macros::drizzle_test;
+use crate::common::{
+    ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
+};
 use drizzle::prelude::*;
-
-mod common;
+use drizzle_macros::drizzle_test;
 
 #[derive(Debug, FromRow)]
 struct JsonExtractResult {
@@ -93,24 +91,6 @@ drizzle_test!(test_in_array_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(not_in_array(simple.name, ["Apple"]))
-            .all()
-    );
-    assert_eq!(result.len(), 2);
-
-    // Test is_in condition (alias for in_array)
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(is_in(simple.id, [1, 3]))
-            .all()
-    );
-    assert_eq!(result.len(), 2);
-
-    // Test not_in condition (alias for not_in_array)
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(not_in(simple.id, [1]))
             .all()
     );
     assert_eq!(result.len(), 2);

@@ -7,8 +7,6 @@ use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
 use uuid::Uuid;
 
-mod common;
-
 // Test table with UUID as TEXT column
 #[SQLiteTable(name = "uuid_text_test")]
 struct UuidTextTest {

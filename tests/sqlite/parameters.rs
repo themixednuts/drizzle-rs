@@ -1,12 +1,10 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use common::{InsertSimple, Simple, SimpleSchema};
+use crate::common::{InsertSimple, Simple, SimpleSchema};
+use drizzle::prelude::*;
 use drizzle_core::{SQL, prepared::prepare_render};
 use drizzle_macros::drizzle_test;
-use drizzle::prelude::*;
 use drizzle_sqlite::{SQLiteValue, params};
-
-mod common;
 
 #[test]
 fn test_params_macro_named() {
@@ -48,7 +46,7 @@ fn test_sql_parameter_binding() {
     // Test SQL parameter binding functionality with real SQL construction
     let sql = SQL::<SQLiteValue>::raw("SELECT * FROM users WHERE name = ")
         .append(SQL::placeholder("user_name"))
-        .append_raw(" AND active = ")
+        .append(SQL::raw(" AND active = "))
         .append(SQL::placeholder("active"));
 
     let prepared = prepare_render(sql);

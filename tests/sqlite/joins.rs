@@ -1,9 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post};
+use crate::common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post, Role};
 #[cfg(feature = "uuid")]
-use common::{Complex, InsertComplex};
-use drizzle_macros::drizzle_test;
+use crate::common::{Complex, InsertComplex};
 use drizzle::prelude::*;
+use drizzle_macros::drizzle_test;
 
 use std::array;
 #[cfg(feature = "uuid")]
@@ -13,8 +13,6 @@ use uuid::Uuid;
 use crate::common::FullBlogSchema;
 #[cfg(feature = "uuid")]
 use crate::common::{ComplexPostSchema, FullBlogSchema};
-
-mod common;
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, FromRow, Default)]
@@ -48,13 +46,13 @@ drizzle_test!(simple_inner_join, ComplexPostSchema, {
 
     #[cfg(feature = "uuid")]
     let authors = vec![
-        InsertComplex::new("alice", true, common::Role::User)
+        InsertComplex::new("alice", true, Role::User)
             .with_id(id1)
             .with_email("alice@example.com"),
-        InsertComplex::new("bob", true, common::Role::User)
+        InsertComplex::new("bob", true, Role::User)
             .with_id(id2)
             .with_email("bob@example.com"),
-        InsertComplex::new("charlie", true, common::Role::User)
+        InsertComplex::new("charlie", true, Role::User)
             .with_id(id3)
             .with_email("charlie@example.com"),
     ];
@@ -137,11 +135,30 @@ drizzle_test!(many_to_many_join, FullBlogSchema, {
         ..
     } = schema;
 
+    // Generate post IDs based on feature flag
+    #[cfg(not(feature = "uuid"))]
+    let (post_id1, post_id2, post_id3) = (1, 2, 3);
+    #[cfg(feature = "uuid")]
+    let [post_id1, post_id2, post_id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
+
     // Insert test data: posts and categories with many-to-many relationship
+    #[cfg(not(feature = "uuid"))]
     let posts = vec![
         InsertPost::new("Tech Tutorial", true).with_content("Learn programming"),
         InsertPost::new("Life Hacks", true).with_content("Productivity tips"),
         InsertPost::new("Draft Post", false).with_content("Not published yet"),
+    ];
+    #[cfg(feature = "uuid")]
+    let posts = vec![
+        InsertPost::new("Tech Tutorial", true)
+            .with_id(post_id1)
+            .with_content("Learn programming"),
+        InsertPost::new("Life Hacks", true)
+            .with_id(post_id2)
+            .with_content("Productivity tips"),
+        InsertPost::new("Draft Post", false)
+            .with_id(post_id3)
+            .with_content("Not published yet"),
     ];
 
     let post_result = drizzle_exec!(db.insert(post).values(posts).execute());
@@ -156,12 +173,12 @@ drizzle_test!(many_to_many_join, FullBlogSchema, {
     let category_result = drizzle_exec!(db.insert(category).values(categories).execute());
     assert_eq!(category_result, 3);
 
-    // Create many-to-many relationships
+    // Create many-to-many relationships (post_id1 -> Tech Tutorial, post_id2 -> Life Hacks, post_id3 -> Draft Post)
     let post_categories = vec![
-        InsertPostCategory::new(1, 1),
-        InsertPostCategory::new(1, 3),
-        InsertPostCategory::new(2, 2),
-        InsertPostCategory::new(3, 1),
+        InsertPostCategory::new(post_id1, 1), // Tech Tutorial -> Technology
+        InsertPostCategory::new(post_id1, 3), // Tech Tutorial -> Tutorial
+        InsertPostCategory::new(post_id2, 2), // Life Hacks -> Lifestyle
+        InsertPostCategory::new(post_id3, 1), // Draft Post -> Technology
     ];
 
     let junction_result = drizzle_exec!(db.insert(post_category).values(post_categories).execute());

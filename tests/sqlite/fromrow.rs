@@ -2,8 +2,6 @@
 use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
 
-mod common;
-
 // Test struct with various data types for FromRow
 #[derive(FromRow, Debug, PartialEq)]
 struct AllDataTypes {

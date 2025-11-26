@@ -1,16 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::{Complex, InsertComplex};
-use common::{InsertSimple, Simple};
-use drizzle_macros::drizzle_test;
+use crate::common::{InsertComplex, InsertSimple, Role, Simple, SimpleComplexSchema, SimpleSchema};
 use drizzle::prelude::*;
-#[cfg(feature = "rusqlite")]
-use rusqlite::Row;
+use drizzle_macros::drizzle_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
-
-use crate::common::{SimpleComplexSchema, SimpleSchema};
-
-mod common;
 
 #[derive(FromRow, Debug)]
 struct SimpleResult {
@@ -90,11 +83,11 @@ drizzle_test!(feature_gated_delete, SimpleComplexSchema, {
     let test_id_2 = uuid::Uuid::new_v4();
 
     let test_data = vec![
-        InsertComplex::new("delete_user", true, common::Role::User)
+        InsertComplex::new("delete_user", true, Role::User)
             .with_id(test_id_1)
             .with_email("delete@example.com".to_string())
             .with_age(25),
-        InsertComplex::new("keep_user", true, common::Role::User)
+        InsertComplex::new("keep_user", true, Role::User)
             .with_id(test_id_2)
             .with_email("keep@example.com".to_string())
             .with_age(35),

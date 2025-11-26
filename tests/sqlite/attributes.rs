@@ -5,8 +5,6 @@ use drizzle_macros::drizzle_test;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-mod common;
-
 // Test all SQLite column types
 #[SQLiteTable(name = "all_types")]
 struct AllTypes {

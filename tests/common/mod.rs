@@ -226,8 +226,8 @@ pub struct Post {
 #[cfg(feature = "uuid")]
 #[SQLiteTable(name = "posts")]
 pub struct Post {
-    #[integer(primary)]
-    pub id: i32,
+    #[blob(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,
     #[text]
     pub title: String,
     #[text]
@@ -252,10 +252,20 @@ pub struct Category {
     pub description: Option<String>,
 }
 
+#[cfg(not(feature = "uuid"))]
 #[SQLiteTable(name = "post_categories")]
 pub struct PostCategory {
     #[integer]
     pub post_id: i32,
+    #[integer]
+    pub category_id: i32,
+}
+
+#[cfg(feature = "uuid")]
+#[SQLiteTable(name = "post_categories")]
+pub struct PostCategory {
+    #[blob]
+    pub post_id: Uuid,
     #[integer]
     pub category_id: i32,
 }
@@ -274,13 +284,13 @@ pub struct SimpleComplexSchema {
     pub complex: Complex,
 }
 
-#[derive(SQLiteSchema)]
+#[derive(SQLiteSchema, Debug)]
 pub struct SimpleSchema {
     pub simple: Simple,
 }
 
 #[cfg(feature = "uuid")]
-#[derive(SQLiteSchema)]
+#[derive(SQLiteSchema, Debug)]
 pub struct ComplexSchema {
     pub complex: Complex,
 }

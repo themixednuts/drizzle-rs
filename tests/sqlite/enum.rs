@@ -1,5 +1,5 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-mod common;
+
 use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
 

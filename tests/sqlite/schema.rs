@@ -3,8 +3,6 @@
 use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
 
-mod common;
-
 #[SQLiteTable(name = "test_table")]
 struct TestTable {
     #[integer(primary)]
@@ -25,7 +23,8 @@ struct StrictTable {
 
 #[test]
 fn table_sql() {
-    let sql = TestTable::SQL.sql();
+    let table = TestTable::new();
+    let sql = table.sql().sql();
     assert_eq!(
         sql,
         "CREATE TABLE \"test_table\" (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, email TEXT);"
@@ -34,7 +33,8 @@ fn table_sql() {
 
 #[test]
 fn strict_table() {
-    let sql = StrictTable::SQL.sql();
+    let table = StrictTable::new();
+    let sql = table.sql().sql();
     assert_eq!(
         sql,
         "CREATE TABLE \"strict_table\" (id INTEGER PRIMARY KEY NOT NULL, content TEXT NOT NULL) STRICT;"
@@ -43,7 +43,8 @@ fn strict_table() {
 
 #[test]
 fn name_attribute() {
-    let sql = TestTable::SQL.sql();
+    let table = TestTable::new();
+    let sql = table.sql().sql();
     assert_eq!(
         sql,
         "CREATE TABLE \"test_table\" (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, email TEXT);"
@@ -52,7 +53,8 @@ fn name_attribute() {
 
 #[test]
 fn column_types() {
-    let sql = TestTable::SQL.sql();
+    let table = TestTable::new();
+    let sql = table.sql().sql();
     assert_eq!(
         sql,
         "CREATE TABLE \"test_table\" (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, email TEXT);"
@@ -85,9 +87,10 @@ struct AppTestSchema {
 
 drizzle_test!(test_schema_derive, AppTestSchema, {
     // Test table SQL generation
-    let user_sql = User::SQL.sql();
+    let user = User::new();
+    let user_sql = user.sql();
     assert_eq!(
-        user_sql,
+        user_sql.sql(),
         "CREATE TABLE \"users\" (id INTEGER PRIMARY KEY NOT NULL, email TEXT NOT NULL, name TEXT NOT NULL);"
     );
 

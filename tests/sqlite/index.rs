@@ -1,5 +1,5 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-mod common;
+
 use drizzle::prelude::*;
 
 // Define a simple table for testing indexes

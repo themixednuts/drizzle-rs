@@ -1,18 +1,16 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use common::InsertSimple;
 #[cfg(feature = "uuid")]
-use common::{Complex, InsertComplex};
-use drizzle_macros::drizzle_test;
+use crate::common::{Complex, InsertComplex};
+use crate::common::{InsertSimple, Role, UserConfig, UserMetadata};
 use drizzle::prelude::*;
 use drizzle::sqlite::builder::Conflict;
+use drizzle_macros::drizzle_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 #[cfg(feature = "uuid")]
 use crate::common::ComplexSchema;
 use crate::common::SimpleSchema;
-
-mod common;
 
 #[derive(FromRow, Debug)]
 struct SimpleResult {
@@ -75,7 +73,7 @@ drizzle_test!(complex_insert, ComplexSchema, {
         .with_data_blob(vec![1, 2, 3, 4]);
 
     #[cfg(feature = "uuid")]
-    let data = InsertComplex::new("complex_user", true, common::Role::User)
+    let data = InsertComplex::new("complex_user", true, Role::User)
         .with_id(uuid::Uuid::new_v4())
         .with_email("test@example.com".to_string())
         .with_age(25)
@@ -146,20 +144,23 @@ drizzle_test!(feature_gated_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record using feature-gated fields
-    let data = InsertComplex::new("feature_test", true, common::Role::User)
+    let data = InsertComplex::new("feature_test", true, Role::User)
         .with_id(uuid::Uuid::new_v4())
-        .with_metadata(common::UserMetadata {
+        .with_metadata(UserMetadata {
             preferences: vec!["dark_mode".to_string()],
             last_login: Some("2023-01-01".to_string()),
             theme: "dark".to_string(),
         })
-        .with_config(common::UserConfig {
+        .with_config(UserConfig {
             notifications: true,
             language: "en".to_string(),
             settings: std::collections::HashMap::new(),
         });
 
-    let result = drizzle_exec!(db.insert(complex).values([data]).execute());
+    let stmt = db.insert(complex).values([data]);
+    println!("debug: {:?}", stmt.to_sql());
+    println!("display: {}", stmt.to_sql());
+    let result = drizzle_exec!(stmt.execute());
 
     assert_eq!(result, 1);
 

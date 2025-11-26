@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use crate::common::Role;
 use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-mod common;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -52,7 +52,7 @@ drizzle_test!(test_foreign_key_impl, ComplexPostSchema, {
 
     drizzle_exec!(
         db.insert(complex)
-            .values([InsertComplex::new("John", false, common::Role::User).with_id(id)])
+            .values([InsertComplex::new("John", false, Role::User).with_id(id)])
             .execute()
     );
 

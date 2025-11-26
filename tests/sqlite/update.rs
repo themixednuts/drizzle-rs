@@ -1,15 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use common::{Complex, InsertComplex, UpdateComplex};
-use common::{InsertSimple, Simple, UpdateSimple};
+use crate::common::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
+use crate::common::{
+    InsertSimple, Role, Simple, SimpleSchema, UpdateSimple, UserConfig, UserMetadata,
+};
 use drizzle::prelude::*;
 use drizzle_macros::drizzle_test;
-
-#[cfg(feature = "uuid")]
-use crate::common::ComplexSchema;
-use crate::common::SimpleSchema;
-
-mod common;
 
 #[derive(Debug, FromRow)]
 struct SimpleResult {
@@ -87,7 +83,7 @@ drizzle_test!(complex_update, ComplexSchema, {
         .with_description("Original description".to_string());
 
     #[cfg(feature = "uuid")]
-    let insert_data = InsertComplex::new("user", true, common::Role::User)
+    let insert_data = InsertComplex::new("user", true, Role::User)
         .with_id(uuid::Uuid::new_v4())
         .with_email("old@example.com".to_string())
         .with_age(25)
@@ -139,14 +135,14 @@ drizzle_test!(feature_gated_update, ComplexSchema, {
     let ComplexSchema { complex } = schema;
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
-    let insert_data = InsertComplex::new("feature_user", true, common::Role::User)
+    let insert_data = InsertComplex::new("feature_user", true, Role::User)
         .with_id(test_id)
-        .with_metadata(common::UserMetadata {
+        .with_metadata(UserMetadata {
             preferences: vec!["user_mode".to_string()],
             last_login: Some("2023-01-15".to_string()),
             theme: "light".to_string(),
         })
-        .with_config(common::UserConfig {
+        .with_config(UserConfig {
             notifications: true,
             language: "en".to_string(),
             settings: std::collections::HashMap::new(),
@@ -160,12 +156,12 @@ drizzle_test!(feature_gated_update, ComplexSchema, {
         .update(complex)
         .set(
             UpdateComplex::default()
-                .with_metadata(common::UserMetadata {
+                .with_metadata(UserMetadata {
                     preferences: vec!["admin_mode".to_string(), "updated".to_string()],
                     last_login: Some("2023-12-15".to_string()),
                     theme: "admin".to_string(),
                 })
-                .with_config(common::UserConfig {
+                .with_config(UserConfig {
                     notifications: false,
                     language: "en".to_string(),
                     settings: std::collections::HashMap::from([(
