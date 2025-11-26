@@ -2,7 +2,7 @@ use crate::{
     PostgresSQL, ToPostgresSQL, common::Join, traits::PostgresTable, values::PostgresValue,
 };
 use drizzle_core::{
-    SQL, ToSQL, helpers,
+    SQL, ToSQL, Token, helpers,
     traits::{SQLColumnInfo, SQLModel},
 };
 
@@ -30,11 +30,10 @@ fn join_internal<'a, Table>(
 where
     Table: PostgresTable<'a>,
 {
-    let sql = join.to_sql();
-    let sql = sql.append_raw(" ");
-    let sql = sql.append(table.to_sql());
-    let sql = sql.append_raw(" ON ");
-    sql.append(condition.to_sql())
+    join.to_sql()
+        .append(table.to_sql())
+        .push(Token::ON)
+        .append(condition.to_sql())
 }
 
 fn join_using_internal<'a, Table>(
@@ -45,12 +44,12 @@ fn join_using_internal<'a, Table>(
 where
     Table: PostgresTable<'a>,
 {
-    let sql = join.to_sql();
-    let sql = sql.append_raw(" ");
-    let sql = sql.append(table.to_sql());
-    let sql = sql.append_raw(" USING (");
-    let sql = sql.append(columns.to_sql());
-    sql.append_raw(")")
+    join.to_sql()
+        .append(table.to_sql())
+        .push(Token::USING)
+        .push(Token::LPAREN)
+        .append(columns.to_sql())
+        .push(Token::RPAREN)
 }
 
 /// Helper function to create a JOIN clause using table generic
@@ -286,7 +285,7 @@ pub(crate) fn insert<'a, Table>(table: Table) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
-    SQL::text("INSERT INTO").append(&table)
+    SQL::from_iter([Token::INSERT, Token::INTO]).append(&table)
 }
 
 /// Helper function to create VALUES clause for INSERT with pattern validation
@@ -300,7 +299,7 @@ where
     let rows: Vec<_> = rows.into_iter().collect();
 
     if rows.is_empty() {
-        return SQL::raw("VALUES");
+        return SQL::from(Token::VALUES);
     }
 
     // Since all rows have the same PATTERN, they all have the same columns
@@ -309,16 +308,16 @@ where
 
     // Check if this is a DEFAULT VALUES case (no columns)
     if columns_info.is_empty() {
-        return SQL::raw("DEFAULT VALUES");
+        return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
     }
 
     let columns_sql = columns_info_to_sql(&columns_info);
-    let value_clauses: Vec<_> = rows.iter().map(|row| row.values().subquery()).collect();
+    let value_clauses: Vec<_> = rows.iter().map(|row| row.values().parens()).collect();
 
     columns_sql
-        .subquery()
-        .append_raw("VALUES")
-        .append(SQL::join(value_clauses, ", "))
+        .parens()
+        .push(Token::VALUES)
+        .append(SQL::join(value_clauses, Token::COMMA))
 }
 
 /// Helper function to create a RETURNING clause - PostgreSQL specific
@@ -326,7 +325,7 @@ pub(crate) fn returning<'a, 'b, I>(columns: I) -> PostgresSQL<'a>
 where
     I: ToPostgresSQL<'a>,
 {
-    SQL::raw("RETURNING").append(columns.to_sql())
+    SQL::from(Token::RETURNING).append(columns.to_sql())
 }
 
 /// Helper function to create an UPSERT (ON CONFLICT) clause - PostgreSQL specific
@@ -334,11 +333,11 @@ pub(crate) fn on_conflict<'a, T>(
     conflict_target: Option<PostgresSQL<'a>>,
     action: impl ToPostgresSQL<'a>,
 ) -> PostgresSQL<'a> {
-    let mut sql = SQL::raw("ON CONFLICT");
+    let mut sql = SQL::from_iter([Token::ON, Token::CONFLICT]);
 
     if let Some(target) = conflict_target {
-        sql = sql.append_raw(" (").append(target).append_raw(")");
+        sql = sql.push(Token::LPAREN).append(target).push(Token::RPAREN);
     }
 
-    sql.append_raw(" ").append(action.to_sql())
+    sql.append(action.to_sql())
 }

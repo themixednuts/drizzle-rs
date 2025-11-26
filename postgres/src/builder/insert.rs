@@ -207,7 +207,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
                     sql = sql.append(Self::build_conflict_target(target));
                 }
 
-                sql.append_raw(" DO NOTHING")
+                sql.append(SQL::raw(" DO NOTHING"))
             }
             Conflict::DoUpdate {
                 target,
@@ -216,12 +216,12 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
             } => {
                 let mut sql = SQL::raw("ON CONFLICT")
                     .append(Self::build_conflict_target(target))
-                    .append_raw(" DO UPDATE SET ")
+                    .append(SQL::raw(" DO UPDATE SET "))
                     .append(set);
 
                 // Add optional WHERE clause for conditional updates
                 if let Some(where_clause) = where_clause {
-                    sql = sql.append_raw(" WHERE ").append(where_clause);
+                    sql = sql.append(SQL::raw(" WHERE ")).append(where_clause);
                 }
 
                 sql
@@ -239,16 +239,16 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// Helper method to build the conflict target portion of ON CONFLICT
     fn build_conflict_target(target: ConflictTarget<'a>) -> SQL<'a, PostgresValue<'a>> {
         match target {
-            ConflictTarget::Columns(columns) => SQL::raw(" (").append(columns).append_raw(")"),
+            ConflictTarget::Columns(columns) => SQL::raw(" (").append(columns).append(SQL::raw(")")),
             ConflictTarget::ColumnsWhere {
                 columns,
                 where_clause,
             } => SQL::raw(" (")
                 .append(columns)
-                .append_raw(") WHERE ")
+                .append(SQL::raw(") WHERE "))
                 .append(where_clause),
             ConflictTarget::Constraint(constraint_name) => {
-                SQL::raw(" ON CONSTRAINT ").append_raw(&constraint_name)
+                SQL::raw(" ON CONSTRAINT ").append(SQL::raw(constraint_name))
             }
         }
     }

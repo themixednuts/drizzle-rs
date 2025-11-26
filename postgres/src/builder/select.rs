@@ -3,7 +3,7 @@ use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
 use crate::{ToPostgresSQL, helpers};
 use drizzle_core::SQL;
-use drizzle_core::traits::{IsInSchema, SQLTable};
+use drizzle_core::traits::SQLTable;
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -131,7 +131,7 @@ macro_rules! join_impl {
     ($type:ident) => {
         paste! {
             /// JOIN with ON clause
-            pub fn [<$type _join>]<U: IsInSchema<S> + PostgresTable<'a>>(
+            pub fn [<$type _join>]<U:  PostgresTable<'a>>(
                 self,
                 table: U,
                 condition: impl ToPostgresSQL<'a>,
@@ -150,7 +150,7 @@ macro_rules! join_impl {
 macro_rules! join_using_impl {
     () => {
         /// JOIN with USING clause (PostgreSQL-specific)
-        pub fn join_using<U: IsInSchema<S> + PostgresTable<'a>>(
+        pub fn join_using<U: PostgresTable<'a>>(
             self,
             table: U,
             columns: impl ToPostgresSQL<'a>,
@@ -166,7 +166,7 @@ macro_rules! join_using_impl {
     ($type:ident) => {
         paste! {
             /// JOIN with USING clause (PostgreSQL-specific)
-            pub fn [<$type _join_using>]<U: IsInSchema<S> + PostgresTable<'a>>(
+            pub fn [<$type _join_using>]<U:  PostgresTable<'a>>(
                 self,
                 table: U,
                 columns: impl ToPostgresSQL<'a>,
@@ -229,7 +229,7 @@ where
 {
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: IsInSchema<S> + PostgresTable<'a>>(
+    pub fn join<U: PostgresTable<'a>>(
         self,
         table: U,
         condition: SQL<'a, PostgresValue<'a>>,
@@ -346,7 +346,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     }
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: IsInSchema<S> + PostgresTable<'a>>(
+    pub fn join<U: PostgresTable<'a>>(
         self,
         table: U,
         condition: SQL<'a, PostgresValue<'a>>,

@@ -409,7 +409,7 @@ impl TryFrom<OwnedPostgresValue> for i16 {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to i16",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -425,7 +425,7 @@ impl TryFrom<OwnedPostgresValue> for i32 {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to i32",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -441,7 +441,7 @@ impl TryFrom<OwnedPostgresValue> for i64 {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to i64",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -459,7 +459,7 @@ impl TryFrom<OwnedPostgresValue> for f32 {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to f32",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -477,7 +477,7 @@ impl TryFrom<OwnedPostgresValue> for f64 {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to f64",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -491,7 +491,7 @@ impl TryFrom<OwnedPostgresValue> for String {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to String",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -505,7 +505,7 @@ impl TryFrom<OwnedPostgresValue> for Vec<u8> {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to Vec<u8>",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -519,7 +519,7 @@ impl TryFrom<OwnedPostgresValue> for bool {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to bool",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -535,7 +535,7 @@ impl TryFrom<OwnedPostgresValue> for Uuid {
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to UUID",
                 value
-            ))),
+            ).into())),
         }
     }
 }
@@ -548,11 +548,12 @@ impl TryFrom<OwnedPostgresValue> for serde_json::Value {
         match value {
             OwnedPostgresValue::Json(json) => Ok(json),
             OwnedPostgresValue::Text(s) => serde_json::from_str(&s)
-                .map_err(|e| DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e))),
+                .map_err(|e| DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())),
             _ => Err(DrizzleError::ConversionError(format!(
                 "Cannot convert {:?} to JSON",
                 value
-            ))),
+            ).into())),
         }
     }
 }
+
