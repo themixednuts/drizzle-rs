@@ -32,7 +32,7 @@ fn main() {
         let id = 1;
 
         db.insert(users)
-            .values([InsertUsers::new("Alex Smith", 26).with_id(id)])
+            .values([InsertUsers::new("Alex Smith", 26u64).with_id(id)])
             .execute()
             .expect("insert user");
 

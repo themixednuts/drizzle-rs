@@ -1,7 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 
-use drizzle::sqlite::SQLiteTable;
-use drizzle_macros::SQLiteSchema;
+use drizzle::prelude::*;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
