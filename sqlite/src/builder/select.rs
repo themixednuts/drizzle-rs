@@ -1,8 +1,7 @@
 use crate::helpers;
 use crate::traits::{SQLiteTable, ToSQLiteSQL};
 use crate::values::SQLiteValue;
-use drizzle_core::traits::{IsInSchema, SQLTable};
-use drizzle_core::{SQL, ToSQL};
+use drizzle_core::SQL;
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -119,7 +118,7 @@ macro_rules! join_impl {
     };
     ($type:ident) => {
         paste! {
-            pub fn [<$type _join>]<U: IsInSchema<S> + SQLiteTable<'a>>(
+            pub fn [<$type _join>]<U:  SQLiteTable<'a>>(
                 self,
                 table: U,
                 condition: impl ToSQLiteSQL<'a>,
@@ -271,8 +270,9 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     where
         T: ToSQLiteSQL<'a>,
     {
+        let sql = self.sql.append(helpers::from(query));
         SelectBuilder {
-            sql: self.sql.append(helpers::from(query)),
+            sql,
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -315,7 +315,7 @@ where
     /// );
     /// ```
     #[inline]
-    pub fn join<U: IsInSchema<S> + SQLiteTable<'a>>(
+    pub fn join<U: SQLiteTable<'a>>(
         self,
         table: U,
         condition: impl ToSQLiteSQL<'a>,
@@ -463,7 +463,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     }
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: IsInSchema<S> + SQLiteTable<'a>>(
+    pub fn join<U: SQLiteTable<'a>>(
         self,
         table: U,
         condition: impl ToSQLiteSQL<'a>,
@@ -565,8 +565,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
 impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
     /// Adds a LIMIT clause after ORDER BY
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
+        let sql = helpers::limit(limit);
+        println!("LIMIT SQL: {}", sql);
         SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
+            sql: self.sql.append(sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

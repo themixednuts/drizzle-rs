@@ -1,4 +1,4 @@
-use drizzle_core::{SQL, SQLEnumInfo, SQLIndexInfo, SQLSchemaType, ToSQL, traits::SQLParam};
+use drizzle_core::{SQL, SQLIndexInfo, SQLSchemaType, ToSQL, traits::SQLParam};
 
 use crate::traits::SQLiteTableInfo;
 

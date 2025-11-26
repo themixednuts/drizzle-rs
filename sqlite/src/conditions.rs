@@ -139,7 +139,7 @@ where
         .append(left.to_sql())
         .append(SQL::raw(format!(", '{}') WHERE value = ", path)))
         .append(value.to_sql())
-        .append_raw(")")
+        .append(SQL::raw(")"))
 }
 
 /// Create a JSON object contains key condition
@@ -192,7 +192,7 @@ where
         .append(left.to_sql())
         .append(SQL::raw(format!(", '{}'))), lower(", path)))
         .append(value.to_sql())
-        .append_raw(")) > 0")
+        .append(SQL::raw(")) > 0"))
 }
 
 /// Create a JSON numeric greater-than condition

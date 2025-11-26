@@ -9,6 +9,7 @@
 pub mod builder;
 pub mod common;
 pub mod conditions;
+pub mod expression;
 pub mod helpers;
 pub mod pragma;
 pub mod traits;

@@ -3,13 +3,13 @@ use crate::{
     traits::{SQLiteSQL, SQLiteTable, ToSQLiteSQL},
 };
 use drizzle_core::{
-    SQL, ToSQL, helpers as core_helpers,
+    SQL, ToSQL, Token, helpers as core_helpers,
     traits::{SQLColumnInfo, SQLModel},
 };
 
 // Re-export core helpers with SQLiteValue type for convenience
 pub(crate) use core_helpers::{
-    delete, from, group_by, having, limit, offset, order_by, select, set, update, r#where,
+    delete, from, group_by, having, insert, limit, offset, order_by, select, set, update, r#where,
 };
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
@@ -31,11 +31,10 @@ fn join_internal<'a, Table>(
 where
     Table: SQLiteTable<'a>,
 {
-    let sql = join.to_sql();
-    let sql = sql.append_raw(" ");
-    let sql = sql.append(table.to_sql());
-    let sql = sql.append_raw(" ON ");
-    sql.append(&condition)
+    join.to_sql()
+        .append(&table)
+        .push(Token::ON)
+        .append(&condition)
 }
 
 /// Helper function to create a JOIN clause using table generic
@@ -173,14 +172,6 @@ where
     join_internal(table, Join::new().cross(), condition)
 }
 
-/// Creates an INSERT INTO statement with the specified table - SQLite specific
-pub(crate) fn insert<'a, Table>(table: Table) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    SQL::text("INSERT INTO").append(&table)
-}
-
 /// Helper function to create VALUES clause for INSERT with pattern validation
 /// All rows must have the same column pattern (enforced by type parameter)
 pub(crate) fn values<'a, Table, T>(
@@ -192,7 +183,7 @@ where
     let rows: Vec<_> = rows.into_iter().collect();
 
     if rows.is_empty() {
-        return SQL::raw("VALUES");
+        return SQL::from(Token::VALUES);
     }
 
     // Since all rows have the same PATTERN, they all have the same columns
@@ -201,16 +192,20 @@ where
 
     // Check if this is a DEFAULT VALUES case (no columns)
     if columns_info.is_empty() {
-        return SQL::raw("DEFAULT VALUES");
+        return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
     }
 
     let columns_sql = columns_info_to_sql(&columns_info);
-    let value_clauses: Vec<_> = rows.iter().map(|row| row.values().subquery()).collect();
+    let value_clauses = rows.iter().map(|row| {
+        SQL::from(Token::LPAREN)
+            .append(row.values())
+            .push(Token::RPAREN)
+    });
 
     columns_sql
-        .subquery()
-        .append_raw("VALUES")
-        .append(SQL::join(value_clauses, ", "))
+        .parens()
+        .push(Token::VALUES)
+        .append(SQL::join(value_clauses, Token::COMMA))
 }
 
 /// Helper function to create a RETURNING clause - SQLite specific
@@ -218,5 +213,5 @@ pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQLiteSQL<'a>
 where
     I: ToSQLiteSQL<'a>,
 {
-    SQL::raw("RETURNING").append(columns.to_sql())
+    SQL::from(Token::RETURNING).append(&columns)
 }

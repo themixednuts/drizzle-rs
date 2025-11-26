@@ -1,6 +1,6 @@
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, SQLModel, SQLTable, ToSQL};
+use drizzle_core::{SQL, SQLModel, ToSQL, Token};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -142,7 +142,7 @@ impl ExecutableState for InsertOnConflictSet {}
 /// struct User {
 ///     #[integer(primary)]
 ///     id: i32,
-///     #[text] 
+///     #[text]
 ///     name: String,
 ///     #[text]
 ///     email: Option<String>,
@@ -195,9 +195,9 @@ impl ExecutableState for InsertOnConflictSet {}
 ///     .insert(user)
 ///     .values([InsertUser::new("Alice")])
 ///     .on_conflict(Conflict::update(
-///         [user.name], 
+///         [user.name],
 ///         eq(user.name, "Updated Name"),
-///         None, 
+///         None,
 ///         None
 ///     ));
 /// ```
@@ -241,7 +241,7 @@ where
     ///         InsertUser::new("Bob"),
     ///     ]);
     /// assert_eq!(
-    ///     query.to_sql().sql(), 
+    ///     query.to_sql().sql(),
     ///     r#"INSERT INTO "users" ("name", "email") VALUES (?, ?), (?, ?)"#
     /// );
     /// ```
@@ -288,7 +288,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///     .values([InsertUser::new("Alice")])
     ///     .on_conflict(Conflict::default());
     /// assert_eq!(
-    ///     query.to_sql().sql(), 
+    ///     query.to_sql().sql(),
     ///     r#"INSERT INTO "users" ("name") VALUES (?) ON CONFLICT DO NOTHING"#
     /// );
     ///
@@ -298,7 +298,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///     .values([InsertUser::new("Alice").with_email("new@example.com")])
     ///     .on_conflict(Conflict::update(
     ///         [user.email],
-    ///         eq(user.email, "updated@example.com"), 
+    ///         eq(user.email, "updated@example.com"),
     ///         None,
     ///         None
     ///     ));
@@ -314,12 +314,17 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         let conflict_sql = match conflict {
             Conflict::Ignore { target } => {
                 if let Some(target_iter) = target {
-                    let cols = SQL::join(target_iter.into_iter().map(|item| item.to_sql()), ", ");
-                    SQL::raw("ON CONFLICT (")
+                    let cols = SQL::join(
+                        target_iter.into_iter().map(|item| item.to_sql()),
+                        Token::COMMA,
+                    );
+                    SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
                         .append(cols)
-                        .append_raw(") DO NOTHING")
+                        .push(Token::RPAREN)
+                        .push(Token::DO)
+                        .push(Token::NOTHING)
                 } else {
-                    SQL::raw("ON CONFLICT DO NOTHING")
+                    SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING])
                 }
             }
             Conflict::Update {
@@ -328,21 +333,26 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
                 target_where,
                 set_where,
             } => {
-                let target_cols = SQL::join(target.into_iter().map(|item| item.to_sql()), ", ");
-                let mut sql = SQL::raw("ON CONFLICT (")
+                let target_cols =
+                    SQL::join(target.into_iter().map(|item| item.to_sql()), Token::COMMA);
+                let mut sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
                     .append(target_cols)
-                    .append_raw(")");
+                    .push(Token::RPAREN);
 
                 // Add target WHERE clause (for partial indexes)
                 if let Some(target_where) = *target_where {
-                    sql = sql.append_raw(" WHERE ").append(target_where);
+                    sql = sql.push(Token::WHERE).append(target_where);
                 }
 
-                sql = sql.append_raw(" DO UPDATE SET ").append(*set);
+                sql = sql
+                    .push(Token::DO)
+                    .push(Token::UPDATE)
+                    .push(Token::SET)
+                    .append(*set);
 
                 // Add set WHERE clause (for conditional updates)
                 if let Some(set_where) = *set_where {
-                    sql = sql.append_raw(" WHERE ").append(set_where);
+                    sql = sql.push(Token::WHERE).append(set_where);
                 }
 
                 sql

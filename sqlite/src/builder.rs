@@ -1,7 +1,8 @@
+use drizzle_core::{Token, sql::DefinedCTE};
 // Re-export common enums and traits from core
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
-    traits::{IsInSchema, SQLSchema, SQLTable},
+    traits::{SQLSchema, SQLTable},
 };
 
 // Local imports
@@ -293,12 +294,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     pub fn with<Q, C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
     {
         let sql = self
             .sql
             .clone()
-            .append_raw(", ")
+            .push(Token::COMMA)
             .append(cte.as_ref().definition());
         QueryBuilder {
             sql,
@@ -338,7 +339,7 @@ where
         table: Table,
     ) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, Table>
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let sql = crate::helpers::insert(table);
 
@@ -376,7 +377,7 @@ where
         table: Table,
     ) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, Table>
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let sql = crate::helpers::update::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(table);
 
@@ -413,7 +414,7 @@ where
         table: Table,
     ) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, Table>
     where
-        Table: IsInSchema<Schema> + SQLiteTable<'a>,
+        Table: SQLiteTable<'a>,
     {
         let sql = crate::helpers::delete::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(table);
 
@@ -428,9 +429,9 @@ where
     pub fn with<Q, C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
     {
-        let sql = SQL::raw("WITH").append(cte.as_ref().definition());
+        let sql = SQL::from(Token::WITH).append(cte.as_ref().definition());
         QueryBuilder {
             sql,
             schema: PhantomData,
