@@ -1,6 +1,7 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
+#[allow(clippy::too_many_arguments)]
 /// Generate SQLColumnInfo trait implementation
 pub fn generate_sql_column_info(
     struct_ident: &Ident,

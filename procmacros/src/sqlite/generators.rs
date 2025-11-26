@@ -13,6 +13,7 @@ pub fn generate_to_sql(struct_ident: &Ident, body: TokenStream) -> TokenStream {
 }
 
 /// Generate SQLite SQLColumn trait implementation
+#[allow(clippy::too_many_arguments)]
 pub fn generate_sql_column(
     struct_ident: &Ident,
     table: TokenStream,

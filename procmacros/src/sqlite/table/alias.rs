@@ -46,7 +46,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         };
 
         // Generate constructor impl
-        let impl_new = generate_impl(&aliased_field_type, quote! {
+        let impl_new = generate_impl(aliased_field_type, quote! {
             pub const fn new(alias: &'static str) -> Self {
                 Self { alias }
             }
@@ -78,7 +78,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         };
 
         // Use generators for trait implementations
-        let sql_column_info_impl = generate_sql_column_info(&aliased_field_type,
+        let sql_column_info_impl = generate_sql_column_info(aliased_field_type,
             quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as ::drizzle_core::SQLColumnInfo>::name(&ORIGINAL_FIELD)
@@ -125,7 +125,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 ORIGINAL_FIELD.default_fn()
             }
         );
-        let sqlite_column_impl = generate_sqlite_column(&aliased_field_type, quote! {
+        let sqlite_column_impl = generate_sqlite_column(aliased_field_type, quote! {
             <#original_field_type as drizzle_sqlite::traits::SQLiteColumn<'a>>::AUTOINCREMENT
         });
         let sql_schema_field_impl = generate_sql_schema_field(aliased_field_type,
