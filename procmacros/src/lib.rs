@@ -4,35 +4,66 @@
 //!
 //! ## Core Macros
 //!
-//! - [`drizzle!`] - Initialize a Drizzle instance with database connection and schemas
+//! ### SQLite
 //! - [`SQLiteTable`] - Define SQLite table schemas with type safety
 //! - [`SQLiteEnum`] - Define enums that can be stored in SQLite
+//! - [`SQLiteIndex`] - Define indexes on SQLite tables
+//! - [`SQLiteSchema`] - Derive macro to group tables and indexes into a schema
+//!
+//! ### PostgreSQL
+//! - [`PostgresTable`] - Define PostgreSQL table schemas with type safety
+//! - [`PostgresEnum`] - Define enums for PostgreSQL (text, integer, or native ENUM)
+//! - [`PostgresIndex`] - Define indexes on PostgreSQL tables
+//! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
+//!
+//! ### Shared
 //! - [`FromRow`] - Derive automatic row-to-struct conversion
+//! - [`sql!`] - Build SQL queries with embedded expressions
 //!
 //! ## Example Usage
 //!
 //! ```ignore
 //! use drizzle::prelude::*;
+//! use drizzle::rusqlite::Drizzle;
 //!
-//! // Define your schema
+//! // Define your table
 //! #[SQLiteTable(name = "users")]
 //! struct Users {
-//!     #[integer(primary)]
+//!     #[integer(primary, autoincrement)]
 //!     id: i32,
 //!     #[text]
 //!     name: String,
 //!     #[text]
-//!     email: String,
+//!     email: Option<String>,
 //! }
+//!
+//! // Define your schema
+//! #[derive(SQLiteSchema)]
+//! struct Schema {
+//!     users: Users,
+//! }
+//!
+//! // Connect and use
+//! let conn = rusqlite::Connection::open_in_memory()?;
+//! let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
+//! db.create()?;
+//!
+//! // Insert data
+//! db.insert(users)
+//!     .values([InsertUsers::new("Alice").with_email("alice@example.com")])
+//!     .execute()?;
+//!
+//! // Query data
+//! let all_users: Vec<SelectUsers> = db.select(()).from(users).all()?;
 //! ```
 //!
 //! For more detailed documentation, see the individual macro documentation below.
 
 extern crate proc_macro;
 
-mod generators;
 mod drizzle_test;
 mod fromrow;
+mod generators;
 mod sql;
 mod utils;
 
@@ -64,7 +95,8 @@ use syn::parse_macro_input;
 /// # Examples
 ///
 /// ## Text Storage (Variant Names)
-/// ```ignore
+///
+/// ```
 /// use drizzle::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
@@ -75,17 +107,21 @@ use syn::parse_macro_input;
 ///     Moderator, // Stored as "Moderator"
 /// }
 ///
-/// #[SQLiteTable]
+/// #[SQLiteTable(name = "users")]
 /// struct Users {
-///     #[integer(primary)]
+///     #[integer(primary, autoincrement)]
 ///     id: i32,
 ///     #[text(enum)] // Stores variant names as TEXT
 ///     role: UserRole,
 /// }
+///
+/// // The enum can be converted to/from strings
+/// assert_eq!(UserRole::Admin.to_string(), "Admin");
 /// ```
 ///
 /// ## Integer Storage (Discriminants)
-/// ```ignore
+///
+/// ```
 /// use drizzle::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
@@ -96,13 +132,17 @@ use syn::parse_macro_input;
 ///     High = 10,  // Stored as 10
 /// }
 ///
-/// #[SQLiteTable]
+/// #[SQLiteTable(name = "tasks")]
 /// struct Tasks {
-///     #[integer(primary)]
+///     #[integer(primary, autoincrement)]
 ///     id: i32,
 ///     #[integer(enum)] // Stores discriminants as INTEGER
 ///     priority: Priority,
 /// }
+///
+/// // The enum can be converted to/from integers
+/// let p: i64 = Priority::High.into();
+/// assert_eq!(p, 10);
 /// ```
 ///
 /// ## Generated Implementations
@@ -176,18 +216,20 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Defaults
 /// - `default = value` - Compile-time default value
-/// - `default_fn = function` - Runtime default function
+/// - `default_fn = function` - Runtime default function (called at insert time)
 ///
 /// ## Special Types
-/// - `enum` - Store enum as TEXT or INTEGER
-/// - `json` - JSON serialization (requires serde feature)
+/// - `enum` - Store enum as TEXT or INTEGER (requires `SQLiteEnum` derive)
+/// - `json` - JSON serialization (requires `serde` feature)
 /// - `references = Table::column` - Foreign key reference
 ///
 /// # Examples
 ///
 /// ## Basic Table
-/// ```ignore
+///
+/// ```no_run
 /// use drizzle::prelude::*;
+/// use drizzle::rusqlite::Drizzle;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
@@ -200,10 +242,32 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///     #[integer]
 ///     age: Option<i32>, // Nullable field
 /// }
+///
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     users: Users,
+/// }
+///
+/// fn main() -> drizzle::Result<()> {
+///     // Usage
+///     let conn = rusqlite::Connection::open_in_memory()?;
+///     let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
+///     db.create()?;
+///
+///     // Insert using generated InsertUsers type
+///     db.insert(users)
+///         .values([InsertUsers::new("Alice", "alice@example.com").with_age(25)])
+///         .execute()?;
+///
+///     // Query using generated SelectUsers type
+///     let all_users: Vec<SelectUsers> = db.select(()).from(users).all()?;
+///     Ok(())
+/// }
 /// ```
 ///
 /// ## Table with Defaults
-/// ```ignore
+///
+/// ```
 /// use drizzle::prelude::*;
 ///
 /// #[SQLiteTable(name = "posts", strict)]
@@ -214,65 +278,91 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///     title: String,
 ///     #[text(default = "draft")]
 ///     status: String,
-///     #[text(default_fn = || chrono::Utc::now().to_rfc3339())]
-///     created_at: String,
 /// }
+///
+/// // Default value is used when not specified
+/// let post = InsertPosts::new("My Title");
 /// ```
 ///
 /// ## Enums and JSON
+///
 /// ```ignore
 /// use drizzle::prelude::*;
-/// # #[cfg(feature = "serde")]
 /// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Role {
 ///     #[default]
 ///     User,
-///     Admin
+///     Admin,
 /// }
 ///
-/// # #[cfg(feature = "serde")]
-/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-/// struct Metadata { theme: String }
+/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+/// struct Metadata {
+///     theme: String,
+/// }
 ///
-///
-/// # #[cfg(feature = "serde")]
 /// #[SQLiteTable(name = "accounts")]
 /// struct Accounts {
-///     #[integer(primary)]
+///     #[integer(primary, autoincrement)]
 ///     id: i32,
-///     #[text(enum)]
+///     #[text(enum)]     // Store enum variant name as TEXT
 ///     role: Role,
-///     #[text(json)]
+///     #[text(json)]     // Serialize struct as JSON TEXT
 ///     metadata: Option<Metadata>,
+/// }
+/// ```
+///
+/// ## Foreign Key References
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     name: String,
+/// }
+///
+/// #[SQLiteTable(name = "posts")]
+/// struct Posts {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[integer(references = Users::id)]  // Foreign key to users.id
+///     author_id: i32,
+///     #[text]
+///     title: String,
 /// }
 /// ```
 ///
 /// # Generated Types
 ///
 /// For a table `Users`, the macro generates:
-/// - `SelectUsers` - For SELECT operations
-/// - `PartialSelectUsers` - For partial SELECT operations  
-/// - `InsertUsers` - For INSERT operations
-/// - `UpdateUsers` - For UPDATE operations
+/// - `SelectUsers` - For SELECT operations (derives `FromRow`)
+/// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
+/// - `UpdateUsers` - Builder for UPDATE operations with `set_*()` methods
 ///
 /// # Nullability
 ///
-/// Use `Option<T>` for nullable fields, or `T` for NOT NULL constraints:
+/// Use `Option<T>` for nullable fields. Non-optional fields get a NOT NULL constraint:
 ///
-/// ```ignore
+/// ```
 /// use drizzle::prelude::*;
 ///
 /// #[SQLiteTable]
 /// struct Example {
-///     #[integer(primary)]
-///     id: i32,           // NOT NULL
+///     #[integer(primary, autoincrement)]
+///     id: i32,               // NOT NULL, auto-generated
 ///     #[text]
-///     name: String,      // NOT NULL  
+///     name: String,          // NOT NULL (required in InsertExample::new())
 ///     #[text]
-///     email: Option<String>, // NULL allowed
+///     email: Option<String>, // NULL allowed (set via with_email())
 /// }
+///
+/// // Non-optional, non-primary fields are required in new()
+/// let insert = InsertExample::new("Alice").with_email("alice@example.com");
 /// ```
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
@@ -287,7 +377,78 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for creating SQLite indexes
+/// Attribute macro for creating SQLite indexes.
+///
+/// This macro generates SQLite-specific index definitions for columns in your tables.
+/// Indexes improve query performance when filtering or sorting by the indexed columns.
+///
+/// # Attributes
+///
+/// - `unique` - Create a unique index (enforces uniqueness constraint)
+/// - No attributes for standard index
+///
+/// # Examples
+///
+/// ## Unique Index
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     email: String,
+/// }
+///
+/// #[SQLiteIndex(unique)]
+/// struct UserEmailIdx(Users::email);
+///
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     users: Users,
+///     user_email_idx: UserEmailIdx,
+/// }
+/// ```
+///
+/// ## Composite Index
+///
+/// Index on multiple columns:
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// #[SQLiteTable(name = "posts")]
+/// struct Posts {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[integer]
+///     author_id: i32,
+///     #[text]
+///     status: String,
+/// }
+///
+/// #[SQLiteIndex]
+/// struct PostAuthorStatusIdx(Posts::author_id, Posts::status);
+/// ```
+///
+/// ## Standard (Non-Unique) Index
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// #[SQLiteTable(name = "logs")]
+/// struct Logs {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     created_at: String,
+/// }
+///
+/// #[SQLiteIndex]
+/// struct LogsCreatedAtIdx(Logs::created_at);
+/// ```
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -301,32 +462,159 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Automatically implements `TryFrom<&Row<'_>>` for structs using field name-based column access.
+/// Automatically implements row-to-struct conversion for database result types.
 ///
-/// This derive macro generates a `TryFrom` implementation that maps struct fields to rusqlite
-/// columns using the field names directly (e.g., `name: row.get("name")?`).
+/// This derive macro generates `TryFrom` implementations for all enabled SQLite database
+/// drivers, allowing seamless conversion from database rows to Rust structs.
 ///
-/// # Example
+/// # Supported Drivers
 ///
-/// ```ignore
-/// #[derive(FromRow, Debug)]
+/// Implementations are generated based on enabled features:
+/// - **rusqlite** - `TryFrom<&rusqlite::Row<'_>>` (sync)
+/// - **libsql** - `TryFrom<&libsql::Row>` (async)
+/// - **turso** - `TryFrom<&turso::Row>` (async)
+///
+/// # Supported Types
+///
+/// The macro automatically handles type conversion for:
+///
+/// | Rust Type | SQLite Type | Notes |
+/// |-----------|-------------|-------|
+/// | `i8`, `i16`, `i32`, `i64` | INTEGER | Auto-converts from i64 |
+/// | `u8`, `u16`, `u32`, `u64` | INTEGER | Auto-converts from i64 |
+/// | `f32`, `f64` | REAL | Auto-converts from f64 |
+/// | `bool` | INTEGER | 0 = false, non-zero = true |
+/// | `String` | TEXT | |
+/// | `Vec<u8>` | BLOB | |
+/// | `uuid::Uuid` | BLOB | Requires `uuid` feature |
+/// | `Option<T>` | Any | Nullable columns |
+///
+/// # Field Attributes
+///
+/// - `#[column(Table::field)]` - Map to a specific table column (useful for JOINs)
+/// - `#[json]` - Deserialize JSON from TEXT column (requires `serde` feature, libsql/turso only)
+/// - No attribute - Maps to column with same name as the field
+///
+/// # Struct Types
+///
+/// Both named structs and tuple structs are supported:
+/// - Named structs map fields by column name
+/// - Tuple structs map fields by column index (0-based)
+///
+/// # Examples
+///
+/// ## Basic Usage
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// #[derive(FromRow, Debug, Default)]
 /// struct User {
 ///     id: i32,
 ///     name: String,
-///     email: Option<String>,
+///     email: Option<String>,  // Nullable column
+///     active: bool,           // INTEGER 0/1 -> bool
+/// }
+/// ```
+///
+/// ## Custom Column Mapping (for JOINs)
+///
+/// When joining tables with columns of the same name, use `#[column(...)]` to
+/// specify which table's column to use:
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
 /// }
 ///
-/// // Generated implementation:
-/// impl TryFrom<&Row<'_>> for User {
-///     type Error = rusqlite::Error;
-///     fn try_from(row: &Row<'_>) -> Result<Self, Self::Error> {
-///         Ok(Self {
-///             id: row.get("id")?,
-///             name: row.get("name")?,
-///             email: row.get("email")?,
-///         })
-///     }
+/// #[SQLiteTable(name = "posts")]
+/// struct Posts {
+///     #[integer(primary)]
+///     id: i32,
+///     #[integer(references = Users::id)]
+///     user_id: i32,
+///     #[text]
+///     title: String,
 /// }
+///
+/// #[derive(FromRow, Debug, Default)]
+/// struct UserPost {
+///     #[column(Users::id)]     // Explicitly use users.id
+///     user_id: i32,
+///     #[column(Users::name)]
+///     user_name: String,
+///     #[column(Posts::id)]     // Explicitly use posts.id
+///     post_id: i32,
+///     #[column(Posts::title)]
+///     title: String,
+/// }
+/// ```
+///
+/// ## Tuple Structs
+///
+/// For simple single-column or multi-column results:
+///
+/// ```
+/// use drizzle::prelude::*;
+///
+/// // Single column result
+/// #[derive(FromRow, Default)]
+/// struct Count(i64);
+///
+/// // Multiple columns by index
+/// #[derive(FromRow, Default)]
+/// struct IdAndName(i32, String);
+/// ```
+///
+/// ## With UUID (requires `uuid` feature)
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+/// use uuid::Uuid;
+///
+/// #[derive(FromRow, Debug)]
+/// struct UserWithId {
+///     id: Uuid,        // Stored as BLOB (16 bytes)
+///     name: String,
+/// }
+/// ```
+///
+/// ## With JSON (requires `serde` feature, libsql/turso)
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Serialize, Deserialize, Debug)]
+/// struct Profile {
+///     bio: String,
+///     website: Option<String>,
+/// }
+///
+/// #[derive(FromRow, Debug)]
+/// struct UserWithProfile {
+///     id: i32,
+///     name: String,
+///     #[json]  // Deserialize from JSON TEXT
+///     profile: Profile,
+/// }
+/// ```
+///
+/// ## Tuple Structs
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[derive(FromRow, Default)]
+/// struct NameOnly(String);
+///
+/// let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
 /// ```
 #[proc_macro_derive(FromRow, attributes(column))]
 pub fn from_row_derive(input: TokenStream) -> TokenStream {
@@ -343,43 +631,119 @@ pub fn from_row_derive(input: TokenStream) -> TokenStream {
 /// This macro analyzes struct fields to automatically detect tables and indexes,
 /// then generates methods to create all database objects in the correct order.
 ///
+/// The schema provides:
+/// - `Schema::new()` - Creates a new schema instance with all tables and indexes
+/// - Integration with `Drizzle::new()` for database operations
+/// - Automatic table and index creation via `db.create()`
+///
 /// # Examples
+///
+/// ## Basic Schema
+///
+/// ```no_run
+/// use drizzle::prelude::*;
+/// use drizzle::rusqlite::Drizzle;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     email: String,
+/// }
+///
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     users: Users,
+/// }
+///
+/// fn main() -> drizzle::Result<()> {
+///     // Create connection and schema
+///     let conn = rusqlite::Connection::open_in_memory()?;
+///     let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
+///
+///     // Create all tables
+///     db.create()?;
+///
+///     // Use the schema
+///     db.insert(users)
+///         .values([InsertUsers::new("alice@example.com")])
+///         .execute()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// ## Schema with Indexes
+///
+/// ```no_run
+/// use drizzle::prelude::*;
+/// use drizzle::rusqlite::Drizzle;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     email: String,
+///     #[text]
+///     name: String,
+/// }
+///
+/// #[SQLiteIndex(unique)]
+/// struct UserEmailIdx(Users::email);
+///
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     users: Users,
+///     user_email_idx: UserEmailIdx,
+/// }
+///
+/// fn main() -> drizzle::Result<()> {
+///     let conn = rusqlite::Connection::open_in_memory()?;
+///     let (db, schema) = Drizzle::new(conn, Schema::new());
+///
+///     // Creates tables first, then indexes
+///     db.create()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// ## Async Drivers (libsql, turso)
 ///
 /// ```ignore
 /// use drizzle::prelude::*;
+/// use drizzle::libsql::Drizzle;  // or drizzle::turso::Drizzle
 ///
 /// #[SQLiteTable]
 /// struct Users {
 ///     #[integer(primary)]
 ///     id: i32,
 ///     #[text]
-///     email: String,
+///     name: String,
 /// }
 ///
-/// #[SQLiteIndex(unique)]
-/// struct UserEmailIdx(Users::email);
-///
-/// #[derive(SQLSchema)]
-/// struct AppSchema {
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
 ///     users: Users,
-///     user_email_idx: UserEmailIdx,
 /// }
 ///
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let connection = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let connection = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let connection = rusqlite::Connection::open_in_memory().unwrap();
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let db_builder = libsql::Builder::new_local(":memory:").build().await?;
+///     let conn = db_builder.connect()?;
+///     let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
 ///
-/// // Usage
-/// let (db, schema) = drizzle!(connection, AppSchema);
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # rt.block_on(async { db.create().await }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # db.create().unwrap(); // Creates tables, then indexes
+///     // Async create
+///     db.create().await?;
+///
+///     // Async operations
+///     db.insert(users)
+///         .values([InsertUsers::new("Alice")])
+///         .execute()
+///         .await?;
+///
+///     Ok(())
+/// }
 /// ```
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteSchema)]
@@ -416,100 +780,116 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// # Syntax Forms
 ///
 /// ## String Literal Syntax
+///
+/// Embed expressions directly in the SQL string using `{expression}`:
+///
 /// ```ignore
-/// # use drizzle::{sql, prelude::*};
-/// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
-/// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
+/// use drizzle::{sql, prelude::*};
+/// use drizzle::rusqlite::Drizzle;
+///
+/// #[SQLiteTable(name = "users")]
+/// pub struct Users {
+///     #[integer(primary)]
+///     pub id: i32,
+///     #[text]
+///     pub name: String,
+/// }
+///
+/// #[derive(SQLiteSchema)]
+/// pub struct Schema { pub users: Users }
+///
+/// let conn = rusqlite::Connection::open_in_memory()?;
+/// let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
+///
 /// let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
 /// ```
 ///
 /// ## Printf-Style Syntax
+///
+/// Use `{}` placeholders with arguments after the string:
+///
 /// ```ignore
-/// # use drizzle::{sql, prelude::*};
-/// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
-/// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
+/// use drizzle::{sql, prelude::*};
+/// use drizzle::rusqlite::Drizzle;
+///
+/// #[SQLiteTable(name = "users")]
+/// pub struct Users {
+///     #[integer(primary)]
+///     pub id: i32,
+/// }
+///
+/// #[derive(SQLiteSchema)]
+/// pub struct Schema { pub users: Users }
+///
+/// let conn = rusqlite::Connection::open_in_memory()?;
+/// let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
+///
 /// let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
 /// ```
 ///
 /// # Examples
 ///
 /// ## Basic Usage
-/// ```ignore
-/// # use drizzle::{sql, prelude::*};
-/// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
-/// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
+///
+/// ```
+/// use drizzle::{sql, prelude::*};
+///
+/// #[SQLiteTable(name = "users")]
+/// pub struct Users {
+///     #[integer(primary)]
+///     pub id: i32,
+/// }
+///
+/// let users = Users::new();
 /// let query = sql!("SELECT * FROM {users}");
 /// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
 /// ```
 ///
 /// ## Multiple Expressions
-/// ```ignore
-/// # use drizzle::{sql, prelude::*};
-/// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
-/// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[SQLiteTable] pub struct Posts { #[integer(primary)] pub id: i32, #[integer] pub author: i32 }
-/// # #[derive(SQLSchema)] pub struct BlogSchema { pub users: Users, pub posts: Posts }
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, BlogSchema { users, posts }) = drizzle!(conn, BlogSchema);
-/// let query = sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author}");
+///
+/// ```
+/// use drizzle::{sql, prelude::*};
+///
+/// #[SQLiteTable(name = "users")]
+/// pub struct Users {
+///     #[integer(primary)]
+///     pub id: i32,
+/// }
+///
+/// #[SQLiteTable(name = "posts")]
+/// pub struct Posts {
+///     #[integer(primary)]
+///     pub id: i32,
+///     #[integer]
+///     pub author_id: i32,
+/// }
+///
+/// let users = Users::new();
+/// let posts = Posts::new();
+/// let query = sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author_id}");
 /// ```
 ///
 /// ## Escaped Braces
+///
 /// Use `{{` and `}}` for literal braces in the SQL:
-/// ```ignore
-/// # use drizzle::{sql, prelude::*};
-/// # #[SQLiteTable] pub struct Users { #[integer(primary)] pub id: i32 }
-/// # #[derive(SQLSchema)] pub struct UserSchema { pub users: Users }
-/// # #[cfg(any(feature = "libsql", feature = "turso"))]
-/// # let rt = tokio::runtime::Runtime::new().unwrap();
-/// # #[cfg(feature = "libsql")]
-/// # let conn = rt.block_on(async { libsql::Builder::new_local(":memory:").build().await.unwrap().connect() }).unwrap();
-/// # #[cfg(feature = "turso")]
-/// # let conn = rt.block_on(async { turso::Builder::new_local(":memory:").build().await.unwrap().connect().await }).unwrap();
-/// # #[cfg(feature = "rusqlite")]
-/// # let conn = rusqlite::Connection::open_in_memory().unwrap();
-/// # let (db, UserSchema { users }) = drizzle!(conn, UserSchema);
+///
+/// ```
+/// use drizzle::{sql, prelude::*};
+///
+/// #[SQLiteTable(name = "users")]
+/// pub struct Users {
+///     #[integer(primary)]
+///     pub id: i32,
+/// }
+///
+/// let users = Users::new();
 /// let query = sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
-/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {literal}) FROM table")
+/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {literal}) FROM ").append(users.to_sql())
 /// ```
 ///
 /// # Requirements
 ///
-/// All expressions within `{braces}` must implement `ToSQL<'a, V>` trait.
+/// All expressions within `{braces}` must implement the `ToSQL` trait.
 #[proc_macro]
 pub fn sql(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as crate::sql::SqlInput);
@@ -528,10 +908,10 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// # Syntax
 ///
 /// ```ignore
-/// drivers_test!(test_name, SchemaType, {
+/// drizzle_test!(test_name, SchemaType, {
 ///     // Test body - uses `db` and `schema` variables
-///     let table = schema.my_table;
-///     let result = drizzle_exec!(db.insert(table).values([data]).execute());
+///     let SchemaType { my_table } = schema;
+///     let result = drizzle_exec!(db.insert(my_table).values([data]).execute());
 ///     assert_eq!(result, 1);
 /// });
 /// ```
@@ -539,21 +919,58 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// # Generated Functions
 ///
 /// For a test named `my_test`, this generates:
-/// - `my_test_rusqlite()` - Sync test for rusqlite
-/// - `my_test_libsql()` - Async test for libsql  
-/// - `my_test_turso()` - Async test for turso
+/// - `my_test_rusqlite()` - Sync test for rusqlite (when `rusqlite` feature enabled)
+/// - `my_test_libsql()` - Async test for libsql (when `libsql` feature enabled)
+/// - `my_test_turso()` - Async test for turso (when `turso` feature enabled)
 ///
 /// # Available Macros in Test Body
 ///
 /// - `drizzle_exec!(operation)` - Execute operation with proper async/sync handling
-/// - `drizzle_try!(operation)` - Try operation with proper async/sync handling
+/// - `drizzle_try!(operation)` - Try operation, returns early on error
 /// - `drizzle_tx!(tx_type, { body })` - Execute transaction with proper async/sync handling
 ///
 /// # Variables Available in Test Body
 ///
 /// - `db` - The Drizzle instance for the current driver
 /// - `schema` - The schema instance with all tables
-/// - `tx` - The transaction instance (within drizzle_tx! blocks)
+/// - `tx` - The transaction instance (within `drizzle_tx!` blocks)
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+/// use drizzle_macros::drizzle_test;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[integer(primary, autoincrement)]
+///     id: i32,
+///     #[text]
+///     name: String,
+/// }
+///
+/// #[derive(SQLiteSchema)]
+/// struct TestSchema {
+///     users: Users,
+/// }
+///
+/// drizzle_test!(insert_and_select, TestSchema, {
+///     let TestSchema { users } = schema;
+///
+///     // Insert a user
+///     drizzle_exec!(db.insert(users)
+///         .values([InsertUsers::new("Alice")])
+///         .execute());
+///
+///     // Select all users
+///     let results: Vec<SelectUsers> = drizzle_exec!(
+///         db.select(()).from(users).all()
+///     );
+///
+///     assert_eq!(results.len(), 1);
+///     assert_eq!(results[0].name, "Alice");
+/// });
+/// ```
 #[proc_macro]
 pub fn drizzle_test(input: TokenStream) -> TokenStream {
     crate::drizzle_test::drizzle_test_impl(input)
@@ -561,10 +978,10 @@ pub fn drizzle_test(input: TokenStream) -> TokenStream {
 
 /// Derive macro for creating PostgreSQL-compatible enums.
 ///
-/// This macro allows enums to be stored in PostgreSQL databases as either TEXT (variant names)
-/// or INTEGER (discriminant values) depending on the column attribute used.
-///
-/// The enum can be used with `#[text(enum)]` or `#[integer(enum)]` column attributes.
+/// This macro allows enums to be stored in PostgreSQL databases in three ways:
+/// - **TEXT** - Store variant names as text (`#[text(enum)]`)
+/// - **INTEGER** - Store discriminant values as integers (`#[integer(enum)]`)
+/// - **Native ENUM** - Use PostgreSQL's native ENUM type (`#[enum(EnumType)]`)
 ///
 /// # Requirements
 ///
@@ -575,6 +992,7 @@ pub fn drizzle_test(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ## Text Storage (Variant Names)
+///
 /// ```ignore
 /// use drizzle::prelude::*;
 ///
@@ -586,16 +1004,17 @@ pub fn drizzle_test(input: TokenStream) -> TokenStream {
 ///     Moderator, // Stored as "Moderator"
 /// }
 ///
-/// #[PostgresTable]
+/// #[PostgresTable(name = "users")]
 /// struct Users {
-///     #[integer(primary)]
+///     #[serial(primary)]
 ///     id: i32,
-///     #[text(enum)] // Stores variant names as TEXT
+///     #[text(enum)]  // Stores variant names as TEXT
 ///     role: UserRole,
 /// }
 /// ```
 ///
 /// ## Integer Storage (Discriminants)
+///
 /// ```ignore
 /// use drizzle::prelude::*;
 ///
@@ -607,16 +1026,19 @@ pub fn drizzle_test(input: TokenStream) -> TokenStream {
 ///     High = 10,  // Stored as 10
 /// }
 ///
-/// #[PostgresTable]
+/// #[PostgresTable(name = "tasks")]
 /// struct Tasks {
-///     #[integer(primary)]
+///     #[serial(primary)]
 ///     id: i32,
-///     #[integer(enum)] // Stores discriminants as INTEGER
+///     #[integer(enum)]  // Stores discriminants as INTEGER
 ///     priority: Priority,
 /// }
 /// ```
 ///
-/// ## Native PostgreSQL Enums
+/// ## Native PostgreSQL ENUM Type
+///
+/// PostgreSQL supports native ENUM types which are more efficient and type-safe:
+///
 /// ```ignore
 /// use drizzle::prelude::*;
 ///
@@ -628,14 +1050,23 @@ pub fn drizzle_test(input: TokenStream) -> TokenStream {
 ///     Blue,
 /// }
 ///
-/// #[PostgresTable]
+/// #[PostgresTable(name = "items")]
 /// struct Items {
-///     #[integer(primary)]
+///     #[serial(primary)]
 ///     id: i32,
-///     #[enum(Color)] // Uses PostgreSQL native ENUM type
+///     #[r#enum(Color)]  // Uses PostgreSQL native ENUM type
 ///     color: Color,
 /// }
 /// ```
+///
+/// ## Generated Implementations
+///
+/// The macro automatically implements:
+/// - `std::fmt::Display` - For TEXT representation
+/// - `TryFrom<i64>` - For INTEGER representation
+/// - `Into<i64>` - For INTEGER representation
+/// - `From<EnumType>` for `PostgresValue` - Database conversion
+/// - `TryFrom<PostgresValue>` for `EnumType` - Database conversion
 #[cfg(feature = "postgres")]
 #[proc_macro_derive(PostgresEnum)]
 pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
@@ -683,8 +1114,6 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - `unlogged` - Create UNLOGGED table for better performance  
 /// - `temporary` - Create TEMPORARY table
 /// - `if_not_exists` - Add IF NOT EXISTS clause
-/// - `inherits = "parent_table"` - Inherit from parent table
-/// - `tablespace = "tablespace_name"` - Specify tablespace
 ///
 /// # Field Attributes
 ///
@@ -695,35 +1124,33 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - `#[serial]` - PostgreSQL SERIAL type (auto-increment)
 /// - `#[bigserial]` - PostgreSQL BIGSERIAL type
 /// - `#[text]` - PostgreSQL TEXT type
-/// - `#[varchar]` - PostgreSQL VARCHAR type
+/// - `#[varchar(n)]` - PostgreSQL VARCHAR(n) type
 /// - `#[real]` - PostgreSQL REAL type
 /// - `#[double_precision]` - PostgreSQL DOUBLE PRECISION type
 /// - `#[boolean]` - PostgreSQL BOOLEAN type
 /// - `#[bytea]` - PostgreSQL BYTEA type (binary data)
-/// - `#[uuid]` - PostgreSQL UUID type (requires uuid feature)
-/// - `#[json]` - PostgreSQL JSON type (requires serde feature)
-/// - `#[jsonb]` - PostgreSQL JSONB type (requires serde feature)
+/// - `#[uuid]` - PostgreSQL UUID type (requires `uuid` feature)
+/// - `#[json]` - PostgreSQL JSON type (requires `serde` feature)
+/// - `#[jsonb]` - PostgreSQL JSONB type (requires `serde` feature)
 /// - `#[enum(MyEnum)]` - PostgreSQL native ENUM type
 ///
 /// ## Constraints
 /// - `primary` - Primary key constraint
 /// - `unique` - Unique constraint
-/// - `not_null` - NOT NULL constraint
-/// - `generated_identity` - GENERATED ALWAYS AS IDENTITY
-/// - `check = "constraint"` - CHECK constraint
 ///
 /// ## Defaults
 /// - `default = value` - Compile-time default value
 /// - `default_fn = function` - Runtime default function
 ///
 /// ## Special Types
-/// - `enum` - Store enum as TEXT or INTEGER (our mapping)
-/// - `json` - JSON serialization (requires serde feature)
+/// - `enum` - Store enum as TEXT or INTEGER (`#[text(enum)]` or `#[integer(enum)]`)
+/// - `json` - JSON serialization (`#[text(json)]` or `#[jsonb]`)
 /// - `references = Table::column` - Foreign key reference
 ///
 /// # Examples
 ///
 /// ## Basic Table
+///
 /// ```ignore
 /// use drizzle::prelude::*;
 ///
@@ -736,33 +1163,27 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///     #[text(unique)]
 ///     email: String,
 ///     #[integer]
-///     age: Option<i32>, // Nullable field
+///     age: Option<i32>,  // Nullable field
+/// }
+///
+/// #[derive(PostgresSchema)]
+/// struct Schema {
+///     users: Users,
 /// }
 /// ```
 ///
-/// ## Table with PostgreSQL Features
+/// ## Enums (Text, Integer, and Native)
+///
 /// ```ignore
 /// use drizzle::prelude::*;
 ///
-/// #[PostgresTable(name = "posts", unlogged, if_not_exists)]
-/// struct Posts {
-///     #[bigserial(primary)]
-///     id: i64,
-///     #[text]
-///     title: String,
-///     #[text(default = "draft")]
-///     status: String,
-///     #[timestamptz(default_fn = || "NOW()")]
-///     created_at: String,
-///     #[text(check = "LENGTH(content) > 0")]
-///     content: String,
+/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+/// enum Status {
+///     #[default]
+///     Draft,
+///     Published,
+///     Archived,
 /// }
-/// ```
-///
-/// ## Native Enums and JSON
-/// ```ignore
-/// use drizzle::prelude::*;
-/// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
@@ -772,21 +1193,52 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///     High,
 /// }
 ///
-/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-/// struct Metadata { theme: String }
-///
-/// #[PostgresTable(name = "tasks")]
-/// struct Tasks {
+/// #[PostgresTable(name = "posts")]
+/// struct Posts {
 ///     #[serial(primary)]
 ///     id: i32,
-///     #[enum(Priority)]  // Native PostgreSQL ENUM
-///     priority: Priority,
-///     #[text(enum)]      // Our enum -> TEXT mapping
+///     #[text]
+///     title: String,
+///     #[text(enum)]       // Store as TEXT: "Draft", "Published", etc.
 ///     status: Status,
-///     #[jsonb]           // Binary JSON
-///     metadata: Option<Metadata>,
+///     #[r#enum(Priority)] // Native PostgreSQL ENUM type
+///     priority: Priority,
 /// }
 /// ```
+///
+/// ## JSON and JSONB
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+/// struct Metadata {
+///     theme: String,
+///     notifications: bool,
+/// }
+///
+/// #[PostgresTable(name = "settings")]
+/// struct Settings {
+///     #[serial(primary)]
+///     id: i32,
+///     #[jsonb]  // Binary JSON for faster queries
+///     config: Metadata,
+///     #[json]   // Standard JSON
+///     raw_data: Option<serde_json::Value>,
+/// }
+/// ```
+///
+/// # Generated Types
+///
+/// For a table `Users`, the macro generates:
+/// - `SelectUsers` - For SELECT operations (derives `FromRow`)
+/// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
+/// - `UpdateUsers` - Builder for UPDATE operations with `set_*()` methods
+///
+/// # Nullability
+///
+/// Use `Option<T>` for nullable fields. Non-optional fields get a NOT NULL constraint.
 #[cfg(feature = "postgres")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -800,37 +1252,55 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for creating PostgreSQL indexes
+/// Attribute macro for creating PostgreSQL indexes.
 ///
 /// This macro generates PostgreSQL-specific index definitions with support for
-/// various PostgreSQL index features like partial indexes, different methods, etc.
+/// various PostgreSQL index features.
+///
+/// # Attributes
+///
+/// - `unique` - Create a unique index
+/// - No attributes for standard index
 ///
 /// # Examples
 ///
-/// ## Basic Index
+/// ## Unique Index
+///
 /// ```ignore
 /// use drizzle::prelude::*;
+///
+/// #[PostgresTable(name = "users")]
+/// struct Users {
+///     #[serial(primary)]
+///     id: i32,
+///     #[text]
+///     email: String,
+/// }
 ///
 /// #[PostgresIndex(unique)]
 /// struct UserEmailIdx(Users::email);
-/// ```
 ///
-/// ## Advanced Index with PostgreSQL Features
-/// ```ignore
-/// use drizzle::prelude::*;
-///
-/// #[PostgresIndex(
-///     method = "gin",
-///     concurrent,
-///     if_not_exists,
-///     where = "deleted_at IS NULL"
-/// )]
-/// struct ActiveUsersSearchIdx(Users::search_vector);
+/// #[derive(PostgresSchema)]
+/// struct Schema {
+///     users: Users,
+///     user_email_idx: UserEmailIdx,
+/// }
 /// ```
 ///
 /// ## Composite Index
+///
 /// ```ignore
 /// use drizzle::prelude::*;
+///
+/// #[PostgresTable(name = "users")]
+/// struct Users {
+///     #[serial(primary)]
+///     id: i32,
+///     #[text]
+///     email: String,
+///     #[integer]
+///     organization_id: i32,
+/// }
 ///
 /// #[PostgresIndex(unique)]
 /// struct UserOrgIdx(Users::email, Users::organization_id);

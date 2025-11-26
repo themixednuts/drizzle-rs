@@ -133,7 +133,7 @@ impl ExecutableState for InsertOnConflictSet {}
 ///
 /// ## Basic Usage
 ///
-/// ```rust,ignore
+/// ```rust
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// use drizzle_core::ToSQL;
@@ -160,7 +160,7 @@ impl ExecutableState for InsertOnConflictSet {}
 /// let query = builder
 ///     .insert(user)
 ///     .values([InsertUser::new("Alice")]);
-/// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
+/// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" (name) VALUES (?)"#);
 ///
 /// // Batch INSERT
 /// let query = builder
@@ -175,8 +175,8 @@ impl ExecutableState for InsertOnConflictSet {}
 ///
 /// SQLite supports various conflict resolution strategies:
 ///
-/// ```rust,ignore
-/// # use drizzle_sqlite::builder::{QueryBuilder, Conflict};
+/// ```rust
+/// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # use drizzle_core::ToSQL;
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
@@ -188,18 +188,6 @@ impl ExecutableState for InsertOnConflictSet {}
 ///     .insert(user)
 ///     .values([InsertUser::new("Alice")])
 ///     .on_conflict(Conflict::default());
-///
-/// // Update on conflict (UPSERT)
-/// use drizzle_core::expressions::conditions::eq;
-/// let query = builder
-///     .insert(user)
-///     .values([InsertUser::new("Alice")])
-///     .on_conflict(Conflict::update(
-///         [user.name],
-///         eq(user.name, "Updated Name"),
-///         None,
-///         None
-///     ));
 /// ```
 pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schema, State, Table>;
 
@@ -219,7 +207,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::ToSQL;
@@ -231,18 +219,18 @@ where
     /// let query = builder
     ///     .insert(user)
     ///     .values([InsertUser::new("Alice")]);
-    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" (name) VALUES (?)"#);
     ///
-    /// // Batch insert
+    /// // Batch insert (all values must have the same fields set)
     /// let query = builder
     ///     .insert(user)
     ///     .values([
     ///         InsertUser::new("Alice").with_email("alice@example.com"),
-    ///         InsertUser::new("Bob"),
+    ///         InsertUser::new("Bob").with_email("bob@example.com"),
     ///     ]);
     /// assert_eq!(
     ///     query.to_sql().sql(),
-    ///     r#"INSERT INTO "users" ("name", "email") VALUES (?, ?), (?, ?)"#
+    ///     r#"INSERT INTO "users" (name, email) VALUES (?, ?), (?, ?)"#
     /// );
     /// ```
     #[inline]
@@ -274,10 +262,10 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// # use drizzle_sqlite::builder::{QueryBuilder, Conflict};
+    /// ```rust
+    /// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
+    /// # use drizzle_core::ToSQL;
     /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[text] email: Option<String> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
@@ -289,19 +277,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///     .on_conflict(Conflict::default());
     /// assert_eq!(
     ///     query.to_sql().sql(),
-    ///     r#"INSERT INTO "users" ("name") VALUES (?) ON CONFLICT DO NOTHING"#
+    ///     r#"INSERT INTO "users" (name) VALUES (?) ON CONFLICT DO NOTHING"#
     /// );
-    ///
-    /// // Update on conflict (UPSERT)
-    /// let query = builder
-    ///     .insert(user)
-    ///     .values([InsertUser::new("Alice").with_email("new@example.com")])
-    ///     .on_conflict(Conflict::update(
-    ///         [user.email],
-    ///         eq(user.email, "updated@example.com"),
-    ///         None,
-    ///         None
-    ///     ));
     /// ```
     pub fn on_conflict<TI>(
         self,

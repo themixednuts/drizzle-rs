@@ -236,22 +236,32 @@ pub mod prelude {
     // Error type for generated code
     pub use drizzle_core::error::DrizzleError;
 
+    // SQLite crate access for submodules
+    #[cfg(feature = "sqlite")]
+    pub use drizzle_sqlite;
+
     // SQLite types and traits needed by macro-generated code
     #[cfg(feature = "sqlite")]
     pub use drizzle_sqlite::{
         common::SQLiteSchemaType,
         expression::{json, jsonb},
-        values::{InsertValue, SQLiteValue, ValueWrapper},
+        traits::{SQLiteColumn, SQLiteColumnInfo},
+        values::{SQLiteInsertValue, SQLiteValue, ValueWrapper},
     };
 
     #[cfg(feature = "sqlite")]
     pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteSchema, SQLiteTable};
 
+    // PostgreSQL crate access for submodules
+    #[cfg(feature = "postgres")]
+    pub use drizzle_postgres;
+
     // PostgreSQL types and traits needed by macro-generated code
     #[cfg(feature = "postgres")]
     pub use drizzle_postgres::{
         common::PostgresSchemaType,
-        values::{InsertValue as PostgresInsertValue, PostgresValue},
+        traits::{PostgresColumn, PostgresColumnInfo},
+        values::{PostgresInsertValue, PostgresValue},
     };
 
     #[cfg(feature = "postgres")]
@@ -367,7 +377,7 @@ mod sqlite_tests {
 
         // Verify it's a Value variant containing SQL with the placeholder
         match &insert_value.name {
-            drizzle::sqlite::values::InsertValue::Value(wrapper) => {
+            drizzle::sqlite::values::SQLiteInsertValue::Value(wrapper) => {
                 // Check that the SQL contains our placeholder
                 let sql_string = wrapper.value.sql();
                 assert!(sql_string.contains("test_name") || sql_string.contains("?"));
@@ -378,7 +388,7 @@ mod sqlite_tests {
         // Test that regular values still work
         let regular_insert: InsertUser<'_, _> = InsertUser::new("regular_value");
         match &regular_insert.name {
-            drizzle::sqlite::values::InsertValue::Value(wrapper) => {
+            drizzle::sqlite::values::SQLiteInsertValue::Value(wrapper) => {
                 // Check that the SQL contains our parameter
                 assert!(!wrapper.value.sql().is_empty());
             }

@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use crate::common::{InsertSimple, Simple, SimpleSchema};
+use crate::common::{InsertSimple, SimpleSchema};
 use drizzle::prelude::*;
 use drizzle_core::{SQL, prepared::prepare_render};
 use drizzle_macros::drizzle_test;

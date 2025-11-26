@@ -2,7 +2,7 @@ use crate::prelude::*;
 use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::tokens::Token};
 
 /// A SQL chunk represents a part of an SQL statement.
-/// 
+///
 /// This enum has 8 variants, each with a clear semantic purpose:
 /// - `Empty` - Placeholder for const array padding (renders as nothing, skipped)
 /// - `Token` - SQL keywords and operators (SELECT, FROM, =, etc.)
@@ -17,35 +17,35 @@ pub enum SQLChunk<'a, V: SQLParam> {
     /// Empty placeholder - used for const array padding
     /// Renders as: nothing (skipped entirely)
     Empty,
-    
+
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
     /// Renders as: keyword with automatic spacing rules
     Token(Token),
-    
+
     /// Quoted identifier for user-provided names
     /// Renders as: "name" (with quotes)
     /// Use for: table names, column names, alias names
     Ident(Cow<'a, str>),
-    
+
     /// Raw SQL text (unquoted) for expressions, function names
     /// Renders as: text (no quotes, as-is)
     /// Use for: function names like COUNT, expressions, numeric literals
     Raw(Cow<'a, str>),
-    
+
     /// Parameter with value and placeholder
     /// Renders as: ? or $1 or :name depending on placeholder style
     Param(Param<'a, V>),
-    
+
     /// Table reference with full metadata access
     /// Renders as: "table_name"
     /// Provides: columns() for SELECT *, dependencies() for FK tracking
     Table(&'static dyn SQLTableInfo),
-    
+
     /// Column reference with full metadata access
     /// Renders as: "table"."column"
     /// Provides: table(), is_primary_key(), foreign_key(), etc.
     Column(&'static dyn SQLColumnInfo),
-    
+
     /// Alias wrapper: renders inner chunk followed by AS "alias"
     /// Renders as: {inner} AS "alias"
     Alias {
@@ -56,37 +56,37 @@ pub enum SQLChunk<'a, V: SQLParam> {
 
 impl<'a, V: SQLParam> SQLChunk<'a, V> {
     // ==================== const constructors ====================
-    
+
     /// Creates a token chunk - const
     #[inline]
     pub const fn token(t: Token) -> Self {
         Self::Token(t)
     }
-    
+
     /// Creates a quoted identifier from a static string - const
     #[inline]
     pub const fn ident_static(name: &'static str) -> Self {
         Self::Ident(Cow::Borrowed(name))
     }
-    
+
     /// Creates raw SQL text from a static string - const
     #[inline]
     pub const fn raw_static(text: &'static str) -> Self {
         Self::Raw(Cow::Borrowed(text))
     }
-    
+
     /// Creates a table chunk - const
     #[inline]
     pub const fn table(table: &'static dyn SQLTableInfo) -> Self {
         Self::Table(table)
     }
-    
+
     /// Creates a column chunk - const
     #[inline]
     pub const fn column(column: &'static dyn SQLColumnInfo) -> Self {
         Self::Column(column)
     }
-    
+
     /// Creates a parameter chunk with borrowed value - const
     #[inline]
     pub const fn param_borrowed(value: &'a V, placeholder: Placeholder) -> Self {
@@ -95,21 +95,21 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             placeholder,
         })
     }
-    
+
     // ==================== non-const constructors ====================
-    
+
     /// Creates a quoted identifier from a runtime string
     #[inline]
     pub fn ident(name: impl Into<Cow<'a, str>>) -> Self {
         Self::Ident(name.into())
     }
-    
+
     /// Creates raw SQL text from a runtime string
     #[inline]
     pub fn raw(text: impl Into<Cow<'a, str>>) -> Self {
         Self::Raw(text.into())
     }
-    
+
     /// Creates a parameter chunk with owned value
     #[inline]
     pub fn param(value: impl Into<Cow<'a, V>>, placeholder: Placeholder) -> Self {
@@ -118,7 +118,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             placeholder,
         })
     }
-    
+
     /// Creates an alias chunk wrapping any SQLChunk
     #[inline]
     pub fn alias(inner: SQLChunk<'a, V>, alias: impl Into<Cow<'a, str>>) -> Self {
@@ -127,9 +127,9 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             alias: alias.into(),
         }
     }
-    
+
     // ==================== write implementation ====================
-    
+
     /// Write chunk content to buffer
     pub(crate) fn write(&self, buf: &mut impl core::fmt::Write) {
         match self {
@@ -168,19 +168,32 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             }
         }
     }
-    
+
     /// Check if this chunk is "word-like" (needs space separation from other word-like chunks)
     #[inline]
     pub(crate) fn is_word_like(&self) -> bool {
         match self {
             SQLChunk::Empty => false,
-            SQLChunk::Token(t) => !matches!(t, 
-                Token::LPAREN | Token::RPAREN | Token::COMMA | 
-                Token::SEMI | Token::DOT | Token::EQ | Token::NE |
-                Token::LT | Token::GT | Token::LE | Token::GE
+            SQLChunk::Token(t) => !matches!(
+                t,
+                Token::LPAREN
+                    | Token::RPAREN
+                    | Token::COMMA
+                    | Token::SEMI
+                    | Token::DOT
+                    | Token::EQ
+                    | Token::NE
+                    | Token::LT
+                    | Token::GT
+                    | Token::LE
+                    | Token::GE
             ),
-            SQLChunk::Ident(_) | SQLChunk::Raw(_) | SQLChunk::Param(_) |
-            SQLChunk::Table(_) | SQLChunk::Column(_) | SQLChunk::Alias { .. } => true,
+            SQLChunk::Ident(_)
+            | SQLChunk::Raw(_)
+            | SQLChunk::Param(_)
+            | SQLChunk::Table(_)
+            | SQLChunk::Column(_)
+            | SQLChunk::Alias { .. } => true,
         }
     }
 }

@@ -147,9 +147,11 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
             }
         }
 
-        // Add space if needed between chunks
+        // Add space if needed between chunks (matching chunk_needs_space logic)
         if let Some(next) = sql.chunks.get(i + 1) {
-            if chunk.is_word_like() && next.is_word_like() {
+            // Check if we need spacing between these chunks
+            let needs_space = chunk_needs_space_for_prepare(chunk, next, &current_text);
+            if needs_space {
                 current_text.push(' ');
             }
         }
@@ -161,4 +163,26 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
         text_segments: text_segments.into_boxed_slice(),
         params: params.into_boxed_slice(),
     }
+}
+
+/// Check if space is needed between chunks during prepare_render
+fn chunk_needs_space_for_prepare<V: SQLParam>(
+    current: &SQLChunk<'_, V>,
+    next: &SQLChunk<'_, V>,
+    current_text: &str,
+) -> bool {
+    // No space if current text already ends with space
+    if current_text.ends_with(' ') {
+        return false;
+    }
+
+    // No space if next raw text starts with space
+    if let SQLChunk::Raw(text) = next {
+        if text.starts_with(' ') {
+            return false;
+        }
+    }
+
+    // Space between word-like chunks
+    current.is_word_like() && next.is_word_like()
 }

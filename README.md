@@ -4,13 +4,14 @@ A type-safe SQL query builder for Rust inspired by Drizzle ORM.
 
 ## Schema Setup
 
-First, create a `schema.rs` file to define your database tables. All schema items must be `pub` for proper destructuring:
+First, create a `schema.rs` file to define your database tables. All schema
+items must be `pub` for proper destructuring:
 
 ```rust
-use drizzle::{SQLSchema, sqlite::SQLiteTable};
+use drizzle::prelude::*;
 use uuid::Uuid;
 
-#[derive(SQLSchema)]
+#[derive(SQLiteSchema)]
 pub struct Schema {
     pub users: Users,
     pub posts: Posts,
@@ -25,7 +26,7 @@ pub struct Users {
     #[text]
     pub name: String,
     #[text]
-    pub email: String,
+    pub email: Option<String>,
     #[integer]
     pub age: u64,
 }
@@ -64,10 +65,11 @@ pub id: Uuid,
 
 ### Indexes
 
-Indexes are defined as separate structs and included in your schema. They reference table columns using the `Table::column` syntax:
+Indexes are defined as separate structs and included in your schema. They
+reference table columns using the `Table::column` syntax:
 
 ```rust
-use drizzle::sqlite::SQLiteIndex;
+use drizzle::prelude::*;
 
 // Unique compound index on email and name
 #[SQLiteIndex(unique)]
@@ -78,7 +80,8 @@ pub struct UserEmailUsernameIdx(Users::email, Users::name);
 pub struct UserEmailIdx(Users::email);
 ```
 
-The indexes are automatically created when you call `db.create()` and must be included as fields in your schema struct.
+The indexes are automatically created when you call `db.create()` and must be
+included as fields in your schema struct.
 
 ## Basic Usage
 
@@ -87,17 +90,16 @@ In your `main.rs`, use the schema without feature flags:
 ```rust
 mod schema;
 
-use drizzle::{core::eq, drizzle};
-use procmacros::FromRow;
+use drizzle::prelude::*;
+use drizzle::rusqlite::Drizzle;
 use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
-             // drizzle::error::Result<()>
-fn main() -> Result<(), drizzle::error::DrizzleError> {
+fn main() -> drizzle::Result<()> {
     let conn = Connection::open_in_memory()?;
-    let (db, Schema { users, posts }) = drizzle!(conn, Schema);
+    let (mut db, Schema { users, posts, .. }) = Drizzle::new(conn, Schema::new());
 
     // Create tables (only on fresh database)
     db.create()?;
@@ -146,11 +148,12 @@ fn main() -> Result<(), drizzle::error::DrizzleError> {
 ```rust
 // Always use new() as it forces you at compile time to input required fields
 InsertUsers::new("John Doe", 25)
-    .with_email("john@example.com") // Optional fields via .with_*
+    .with_email("john@example.com") // Optional fields or fields with defaults via .with_*
 ```
 
-> [!WARNING]  
-> Avoid using `InsertUsers::default()`, as it will fail at runtime if required fields are not provided.
+> [!WARNING]\
+> Avoid using `InsertUsers::default()`, as it will fail at runtime if required
+> fields are not provided.
 
 The `.values()` method automatically batches inserts of the same type:
 
@@ -174,7 +177,8 @@ db.insert(users)
 
 ## Transactions
 
-For multiple different operations or when you need ACID guarantees, use transactions:
+For multiple different operations or when you need ACID guarantees, use
+transactions:
 
 ```rust
 use drizzle::sqlite::SQLiteTransactionType;
@@ -205,24 +209,28 @@ db.transaction(SQLiteTransactionType::Deferred, |tx| Box::pin(async move {
     // Insert users
     tx.insert(users)
         .values([InsertUsers::new("Alice", 30)])
-        .execute()?;
+        .execute()
+        .await?;
 
     // Insert posts
     tx.insert(posts)
         .values([InsertPosts::new(user_id)])
-        .execute()?;
+        .execute()
+        .await?;
 
     // Update data
     tx.update(users)
         .set(UpdateUsers::default().with_age(31))
         .r#where(eq(users.name, "Alice"))
-        .execute()?;
+        .execute()
+        .await?;
 
     Ok(())
-}))?;
+})).await?;
 ```
 
-For more details on transaction types, see the [SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html).
+For more details on transaction types, see the
+[SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html).
 
 ## Table Attributes
 
@@ -323,12 +331,13 @@ struct Users {
 
 ## FromRow Derive Macro
 
-The `FromRow` derive macro automatically generates `TryFrom<&Row>` implementations for converting database rows into your structs.
+The `FromRow` derive macro automatically generates `TryFrom<&Row>`
+implementations for converting database rows into your structs.
 
 ### Basic Usage
 
 ```rust
-use drizzle::FromRow;
+use drizzle::prelude::*;
 
 #[derive(FromRow, Debug)]
 struct User {

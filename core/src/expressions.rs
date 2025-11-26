@@ -1,10 +1,6 @@
 pub mod conditions;
 
-use crate::{SQL, SQLParam, ToSQL, Token, sql::CTE};
-
-pub fn cte(name: &'static str) -> CTE {
-    CTE { name }
-}
+use crate::{SQL, SQLParam, ToSQL, Token};
 
 pub fn alias<'a, V: SQLParam + 'a, E: ToSQL<'a, V>>(expr: E, alias: &'a str) -> SQL<'a, V> {
     expr.to_sql().alias(alias)

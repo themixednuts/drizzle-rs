@@ -287,6 +287,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 self.write_qualified_columns(buf, *table);
             }
             Some([SQLChunk::Token(Token::FROM), _]) => {
+                let _ = buf.write_char(' ');
                 let _ = buf.write_str(Token::STAR.as_str());
             }
             _ => {}
@@ -430,6 +431,8 @@ fn chunk_needs_space<V: SQLParam>(current: &SQLChunk<'_, V>, next: &SQLChunk<'_,
         (SQLChunk::Token(Token::COMMA), _) => true,
         // Space after closing paren if next is word-like (e.g., ") FROM")
         (SQLChunk::Token(Token::RPAREN), next) => next.is_word_like(),
+        // Space before opening paren if preceded by word-like (e.g., "AS (")
+        (current, SQLChunk::Token(Token::LPAREN)) => current.is_word_like(),
         // Space around comparison/arithmetic operators
         (SQLChunk::Token(t), _) if t.is_operator() => true,
         (_, SQLChunk::Token(t)) if t.is_operator() => true,

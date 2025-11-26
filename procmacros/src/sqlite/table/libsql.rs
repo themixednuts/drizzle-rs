@@ -25,7 +25,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -37,7 +37,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #update_model_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {

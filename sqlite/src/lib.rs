@@ -31,7 +31,7 @@ pub mod prelude {
     pub use ::rusqlite::types::ToSql;
 }
 
-pub use self::values::{InsertValue, OwnedSQLiteValue, SQLiteValue};
+pub use self::values::{OwnedSQLiteValue, SQLiteInsertValue, SQLiteValue};
 
 // Re-export ParamBind for use in macros
 pub use drizzle_core::ParamBind;

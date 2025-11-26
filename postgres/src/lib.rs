@@ -16,9 +16,9 @@ pub mod values;
 
 // Re-export key types for easier access
 pub use builder::{BuilderInit, BuilderState, CTEInit, ExecutableState, QueryBuilder};
-pub use common::{PostgresSchemaType, Number, Join, JoinType};
+pub use common::{Join, JoinType, Number, PostgresSchemaType};
 pub use traits::{PostgresColumn, PostgresColumnInfo, PostgresEnum};
-pub use values::{InsertValue, PostgresValue, ValueWrapper};
+pub use values::{PostgresInsertValue, PostgresValue, ValueWrapper};
 
 // Transaction types - PostgreSQL specific isolation levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

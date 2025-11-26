@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use uuid::Uuid;
 
 #[cfg(feature = "chrono")]
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc, FixedOffset, Duration};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 #[cfg(feature = "rust_decimal")]
 use rust_decimal::Decimal;
@@ -16,7 +16,7 @@ use rust_decimal::Decimal;
 use ipnet::IpNet;
 
 #[cfg(feature = "geo-types")]
-use geo_types::{Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon};
+use geo_types::{LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 
 #[cfg(feature = "bitvec")]
 use bitvec::prelude::*;
@@ -46,7 +46,7 @@ pub enum OwnedPostgresValue {
     /// JSON/JSONB values
     #[cfg(feature = "serde")]
     Json(serde_json::Value),
-    
+
     // Date and time types
     /// DATE values
     #[cfg(feature = "chrono")]
@@ -63,12 +63,12 @@ pub enum OwnedPostgresValue {
     /// INTERVAL values
     #[cfg(feature = "chrono")]
     Interval(Duration),
-    
+
     // Numeric types
     /// NUMERIC, DECIMAL values (arbitrary precision)
     #[cfg(feature = "rust_decimal")]
     Decimal(Decimal),
-    
+
     // Network address types
     /// INET values (IPv4 or IPv6 networks)
     #[cfg(feature = "ipnet")]
@@ -82,7 +82,7 @@ pub enum OwnedPostgresValue {
     /// MACADDR8 values (EUI-64 MAC addresses)
     #[cfg(feature = "ipnet")]
     MacAddr8([u8; 8]),
-    
+
     // Geometric types
     /// POINT values
     #[cfg(feature = "geo-types")]
@@ -102,16 +102,16 @@ pub enum OwnedPostgresValue {
     /// MULTIPOLYGON values
     #[cfg(feature = "geo-types")]
     MultiPolygon(MultiPolygon<f64>),
-    
+
     // Bit string types
     /// BIT, BIT VARYING values
     #[cfg(feature = "bitvec")]
     BitVec(BitVec),
-    
+
     // Array types (using Vec for simplicity)
     /// Array of any PostgreSQL type
     Array(Vec<OwnedPostgresValue>),
-    
+
     /// NULL value
     Null,
 }
@@ -142,7 +142,7 @@ impl std::fmt::Display for OwnedPostgresValue {
             OwnedPostgresValue::Uuid(uuid) => uuid.to_string(),
             #[cfg(feature = "serde")]
             OwnedPostgresValue::Json(json) => json.to_string(),
-            
+
             // Date and time types
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Date(date) => date.format("%Y-%m-%d").to_string(),
@@ -151,14 +151,16 @@ impl std::fmt::Display for OwnedPostgresValue {
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::TimestampTz(ts) => ts.format("%Y-%m-%d %H:%M:%S%.f %:z").to_string(),
+            OwnedPostgresValue::TimestampTz(ts) => {
+                ts.format("%Y-%m-%d %H:%M:%S%.f %:z").to_string()
+            }
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
-            
+
             // Numeric types
             #[cfg(feature = "rust_decimal")]
             OwnedPostgresValue::Decimal(dec) => dec.to_string(),
-            
+
             // Network address types
             #[cfg(feature = "ipnet")]
             OwnedPostgresValue::Inet(net) => net.to_string(),
@@ -174,36 +176,78 @@ impl std::fmt::Display for OwnedPostgresValue {
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
             ),
-            
+
             // Geometric types
             #[cfg(feature = "geo-types")]
             OwnedPostgresValue::Point(point) => format!("({},{})", point.x(), point.y()),
             #[cfg(feature = "geo-types")]
             OwnedPostgresValue::LineString(line) => {
-                let coords: Vec<String> = line.coords().map(|coord| format!("({},{})", coord.x, coord.y)).collect();
+                let coords: Vec<String> = line
+                    .coords()
+                    .map(|coord| format!("({},{})", coord.x, coord.y))
+                    .collect();
                 format!("[{}]", coords.join(","))
-            },
+            }
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Polygon(poly) => format!("POLYGON({})", poly.exterior().coords().map(|c| format!("({},{})", c.x, c.y)).collect::<Vec<_>>().join(",")),
+            OwnedPostgresValue::Polygon(poly) => format!(
+                "POLYGON({})",
+                poly.exterior()
+                    .coords()
+                    .map(|c| format!("({},{})", c.x, c.y))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiPoint(mp) => format!("MULTIPOINT({})", mp.iter().map(|p| format!("({},{})", p.x(), p.y())).collect::<Vec<_>>().join(",")),
+            OwnedPostgresValue::MultiPoint(mp) => format!(
+                "MULTIPOINT({})",
+                mp.iter()
+                    .map(|p| format!("({},{})", p.x(), p.y()))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiLineString(mls) => format!("MULTILINESTRING({})", mls.iter().map(|ls| format!("[{}]", ls.coords().map(|c| format!("({},{})", c.x, c.y)).collect::<Vec<_>>().join(","))).collect::<Vec<_>>().join(",")),
+            OwnedPostgresValue::MultiLineString(mls) => format!(
+                "MULTILINESTRING({})",
+                mls.iter()
+                    .map(|ls| format!(
+                        "[{}]",
+                        ls.coords()
+                            .map(|c| format!("({},{})", c.x, c.y))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiPolygon(mp) => format!("MULTIPOLYGON({})", mp.iter().map(|p| format!("POLYGON({})", p.exterior().coords().map(|c| format!("({},{})", c.x, c.y)).collect::<Vec<_>>().join(","))).collect::<Vec<_>>().join(",")),
-            
+            OwnedPostgresValue::MultiPolygon(mp) => format!(
+                "MULTIPOLYGON({})",
+                mp.iter()
+                    .map(|p| format!(
+                        "POLYGON({})",
+                        p.exterior()
+                            .coords()
+                            .map(|c| format!("({},{})", c.x, c.y))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+
             // Bit string types
             #[cfg(feature = "bitvec")]
-            OwnedPostgresValue::BitVec(bv) => {
-                bv.iter().map(|b| if *b { '1' } else { '0' }).collect::<String>()
-            },
-            
+            OwnedPostgresValue::BitVec(bv) => bv
+                .iter()
+                .map(|b| if *b { '1' } else { '0' })
+                .collect::<String>(),
+
             // Array types
             OwnedPostgresValue::Array(arr) => {
                 let elements: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
                 format!("{{{}}}", elements.join(","))
-            },
-            
+            }
+
             OwnedPostgresValue::Null => String::new(),
         };
         write!(f, "{value}")
@@ -265,9 +309,12 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             #[cfg(feature = "bitvec")]
             PostgresValue::BitVec(bv) => OwnedPostgresValue::BitVec(bv),
             PostgresValue::Array(arr) => {
-                let owned_arr = arr.into_iter().map(|v| OwnedPostgresValue::from(v)).collect();
+                let owned_arr = arr
+                    .into_iter()
+                    .map(|v| OwnedPostgresValue::from(v))
+                    .collect();
                 OwnedPostgresValue::Array(owned_arr)
-            },
+            }
         }
     }
 }
@@ -288,7 +335,7 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::Uuid(uuid) => PostgresValue::Uuid(uuid),
             #[cfg(feature = "serde")]
             OwnedPostgresValue::Json(json) => PostgresValue::Json(json),
-            
+
             // Date and time types
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Date(date) => PostgresValue::Date(date),
@@ -327,8 +374,8 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::Array(arr) => {
                 let postgres_arr = arr.into_iter().map(|v| PostgresValue::from(v)).collect();
                 PostgresValue::Array(postgres_arr)
-            },
-            
+            }
+
             OwnedPostgresValue::Null => PostgresValue::Null,
         }
     }
@@ -406,10 +453,9 @@ impl TryFrom<OwnedPostgresValue> for i16 {
             OwnedPostgresValue::Smallint(i) => Ok(i),
             OwnedPostgresValue::Integer(i) => Ok(i.try_into()?),
             OwnedPostgresValue::Bigint(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to i16",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to i16", value).into(),
+            )),
         }
     }
 }
@@ -422,10 +468,9 @@ impl TryFrom<OwnedPostgresValue> for i32 {
             OwnedPostgresValue::Smallint(i) => Ok(i.into()),
             OwnedPostgresValue::Integer(i) => Ok(i),
             OwnedPostgresValue::Bigint(i) => Ok(i.try_into()?),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to i32",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to i32", value).into(),
+            )),
         }
     }
 }
@@ -438,10 +483,9 @@ impl TryFrom<OwnedPostgresValue> for i64 {
             OwnedPostgresValue::Smallint(i) => Ok(i.into()),
             OwnedPostgresValue::Integer(i) => Ok(i.into()),
             OwnedPostgresValue::Bigint(i) => Ok(i),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to i64",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to i64", value).into(),
+            )),
         }
     }
 }
@@ -456,10 +500,9 @@ impl TryFrom<OwnedPostgresValue> for f32 {
             OwnedPostgresValue::Smallint(i) => Ok(i as f32),
             OwnedPostgresValue::Integer(i) => Ok(i as f32),
             OwnedPostgresValue::Bigint(i) => Ok(i as f32),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to f32",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to f32", value).into(),
+            )),
         }
     }
 }
@@ -474,10 +517,9 @@ impl TryFrom<OwnedPostgresValue> for f64 {
             OwnedPostgresValue::Smallint(i) => Ok(i as f64),
             OwnedPostgresValue::Integer(i) => Ok(i as f64),
             OwnedPostgresValue::Bigint(i) => Ok(i as f64),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to f64",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to f64", value).into(),
+            )),
         }
     }
 }
@@ -488,10 +530,9 @@ impl TryFrom<OwnedPostgresValue> for String {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Text(s) => Ok(s),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to String",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to String", value).into(),
+            )),
         }
     }
 }
@@ -502,10 +543,9 @@ impl TryFrom<OwnedPostgresValue> for Vec<u8> {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Bytea(b) => Ok(b),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to Vec<u8>",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to Vec<u8>", value).into(),
+            )),
         }
     }
 }
@@ -516,10 +556,9 @@ impl TryFrom<OwnedPostgresValue> for bool {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Boolean(b) => Ok(b),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to bool",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to bool", value).into(),
+            )),
         }
     }
 }
@@ -532,10 +571,9 @@ impl TryFrom<OwnedPostgresValue> for Uuid {
         match value {
             OwnedPostgresValue::Uuid(uuid) => Ok(uuid),
             OwnedPostgresValue::Text(s) => Ok(Uuid::parse_str(&s)?),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to UUID",
-                value
-            ).into())),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to UUID", value).into(),
+            )),
         }
     }
 }
@@ -547,13 +585,12 @@ impl TryFrom<OwnedPostgresValue> for serde_json::Value {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Json(json) => Ok(json),
-            OwnedPostgresValue::Text(s) => serde_json::from_str(&s)
-                .map_err(|e| DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())),
-            _ => Err(DrizzleError::ConversionError(format!(
-                "Cannot convert {:?} to JSON",
-                value
-            ).into())),
+            OwnedPostgresValue::Text(s) => serde_json::from_str(&s).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to JSON", value).into(),
+            )),
         }
     }
 }
-

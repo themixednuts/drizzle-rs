@@ -57,7 +57,7 @@ impl ExecutableState for UpdateReturningSet {}
 ///
 /// ## Basic Usage
 ///
-/// ```rust,ignore
+/// ```rust
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// use drizzle_core::{ToSQL, expressions::conditions::eq};
@@ -94,25 +94,24 @@ impl ExecutableState for UpdateReturningSet {}
 /// ## Advanced Updates
 ///
 /// ### Multiple Column Updates
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, expressions::conditions::{eq, and}};
+/// # use drizzle_core::{ToSQL, expressions::conditions::eq};
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[text] email: Option<String> }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
 /// let query = builder
 ///     .update(user)
-///     .set(and(
-///         eq(user.name, "Alice Updated"),
-///         eq(user.email, "alice.new@example.com")
-///     ))
+///     .set(UpdateUser::default()
+///         .with_name("Alice Updated")
+///         .with_email("alice.new@example.com"))
 ///     .r#where(eq(user.id, 1));
 /// ```
 ///
 /// ### UPDATE with RETURNING
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
@@ -144,7 +143,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::{ToSQL, expressions::conditions::{eq, and}};
@@ -190,7 +189,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::{ToSQL, expressions::conditions::{eq, gt, and}};

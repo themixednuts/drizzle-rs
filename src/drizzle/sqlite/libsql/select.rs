@@ -1,7 +1,10 @@
 use crate::drizzle::sqlite::libsql::DrizzleBuilder;
 use crate::drizzle_builder_join_impl;
-use drizzle_core::ToSQL;
-use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
+use drizzle_core::{SQLTable, ToSQL};
+use drizzle_sqlite::builder::{
+    CTEView, SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet,
+};
+use drizzle_sqlite::common::SQLiteSchemaType;
 use drizzle_sqlite::traits::{SQLiteTable, ToSQLiteSQL};
 use drizzle_sqlite::{
     SQLiteValue,
@@ -93,6 +96,21 @@ where
             state: PhantomData,
         }
     }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    /// Returns a CTEView with typed field access via Deref to the aliased table.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectFromSet, T>,
+    > {
+        self.builder.as_cte(name)
+    }
+
     drizzle_builder_join_impl!();
 }
 
@@ -179,6 +197,19 @@ where
             builder,
             state: PhantomData,
         }
+    }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+    > {
+        self.builder.as_cte(name)
     }
 }
 

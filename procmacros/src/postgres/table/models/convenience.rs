@@ -27,7 +27,7 @@ pub(crate) fn generate_convenience_method(
             quote! {
                 pub fn #method_name<V>(mut self, value: V) -> Self
                 where
-                    V: Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, #base_type>>
+                    V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, #base_type>>
                 {
                     #assignment
                     self

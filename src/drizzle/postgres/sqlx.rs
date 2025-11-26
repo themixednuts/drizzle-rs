@@ -142,13 +142,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a query with CTE (Common Table Expression).
-    pub fn with<'a, Q, C>(
+    pub fn with<'a, C>(
         &'a self,
         cte: C,
     ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        Q: ToPostgresSQL<'a>,
-        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, PostgresValue<'a>, Q>>,
+        C: builder::CTEDefinition<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         DrizzleBuilder {
@@ -319,13 +318,12 @@ impl<'a, Schema>
     }
 
     #[inline]
-    pub fn with<Q, C>(
+    pub fn with<C>(
         self,
         cte: C,
     ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        Q: ToPostgresSQL<'a>,
-        C: AsRef<drizzle_core::expressions::DefinedCTE<'a, PostgresValue<'a>, Q>>,
+        C: builder::CTEDefinition<'a>,
     {
         let builder = self.builder.with(cte);
         DrizzleBuilder {

@@ -1,10 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use std::borrow::Cow;
-
-use drizzle::error::DrizzleError;
 use drizzle::prelude::*;
-use drizzle::sqlite::expression::jsonb;
 use drizzle_macros::drizzle_test;
 use drizzle_sqlite::SQLiteValue;
 #[cfg(feature = "serde")]

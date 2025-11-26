@@ -8,8 +8,6 @@ use drizzle_core::ToSQL;
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 #[cfg(feature = "sqlite")]
-use drizzle_core::sql::DefinedCTE;
-#[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::traits::SQLiteTable;
@@ -160,13 +158,12 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates a query with CTE (Common Table Expression).
     #[cfg(feature = "sqlite")]
-    pub fn with<'a, Q, C>(
+    pub fn with<'a, C>(
         &'a self,
         cte: C,
     ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: builder::CTEDefinition<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         DrizzleBuilder {
@@ -340,13 +337,12 @@ impl<'a, Schema>
     }
 
     #[inline]
-    pub fn with<Q, C>(
+    pub fn with<C>(
         self,
         cte: C,
     ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: builder::CTEDefinition<'a>,
     {
         let builder = self.builder.with(cte);
         DrizzleBuilder {

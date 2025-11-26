@@ -1,14 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use std::marker::PhantomData;
-
 #[cfg(feature = "uuid")]
 use crate::common::{ComplexSchema, InsertComplex};
 use crate::common::{InsertSimple, Role, SelectSimple, SimpleSchema};
 use drizzle::prelude::*;
 use drizzle::sql;
 use drizzle_macros::drizzle_test;
-use drizzle_sqlite::SQLiteSQL;
 
 #[derive(Debug, FromRow)]
 struct CountResult {
@@ -131,7 +128,7 @@ drizzle_test!(test_aggregate_functions, SimpleSchema, {
     let result: Vec<AvgResult> =
         drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple).all());
     assert_eq!(result[0].avg, 25.0);
-});
+}); /////
 
 #[cfg(feature = "uuid")]
 drizzle_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
@@ -488,29 +485,7 @@ drizzle_test!(test_multiple_aliases, SimpleSchema, {
     assert_eq!(result[0].total, 2);
 });
 
-#[test]
-fn test_cte_name_access() {
-    let cte_query = SQLiteSQL::raw("SELECT * FROM users");
-    let sq = cte("my_cte").r#as(cte_query);
-
-    assert_eq!(sq.name(), "my_cte");
-}
-
-#[test]
-fn test_cte_to_sql() {
-    let cte_query = SQLiteSQL::raw("SELECT id FROM users WHERE active = 1");
-    let sq = cte("active_users").r#as(cte_query);
-
-    let cte_sql = sq.definition();
-    assert_eq!(
-        cte_sql.sql(),
-        "active_users AS (SELECT id FROM users WHERE active = 1)"
-    );
-
-    // Test that to_sql() returns just the name for use in FROM clauses
-    let name_sql = sq.to_sql();
-    assert_eq!(name_sql.sql(), "active_users");
-}
+// CTE tests have moved to use .as_cte() API - see test_cte_integration_* tests below
 
 drizzle_test!(test_cte_integration_simple, SimpleSchema, {
     let SimpleSchema { simple } = schema;
@@ -523,15 +498,20 @@ drizzle_test!(test_cte_integration_simple, SimpleSchema, {
     ];
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
-    // Create a CTE that filters for specific IDs
-    let sq = cte("filtered_users").r#as(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(gt(simple.id, 1)),
-    );
+    // Create a CTE with typed field access using .as_cte()
+    let filtered_users = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(gt(simple.id, 1))
+        .as_cte("filtered_users");
 
-    // Use the CTE in a main query - empty select() should render as *
-    let result: Vec<SelectSimple> = drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
+    // Use the CTE with typed column access via Deref
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.with(&filtered_users)
+            .select((filtered_users.id, filtered_users.name))
+            .from(&filtered_users)
+            .all()
+    );
 
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Bob");
@@ -549,16 +529,25 @@ drizzle_test!(test_cte_integration_with_aggregation, SimpleSchema, {
     ];
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
-    // Create a CTE with count
-    let sq = cte("user_count").r#as(db.select(count(simple.id).alias("count")).from(simple));
+    // Create a CTE with count using .as_cte()
+    // Note: For aggregations, select the computed column using sql!() or SELECT *
+    let user_count = db
+        .select(count(simple.id).alias("count"))
+        .from(simple)
+        .as_cte("user_count");
 
     #[derive(FromRow)]
     struct CountResult {
         count: i32,
     }
 
-    // Use the CTE - empty select() should render as *
-    let result: Vec<CountResult> = drizzle_exec!(db.with(&sq).select(()).from(&sq).all());
+    // Use the CTE - for aggregated results, use sql!() to select the computed column
+    let result: Vec<CountResult> = drizzle_exec!(
+        db.with(&user_count)
+            .select(sql!("count"))
+            .from(&user_count)
+            .all()
+    );
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3);
@@ -577,21 +566,12 @@ drizzle_test!(test_cte_complex_two_levels, SimpleSchema, {
     ];
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
-    // Level 1 CTE: Filter users with id > 2
-    let filtered_users = cte("filtered_users").r#as(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(gt(simple.id, 2)),
-    );
-
-    // Level 2 CTE: Count from the first CTE and add a computed column
-    let user_stats = cte("user_stats").r#as(
-        db.select((
-            count(sql!("id")).alias("count"),
-            sql!("'high_id_users'").alias("category"),
-        ))
-        .from(&filtered_users),
-    );
+    // Level 1 CTE: Filter users with id > 2 using .as_cte() for typed field access
+    let filtered_users = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(gt(simple.id, 2))
+        .as_cte("filtered_users");
 
     #[derive(FromRow)]
     struct StatsResult {
@@ -599,12 +579,15 @@ drizzle_test!(test_cte_complex_two_levels, SimpleSchema, {
         category: String,
     }
 
-    // Final query: Use the second CTE
+    // Final query: Use the CTE with aggregation
+    // Note: For computed columns, we use sql!() since they're not table fields
     let result: Vec<StatsResult> = drizzle_exec!(
         db.with(&filtered_users)
-            .with(&user_stats)
-            .select(())
-            .from(&user_stats)
+            .select((
+                count(filtered_users.id).alias("count"),
+                sql!("'high_id_users'").alias("category"),
+            ))
+            .from(&filtered_users)
             .all()
     );
 

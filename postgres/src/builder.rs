@@ -1,4 +1,4 @@
-use drizzle_core::{Token, sql::DefinedCTE};
+use drizzle_core::Token;
 // Re-export common enums and traits from core
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
@@ -12,11 +12,15 @@ use crate::{
 use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
+pub mod cte;
 pub mod delete;
 pub mod insert;
 pub mod prepared;
 pub mod select;
 pub mod update;
+
+// Re-export CTE types
+pub use cte::{CTEDefinition, CTEView};
 
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
@@ -130,16 +134,15 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    pub fn with<Q, C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
-        Q: ToPostgresSQL<'a>,
-        C: AsRef<DefinedCTE<'a, PostgresValue<'a>, Q>>,
+        C: CTEDefinition<'a>,
     {
         let sql = self
             .sql
             .clone()
-            .append(SQL::raw(", "))
-            .append(cte.as_ref().definition());
+            .push(Token::COMMA)
+            .append(cte.cte_definition());
         QueryBuilder {
             sql,
             schema: PhantomData,
@@ -204,12 +207,11 @@ where
         }
     }
 
-    pub fn with<Q, C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
-        Q: ToPostgresSQL<'a>,
-        C: AsRef<DefinedCTE<'a, PostgresValue<'a>, Q>>,
+        C: CTEDefinition<'a>,
     {
-        let sql = SQL::from(Token::WITH).append(cte.as_ref().definition());
+        let sql = SQL::from(Token::WITH).append(cte.cte_definition());
         QueryBuilder {
             sql,
             schema: PhantomData,

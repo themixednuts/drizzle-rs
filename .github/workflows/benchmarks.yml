@@ -6,9 +6,6 @@ on:
       - 'v*' # Trigger on version tags like v1.0.0, v0.1.2, etc.
   workflow_dispatch: # Allow manual trigger
 
-permissions:
-  contents: write # to commit benchmark results back to repo
-
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -27,15 +24,9 @@ jobs:
           - os: macos-latest
             platform: mac
     runs-on: ${{ matrix.os }}
-    outputs:
-      linux-results: ${{ steps.upload-results.outputs.linux-results }}
-      windows-results: ${{ steps.upload-results.outputs.windows-results }}
-      mac-results: ${{ steps.upload-results.outputs.mac-results }}
     
     steps:
     - uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@nightly
@@ -75,55 +66,4 @@ jobs:
       with:
         name: benchmark-${{ matrix.platform }}
         path: ${{ matrix.platform }}.md
-        retention-days: 1
-
-  commit-results:
-    name: Commit All Benchmark Results  
-    needs: benchmark
-    runs-on: ubuntu-latest
-    if: always()
-    
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Download all benchmark artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-    
-    - name: Organize benchmark files
-      shell: bash
-      run: |
-        mkdir -p benchmarks
-        
-        # Move each platform's results to the benchmarks directory
-        for platform in linux windows mac; do
-          if [ -d "artifacts/benchmark-$platform" ]; then
-            cp "artifacts/benchmark-$platform/$platform.md" "benchmarks/$platform.md"
-          fi
-        done
-    
-    - name: Configure git
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-    
-    - name: Commit all benchmark results
-      shell: bash
-      run: |
-        git add benchmarks/
-        
-        if git diff --staged --quiet; then
-          echo "No benchmark changes to commit"
-        else
-          git commit -m "chore: update benchmark results for all platforms [skip ci]
-
-          Updated benchmark results for:$(ls benchmarks/*.md | sed 's/benchmarks\///g' | sed 's/\.md//g' | tr '\n' ' ')
-          
-          Commit: ${{ github.sha }}
-          Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          
-          git push
-        fi
+        retention-days: 90

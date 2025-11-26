@@ -59,7 +59,7 @@ where
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_contains(column, "$.preferences[0]", "dark_theme");
-/// assert_eq!(condition.sql(), "json_extract(metadata, '$.preferences[0]') = ?");
+/// assert_eq!(condition.sql(), "json_extract( metadata , '$.preferences[0]') = ?");
 /// # }
 /// ```
 pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
@@ -83,7 +83,7 @@ where
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_exists(column, "$.theme");
-/// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NOT NULL");
+/// assert_eq!(condition.sql(), "json_type( metadata , '$.theme') IS NOT NULL");
 /// # }
 /// ```
 pub fn json_exists<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
@@ -105,7 +105,7 @@ where
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_not_exists(column, "$.theme");
-/// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NULL");
+/// assert_eq!(condition.sql(), "json_type( metadata , '$.theme') IS NULL");
 /// # }
 /// ```
 pub fn json_not_exists<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
@@ -127,7 +127,7 @@ where
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_array_contains(column, "$.preferences", "dark_theme");
-/// assert_eq!(condition.sql(), "EXISTS(SELECT 1 FROM json_each(metadata, '$.preferences') WHERE value = ?)");
+/// assert_eq!(condition.sql(), "EXISTS(SELECT 1 FROM json_each( metadata , '$.preferences') WHERE value = ? )");
 /// # }
 /// ```
 pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
@@ -152,7 +152,7 @@ where
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_object_contains_key(column, "$", "theme");
-/// assert_eq!(condition.sql(), "json_type(metadata, '$.theme') IS NOT NULL");
+/// assert_eq!(condition.sql(), "json_type( metadata , '$.theme') IS NOT NULL");
 /// # }
 /// ```
 pub fn json_object_contains_key<'a, L>(left: L, path: &'a str, key: &'a str) -> SQLiteSQL<'a>
@@ -180,7 +180,7 @@ where
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_text_contains(column, "$.description", "user");
-/// assert_eq!(condition.sql(), "instr(lower(json_extract(metadata, '$.description'))), lower(?)) > 0");
+/// assert_eq!(condition.sql(), "instr(lower(json_extract( metadata , '$.description'))), lower( ? )) > 0");
 /// # }
 /// ```
 pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
@@ -198,13 +198,13 @@ where
 /// Create a JSON numeric greater-than condition
 ///
 /// # Example
-/// ```ignore
-/// # use crate::conditions::json_gt;
+/// ```
+/// # use drizzle_sqlite::conditions::json_gt;
 /// # use drizzle_core::SQL;
-/// # use crate::values::SQLiteValue;
+/// # use drizzle_sqlite::values::SQLiteValue;
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_gt(column, "$.score", 85.0);
-/// assert_eq!(condition.sql(), "CAST(json_extract(metadata, '$.score') AS NUMERIC) > ?");
+/// assert_eq!(condition.sql(), "CAST(json_extract( metadata , '$.score') AS NUMERIC) > ?");
 /// ```
 pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
 where

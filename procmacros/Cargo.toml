@@ -13,13 +13,30 @@ rust-version.workspace = true
 proc-macro = true
 
 [dependencies]
-quote = { version = "1.0.37" }
-proc-macro2 = { version = "1.0.89" }
-syn = { version = "2.0.87", features = ["full"] }
-rand = { version = "0.8.5" }
-heck = { version = "0.5.0" }
-proc-macro-crate = "3.3.0"
+quote = { version = "1.0" }
+proc-macro2 = { version = "1.0" }
+syn = { version = "2.0", features = ["full"] }
+rand = { workspace = true }
+heck = { version = "0.5" }
+proc-macro-crate = "3.4"
 paste = { workspace = true }
+
+[dev-dependencies]
+drizzle = { workspace = true, features = [
+    "rusqlite",
+    "libsql",
+    "turso",
+    "sqlite",
+] }
+drizzle-core = { workspace = true, features = ["rusqlite", "libsql", "turso"] }
+drizzle-sqlite = { workspace = true, features = [
+    "rusqlite",
+    "libsql",
+    "turso",
+] }
+rusqlite = { workspace = true }
+libsql = { workspace = true }
+turso = { workspace = true }
 
 [features]
 default = []

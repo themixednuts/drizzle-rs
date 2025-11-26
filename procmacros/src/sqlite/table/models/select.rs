@@ -50,12 +50,12 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
             }
 
             // Implement SQLPartial trait for SelectModel
-            impl<'a> ::drizzle::core::SQLPartial<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_ident {
+            impl<'a> ::drizzle_core::SQLPartial<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #select_model_ident {
                 type Partial = #select_model_partial_ident;
             }
 
-            impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_partial_ident {
-                fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
+            impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #select_model_partial_ident {
+                fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
                     unimplemented!()
                     // Only include columns that are Some() for selective querying
                     // let mut selected_columns = Vec::new();
@@ -69,9 +69,9 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
                     //         unimplemented!()
                     //         // If no fields selected, default to all columns
                     //         // const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
-                    //         // ::drizzle::core::SQL::join(ALL_COLUMNS, ", ")
+                    //         // ::drizzle_core::SQL::join(ALL_COLUMNS, ", ")
                     // } else {
-                    //     ::drizzle::core::SQL::join(&selected_columns, ", ")
+                    //     ::drizzle_core::SQL::join(&selected_columns, ", ")
                     // }
                 }
             }
@@ -85,12 +85,12 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
         // For libsql and turso: partial select models are disabled due to index-based access limitations
         // Use full select model or specific column tuples instead
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_ident {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
+        impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #select_model_ident {
+            fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
                 unimplemented!()
                 // Generate column list for SELECT
                 // const COLUMN_NAMES: &'static [&'static str] = &[#(#select_column_names,)*];
-                // ::drizzle::core::SQL::join(COLUMN_NAMES, ", ")
+                // ::drizzle_core::SQL::join(COLUMN_NAMES, ", ")
             }
         }
 

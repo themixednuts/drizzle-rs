@@ -1,4 +1,4 @@
-use drizzle_core::{Token, sql::DefinedCTE};
+use drizzle_core::Token;
 // Re-export common enums and traits from core
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
@@ -14,11 +14,15 @@ use crate::{
 use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
+pub mod cte;
 pub mod delete;
 pub mod insert;
 pub mod prepared;
 pub mod select;
 pub mod update;
+
+// Re-export CTE types
+pub use cte::{CTEDefinition, CTEView};
 
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
@@ -77,9 +81,10 @@ impl ExecutableState for CTEInit {}
 ///
 /// ## Basic Usage
 ///
-/// ```rust,ignore
+/// ```rust
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// use drizzle_core::ToSQL;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
@@ -89,7 +94,7 @@ impl ExecutableState for CTEInit {}
 ///     name: String,
 /// }
 ///
-/// # #[derive(SQLiteSchema)]
+/// #[derive(SQLiteSchema)]
 /// struct Schema {
 ///     user: User,
 /// }
@@ -101,8 +106,8 @@ impl ExecutableState for CTEInit {}
 /// // Build queries using the fluent API
 /// let query = builder
 ///     .select(user.name)
-///     .from(user)
-///     .where_(user.id.eq(1));
+///     .from(user);
+/// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
 /// ```
 ///
 /// ## Query Types
@@ -110,21 +115,23 @@ impl ExecutableState for CTEInit {}
 /// The builder supports all major SQL operations:
 ///
 /// ### SELECT Queries
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::{ToSQL, expressions::conditions::gt};
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
 /// let query = builder.select(user.name).from(user);
-/// let query = builder.select((user.id, user.name)).from(user).where_(user.id.gt(10));
+/// let query = builder.select((user.id, user.name)).from(user).r#where(gt(user.id, 10));
 /// ```
 ///
 /// ### INSERT Queries
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::ToSQL;
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
@@ -135,49 +142,61 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### UPDATE Queries
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::{ToSQL, expressions::conditions::eq};
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
 /// let query = builder
 ///     .update(user)
-///     .set(user.name.eq("Bob"))
-///     .where_(user.id.eq(1));
+///     .set(UpdateUser::default().with_name("Bob"))
+///     .r#where(eq(user.id, 1));
 /// ```
 ///
 /// ### DELETE Queries  
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::{ToSQL, expressions::conditions::lt};
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
 /// let query = builder
 ///     .delete(user)
-///     .where_(user.id.lt(10));
+///     .r#where(lt(user.id, 10));
 /// ```
 ///
 /// ## Common Table Expressions (CTEs)
 ///
-/// The builder supports WITH clauses for complex queries:
+/// The builder supports WITH clauses for complex queries with typed field access:
 ///
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # use drizzle_core::ToSQL;
 /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
-/// # let user_query = builder.select(user.name).from(user);
-/// let cte = user_query.as_cte("active_users");
+/// // Create a CTE with typed field access using .as_cte()
+/// let active_users = builder
+///     .select((user.id, user.name))
+///     .from(user)
+///     .as_cte("active_users");
+///
+/// // Use the CTE with typed column access via Deref
 /// let query = builder
-///     .with(cte)
-///     .select(())
-///     .from(cte);
+///     .with(&active_users)
+///     .select(active_users.name)  // Typed field access!
+///     .from(&active_users);
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"WITH active_users AS (SELECT "users"."id", "users"."name" FROM "users") SELECT "active_users"."name" FROM "active_users""#
+/// );
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
@@ -207,7 +226,7 @@ impl<'a> QueryBuilder<'a> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use drizzle_sqlite::builder::QueryBuilder;
     /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
     ///
@@ -247,7 +266,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::ToSQL;
@@ -291,16 +310,15 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    pub fn with<Q, C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
-        Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: CTEDefinition<'a>,
     {
         let sql = self
             .sql
             .clone()
             .push(Token::COMMA)
-            .append(cte.as_ref().definition());
+            .append(cte.cte_definition());
         QueryBuilder {
             sql,
             schema: PhantomData,
@@ -321,7 +339,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::ToSQL;
@@ -332,7 +350,7 @@ where
     /// let query = builder
     ///     .insert(user)
     ///     .values([InsertUser::new("Alice")]);
-    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" (name) VALUES (?)"#);
     /// ```
     pub fn insert<Table>(
         &self,
@@ -358,7 +376,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
@@ -368,7 +386,7 @@ where
     /// # let Schema { user } = Schema::new();
     /// let query = builder
     ///     .update(user)
-    ///     .set(eq(user.name, "Bob"))
+    ///     .set(UpdateUser::default().with_name("Bob"))
     ///     .r#where(eq(user.id, 1));
     /// assert_eq!(query.to_sql().sql(), r#"UPDATE "users" SET "name" = ? WHERE "users"."id" = ?"#);
     /// ```
@@ -396,7 +414,7 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::{ToSQL, expressions::conditions::lt};
@@ -426,12 +444,11 @@ where
         }
     }
 
-    pub fn with<Q, C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
-        Q: ToSQL<'a, SQLiteValue<'a>>,
-        C: AsRef<DefinedCTE<'a, SQLiteValue<'a>, Q>>,
+        C: CTEDefinition<'a>,
     {
-        let sql = SQL::from(Token::WITH).append(cte.as_ref().definition());
+        let sql = SQL::from(Token::WITH).append(cte.cte_definition());
         QueryBuilder {
             sql,
             schema: PhantomData,

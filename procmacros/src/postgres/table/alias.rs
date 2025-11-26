@@ -241,6 +241,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             type Select = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::Select;
             type Insert<T> = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::Insert<T>;
             type Update = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::Update;
+            // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
+            type Aliased = #aliased_table_name;
+
+            fn alias(name: &'static str) -> Self::Aliased {
+                #aliased_table_name::new(name)
+            }
         }
         
         // Implement SQLSchema trait for aliased table

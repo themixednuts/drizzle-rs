@@ -24,7 +24,7 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::turso::Row> for #select_model_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -36,7 +36,7 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::turso::Row> for #update_model_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -152,7 +152,7 @@ fn wrap_optional(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> To
         let error_msg = format!("Error converting required field `{}`", name);
         quote! {
             #name: #inner
-                .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
+                .ok_or_else(|| ::drizzle_core::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
         }
     }
 }

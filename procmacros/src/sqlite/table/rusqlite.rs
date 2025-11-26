@@ -25,7 +25,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #select_model_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -39,7 +39,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #partial_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -51,7 +51,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #update_model_ident {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = ::drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {

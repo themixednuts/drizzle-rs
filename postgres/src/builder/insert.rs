@@ -239,7 +239,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// Helper method to build the conflict target portion of ON CONFLICT
     fn build_conflict_target(target: ConflictTarget<'a>) -> SQL<'a, PostgresValue<'a>> {
         match target {
-            ConflictTarget::Columns(columns) => SQL::raw(" (").append(columns).append(SQL::raw(")")),
+            ConflictTarget::Columns(columns) => {
+                SQL::raw(" (").append(columns).append(SQL::raw(")"))
+            }
             ConflictTarget::ColumnsWhere {
                 columns,
                 where_clause,

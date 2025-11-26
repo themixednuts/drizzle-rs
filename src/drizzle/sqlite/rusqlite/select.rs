@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 
-use drizzle_core::ToSQL;
+use drizzle_core::{SQLTable, ToSQL};
 use drizzle_sqlite::{
     SQLiteValue,
-    builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
+    builder::{CTEView, SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
+    common::SQLiteSchemaType,
 };
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -100,6 +101,21 @@ where
             state: PhantomData,
         }
     }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    /// Returns a CTEView with typed field access via Deref to the aliased table.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectFromSet, T>,
+    > {
+        self.builder.as_cte(name)
+    }
+
     drizzle_builder_join_impl!();
 }
 
@@ -186,6 +202,19 @@ where
             builder,
             state: PhantomData,
         }
+    }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+    > {
+        self.builder.as_cte(name)
     }
 }
 

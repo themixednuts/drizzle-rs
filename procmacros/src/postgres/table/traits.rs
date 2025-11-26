@@ -1,6 +1,6 @@
 use super::context::MacroContext;
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, format_ident};
 use syn::{Ident, Result};
 
 /// Generate trait implementations for the PostgreSQL table
@@ -10,6 +10,7 @@ pub(super) fn generate_table_impls(
     _required_fields_pattern: &[bool],
 ) -> Result<TokenStream> {
     let struct_ident = ctx.struct_ident;
+    let aliased_table_ident = format_ident!("Aliased{}", struct_ident);
     let table_name = &ctx.table_name;
     let create_table_sql = &ctx.create_table_sql;
     let (select_model, insert_model, update_model) = (
@@ -62,6 +63,11 @@ pub(super) fn generate_table_impls(
             type Select = #select_model;
             type Insert<T> = #insert_model<'a, T>;
             type Update = #update_model;
+            type Aliased = #aliased_table_ident;
+
+            fn alias(name: &'static str) -> Self::Aliased {
+                #aliased_table_ident::new(name)
+            }
         }
 
         impl SQLTableInfo for #struct_ident {

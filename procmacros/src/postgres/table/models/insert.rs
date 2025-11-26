@@ -79,15 +79,15 @@ pub(crate) fn generate_insert_model(
             // Use flexible parameter types for convenience methods
             let (param, assignment) = match type_string.as_str() {
                 s if s.contains("String") => (
-                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::string::String>> },
+                    quote! { #field_name: impl Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },
                 ),
                 s if s.contains("Vec") && s.contains("u8") => (
-                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>> },
+                    quote! { #field_name: impl Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>> },
                     quote! { #field_name: #field_name.into() },
                 ),
                 _ => (
-                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, #base_type>> },
+                    quote! { #field_name: impl Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #base_type>> },
                     quote! { #field_name: #field_name.into() },
                 ),
             };
@@ -152,7 +152,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::string::String>>
+                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -165,7 +165,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>>
+                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -178,7 +178,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, #base_type>>
+                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -251,7 +251,7 @@ pub(crate) fn generate_insert_model(
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle::postgres::values::InsertValue::Omit => {
+                        ::drizzle::postgres::values::PostgresInsertValue::Omit => {
                             // Skip omitted fields
                         }
                         _ => {
@@ -269,13 +269,13 @@ pub(crate) fn generate_insert_model(
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle::postgres::values::InsertValue::Omit => {
+                        ::drizzle::postgres::values::PostgresInsertValue::Omit => {
                             // Skip omitted fields
                         }
-                        ::drizzle::postgres::values::InsertValue::Null => {
+                        ::drizzle::postgres::values::PostgresInsertValue::Null => {
                             sql_parts.push(SQL::param(PostgresValue::Null));
                         }
-                        ::drizzle::postgres::values::InsertValue::Value(wrapper) => {
+                        ::drizzle::postgres::values::PostgresInsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
                         }
                     }
@@ -301,7 +301,7 @@ fn get_field_type_for_model(field_info: &FieldInfo, model_type: ModelType) -> To
                 base_type
             };
 
-            quote!(::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, #inner_type>)
+            quote!(::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #inner_type>)
         }
         _ => {
             // For other model types, use the base type or Option<T>
@@ -355,12 +355,12 @@ fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
     if let Some(_default) = &field.default {
         // All PostgreSQL defaults (literals, functions, expressions) go in the SQL schema
         // Let the database handle them, so use Omit in the insert model
-        return quote! { #name: ::drizzle::postgres::values::InsertValue::Omit };
+        return quote! { #name: ::drizzle::postgres::values::PostgresInsertValue::Omit };
     }
 
     // Handle compile-time SQL defaults or any other case
     // Default to Omit so database can handle defaults
-    quote! { #name: ::drizzle::postgres::values::InsertValue::Omit }
+    quote! { #name: ::drizzle::postgres::values::PostgresInsertValue::Omit }
 }
 
 /// Generates field conversion for insert ToSQL
@@ -378,13 +378,13 @@ fn get_insert_field_conversion(field: &FieldInfo) -> TokenStream {
         // For runtime defaults, we always include the field (either default or user value)
         quote! {
             match &self.#name {
-                ::drizzle::postgres::values::InsertValue::Omit => {
+                ::drizzle::postgres::values::PostgresInsertValue::Omit => {
                     // Use runtime default for omitted values
                     let default_val = self.#name.clone(); // This should never be Omit due to default logic
                     #value_conversion
                 },
-                ::drizzle::postgres::values::InsertValue::Null => PostgresValue::Null,
-                ::drizzle::postgres::values::InsertValue::Value(wrapper) => {
+                ::drizzle::postgres::values::PostgresInsertValue::Null => PostgresValue::Null,
+                ::drizzle::postgres::values::PostgresInsertValue::Value(wrapper) => {
                     wrapper.value.clone()
                 }
             }
@@ -393,12 +393,12 @@ fn get_insert_field_conversion(field: &FieldInfo) -> TokenStream {
         // For regular fields, handle all three states
         quote! {
             match &self.#name {
-                ::drizzle::postgres::values::InsertValue::Omit => {
+                ::drizzle::postgres::values::PostgresInsertValue::Omit => {
                     // Field omitted - database handles default
                     PostgresValue::Null // This shouldn't be used if field is omitted
                 },
-                ::drizzle::postgres::values::InsertValue::Null => PostgresValue::Null,
-                ::drizzle::postgres::values::InsertValue::Value(wrapper) => {
+                ::drizzle::postgres::values::PostgresInsertValue::Null => PostgresValue::Null,
+                ::drizzle::postgres::values::PostgresInsertValue::Value(wrapper) => {
                     wrapper.value.clone()
                 }
             }

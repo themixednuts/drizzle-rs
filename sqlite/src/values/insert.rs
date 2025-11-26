@@ -26,7 +26,7 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
 
 /// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
 #[derive(Debug, Clone, Default)]
-pub enum InsertValue<'a, V: SQLParam, T> {
+pub enum SQLiteInsertValue<'a, V: SQLParam, T> {
     /// Omit this column from the INSERT (use database default)
     #[default]
     Omit,
@@ -36,27 +36,29 @@ pub enum InsertValue<'a, V: SQLParam, T> {
     Value(ValueWrapper<'a, V, T>),
 }
 
-impl<'a, T> InsertValue<'a, SQLiteValue<'a>, T> {
+impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
     /// Converts this InsertValue to an owned version with 'static lifetime
-    pub fn into_owned(self) -> InsertValue<'static, SQLiteValue<'static>, T> {
+    pub fn into_owned(self) -> SQLiteInsertValue<'static, SQLiteValue<'static>, T> {
         match self {
-            InsertValue::Omit => InsertValue::Omit,
-            InsertValue::Null => InsertValue::Null,
-            InsertValue::Value(wrapper) => {
+            SQLiteInsertValue::Omit => SQLiteInsertValue::Omit,
+            SQLiteInsertValue::Null => SQLiteInsertValue::Null,
+            SQLiteInsertValue::Value(wrapper) => {
                 // Extract the parameter value, convert to owned, then back to static SQLiteValue
                 if let Some(drizzle_core::SQLChunk::Param(param)) = wrapper.value.chunks.first() {
                     if let Some(ref val) = param.value {
                         let owned_val = OwnedSQLiteValue::from(val.as_ref().clone());
                         let static_val: SQLiteValue<'static> = owned_val.into();
                         let static_sql = drizzle_core::SQL::param(static_val);
-                        InsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(static_sql))
+                        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
+                            static_sql,
+                        ))
                     } else {
-                        InsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
+                        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
                             drizzle_core::SQL::param(SQLiteValue::Null),
                         ))
                     }
                 } else {
-                    InsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
+                    SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
                         drizzle_core::SQL::param(SQLiteValue::Null),
                     ))
                 }
@@ -65,7 +67,7 @@ impl<'a, T> InsertValue<'a, SQLiteValue<'a>, T> {
     }
 }
 
-impl<'a, T, U> From<T> for InsertValue<'a, SQLiteValue<'a>, U>
+impl<'a, T, U> From<T> for SQLiteInsertValue<'a, SQLiteValue<'a>, U>
 where
     T: TryInto<SQLiteValue<'a>>,
     T: TryInto<U>,
@@ -76,28 +78,28 @@ where
             .map(|v| v.try_into().unwrap_or_default())
             .map(|v: SQLiteValue<'a>| SQL::from(v))
             .unwrap_or_else(|_| SQL::from(SQLiteValue::Null));
-        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
+        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }
 
-impl<'a, T> From<Placeholder> for InsertValue<'a, SQLiteValue<'a>, T> {
+impl<'a, T> From<Placeholder> for SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
     fn from(placeholder: Placeholder) -> Self {
         use drizzle_core::{Param, SQLChunk};
         let chunk = SQLChunk::Param(Param {
             placeholder,
             value: None,
         });
-        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
+        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
             std::iter::once(chunk).collect(),
         ))
     }
 }
 
 // Array conversion for Vec<u8> InsertValue - support flexible input types
-impl<'a, const N: usize> From<[u8; N]> for InsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
+impl<'a, const N: usize> From<[u8; N]> for SQLiteInsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
     fn from(value: [u8; N]) -> Self {
         let sqlite_value = SQLiteValue::Blob(std::borrow::Cow::Owned(value.to_vec()));
         let sql = SQL::param(sqlite_value);
-        InsertValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
+        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
     }
 }

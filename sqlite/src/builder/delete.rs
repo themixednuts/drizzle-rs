@@ -50,7 +50,7 @@ impl ExecutableState for DeleteReturningSet {}
 ///
 /// ## Basic Usage
 ///
-/// ```rust,ignore
+/// ```rust
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// use drizzle_core::{ToSQL, expressions::conditions::{eq, lt}};
@@ -89,7 +89,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// ## Advanced Deletions
 ///
 /// ### DELETE with RETURNING
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
@@ -108,7 +108,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// ```
 ///
 /// ### DELETE all rows (use with caution!)
-/// ```rust,ignore
+/// ```rust
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # use drizzle_core::ToSQL;
@@ -134,7 +134,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # use drizzle_core::{ToSQL, expressions::conditions::{eq, gt, and, or}};

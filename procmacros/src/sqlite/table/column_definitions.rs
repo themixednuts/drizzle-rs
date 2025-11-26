@@ -52,21 +52,21 @@ pub(crate) fn generate_column_definitions<'a>(
                 crate::sqlite::field::SQLiteType::Integer => (
                     quote! {
                         let integer: i64 = value.into();
-                        SQLiteValue::Integer(integer)
+                        ::drizzle_sqlite::values::SQLiteValue::Integer(integer)
                     },
                     quote! {
                         let integer: i64 = value.into();
-                        SQLiteValue::Integer(integer)
+                        ::drizzle_sqlite::values::SQLiteValue::Integer(integer)
                     },
                 ),
                 crate::sqlite::field::SQLiteType::Text => (
                     quote! {
                         let text: &str = value.into();
-                        SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
+                        ::drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
                     },
                     quote! {
                         let text: &str = value.into();
-                        SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
+                        ::drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
                     },
                 ),
                 _ => {
@@ -98,20 +98,20 @@ pub(crate) fn generate_column_definitions<'a>(
 
                 quote! {
                     // Generate From implementations for enum values
-                    impl<'a> ::std::convert::From<#value_type> for SQLiteValue<'a> {
+                    impl<'a> ::std::convert::From<#value_type> for ::drizzle_sqlite::values::SQLiteValue<'a> {
                         fn from(value: #value_type) -> Self {
                             #conversion
                         }
                     }
 
-                    impl<'a> ::std::convert::From<&'a #value_type> for SQLiteValue<'a> {
+                    impl<'a> ::std::convert::From<&'a #value_type> for ::drizzle_sqlite::values::SQLiteValue<'a> {
                         fn from(value: &'a #value_type) -> Self {
                             #reference_conversion
                         }
                     }
 
-                    impl<'a> ToSQL<'a, SQLiteValue<'a>> for #value_type {
-                        fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+                    impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #value_type {
+                        fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
                             let value = self;
                             #conversion.into()
                         }
@@ -161,7 +161,7 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let sqlite_column_info_impl = generate_sqlite_column_info(
             &zst_ident,
-            quote! {<Self as drizzle::sqlite::traits::SQLiteColumn<'_>>::AUTOINCREMENT},
+            quote! {<Self as drizzle_sqlite::traits::SQLiteColumn<'_>>::AUTOINCREMENT},
             quote! {
                 static TABLE: #struct_ident = #struct_ident::new();
                 &TABLE
@@ -171,13 +171,13 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let to_sql_body = quote! {
             static INSTANCE: #zst_ident = #zst_ident;
-            SQL::column(&INSTANCE)
+            ::drizzle_core::SQL::column(&INSTANCE)
         };
 
         let into_sqlite_value_impl = quote! {
-            impl<'a> ::std::convert::Into<SQLiteValue<'a>> for #zst_ident {
-                fn into(self) -> SQLiteValue<'a> {
-                    SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
+            impl<'a> ::std::convert::Into<::drizzle_sqlite::values::SQLiteValue<'a>> for #zst_ident {
+                fn into(self) -> ::drizzle_sqlite::values::SQLiteValue<'a> {
+                    ::drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
                 }
             }
         };
@@ -187,24 +187,24 @@ pub(crate) fn generate_column_definitions<'a>(
             &zst_ident,
             quote! {#name},
             quote! {#col_type},
-            quote! {SQL::raw(#sql)},
+            quote! {::drizzle_core::SQL::raw(#sql)},
         );
         let sql_column_info_impl = generate_sql_column_info(
             &zst_ident,
             quote! {
-                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::NAME
+                <Self as ::drizzle_core::SQLSchema<'_, &'static str, ::drizzle_sqlite::values::SQLiteValue<'_>>>::NAME
             },
             quote! {
-                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::TYPE
+                <Self as ::drizzle_core::SQLSchema<'_, &'static str, ::drizzle_sqlite::values::SQLiteValue<'_>>>::TYPE
             },
             quote! {
-                <Self as SQLColumn<'_, SQLiteValue<'_>>>::PRIMARY_KEY
+                <Self as ::drizzle_core::SQLColumn<'_, ::drizzle_sqlite::values::SQLiteValue<'_>>>::PRIMARY_KEY
             },
             quote! {
-                <Self as SQLColumn<'_, SQLiteValue<'_>>>::NOT_NULL
+                <Self as ::drizzle_core::SQLColumn<'_, ::drizzle_sqlite::values::SQLiteValue<'_>>>::NOT_NULL
             },
             quote! {
-                <Self as SQLColumn<'_, SQLiteValue<'_>>>::UNIQUE
+                <Self as ::drizzle_core::SQLColumn<'_, ::drizzle_sqlite::values::SQLiteValue<'_>>>::UNIQUE
             },
             quote! {
                 #has_default
@@ -220,7 +220,7 @@ pub(crate) fn generate_column_definitions<'a>(
         let sql_column_impl = generate_sql_column(
             &zst_ident,
             quote! {#struct_ident},
-            quote! {SQLiteSchemaType},
+            quote! {::drizzle_sqlite::common::SQLiteSchemaType},
             quote! {#rust_type},
             quote! {#is_primary},
             quote! {#is_not_null},
