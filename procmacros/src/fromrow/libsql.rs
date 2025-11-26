@@ -36,8 +36,9 @@ pub(crate) fn generate_field_assignment(
     } else if base_type_str.contains("Vec") && base_type_str.contains("u8") {
         handle_blob_field(idx, field_ident, is_optional)
     } else {
-        // Default to string for unknown types
-        handle_text_field(idx, field_ident, is_optional)
+        // For unknown types (like enums), use TryFrom conversion
+        // This handles types that implement TryFrom<i64> and/or TryFrom<String>
+        handle_try_from_field(idx, field_ident, is_optional, &field.ty)
     }
 }
 
@@ -198,4 +199,94 @@ fn has_json_attribute(field: &Field) -> bool {
         .attrs
         .iter()
         .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
+}
+
+/// Handle unknown types using TryFrom conversion (for enums and custom types)
+/// This generates code that tries to convert from either Integer or Text values
+fn handle_try_from_field(
+    idx: i32,
+    name: Option<syn::Ident>,
+    is_optional: bool,
+    field_type: &syn::Type,
+) -> Result<TokenStream> {
+    // Extract the base type for TryFrom conversion
+    let base_type = if is_optional {
+        // For Option<T>, extract T
+        if let syn::Type::Path(type_path) = field_type {
+            if let Some(segment) = type_path.path.segments.last() {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
+                        inner_type.clone()
+                    } else {
+                        field_type.clone()
+                    }
+                } else {
+                    field_type.clone()
+                }
+            } else {
+                field_type.clone()
+            }
+        } else {
+            field_type.clone()
+        }
+    } else {
+        field_type.clone()
+    };
+
+    // Generate code that handles both Integer and Text storage
+    let accessor = if is_optional {
+        quote! {
+            {
+                let value = row.get_value(#idx)?;
+                match value {
+                    ::libsql::Value::Integer(i) => Some(<#base_type>::try_from(i).map_err(|e| 
+                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
+                    )?),
+                    ::libsql::Value::Text(ref s) => Some(<#base_type>::try_from(s.as_str()).map_err(|e| 
+                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
+                    )?),
+                    ::libsql::Value::Null => None,
+                    _ => return Err(::drizzle::error::DrizzleError::ConversionError(
+                        format!("Cannot convert {:?} to {}", value, stringify!(#base_type)).into()
+                    )),
+                }
+            }
+        }
+    } else {
+        quote! {
+            {
+                let value = row.get_value(#idx)?;
+                match value {
+                    ::libsql::Value::Integer(i) => <#base_type>::try_from(i).map_err(|e| 
+                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
+                    )?,
+                    ::libsql::Value::Text(ref s) => <#base_type>::try_from(s.as_str()).map_err(|e| 
+                        ::drizzle::error::DrizzleError::ConversionError(format!("{:?}", e).into())
+                    )?,
+                    _ => return Err(::drizzle::error::DrizzleError::ConversionError(
+                        format!("Cannot convert {:?} to {}", value, stringify!(#base_type)).into()
+                    )),
+                }
+            }
+        }
+    };
+
+    Ok(format_field_assignment_no_question(name, accessor))
+}
+
+/// Helper function for try_from fields - doesn't add ? since the accessor already handles errors
+fn format_field_assignment_no_question(
+    name: Option<syn::Ident>,
+    accessor: proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    if let Some(field_name) = name {
+        quote! {
+            #field_name: #accessor,
+        }
+    } else {
+        // Tuple struct
+        quote! {
+            #accessor,
+        }
+    }
 }

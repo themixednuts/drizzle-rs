@@ -70,60 +70,13 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 }
 
 /// Generate rusqlite enum implementations (FromSql/ToSql)
-pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
-    if !info.is_enum {
-        return Ok(quote! {});
-    }
-
-    let value_type = info.base_type;
-
-    match info.column_type {
-        crate::sqlite::field::SQLiteType::Integer => Ok(quote! {
-            // ::rusqlite::FromSql and ToSql for integer enums
-            impl ::rusqlite::types::FromSql for #value_type {
-                fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
-                    match value {
-                        ::rusqlite::types::ValueRef::Integer(i) => {
-                            Self::try_from(i).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                        },
-                        _ => Err(::rusqlite::types::FromSqlError::InvalidType),
-                    }
-                }
-            }
-
-            impl ::rusqlite::types::ToSql for #value_type {
-                fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
-                    let val: i64 = self.into();
-                    Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Integer(val)))
-                }
-            }
-        }),
-        crate::sqlite::field::SQLiteType::Text => Ok(quote! {
-            // ::rusqlite::FromSql and ToSql for text enums
-            impl ::rusqlite::types::FromSql for #value_type {
-                fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
-                    match value {
-                        ::rusqlite::types::ValueRef::Text(s) => {
-                            let s_str = ::std::str::from_utf8(s).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
-                            Self::try_from(s_str).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                        },
-                        _ => Err(::rusqlite::types::FromSqlError::InvalidType),
-                    }
-                }
-            }
-
-            impl ::rusqlite::types::ToSql for #value_type {
-                fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
-                    let val: &str = self.into();
-                    Ok(::rusqlite::types::ToSqlOutput::Borrowed(::rusqlite::types::ValueRef::Text(val.as_bytes())))
-                }
-            }
-        }),
-        _ => Err(syn::Error::new_spanned(
-            info.ident,
-            "Enum is only supported in text or integer column types",
-        )),
-    }
+/// NOTE: This is now a no-op since SQLiteEnum derive generates these impls directly.
+/// SQLiteEnum generates a FromSql that handles both TEXT and INTEGER storage,
+/// so it works regardless of how the enum is stored in the table.
+pub(crate) fn generate_enum_impls(_info: &FieldInfo) -> Result<TokenStream> {
+    // SQLiteEnum now generates FromSql/ToSql implementations directly,
+    // so we don't need to generate them here anymore.
+    Ok(quote! {})
 }
 
 /// Generate rusqlite JSON implementations (FromSql/ToSql)

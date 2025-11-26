@@ -35,8 +35,8 @@ pub(crate) fn generate_field_assignment(
     } else if base_type_str.contains("Vec") && base_type_str.contains("u8") {
         handle_blob_field(idx, name, is_optional)
     } else {
-        // Default to string for unknown types
-        handle_text_field(idx, name, is_optional)
+        // For unknown types (like enums), use TryFrom conversion
+        handle_try_from_field(idx, name, is_optional, &field.ty)
     }
 }
 
@@ -199,4 +199,91 @@ fn has_json_attribute(field: &Field) -> bool {
         .attrs
         .iter()
         .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
+}
+
+/// Handle unknown types using TryFrom conversion (for enums and custom types)
+/// This generates code that tries to convert from either Integer or Text values
+fn handle_try_from_field(
+    idx: usize,
+    name: Option<&syn::Ident>,
+    is_optional: bool,
+    field_type: &syn::Type,
+) -> Result<TokenStream> {
+    // Extract the base type for TryFrom conversion
+    let base_type = if is_optional {
+        // For Option<T>, extract T
+        if let syn::Type::Path(type_path) = field_type {
+            if let Some(segment) = type_path.path.segments.last() {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
+                        inner_type.clone()
+                    } else {
+                        field_type.clone()
+                    }
+                } else {
+                    field_type.clone()
+                }
+            } else {
+                field_type.clone()
+            }
+        } else {
+            field_type.clone()
+        }
+    } else {
+        field_type.clone()
+    };
+
+    // Generate code that handles both Integer and Text storage using turso's API
+    let converter = if is_optional {
+        quote! {
+            {
+                let value = row.get_value(#idx)?;
+                if value.is_null() {
+                    None
+                } else if let Some(&i) = value.as_integer() {
+                    Some(<#base_type>::try_from(i).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
+                        format!("Failed to convert integer to {}: {:?}", stringify!(#base_type), e).into()
+                    ))?)
+                } else if let Some(s) = value.as_text() {
+                    Some(<#base_type>::try_from(s).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
+                        format!("Failed to convert text to {}: {:?}", stringify!(#base_type), e).into()
+                    ))?)
+                } else {
+                    return Err(::drizzle::error::DrizzleError::ConversionError(
+                        format!("Cannot convert value to {}", stringify!(#base_type)).into()
+                    ));
+                }
+            }
+        }
+    } else {
+        quote! {
+            {
+                let value = row.get_value(#idx)?;
+                if let Some(&i) = value.as_integer() {
+                    <#base_type>::try_from(i).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
+                        format!("Failed to convert integer to {}: {:?}", stringify!(#base_type), e).into()
+                    ))?
+                } else if let Some(s) = value.as_text() {
+                    <#base_type>::try_from(s).map_err(|e| ::drizzle::error::DrizzleError::ConversionError(
+                        format!("Failed to convert text to {}: {:?}", stringify!(#base_type), e).into()
+                    ))?
+                } else {
+                    return Err(::drizzle::error::DrizzleError::ConversionError(
+                        format!("Cannot convert value to required field {}", stringify!(#base_type)).into()
+                    ));
+                }
+            }
+        }
+    };
+
+    // Use the no-question-mark formatter since the converter already handles errors
+    if let Some(field_name) = name {
+        Ok(quote! {
+            #field_name: #converter,
+        })
+    } else {
+        Ok(quote! {
+            #converter,
+        })
+    }
 }

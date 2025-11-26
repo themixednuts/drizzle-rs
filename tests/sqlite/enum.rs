@@ -74,6 +74,18 @@ fn test_table_generation() {
     assert!(columns.len() > 0);
 }
 
+// With rusqlite, enum types work directly thanks to SQLiteEnum generating FromSql
+#[cfg(feature = "rusqlite")]
+#[derive(Debug, FromRow)]
+struct UserAccountResult {
+    id: i64,
+    name: String,
+    role: UserRole,        // Direct enum type - automatically converted from TEXT
+    status: AccountStatus, // Direct enum type - automatically converted from INTEGER
+}
+
+// For libsql/turso, we still need to use primitive types (no trait-based conversion)
+#[cfg(not(feature = "rusqlite"))]
 #[derive(Debug, FromRow)]
 struct UserAccountResult {
     id: i64,
@@ -111,20 +123,46 @@ drizzle_test!(test_enum_database_roundtrip, Schema, {
 
     assert_eq!(results.len(), 3);
 
-    // Verify guest user (role as TEXT, status as INTEGER)
+    // Verify guest user
     let guest = results.iter().find(|u| u.name == "guest_user").unwrap();
-    assert_eq!(guest.role, "Guest"); // TEXT representation
-    assert_eq!(guest.status, 3); // INTEGER representation (Inactive = 3)
+    #[cfg(feature = "rusqlite")]
+    {
+        // With rusqlite, we get actual enum types
+        assert_eq!(guest.role, UserRole::Guest);
+        assert_eq!(guest.status, AccountStatus::Inactive);
+    }
+    #[cfg(not(feature = "rusqlite"))]
+    {
+        // With libsql/turso, we get primitive types
+        assert_eq!(guest.role, "Guest");
+        assert_eq!(guest.status, 3); // Inactive = 3
+    }
 
     // Verify member user
     let member = results.iter().find(|u| u.name == "member_user").unwrap();
-    assert_eq!(member.role, "Member");
-    assert_eq!(member.status, 4); // Active = 4 (Inactive + 1)
+    #[cfg(feature = "rusqlite")]
+    {
+        assert_eq!(member.role, UserRole::Member);
+        assert_eq!(member.status, AccountStatus::Active);
+    }
+    #[cfg(not(feature = "rusqlite"))]
+    {
+        assert_eq!(member.role, "Member");
+        assert_eq!(member.status, 4); // Active = 4
+    }
 
     // Verify admin user
     let admin = results.iter().find(|u| u.name == "admin_user").unwrap();
-    assert_eq!(admin.role, "Admin");
-    assert_eq!(admin.status, -1); // Suspended = -1
+    #[cfg(feature = "rusqlite")]
+    {
+        assert_eq!(admin.role, UserRole::Admin);
+        assert_eq!(admin.status, AccountStatus::Suspended);
+    }
+    #[cfg(not(feature = "rusqlite"))]
+    {
+        assert_eq!(admin.role, "Admin");
+        assert_eq!(admin.status, -1); // Suspended = -1
+    }
 
     // Test filtering by enum values
     let admin_users: Vec<UserAccountResult> = drizzle_exec!(

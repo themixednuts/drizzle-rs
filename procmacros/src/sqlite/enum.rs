@@ -155,7 +155,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         })
         .map(|(_, t)| t.into_boxed_slice())?;
 
-    Ok(quote! {
+    let base_impls = quote! {
 
         impl From<#name> for i64 {
             fn from(value: #name) -> Self {
@@ -350,5 +350,44 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
+    };
+
+    // Add rusqlite FromSql/ToSql implementations when the feature is enabled
+    #[cfg(feature = "rusqlite")]
+    let rusqlite_impls = quote! {
+        // FromSql implementation that handles both TEXT and INTEGER storage
+        impl ::rusqlite::types::FromSql for #name {
+            fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
+                match value {
+                    ::rusqlite::types::ValueRef::Integer(i) => {
+                        Self::try_from(i).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
+                    },
+                    ::rusqlite::types::ValueRef::Text(s) => {
+                        let s_str = ::std::str::from_utf8(s)
+                            .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
+                        Self::try_from(s_str).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
+                    },
+                    _ => Err(::rusqlite::types::FromSqlError::InvalidType),
+                }
+            }
+        }
+
+        // ToSql defaults to TEXT representation (use table macro for INTEGER storage)
+        impl ::rusqlite::types::ToSql for #name {
+            fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
+                let val: &str = self.into();
+                Ok(::rusqlite::types::ToSqlOutput::Borrowed(
+                    ::rusqlite::types::ValueRef::Text(val.as_bytes())
+                ))
+            }
+        }
+    };
+
+    #[cfg(not(feature = "rusqlite"))]
+    let rusqlite_impls = quote! {};
+
+    Ok(quote! {
+        #base_impls
+        #rusqlite_impls
     })
 }
