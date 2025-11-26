@@ -12,10 +12,11 @@ use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::toke
 /// - `Table` - Table reference with metadata access
 /// - `Column` - Column reference with metadata access
 /// - `Alias` - Alias wrapper (expr AS "name")
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub enum SQLChunk<'a, V: SQLParam> {
     /// Empty placeholder - used for const array padding
     /// Renders as: nothing (skipped entirely)
+    #[default]
     Empty,
 
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
@@ -195,12 +196,6 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             | SQLChunk::Column(_)
             | SQLChunk::Alias { .. } => true,
         }
-    }
-}
-
-impl<'a, V: SQLParam> Default for SQLChunk<'a, V> {
-    fn default() -> Self {
-        Self::Empty
     }
 }
 

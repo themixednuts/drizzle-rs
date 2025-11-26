@@ -1,7 +1,7 @@
+use crate::values::PostgresValue;
+use drizzle_core::{SQL, ToSQL, Token};
 use std::marker::PhantomData;
 use std::ops::Deref;
-use drizzle_core::{ToSQL, SQL, Token};
-use crate::values::PostgresValue;
 
 /// Trait for types that can provide a CTE definition for WITH clauses.
 pub trait CTEDefinition<'a> {
@@ -10,19 +10,19 @@ pub trait CTEDefinition<'a> {
 }
 
 /// A CTE (Common Table Expression) view that wraps an aliased table with its defining query.
-/// 
+///
 /// This struct enables type-safe CTE usage by combining:
 /// - An aliased table instance for typed field access
 /// - The CTE definition (query) for the WITH clause
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust,ignore
 /// let active_users = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
 ///     .as_cte("active_users");
-/// 
+///
 /// // active_users.name works via Deref to the aliased table
 /// builder
 ///     .with(&active_users)
@@ -47,9 +47,9 @@ where
 {
     /// Creates a new CTEView with the given aliased table, name, and query.
     pub fn new(table: Table, name: &'static str, query: Query) -> Self {
-        Self { 
-            table, 
-            name, 
+        Self {
+            table,
+            name,
             query,
             _phantom: PhantomData,
         }
@@ -111,4 +111,3 @@ where
         SQL::raw(format!(r#""{}""#, self.name))
     }
 }
-

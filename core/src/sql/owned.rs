@@ -3,8 +3,9 @@ use crate::{OwnedParam, SQL, SQLChunk, SQLColumnInfo, SQLParam, SQLTableInfo, To
 use smallvec::SmallVec;
 
 /// Owned version of SQLChunk with 'static lifetime
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub enum OwnedSQLChunk<V: SQLParam> {
+    #[default]
     Empty,
     Token(Token),
     Ident(String),
@@ -16,12 +17,6 @@ pub enum OwnedSQLChunk<V: SQLParam> {
         inner: Box<OwnedSQLChunk<V>>,
         alias: String,
     },
-}
-
-impl<V: SQLParam> Default for OwnedSQLChunk<V> {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {

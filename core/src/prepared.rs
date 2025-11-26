@@ -177,10 +177,10 @@ fn chunk_needs_space_for_prepare<V: SQLParam>(
     }
 
     // No space if next raw text starts with space
-    if let SQLChunk::Raw(text) = next {
-        if text.starts_with(' ') {
-            return false;
-        }
+    if let SQLChunk::Raw(text) = next
+        && text.starts_with(' ')
+    {
+        return false;
     }
 
     // Space between word-like chunks

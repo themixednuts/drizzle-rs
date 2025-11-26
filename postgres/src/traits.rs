@@ -13,8 +13,6 @@ pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {
     const GENERATED_IDENTITY: bool = false;
 }
 
-
-
 /// Trait for PostgreSQL native enum types that can be used as dyn objects
 pub trait PostgresEnum: Send + Sync + Any {
     /// Get the enum type name for PostgreSQL

@@ -35,7 +35,7 @@ use crate::{SQLiteValue, values::OwnedSQLiteValue};
 /// struct User {
 ///     #[integer(primary)]
 ///     id: i32,
-///     #[text] 
+///     #[text]
 ///     name: String,
 /// }
 ///
@@ -86,7 +86,7 @@ impl<'a> PreparedStatement<'a> {
     /// # let prepared_statement: PreparedStatement = todo!(); // Would come from driver
     /// // Convert borrowed to owned for long-term storage
     /// let owned = prepared_statement.into_owned();
-    /// 
+    ///
     /// // Now `owned` can be stored without lifetime constraints
     /// ```
     pub fn into_owned(&self) -> OwnedPreparedStatement {
@@ -131,7 +131,7 @@ impl<'a> PreparedStatement<'a> {
 /// struct User {
 ///     #[integer(primary)]
 ///     id: i32,
-///     #[text] 
+///     #[text]
 ///     name: String,
 /// }
 ///
@@ -146,7 +146,7 @@ impl<'a> PreparedStatement<'a> {
 /// // Create a prepared statement and convert to owned
 /// let query = builder.select(user.name).from(user);
 /// let sql = query.to_sql();
-/// 
+///
 /// // In practice, this conversion would be handled by the database driver
 /// // let prepared: PreparedStatement = driver.prepare(sql)?;
 /// // let owned: OwnedPreparedStatement = prepared.into_owned();

@@ -48,10 +48,7 @@ pub fn cast<'a, V: SQLParam + 'a, E: ToSQL<'a, V>, Type: ToSQL<'a, V>>(
     expr: E,
     target_type: Type,
 ) -> SQL<'a, V> {
-    SQL::func(
-        "CAST",
-        expr.to_sql().push(Token::AS).append(&target_type),
-    )
+    SQL::func("CAST", expr.to_sql().push(Token::AS).append(&target_type))
 }
 
 pub fn r#in<'a, V: SQLParam + 'a, E: ToSQL<'a, V>, S: ToSQL<'a, V>>(

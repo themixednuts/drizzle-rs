@@ -66,34 +66,39 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let core_impls = if json_type_storage.is_empty() {
         vec![]
     } else {
-        json_type_storage.iter().map(|(_, (storage_type, info))| {
-            let struct_name = info.base_type;
-            let core_conversion = match storage_type {
-                SQLiteType::Text => quote! {
-                    let json = serde_json::to_string(&self)?;
-                    Ok(SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
-                },
-                SQLiteType::Blob => quote! {
-                    let json = serde_json::to_vec(&self)?;
-                    Ok(SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
-                },
-                _ => return Err(syn::Error::new_spanned(
-                    info.ident,
-                    "JSON fields must use either TEXT or BLOB column types"
-                )),
-            };
-
-            Ok(quote! {
-                // Core TryInto implementation for SQLiteValue (needed for all drivers)
-                impl<'a> ::std::convert::TryInto<SQLiteValue<'a>> for #struct_name {
-                    type Error = serde_json::Error;
-
-                    fn try_into(self) -> Result<SQLiteValue<'a>, Self::Error> {
-                        #core_conversion
+        json_type_storage
+            .iter()
+            .map(|(_, (storage_type, info))| {
+                let struct_name = info.base_type;
+                let core_conversion = match storage_type {
+                    SQLiteType::Text => quote! {
+                        let json = serde_json::to_string(&self)?;
+                        Ok(SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
+                    },
+                    SQLiteType::Blob => quote! {
+                        let json = serde_json::to_vec(&self)?;
+                        Ok(SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
+                    },
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            info.ident,
+                            "JSON fields must use either TEXT or BLOB column types",
+                        ));
                     }
-                }
+                };
+
+                Ok(quote! {
+                    // Core TryInto implementation for SQLiteValue (needed for all drivers)
+                    impl<'a> ::std::convert::TryInto<SQLiteValue<'a>> for #struct_name {
+                        type Error = serde_json::Error;
+
+                        fn try_into(self) -> Result<SQLiteValue<'a>, Self::Error> {
+                            #core_conversion
+                        }
+                    }
+                })
             })
-        }).collect::<Result<Vec<_>>>()?
+            .collect::<Result<Vec<_>>>()?
     };
 
     let to_sql_impl = json_type_storage.values().map(|(s, f)| {

@@ -58,7 +58,9 @@ drizzle_test!(test_transaction_rollback, SimpleSchema, {
             )?;
 
             // Simulate an error to trigger rollback
-            Err(DrizzleError::Other("Intentional rollback".to_string().into()))
+            Err(DrizzleError::Other(
+                "Intentional rollback".to_string().into(),
+            ))
         })
     ));
 
@@ -365,7 +367,9 @@ drizzle_test!(test_large_transaction_rollback, SimpleSchema, {
 
             // Force rollback
             Err(DrizzleError::Other(
-                "Intentional rollback of large transaction".to_string().into(),
+                "Intentional rollback of large transaction"
+                    .to_string()
+                    .into(),
             ))
         })
     ));

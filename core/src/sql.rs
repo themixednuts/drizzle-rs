@@ -411,15 +411,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 /// Simplified spacing logic
 fn chunk_needs_space<V: SQLParam>(current: &SQLChunk<'_, V>, next: &SQLChunk<'_, V>) -> bool {
     // No space if current raw text ends with space or next raw text starts with space
-    if let SQLChunk::Raw(text) = current {
-        if text.ends_with(' ') {
-            return false;
-        }
-    }
-    if let SQLChunk::Raw(text) = next {
-        if text.starts_with(' ') {
-            return false;
-        }
+    if let SQLChunk::Raw(text) = current
+        && (text.ends_with(' ') || text.starts_with(' '))
+    {
+        return false;
     }
 
     match (current, next) {

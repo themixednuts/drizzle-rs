@@ -126,7 +126,11 @@ fn test_prepare_sql_reconstruction() {
             SQLChunk::Raw(text3),
         ) => {
             // Verify text content (trimmed to handle whitespace differences)
-            assert!(text1.to_string().contains("SELECT * FROM posts WHERE author"));
+            assert!(
+                text1
+                    .to_string()
+                    .contains("SELECT * FROM posts WHERE author")
+            );
             assert!(text2.to_string().contains("AND published"));
             assert!(text3.to_string().contains("ORDER BY created_at"));
 
@@ -169,10 +173,16 @@ fn test_prepare_with_no_parameters() {
 fn test_prepare_complex_query() {
     // Test a more complex query with mixed SQL construction
     let sql = SQL::<SQLiteValue>::raw("WITH RECURSIVE category_tree AS (")
-        .append(SQL::raw("SELECT id, name, parent_id FROM categories WHERE id = "))
+        .append(SQL::raw(
+            "SELECT id, name, parent_id FROM categories WHERE id = ",
+        ))
         .append(SQL::placeholder("root_id"))
-        .append(SQL::raw(" UNION ALL SELECT c.id, c.name, c.parent_id FROM categories c "))
-        .append(SQL::raw("INNER JOIN category_tree ct ON c.parent_id = ct.id) "))
+        .append(SQL::raw(
+            " UNION ALL SELECT c.id, c.name, c.parent_id FROM categories c ",
+        ))
+        .append(SQL::raw(
+            "INNER JOIN category_tree ct ON c.parent_id = ct.id) ",
+        ))
         .append(SQL::raw("SELECT * FROM category_tree WHERE name LIKE "))
         .append(SQL::placeholder("search_pattern"));
 

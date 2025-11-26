@@ -18,8 +18,8 @@ pub mod turso;
 pub mod libsql;
 
 use super::field::FieldInfo;
-pub use attributes::TableAttributes;
 use alias::generate_aliased_table;
+pub use attributes::TableAttributes;
 use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };

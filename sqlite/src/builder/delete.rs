@@ -59,7 +59,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// struct User {
 ///     #[integer(primary)]
 ///     id: i32,
-///     #[text] 
+///     #[text]
 ///     name: String,
 ///     #[text]
 ///     email: Option<String>,
@@ -102,7 +102,7 @@ impl ExecutableState for DeleteReturningSet {}
 ///     .r#where(eq(user.id, 1))
 ///     .returning((user.id, user.name));
 /// assert_eq!(
-///     query.to_sql().sql(), 
+///     query.to_sql().sql(),
 ///     r#"DELETE FROM "users" WHERE "users"."id" = ? RETURNING "users"."id", "users"."name""#
 /// );
 /// ```

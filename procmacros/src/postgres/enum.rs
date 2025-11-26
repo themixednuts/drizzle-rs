@@ -44,7 +44,7 @@ fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
 pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
     let first_variant = &data.variants.first().unwrap().ident;
     let variant_idents: Vec<_> = data.variants.iter().map(|v| &v.ident).collect();
-    
+
     // Build the CREATE TYPE SQL at macro time as a string literal
     let variants_sql = variant_idents
         .iter()
@@ -53,7 +53,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         .join(", ");
     let create_type_sql = format!("CREATE TYPE {} AS ENUM ({})", name, variants_sql);
     let create_type_sql_literal = create_type_sql.as_str();
-    
+
     let display_variants = data.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         let variant_str = variant_name.to_string();

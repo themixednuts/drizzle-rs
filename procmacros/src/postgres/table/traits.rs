@@ -1,6 +1,6 @@
 use super::context::MacroContext;
 use proc_macro2::TokenStream;
-use quote::{quote, format_ident};
+use quote::{format_ident, quote};
 use syn::{Ident, Result};
 
 /// Generate trait implementations for the PostgreSQL table

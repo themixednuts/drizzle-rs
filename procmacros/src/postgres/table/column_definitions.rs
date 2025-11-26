@@ -217,7 +217,7 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
-                
+
                 fn is_serial(&self) -> bool {
                     <Self as drizzle::postgres::traits::PostgresColumn<'_>>::SERIAL
                 }

@@ -1,5 +1,5 @@
-use crate::prelude::*;
 use crate::SQLParam;
+use crate::prelude::*;
 
 pub struct Query<V: SQLParam> {
     sql: String,
