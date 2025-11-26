@@ -80,28 +80,69 @@ pub(crate) fn generate_insert_model(
             let type_string = base_type.to_token_stream().to_string();
 
             // Use the same flexible parameter types as convenience methods
-            let (param, assignment) = match (info.is_uuid, type_string.as_str()) {
-                (true, _) => {
+            let (param, assignment) = match (info.is_json, info.is_uuid, type_string.as_str()) {
+                (true, _, _) => {
+                    // Handle JSON fields - wrap in json() or jsonb() based on column type
+                    let json_assignment = match info.column_type {
+                        crate::sqlite::field::SQLiteType::Text => quote! {
+                            #field_name: {
+                                let json_str = serde_json::to_string(&#field_name)
+                                    .unwrap_or_else(|_| "null".to_string());
+                                InsertValue::Value(
+                                    ValueWrapper {
+                                        value: json(
+                                            SQL::param(
+                                                SQLiteValue::Text(
+                                                    ::std::borrow::Cow::Owned(json_str)
+                                                )
+                                            )),
+                                        _phantom: ::std::marker::PhantomData,
+                                    }
+                                )
+                            }
+                        },
+                        crate::sqlite::field::SQLiteType::Blob => quote! {
+                            #field_name: {
+                                let json_bytes = serde_json::to_vec(&#field_name)
+                                    .unwrap_or_else(|_| "null".as_bytes().to_vec());
+                                InsertValue::Value(
+                                    ValueWrapper {
+                                        value: jsonb(
+                                            SQL::param(
+                                                SQLiteValue::Blob(
+                                                    ::std::borrow::Cow::Owned(json_bytes)
+                                                )
+                                            )),
+                                        _phantom: ::std::marker::PhantomData,
+                                    }
+                                )
+                            }
+                        },
+                        _ => quote! { #field_name: #field_name.into() },
+                    };
+                    (quote! { #field_name: #base_type }, json_assignment)
+                }
+                (_, true, _) => {
                     // Use String for TEXT columns, Uuid for BLOB columns
                     let insert_value_type = match info.column_type {
                         crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
                         _ => quote! { ::uuid::Uuid },
                     };
                     (
-                        quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #insert_value_type>> },
+                        quote! { #field_name: impl Into<InsertValue<'a, SQLiteValue<'a>, #insert_value_type>> },
                         quote! { #field_name: #field_name.into() },
                     )
                 }
-                (_, s) if s.contains("String") => (
-                    quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::string::String>> },
+                (_, _, s) if s.contains("String") => (
+                    quote! { #field_name: impl Into<InsertValue<'a, SQLiteValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },
                 ),
-                (_, s) if s.contains("Vec") && s.contains("u8") => (
-                    quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
+                (_, _, s) if s.contains("Vec") && s.contains("u8") => (
+                    quote! { #field_name: impl Into<InsertValue<'a, SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
                     quote! { #field_name: #field_name.into() },
                 ),
-                _ => (
-                    quote! { #field_name: impl Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #base_type>> },
+                (_, _, _) => (
+                    quote! { #field_name: impl Into<InsertValue<'a, SQLiteValue<'a>, #base_type>> },
                     quote! { #field_name: #field_name.into() },
                 ),
             };
@@ -129,102 +170,7 @@ pub(crate) fn generate_insert_model(
         })
         .collect();
 
-    // Generate convenience methods using the original working approach, but with pattern tracking
-    let convenience_methods_with_pattern: Vec<_> = ctx.field_infos.iter().enumerate().map(|(field_index, info)| {
-        // Create generic parameters: just field names (UserName, UserEmail)
-        let generic_params: Vec<_> = ctx.field_infos.iter().map(|field_info| {
-            let field_pascal_case = field_info.ident.to_string().to_upper_camel_case();
-            format_ident!("{}{}", ctx.struct_ident, field_pascal_case)
-        }).collect();
-
-        // Create return type pattern: this field becomes Set, others stay generic
-        let return_pattern_generics: Vec<_> = ctx.field_infos.iter().enumerate().map(|(i, field_info)| {
-            let field_pascal_case = field_info.ident.to_string().to_upper_camel_case();
-            if i == field_index {
-                format_ident!("{}{}Set", ctx.struct_ident, field_pascal_case)
-            } else {
-                format_ident!("{}{}", ctx.struct_ident, field_pascal_case) // Keep generic
-            }
-        }).collect();
-
-        // Generate field assignments - only update the specific field
-        let field_assignments: Vec<_> = ctx.field_infos.iter().enumerate().map(|(i, field_info)| {
-            let field_name = field_info.ident;
-            if i == field_index {
-                quote! { #field_name: value.into() }
-            } else {
-                quote! { #field_name: self.#field_name }
-            }
-        }).collect();
-
-        // Use the original working convenience method logic but modify the return type
-        let field_name = info.ident;
-        let base_type = info.base_type;
-        let method_name = format_ident!("with_{}", field_name);
-        let type_string = base_type.to_token_stream().to_string();
-
-        match (info.is_uuid, type_string.as_str()) {
-            (true, _) => {
-                // Use String for TEXT columns, Uuid for BLOB columns
-                let insert_value_type = match info.column_type {
-                    crate::sqlite::field::SQLiteType::Text => quote! { ::std::string::String },
-                    _ => quote! { ::uuid::Uuid },
-                };
-                quote! {
-                    impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
-                        pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
-                        where
-                            V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #insert_value_type>>
-                        {
-                            #insert_model {
-                                #(#field_assignments,)*
-                                _pattern: ::std::marker::PhantomData,
-                            }
-                        }
-                    }
-                }
-            },
-            (_, s) if s.contains("String") => quote! {
-                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
-                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
-                    where
-                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::string::String>>
-                    {
-                        #insert_model {
-                            #(#field_assignments,)*
-                            _pattern: ::std::marker::PhantomData,
-                        }
-                    }
-                }
-            },
-            (_, s) if s.contains("Vec") && s.contains("u8") => quote! {
-                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
-                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
-                    where
-                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
-                    {
-                        #insert_model {
-                            #(#field_assignments,)*
-                            _pattern: ::std::marker::PhantomData,
-                        }
-                    }
-                }
-            },
-            _ => quote! {
-                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
-                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
-                    where
-                        V: Into<::drizzle::sqlite::values::InsertValue<'a, ::drizzle::sqlite::values::SQLiteValue<'a>, #base_type>>
-                    {
-                        #insert_model {
-                            #(#field_assignments,)*
-                            _pattern: ::std::marker::PhantomData,
-                        }
-                    }
-                }
-            },
-        }
-    }).collect();
+    // Convenience methods are now generated by convenience.rs with pattern tracking
 
     Ok(quote! {
         // Generate marker types for each field
@@ -267,26 +213,26 @@ pub(crate) fn generate_insert_model(
             }
         }
 
-        // Convenience methods for setting fields with pattern tracking
-        #(#convenience_methods_with_pattern)*
+        // Convenience methods for setting fields (generated by convenience.rs)
+        #(#insert_convenience_methods)*
 
-        impl<'a, T> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
+        impl<'a, T> ToSQL<'a, SQLiteValue<'a>> for #insert_model<'a, T> {
+            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
                 // For insert models, ToSQL delegates to the values() method
-                ::drizzle::core::SQLModel::values(self)
+                SQLModel::values(self)
             }
         }
 
-        impl<'a, T> ::drizzle::core::SQLModel<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+        impl<'a, T> SQLModel<'a, SQLiteValue<'a>> for #insert_model<'a, T> {
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
                 // For insert model, return only non-omitted columns to match values()
                 static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = ::drizzle::core::SQLTableInfo::columns(&TABLE);
+                let all_columns = SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle::sqlite::values::InsertValue::Omit => {
+                        InsertValue::Omit => {
                             // Skip omitted fields
                         }
                         _ => {
@@ -299,25 +245,25 @@ pub(crate) fn generate_insert_model(
                 result_columns.into_boxed_slice()
             }
 
-            fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
+            fn values(&self) -> SQL<'a, SQLiteValue<'a>> {
 
                 let mut sql_parts = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle::sqlite::values::InsertValue::Omit => {
+                        InsertValue::Omit => {
                             // Skip omitted fields
                         }
-                        ::drizzle::sqlite::values::InsertValue::Null => {
-                            sql_parts.push(::drizzle::core::SQL::parameter(::drizzle::sqlite::values::SQLiteValue::Null));
+                        InsertValue::Null => {
+                            sql_parts.push(SQL::param(SQLiteValue::Null));
                         }
-                        ::drizzle::sqlite::values::InsertValue::Value(wrapper) => {
+                        InsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
                         }
                     }
                 )*
 
-                ::drizzle::core::SQL::join(sql_parts, ", ")
+                SQL::join(sql_parts, Token::COMMA)
             }
         }
     })

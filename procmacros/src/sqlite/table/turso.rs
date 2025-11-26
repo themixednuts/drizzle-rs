@@ -152,7 +152,7 @@ fn wrap_optional(inner: TokenStream, name: &syn::Ident, is_optional: bool) -> To
         let error_msg = format!("Error converting required field `{}`", name);
         quote! {
             #name: #inner
-                .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError(#error_msg.to_string()))?,
+                .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
         }
     }
 }

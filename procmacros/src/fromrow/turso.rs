@@ -143,7 +143,7 @@ fn wrap_optional(inner: TokenStream, name: Option<&syn::Ident>, is_optional: boo
             let error_msg = format!("Error converting required field `{}`", field_name);
             quote! {
                 #field_name: #inner
-                    .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError(#error_msg.to_string()))?,
+                    .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
             }
         }
     } else {
@@ -155,7 +155,7 @@ fn wrap_optional(inner: TokenStream, name: Option<&syn::Ident>, is_optional: boo
         } else {
             quote! {
                 #inner
-                    .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError("Error converting tuple field".to_string()))?,
+                    .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError("Error converting tuple field".to_string().into()))?,
             }
         }
     }

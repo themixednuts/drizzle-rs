@@ -46,17 +46,6 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
 
     let items_method = generate_items_method(&all_fields);
 
-    // Generate IsInSchema implementations for all fields
-
-    let is_in_schema_impls = all_fields.iter().map(|(_, ty)| {
-        quote! {
-            #[allow(non_local_definitions)]
-            impl ::drizzle::core::IsInSchema<#struct_name> for #ty {}
-            #[allow(non_local_definitions)]
-            impl ::drizzle::core::IsInSchema<#struct_name> for &#ty {}
-        }
-    });
-
     // Collect field names and types for tuple destructuring
     let all_field_names: Box<_> = all_fields.iter().map(|(name, _)| *name).collect();
     let all_field_types: Box<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
@@ -83,11 +72,8 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
             #items_method
         }
 
-        // Implement IsInSchema for all field types (tables and indexes)
-        #(#is_in_schema_impls)*
-
         // Implement SQLSchemaImpl trait
-        impl ::drizzle::core::SQLSchemaImpl for #struct_name {
+        impl SQLSchemaImpl for #struct_name {
             fn create_statements(&self) -> Vec<String> {
                 #create_statements_impl
             }
@@ -114,29 +100,29 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     // Generate different implementations based on available features
     #[cfg(feature = "sqlite")]
     let impl_tokens = quote! {
-        let mut tables: Vec<(&str, String, &dyn ::drizzle::core::SQLTableInfo)> = Vec::new();
+        let mut tables: Vec<(&str, String, &dyn SQLTableInfo)> = Vec::new();
         let mut indexes: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
 
         // Collect all tables and indexes
         #(
-            match <#field_types as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::TYPE {
-             ::drizzle::sqlite::common::SQLiteSchemaType::Table(table_info) => {
+            match <#field_types as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::TYPE {
+                SQLiteSchemaType::Table(table_info) => {
                     let table_name = table_info.name();
-                    let table_sql = <_ as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
+                    let table_sql = <_ as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
-             ::drizzle::sqlite::common::SQLiteSchemaType::Index(index_info) => {
-                    let index_sql = <_ as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
+                SQLiteSchemaType::Index(index_info) => {
+                    let index_sql = <_ as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     let table_name = index_info.table().name();
                     indexes
                         .entry(table_name)
                         .or_insert_with(Vec::new)
                         .push(index_sql);
                 }
-             ::drizzle::sqlite::common::SQLiteSchemaType::View => {
+                SQLiteSchemaType::View => {
                     // Views not implemented yet
                 }
-             ::drizzle::sqlite::common::SQLiteSchemaType::Trigger => {
+                SQLiteSchemaType::Trigger => {
                     // Triggers not implemented yet
                 }
             }

@@ -1,4 +1,6 @@
 use super::context::MacroContext;
+use crate::generators::{generate_impl, generate_sql_column_info};
+use crate::sqlite::generators::*;
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -15,9 +17,9 @@ pub(crate) fn generate_column_definitions<'a>(
         struct_vis,
         field_infos,
         ..
-    } = ctx;
+    } = *ctx;
 
-    for info in *field_infos {
+    for info in field_infos {
         let field_pascal_case = info.ident.to_string().to_upper_camel_case();
         let zst_ident = format_ident!("{}{}", ctx.struct_ident, field_pascal_case);
         column_zst_idents.push(zst_ident.clone());
@@ -50,21 +52,21 @@ pub(crate) fn generate_column_definitions<'a>(
                 crate::sqlite::field::SQLiteType::Integer => (
                     quote! {
                         let integer: i64 = value.into();
-                        ::drizzle::sqlite::values::SQLiteValue::Integer(integer)
+                        SQLiteValue::Integer(integer)
                     },
                     quote! {
                         let integer: i64 = value.into();
-                        ::drizzle::sqlite::values::SQLiteValue::Integer(integer)
+                        SQLiteValue::Integer(integer)
                     },
                 ),
                 crate::sqlite::field::SQLiteType::Text => (
                     quote! {
                         let text: &str = value.into();
-                        ::drizzle::sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
+                        SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
                     },
                     quote! {
                         let text: &str = value.into();
-                        ::drizzle::sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
+                        SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
                     },
                 ),
                 _ => {
@@ -96,20 +98,20 @@ pub(crate) fn generate_column_definitions<'a>(
 
                 quote! {
                     // Generate From implementations for enum values
-                    impl<'a> ::std::convert::From<#value_type> for ::drizzle::sqlite::values::SQLiteValue<'a> {
+                    impl<'a> ::std::convert::From<#value_type> for SQLiteValue<'a> {
                         fn from(value: #value_type) -> Self {
                             #conversion
                         }
                     }
 
-                    impl<'a> ::std::convert::From<&'a #value_type> for ::drizzle::sqlite::values::SQLiteValue<'a> {
+                    impl<'a> ::std::convert::From<&'a #value_type> for SQLiteValue<'a> {
                         fn from(value: &'a #value_type) -> Self {
                             #reference_conversion
                         }
                     }
 
-                    impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #value_type {
-                        fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
+                    impl<'a> ToSQL<'a, SQLiteValue<'a>> for #value_type {
+                        fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
                             let value = self;
                             #conversion.into()
                         }
@@ -141,94 +143,104 @@ pub(crate) fn generate_column_definitions<'a>(
             quote! { None }
         };
 
-        let column_code = quote! {
+        // Generate individual trait implementations using generators
+        let struct_def = quote! {
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             #struct_vis struct #zst_ident;
+        };
 
-            impl #zst_ident {
+        let impl_new = generate_impl(
+            &zst_ident,
+            quote! {
                 pub const fn new() -> #zst_ident {
                     #zst_ident
                 }
-            }
+            },
+        );
 
-            impl <'a> ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::sqlite::values::SQLiteValue<'a> > for #zst_ident {
-                const NAME: &'a str = #name;
-                const TYPE: &'a str = #col_type;
-                const SQL: ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> = ::drizzle::core::SQL::text(#sql);
-            }
+        let sqlite_column_info_impl = generate_sqlite_column_info(
+            &zst_ident,
+            quote! {<Self as drizzle::sqlite::traits::SQLiteColumn<'_>>::AUTOINCREMENT},
+            quote! {
+                static TABLE: #struct_ident = #struct_ident::new();
+                &TABLE
+            },
+            quote! {#foreign_key_impl},
+        );
 
-            impl ::drizzle::core::SQLColumnInfo for #zst_ident {
-                fn name(&self) -> &str {
-                    <Self as ::drizzle::core::SQLSchema<'_, &'static str, ::drizzle::sqlite::values::SQLiteValue<'_>>>::NAME
-                }
-                fn r#type(&self) -> &str {
-                    <Self as ::drizzle::core::SQLSchema<'_, &'static str, ::drizzle::sqlite::values::SQLiteValue<'_>>>::TYPE
-                }
-                fn is_primary_key(&self) -> bool {
-                    <Self as ::drizzle::core::SQLColumn<'_, ::drizzle::sqlite::values::SQLiteValue<'_>>>::PRIMARY_KEY
-                }
-                fn is_not_null(&self) -> bool {
-                    <Self as ::drizzle::core::SQLColumn<'_, ::drizzle::sqlite::values::SQLiteValue<'_>>>::NOT_NULL
-                }
-                fn is_unique(&self) -> bool {
-                    <Self as ::drizzle::core::SQLColumn<'_, ::drizzle::sqlite::values::SQLiteValue<'_>>>::UNIQUE
-                }
-                fn has_default(&self) -> bool {
-                    #has_default
-                }
-                fn table(&self) -> &dyn ::drizzle::core::SQLTableInfo {
-                    static TABLE: #struct_ident = #struct_ident::new();
-                    &TABLE
-                }
-                fn foreign_key(&self) -> Option<&'static dyn ::drizzle::core::SQLColumnInfo> {
-                    #foreign_key_impl
+        let to_sql_body = quote! {
+            static INSTANCE: #zst_ident = #zst_ident;
+            SQL::column(&INSTANCE)
+        };
+
+        let into_sqlite_value_impl = quote! {
+            impl<'a> ::std::convert::Into<SQLiteValue<'a>> for #zst_ident {
+                fn into(self) -> SQLiteValue<'a> {
+                    SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
                 }
             }
+        };
 
+        // Use generators for trait implementations
+        let sql_schema_field_impl = generate_sql_schema_field(
+            &zst_ident,
+            quote! {#name},
+            quote! {#col_type},
+            quote! {SQL::raw(#sql)},
+        );
+        let sql_column_info_impl = generate_sql_column_info(
+            &zst_ident,
+            quote! {
+                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::NAME
+            },
+            quote! {
+                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::TYPE
+            },
+            quote! {
+                <Self as SQLColumn<'_, SQLiteValue<'_>>>::PRIMARY_KEY
+            },
+            quote! {
+                <Self as SQLColumn<'_, SQLiteValue<'_>>>::NOT_NULL
+            },
+            quote! {
+                <Self as SQLColumn<'_, SQLiteValue<'_>>>::UNIQUE
+            },
+            quote! {
+                #has_default
+            },
+            quote! {
+                #foreign_key_impl
+            },
+            quote! {
+                static TABLE: #struct_ident = #struct_ident::new();
+                &TABLE
+            },
+        );
+        let sql_column_impl = generate_sql_column(
+            &zst_ident,
+            quote! {#struct_ident},
+            quote! {SQLiteSchemaType},
+            quote! {#rust_type},
+            quote! {#is_primary},
+            quote! {#is_not_null},
+            quote! {#is_unique},
+            quote! {#default_const},
+            quote! {#default_fn_body},
+        );
+        let sqlite_column_impl = generate_sqlite_column(&zst_ident, quote! { #is_autoincrement });
+        let to_sql_impl = generate_to_sql(&zst_ident, to_sql_body);
 
-            impl ::drizzle::sqlite::traits::SQLiteColumnInfo for #zst_ident {
-                fn is_autoincrement(&self) -> bool {
-                    <Self as ::drizzle::sqlite::traits::SQLiteColumn<'_>>::AUTOINCREMENT
-                }
-                fn table(&self) -> &dyn ::drizzle::sqlite::traits::SQLiteTableInfo {
-                    static TABLE: #struct_ident = #struct_ident::new();
-                    &TABLE
-                }
-            }
-
-            impl<'a> ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #zst_ident {
-                type Table = #struct_ident;
-                type TableType = ::drizzle::sqlite::common::SQLiteSchemaType;
-                type Type = #rust_type;
-
-                const PRIMARY_KEY: bool = #is_primary;
-                const NOT_NULL: bool = #is_not_null;
-                const UNIQUE: bool = #is_unique;
-                const DEFAULT: Option<Self::Type> = #default_const;
-
-                fn default_fn(&self) -> Option<impl Fn() -> Self::Type> {
-                    #default_fn_body
-                }
-            }
-
-            impl ::drizzle::sqlite::traits::SQLiteColumn<'_> for #zst_ident {
-                const AUTOINCREMENT: bool = #is_autoincrement;
-            }
-
-            impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #zst_ident
-            {
-                fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
-                    static INSTANCE: #zst_ident = #zst_ident;
-                    ::drizzle::core::SQL::column(&INSTANCE)
-                }
-            }
-
-            impl<'a> ::std::convert::Into<::drizzle::sqlite::values::SQLiteValue<'a>> for #zst_ident {
-                fn into(self) -> ::drizzle::sqlite::values::SQLiteValue<'a> {
-                    ::drizzle::sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
-                }
-            }
+        let column_code = quote! {
+            #struct_def
+            #impl_new
+            #sql_schema_field_impl
+            #sql_column_info_impl
+            #sqlite_column_info_impl
+            #sql_column_impl
+            #sqlite_column_impl
+            #to_sql_impl
+            #into_sqlite_value_impl
 
             // Include enum implementation if this is an enum field
             #enum_impl

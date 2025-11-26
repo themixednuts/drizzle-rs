@@ -175,24 +175,24 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<i64> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: i64) -> std::result::Result<Self, Self::Error> {
                 Ok(match value {
                     #(#from_integer_variants,)*
-                    _ => return Err(::drizzle::error::DrizzleError::Mapping(format!("{value}"))),
+                    _ => return Err(DrizzleError::Mapping(format!("{value}").into())),
                 })
             }
         }
 
         impl TryFrom<&i64> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: &i64) -> std::result::Result<Self, Self::Error> {
                 let value = *value;
                 Ok(match value {
                     #(#from_integer_variants,)*
-                    _ => return Err(::drizzle::error::DrizzleError::Mapping(format!("{value}"))),
+                    _ => return Err(DrizzleError::Mapping(format!("{value}").into())),
                 })
             }
         }
@@ -201,20 +201,20 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         impl<T> TryFrom<Option<T>> for #name
         where
             T: TryInto<#name>,
-            T::Error: Into<::drizzle::error::DrizzleError>,
+            T::Error: Into<DrizzleError>,
         {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: Option<T>) -> std::result::Result<Self, Self::Error> {
                 match value {
                     Some(inner) => inner.try_into().map_err(Into::into),
-                    None => Err(::drizzle::error::DrizzleError::Mapping("Cannot convert None to enum".to_string())),
+                    None => Err(DrizzleError::Mapping("Cannot convert None to enum".into())),
                 }
             }
         }
         // Generic implementation for integer types that aren't explicitly covered
         impl TryFrom<isize> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: isize) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -222,7 +222,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<usize> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -231,7 +231,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
 
         // Generic implementation for integer types that aren't explicitly covered
         impl TryFrom<i32> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: i32) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -239,7 +239,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<u32> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: u32) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -247,7 +247,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<i16> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: i16) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -255,7 +255,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<u16> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: u16) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -263,7 +263,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<i8> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: i8) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -271,7 +271,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<u8> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
                 Self::try_from(value as i64)
@@ -312,18 +312,18 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<&str> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
                 Ok(match value {
                     #(#from_str_variants)*
-                    _ => return Err(::drizzle::error::DrizzleError::Mapping(format!("{value}"))),
+                    _ => return Err(DrizzleError::Mapping(format!("{value}").into())),
                 })
             }
         }
 
         impl TryFrom<&String> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: &String) -> std::result::Result<Self, Self::Error> {
                 <#name as std::str::FromStr>::from_str(value)
@@ -331,7 +331,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         impl TryFrom<String> for #name {
-            type Error = ::drizzle::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
                 <#name as std::str::FromStr>::from_str(&value)
@@ -341,12 +341,12 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
 
         // Implement FromStr for the enum with String as the error type
         impl std::str::FromStr for #name {
-            type Err = ::drizzle::error::DrizzleError;
+            type Err = DrizzleError;
 
             fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
                 Ok(match s {
                     #(#from_str_variants)*
-                    _ => return Err(::drizzle::error::DrizzleError::Mapping(format!("{s}"))),
+                    _ => return Err(DrizzleError::Mapping(format!("{s}").into())),
                 })
             }
         }
@@ -398,15 +398,18 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         // Implement SQLSchema trait for schema integration
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #name {
+        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #name {
             const NAME: &'a str = stringify!(#name);
-            const TYPE: ::drizzle::postgres::common::PostgresSchemaType = {
+            const TYPE: PostgresSchemaType = {
                 #[allow(non_upper_case_globals)]
                 static ENUM_INSTANCE: #name = #name::#first_variant;
-                ::drizzle::postgres::common::PostgresSchemaType::Enum(&ENUM_INSTANCE)
+                PostgresSchemaType::Enum(&ENUM_INSTANCE)
             };
-            const SQL: ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> = 
-                ::drizzle::core::SQL::text(#create_type_sql_literal);
+            const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
+
+            fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
+                SQL::raw(#create_type_sql_literal)
+            }
         }
 
 

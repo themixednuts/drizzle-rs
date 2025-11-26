@@ -2,42 +2,62 @@ use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
 /// Generate SQLColumnInfo trait implementation
-pub fn generate_sql_column_info(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+pub fn generate_sql_column_info(
+    struct_ident: &Ident,
+    name: TokenStream,
+    r#type: TokenStream,
+    is_primary_key: TokenStream,
+    is_not_null: TokenStream,
+    is_unique: TokenStream,
+    has_default: TokenStream,
+    foreign_key: TokenStream,
+    table: TokenStream,
+) -> TokenStream {
     quote! {
-        impl ::drizzle::core::SQLColumnInfo for #struct_ident {
-            #body
+        impl SQLColumnInfo for #struct_ident {
+            fn name(&self) -> &str {
+                #name
+            }
+            fn r#type(&self) -> &str {
+                #r#type
+            }
+            fn is_primary_key(&self) -> bool {
+                #is_primary_key
+            }
+            fn is_not_null(&self) -> bool {
+                #is_not_null
+            }
+            fn is_unique(&self) -> bool {
+                #is_unique
+            }
+            fn has_default(&self) -> bool {
+                #has_default
+            }
+            fn table(&self) -> &dyn SQLTableInfo {
+                #table
+            }
+            fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
+                #foreign_key
+            }
         }
     }
 }
 
 /// Generate SQLTableInfo trait implementation
-pub fn generate_sql_table_info(struct_ident: &Ident, body: TokenStream) -> TokenStream {
-    quote! {
-        impl ::drizzle::core::SQLTableInfo for #struct_ident {
-            #body
-        }
-    }
-}
-
-/// Generate basic struct with common derives
-pub fn generate_struct(
-    struct_vis: &syn::Visibility, 
-    struct_ident: &Ident, 
-    fields: TokenStream,
-    allows: &[&str]
+pub fn generate_sql_table_info(
+    struct_ident: &Ident,
+    name: TokenStream,
+    columns: TokenStream,
 ) -> TokenStream {
-    let allow_attrs = if !allows.is_empty() {
-        let attrs = allows.iter().map(|a| quote! { #a }).collect::<Vec<_>>();
-        quote! { #[allow(#(#attrs),*)] }
-    } else {
-        quote! {}
-    };
-    
     quote! {
-        #allow_attrs
-        #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
-        #struct_vis struct #struct_ident {
-            #fields
+        impl SQLTableInfo for #struct_ident {
+            fn name(&self) -> &str {
+                #name
+            }
+
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
+                #columns
+            }
         }
     }
 }

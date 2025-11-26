@@ -208,12 +208,12 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             }
         }
 
-        impl<'a> ::drizzle::core::SQLIndex<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #struct_ident {
+        impl<'a> SQLIndex<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
             type Table = #table_type;
         }
 
-        impl ::drizzle::core::SQLIndexInfo for #struct_ident {
-            fn table(&self) -> &dyn ::drizzle::core::SQLTableInfo {
+        impl SQLIndexInfo for #struct_ident {
+            fn table(&self) -> &dyn SQLTableInfo {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #table_type = #table_type::new();
                 &TABLE_INSTANCE
@@ -228,23 +228,23 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             }
         }
 
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #struct_ident {
+        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
             const NAME: &'a str = #index_name;
-            const TYPE: ::drizzle::postgres::common::PostgresSchemaType = {
+            const TYPE: PostgresSchemaType = {
                 #[allow(non_upper_case_globals)]
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
-                ::drizzle::postgres::common::PostgresSchemaType::Index(&INDEX_INSTANCE)
+                PostgresSchemaType::Index(&INDEX_INSTANCE)
             };
-            const SQL: ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> = ::drizzle::core::SQL::empty();
+            const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
 
-            fn sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+            fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 self.to_sql()
             }
         }
 
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
-                ::drizzle::core::SQL::text(#create_index_sql)
+        impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_ident {
+            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
+                SQL::raw(#create_index_sql)
             }
         }
     };

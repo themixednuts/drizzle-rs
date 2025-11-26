@@ -18,17 +18,17 @@ pub(super) fn generate_table_impls(
         &ctx.update_model_ident,
     );
 
-    // Generate SQL implementation based on whether table has foreign keys
+    // Generate SQL implementation - always use SQL::empty() for const and provide via fn sql()
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
         (
             quote! {
-                const SQL: ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> = ::drizzle::core::SQL::text("-- Runtime SQL generation required");
+                const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
             },
             quote! {
-                fn sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+                fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
                     let runtime_sql = #create_table_sql;
-                    ::drizzle::core::SQL::raw(runtime_sql)
+                    SQL::raw(runtime_sql)
                 }
             },
         )
@@ -36,58 +36,62 @@ pub(super) fn generate_table_impls(
         // Use static SQL for tables without foreign keys
         (
             quote! {
-                const SQL: ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> = ::drizzle::core::SQL::text(#create_table_sql);
+                const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
             },
-            quote! {},
+            quote! {
+                fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
+                    SQL::raw(#create_table_sql)
+                }
+            },
         )
     };
 
     Ok(quote! {
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #struct_ident {
+        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
             const NAME: &'a str = #table_name;
-            const TYPE: ::drizzle::postgres::common::PostgresSchemaType = {
+            const TYPE: PostgresSchemaType = {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                ::drizzle::postgres::common::PostgresSchemaType::Table(&TABLE_INSTANCE)
+                PostgresSchemaType::Table(&TABLE_INSTANCE)
             };
             #sql_const
             #sql_method
         }
 
-        impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #struct_ident {
+        impl<'a> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
             type Select = #select_model;
             type Insert<T> = #insert_model<'a, T>;
             type Update = #update_model;
         }
 
-        impl ::drizzle::core::SQLTableInfo for #struct_ident {
+        impl SQLTableInfo for #struct_ident {
             fn name(&self) -> &str {
-                <Self as ::drizzle::core::SQLSchema<'_, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'_>>>::NAME
+                <Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::NAME
             }
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
                 #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
 
-                Box::new([#(::drizzle::core::AsColumnInfo::as_column(&#column_zst_idents),)*])
+                Box::new([#(AsColumnInfo::as_column(&#column_zst_idents),)*])
             }
         }
 
-        impl ::drizzle::postgres::traits::PostgresTableInfo for #struct_ident {
-            fn r#type(&self) -> & ::drizzle::postgres::common::PostgresSchemaType {
-                &<Self as ::drizzle::core::SQLSchema<'_, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'_>>>::TYPE
+        impl drizzle::postgres::traits::PostgresTableInfo for #struct_ident {
+            fn r#type(&self) -> &PostgresSchemaType {
+                &<Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE
             }
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::postgres::traits::PostgresColumnInfo]> {
+            fn columns(&self) -> Box<[&'static dyn drizzle::postgres::traits::PostgresColumnInfo]> {
                 #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
 
-                Box::new([#(::drizzle::postgres::traits::AsColumnInfo::as_column(&#column_zst_idents),)*])
+                Box::new([#(drizzle::postgres::traits::AsColumnInfo::as_column(&#column_zst_idents),)*])
             }
         }
 
-        impl<'a> ::drizzle::postgres::traits::PostgresTable<'a> for #struct_ident {}
+        impl<'a> drizzle::postgres::traits::PostgresTable<'a> for #struct_ident {}
 
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+        impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_ident {
+            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                ::drizzle::core::SQL::table(&INSTANCE)
+                SQL::table(&INSTANCE)
             }
         }
     })

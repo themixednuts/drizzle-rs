@@ -209,7 +209,7 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
 
     if segments.is_empty() {
         return Ok(quote! {
-            ::drizzle::core::SQL::empty()
+            SQL::empty()
         });
     }
 
@@ -221,13 +221,13 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
             SqlSegment::Text(text) => {
                 if !text.is_empty() {
                     segment_tokens.push(quote! {
-                        ::drizzle::core::SQL::text(#text)
+                        SQL::raw(#text)
                     });
                 }
             }
             SqlSegment::Expression(expr) => {
                 segment_tokens.push(quote! {
-                    ::drizzle::core::ToSQL::to_sql(&#expr)
+                    ToSQL::to_sql(&#expr)
                 });
             }
         }

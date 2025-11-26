@@ -1,6 +1,8 @@
 use super::context::MacroContext;
+use crate::generators::generate_sql_table_info;
+use crate::sqlite::generators::*;
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::Result;
 
 /// Generates the `SQLSchema` and `SQLTable` implementations.
@@ -23,102 +25,84 @@ pub(crate) fn generate_table_impls(
     );
 
     // Generate SQL implementation based on whether table has foreign keys
-
+    let create_table_sql = &ctx.create_table_sql;
+    
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
         if let Some(ref runtime_sql) = ctx.create_table_sql_runtime {
             (
-                quote! {
-                    const SQL: ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> = ::drizzle::core::SQL::text("-- Runtime SQL generation required");
-                },
-                quote! {
-                    fn sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
-                        let runtime_sql = #runtime_sql;
-                        ::drizzle::core::SQL::raw(runtime_sql)
-                    }
-                },
+                quote! { SQL::empty() },  // Empty const, use runtime method
+                Some(quote! {
+                    let runtime_sql = #runtime_sql;
+                    SQL::raw(runtime_sql)
+                }),
             )
         } else {
-            // Fallback to static SQL
-            let create_table_sql = &ctx.create_table_sql;
-            (
-                quote! {
-                    const SQL: ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> = ::drizzle::core::SQL::text(#create_table_sql);
-                },
-                quote! {},
-            )
+            // Use static SQL
+            (quote! { SQL::raw_const(#create_table_sql) }, None)
         }
     } else {
         // Use static SQL for tables without foreign keys
-        let create_table_sql = &ctx.create_table_sql;
-        (
-            quote! {
-                const SQL: ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> = ::drizzle::core::SQL::text(#create_table_sql);
-            },
-            quote! {},
-        )
+        (quote! { SQL::raw_const(#create_table_sql) }, None)
     };
 
-    Ok(quote! {
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a> > for #struct_ident {
-            const NAME: &'a str = #table_name;
-            const TYPE: ::drizzle::sqlite::common::SQLiteSchemaType = {
+    let to_sql_body = quote! {
+        static INSTANCE: #struct_ident = #struct_ident::new();
+        SQL::table(&INSTANCE)
+    };
+
+    let sql_schema_impl = generate_sql_schema(
+        struct_ident,
+        quote! {#table_name},
+        quote! {
+            {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                ::drizzle::sqlite::common::SQLiteSchemaType::Table(&TABLE_INSTANCE)
-            };
-            #sql_const
-            #sql_method
-        }
-
-
-        impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
-            type Select = #select_model;
-            type Insert<T> = #insert_model<'a, T>;
-            type Update = #update_model;
-        }
-
-
-        impl ::drizzle::core::SQLTableInfo for #struct_ident {
-            fn name(&self) -> &str {
-                <Self as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::NAME
+                SQLiteSchemaType::Table(&TABLE_INSTANCE)
             }
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
-                #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+        },
+        quote! {#sql_const},
+        sql_method,
+    );
+    let sql_table_impl = generate_sql_table(
+        struct_ident,
+        quote! {#select_model},
+        quote! {#insert_model<'a, T>},
+        quote! {#update_model},
+    );
+    let sql_table_info_impl = generate_sql_table_info(
+        struct_ident,
+        quote! {
+            <Self as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::NAME
+        },
+        quote! {
+            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
 
-                Box::new([#(::drizzle::core::AsColumnInfo::as_column(&#column_zst_idents),)*])
-            }
-        }
+            Box::new([#(AsColumnInfo::as_column(&#column_zst_idents),)*])
+        },
+    );
+    let sqlite_table_info_impl = generate_sqlite_table_info(
+        struct_ident,
+        quote! {
+            &<Self as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::TYPE
+        },
+        quote! {#strict},
+        quote! {#without_rowid},
+        quote! {
+            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+            Box::new([#(drizzle::sqlite::traits::AsColumnInfo::as_column(&#column_zst_idents),)*])
+        },
+    );
+    let sqlite_table_impl =
+        generate_sqlite_table(struct_ident, quote! {#without_rowid}, quote! {#strict});
+    let to_sql_impl = generate_to_sql(struct_ident, to_sql_body);
 
-        impl ::drizzle::sqlite::traits::SQLiteTableInfo for #struct_ident {
-            fn r#type(&self) -> & ::drizzle::sqlite::common::SQLiteSchemaType {
-                &<Self as ::drizzle::core::SQLSchema<'_, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'_>>>::TYPE
-            }
-
-            fn strict(&self) -> bool {
-                #strict
-            }
-            fn without_rowid(&self) -> bool {
-                #without_rowid
-            }
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::sqlite::traits::SQLiteColumnInfo]> {
-                #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-
-                Box::new([#(::drizzle::sqlite::traits::AsColumnInfo::as_column(&#column_zst_idents),)*])
-            }
-
-        }
-
-        impl<'a> ::drizzle::sqlite::traits::SQLiteTable<'a> for #struct_ident {
-            const WITHOUT_ROWID: bool = #without_rowid;
-            const STRICT: bool = #strict;
-        }
-
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
-                static INSTANCE: #struct_ident = #struct_ident::new();
-                ::drizzle::core::SQL::table(&INSTANCE)
-            }
-        }
+    Ok(quote! {
+        #sql_schema_impl
+        #sql_table_impl
+        #sql_table_info_impl
+        #sqlite_table_info_impl
+        #sqlite_table_impl
+        #to_sql_impl
     })
 }

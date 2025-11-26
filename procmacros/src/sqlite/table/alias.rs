@@ -2,6 +2,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use heck::ToUpperCamelCase;
 use crate::sqlite::table::context::MacroContext;
+use crate::sqlite::generators::*;
+use crate::generators::{generate_impl, generate_sql_column_info, generate_sql_table_info };
 
 
 /// Generates an aliased version of a table struct
@@ -27,126 +29,131 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     
     
     // Generate the aliased field type definitions  
-    let aliased_field_definitions: Vec<TokenStream> = ctx.field_infos.iter().zip(aliased_fields.iter()).map(|(field, (_, aliased_field_type))| {
+    let aliased_field_definitions: Vec<TokenStream> = ctx.field_infos.iter().zip(aliased_fields.iter()).map(|(field, (_, aliased_field_type))| -> syn::Result<TokenStream> {
         let field_name = &field.ident;
         // Use the same naming pattern as original column types
         let field_name_pascal = field_name.to_string().to_upper_camel_case();
         let original_field_type = format_ident!("{}{}", table_name, field_name_pascal);
         
-        quote! {
+        // Generate struct definition
+        let struct_def = quote! {
             #[allow(non_upper_case_globals, dead_code)]
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             #struct_vis struct #aliased_field_type {
                 alias: &'static str,
             }
-            
-            impl #aliased_field_type {
-                pub const fn new(alias: &'static str) -> Self {
-                    Self { alias }
+        };
+
+        // Generate constructor impl
+        let impl_new = generate_impl(&aliased_field_type, quote! {
+            pub const fn new(alias: &'static str) -> Self {
+                Self { alias }
+            }
+        });
+
+        let sqlite_column_info_impl = generate_sqlite_column_info(aliased_field_type,
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as drizzle::sqlite::traits::SQLiteColumnInfo>::is_autoincrement(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as drizzle::sqlite::traits::SQLiteColumnInfo>::table(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as drizzle::sqlite::traits::SQLiteColumnInfo>::foreign_key(&ORIGINAL_FIELD)
+            }
+        );
+
+
+        // Generate ToSQL implementation that uses the alias
+        let to_sql_custom_impl = quote! {
+            impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for #aliased_field_type {
+                fn to_sql(&self) -> SQL<'a, V> {
+                    SQL::raw(format!(r#""{}"."{}""#, self.alias, SQLColumnInfo::name(self)))
                 }
             }
-            
-            // Implement column info traits for the aliased field
-            impl ::drizzle::core::SQLColumnInfo for #aliased_field_type {
-                fn is_not_null(&self) -> bool {
-                    // Forward to the original field instance with explicit trait qualification
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::is_not_null(&ORIGINAL_FIELD)
-                }
-                
-                fn is_primary_key(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::is_primary_key(&ORIGINAL_FIELD)
-                }
-                
-                fn is_unique(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::is_unique(&ORIGINAL_FIELD)
-                }
-                
-                fn name(&self) -> &str {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::name(&ORIGINAL_FIELD)
-                }
-                
-                fn r#type(&self) -> &str {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::r#type(&ORIGINAL_FIELD)
-                }
-                
-                fn has_default(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::has_default(&ORIGINAL_FIELD)
-                }
-                
-                fn table(&self) -> &dyn ::drizzle::core::SQLTableInfo {
-                    // This is tricky - we need a static reference but each column has different alias
-                    // For now, return the original table info
-                    static ORIGINAL_TABLE: #table_name = #table_name::new();
-                    &ORIGINAL_TABLE
+        };
+
+        // Use generators for trait implementations
+        let sql_column_info_impl = generate_sql_column_info(&aliased_field_type,
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::name(&ORIGINAL_FIELD)  
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::r#type(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::is_primary_key(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::is_not_null(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::is_unique(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::has_default(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                <#original_field_type as SQLColumnInfo>::foreign_key(&ORIGINAL_FIELD)
+            },
+            quote! {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                &ORIGINAL_TABLE
+            },
+        );
+        let sql_column_impl = generate_sql_column(aliased_field_type,
+            quote! {#aliased_table_name},
+            quote! {<#original_field_type as SQLColumn<'a, SQLiteValue<'a>>>::TableType},
+            quote! {<#original_field_type as SQLColumn<'a, SQLiteValue<'a>>>::Type},
+            quote! {<#original_field_type as SQLColumn<'a, SQLiteValue<'a>>>::PRIMARY_KEY},
+            quote! {<#original_field_type as SQLColumn<'a, SQLiteValue<'a>>>::NOT_NULL},
+            quote! {<#original_field_type as SQLColumn<'a, SQLiteValue<'a>>>::UNIQUE},
+            quote! {<#original_field_type as SQLColumn<'a, SQLiteValue<'a>>>::DEFAULT},
+            quote! {
+                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                ORIGINAL_FIELD.default_fn()
+            }
+        );
+        let sqlite_column_impl = generate_sqlite_column(&aliased_field_type, quote! {
+            <#original_field_type as drizzle::sqlite::traits::SQLiteColumn<'a>>::AUTOINCREMENT
+        });
+        let sql_schema_field_impl = generate_sql_schema_field(aliased_field_type,
+            quote! {<#original_field_type as SQLSchema<'a, &'a str, SQLiteValue<'a>>>::NAME},
+            quote! {<#original_field_type as SQLSchema<'a, &'a str, SQLiteValue<'a>>>::TYPE},
+            quote! {<#original_field_type as SQLSchema<'a, &'a str, SQLiteValue<'a>>>::SQL}
+        );
+
+        let into_sqlite_value_impl = quote! {
+            impl<'a> ::std::convert::Into<SQLiteValue<'a>> for #aliased_field_type {
+                fn into(self) -> SQLiteValue<'a> {
+                    let column_ref = format!(r#""{}"."{}""#, self.alias, SQLColumnInfo::name(&self));
+                    SQLiteValue::Text(::std::borrow::Cow::Owned(column_ref))
                 }
             }
-            
-            // Implement SQLite-specific column info traits
-            impl ::drizzle::sqlite::traits::SQLiteColumnInfo for #aliased_field_type {
-                fn is_autoincrement(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::sqlite::traits::SQLiteColumnInfo>::is_autoincrement(&ORIGINAL_FIELD)
-                }
-                
-                fn table(&self) -> &dyn ::drizzle::sqlite::traits::SQLiteTableInfo {
-                    // This is tricky - we need a static reference to our aliased table info
-                    // For now, we'll use a workaround
-                    todo!("Need to implement aliased SQLiteTableInfo reference")
-                }
-                
-                fn foreign_key(&self) -> Option<&'static dyn ::drizzle::sqlite::traits::SQLiteColumnInfo> {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::sqlite::traits::SQLiteColumnInfo>::foreign_key(&ORIGINAL_FIELD)
-                }
-            }
-            
-            // AsColumnInfo is already implemented via blanket impl for SQLiteColumnInfo
-            
-            // Implement SQLColumn trait for aliased field
-            impl<'a> ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #aliased_field_type {
-                type Table = #aliased_table_name;
-                type TableType = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>>>::TableType;
-                type Type = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>>>::Type;
-                
-                const PRIMARY_KEY: bool = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>>>::PRIMARY_KEY;
-                const NOT_NULL: bool = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>>>::NOT_NULL;
-                const UNIQUE: bool = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>>>::UNIQUE;
-                const DEFAULT: Option<Self::Type> = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::sqlite::values::SQLiteValue<'a>>>::DEFAULT;
-                
-                fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    ORIGINAL_FIELD.default_fn()
-                }
-            }
-            
-            // Implement SQLiteColumn trait for aliased field
-            impl<'a> ::drizzle::sqlite::traits::SQLiteColumn<'a> for #aliased_field_type {
-                const AUTOINCREMENT: bool = <#original_field_type as ::drizzle::sqlite::traits::SQLiteColumn<'a>>::AUTOINCREMENT;
-            }
-            
-            // Implement SQLSchema trait for aliased field
-            impl<'a> ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::sqlite::values::SQLiteValue<'a>> for #aliased_field_type {
-                const NAME: &'a str = <#original_field_type as ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::sqlite::values::SQLiteValue<'a>>>::NAME;
-                const TYPE: &'a str = <#original_field_type as ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::sqlite::values::SQLiteValue<'a>>>::TYPE;
-                
-                const SQL: ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> = <#original_field_type as ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::sqlite::values::SQLiteValue<'a>>>::SQL;
-            }
-            
-            // ToSQL implementation that uses the alias
-            impl<'a, V: ::drizzle::core::SQLParam + 'a> ::drizzle::core::ToSQL<'a, V> for #aliased_field_type {
-                fn to_sql(&self) -> ::drizzle::core::SQL<'a, V> {
-                    use ::drizzle::core::SQLColumnInfo;
-                    ::drizzle::core::SQL::raw(format!(r#""{}"."{}""#, self.alias, self.name()))
-                }
-            }
-        }
-    }).collect();
+        };
+
+        Ok(quote! {
+            #struct_def
+            #impl_new
+            #sql_column_info_impl
+            #sqlite_column_info_impl
+            #sql_column_impl
+            #sqlite_column_impl
+            #sql_schema_field_impl
+            #to_sql_custom_impl
+            #into_sqlite_value_impl
+        })
+    }).collect::<syn::Result<_>>()?;
     
     // Generate the aliased table struct fields
     let aliased_struct_fields: Vec<TokenStream> = aliased_fields.iter().map(|(field_name, aliased_type)| {
@@ -161,6 +168,63 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             #field_name: #aliased_type::new(alias)
         }
     }).collect();
+
+    let sql_table_info = generate_sql_table_info(&aliased_table_name,
+        quote! {self.alias},
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as SQLTableInfo>::columns(&ORIGINAL_TABLE)
+        }
+    );
+
+    let sqlite_table_info = generate_sqlite_table_info(&aliased_table_name,
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            ORIGINAL_TABLE.r#type()
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            ORIGINAL_TABLE.strict()
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            ORIGINAL_TABLE.without_rowid()
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as drizzle::sqlite::traits::SQLiteTableInfo>::columns(&ORIGINAL_TABLE)
+        }
+    );
+
+    let sql_table = generate_sql_table(&aliased_table_name,
+        quote!{<#table_name as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Select},
+        quote!{<#table_name as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Insert<T>},
+        quote!{<#table_name as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Update}
+    );
+
+    let sqlite_table = generate_sqlite_table(&aliased_table_name,
+        quote! {<#table_name as drizzle::sqlite::traits::SQLiteTable<'a>>::WITHOUT_ROWID},
+        quote! {<#table_name as drizzle::sqlite::traits::SQLiteTable<'a>>::STRICT}
+    );
+
+    let sql_schema = generate_sql_schema(&aliased_table_name,
+        quote! {<#table_name as SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>>>::NAME},
+        quote! {<#table_name as SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>>>::TYPE},
+        quote! {<#table_name as SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>>>::SQL},
+        Some(quote! {
+                {
+                    static INSTANCE: #table_name = #table_name::new();
+                    <#table_name as SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>>>::sql(&INSTANCE)
+                }
+            }
+        ));
+
+    let to_sql_impl = generate_to_sql(&aliased_table_name,
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            ORIGINAL_TABLE.to_sql().alias(self.alias)
+        }
+    );
     
     Ok(quote! {
         
@@ -184,75 +248,23 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
             
         }
-        
-        
+
         // Implement table traits for the aliased table
-        impl ::drizzle::core::SQLTableInfo for #aliased_table_name {
-            fn name(&self) -> &str {
-                self.alias
-            }
-            
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
-                // TODO: This is tricky because we need static references but each alias instance
-                // has a different alias string. For now, return original columns.
-                // The individual aliased fields can still be accessed directly via table.field
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as ::drizzle::core::SQLTableInfo>::columns(&ORIGINAL_TABLE)
-            }
-        }
+        #sql_table_info
         
         // Implement SQLite-specific table traits for aliased table
-        impl ::drizzle::sqlite::traits::SQLiteTableInfo for #aliased_table_name {
-            fn r#type(&self) -> &::drizzle::sqlite::common::SQLiteSchemaType {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                ORIGINAL_TABLE.r#type()
-            }
-            
-            fn without_rowid(&self) -> bool {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                ORIGINAL_TABLE.without_rowid()
-            }
-            
-            fn strict(&self) -> bool {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                ORIGINAL_TABLE.strict()
-            }
-            
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::sqlite::traits::SQLiteColumnInfo]> {
-                // TODO: This is tricky because we need static references but each alias instance
-                // has a different alias string. For now, return original columns.
-                // The individual aliased fields can still be accessed directly via table.field
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as ::drizzle::sqlite::traits::SQLiteTableInfo>::columns(&ORIGINAL_TABLE)
-            }
-        }
-        
-        impl<'a> ::drizzle::sqlite::traits::SQLiteTable<'a> for #aliased_table_name {
-            const WITHOUT_ROWID: bool = <#table_name as ::drizzle::sqlite::traits::SQLiteTable<'a>>::WITHOUT_ROWID;
-            const STRICT: bool = <#table_name as ::drizzle::sqlite::traits::SQLiteTable<'a>>::STRICT;
-        }
+        #sqlite_table_info
         
         // Implement core SQLTable trait for aliased table
-        impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>> for #aliased_table_name {
-            type Select = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>>>::Select;
-            type Insert<T> = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>>>::Insert<T>;
-            type Update = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>>>::Update;
-        }
+        #sql_table
+
+        #sqlite_table
         
         // Implement SQLSchema trait for aliased table
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>> for #aliased_table_name {
-            const NAME: &'a str = <#table_name as ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>>>::NAME;
-            const TYPE: ::drizzle::sqlite::common::SQLiteSchemaType = <#table_name as ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>>>::TYPE;
-            const SQL: ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> = <#table_name as ::drizzle::core::SQLSchema<'a, ::drizzle::sqlite::common::SQLiteSchemaType, ::drizzle::sqlite::values::SQLiteValue<'a>>>::SQL;
-        }
+        #sql_schema
         
         // ToSQL implementation for aliased table
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #aliased_table_name {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                ORIGINAL_TABLE.to_sql().alias(self.alias)
-            }
-        }
+        #to_sql_impl
         
         // Add alias() method to the original table struct
         impl #table_name {

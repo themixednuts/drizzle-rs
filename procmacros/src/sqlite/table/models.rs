@@ -55,49 +55,49 @@ fn generate_model_trait_impls(
     }
 
     let partial_impl = quote! {
-            impl<'a> ::drizzle::core::SQLModel<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model_partial {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+            impl<'a> SQLModel<'a, SQLiteValue<'a>> for #select_model_partial {
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
                 // For partial select model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                <#struct_ident as ::drizzle::core::SQLTableInfo>::columns(&INSTANCE)
+                <#struct_ident as SQLTableInfo>::columns(&INSTANCE)
             }
 
-            fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
-                ::drizzle::core::SQL::empty()
+            fn values(&self) -> SQL<'a, SQLiteValue<'a>> {
+                SQL::empty()
             }
         }
     };
 
     Ok(quote! {
         // SQLModel implementations
-        impl<'a> ::drizzle::core::SQLModel<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #select_model {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+        impl<'a> SQLModel<'a, SQLiteValue<'a>> for #select_model {
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
                 // For select model, return all columns
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                <#struct_ident as ::drizzle::core::SQLTableInfo>::columns(&INSTANCE)
+                <#struct_ident as SQLTableInfo>::columns(&INSTANCE)
             }
 
-            fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
-                ::drizzle::core::SQL::empty()
+            fn values(&self) -> SQL<'a, SQLiteValue<'a>> {
+                SQL::empty()
             }
         }
 
-        impl<'a> ::drizzle::core::SQLModel<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> for #update_model {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+        impl<'a> SQLModel<'a, SQLiteValue<'a>> for #update_model {
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                <#struct_ident as ::drizzle::core::SQLTableInfo>::columns(&INSTANCE)
+                <#struct_ident as SQLTableInfo>::columns(&INSTANCE)
             }
 
-            fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
+            fn values(&self) -> SQL<'a, SQLiteValue<'a>> {
                 let mut values = Vec::new();
                 // For Update model, only include values that are Some()
                 #(
                     if let Some(val) = &self.#update_field_names {
-                        values.push(val.clone().try_into().unwrap_or(::drizzle::sqlite::values::SQLiteValue::Null));
+                        values.push(val.clone().try_into().unwrap_or(SQLiteValue::Null));
                     }
                 )*
-                ::drizzle::core::SQL::parameters(values)
+                SQL::param_list(values)
             }
         }
         #partial_impl

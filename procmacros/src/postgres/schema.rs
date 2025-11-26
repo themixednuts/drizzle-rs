@@ -46,16 +46,6 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
 
     let items_method = generate_items_method(&all_fields);
 
-    // Generate IsInSchema implementations for all fields
-    let is_in_schema_impls = all_fields.iter().map(|(_, ty)| {
-        quote! {
-            #[allow(non_local_definitions)]
-            impl ::drizzle::core::IsInSchema<#struct_name> for #ty {}
-            #[allow(non_local_definitions)]
-            impl ::drizzle::core::IsInSchema<#struct_name> for &#ty {}
-        }
-    });
-
     // Collect field names and types for tuple destructuring
     let all_field_names: Box<_> = all_fields.iter().map(|(name, _)| *name).collect();
     let all_field_types: Box<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
@@ -82,11 +72,8 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
             #items_method
         }
 
-        // Implement IsInSchema for all field types (tables, indexes, and enums)
-        #(#is_in_schema_impls)*
-
         // Implement SQLSchemaImpl trait
-        impl ::drizzle::core::SQLSchemaImpl for #struct_name {
+        impl SQLSchemaImpl for #struct_name {
             fn create_statements(&self) -> Vec<String> {
                 #create_statements_impl
             }
@@ -107,34 +94,34 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        let mut tables: Vec<(&str, String, &dyn ::drizzle::core::SQLTableInfo)> = Vec::new();
+        let mut tables: Vec<(&str, String, &dyn SQLTableInfo)> = Vec::new();
         let mut indexes: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
         let mut enums: Vec<String> = Vec::new();
 
         // Collect all tables, indexes, and enums
         #(
-            match <#field_types as ::drizzle::core::SQLSchema<'_, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'_>>>::TYPE {
-                ::drizzle::postgres::common::PostgresSchemaType::Table(table_info) => {
+            match <#field_types as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE {
+                PostgresSchemaType::Table(table_info) => {
                     let table_name = table_info.name();
-                    let table_sql = <_ as ::drizzle::core::SQLSchema<'_, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'_>>>::sql(&self.#field_names).sql();
+                    let table_sql = <_ as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
-                ::drizzle::postgres::common::PostgresSchemaType::Index(index_info) => {
-                    let index_sql = <_ as ::drizzle::core::SQLSchema<'_, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'_>>>::sql(&self.#field_names).sql();
+                PostgresSchemaType::Index(index_info) => {
+                    let index_sql = <_ as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::sql(&self.#field_names).sql();
                     let table_name = index_info.table().name();
                     indexes
                         .entry(table_name)
                         .or_insert_with(Vec::new)
                         .push(index_sql);
                 }
-                ::drizzle::postgres::common::PostgresSchemaType::Enum(enum_info) => {
+                PostgresSchemaType::Enum(enum_info) => {
                     let enum_sql = enum_info.create_type_sql();
                     enums.push(enum_sql);
                 }
-                ::drizzle::postgres::common::PostgresSchemaType::View => {
+                PostgresSchemaType::View => {
                     // Views not implemented yet
                 }
-                ::drizzle::postgres::common::PostgresSchemaType::Trigger => {
+                PostgresSchemaType::Trigger => {
                     // Triggers not implemented yet
                 }
             }
@@ -158,10 +145,10 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         // Build final SQL statements: enums first, then tables in dependency order, then their indexes
         let mut sql_statements = Vec::<String>::new();
-        
+
         // Add all enums first (they must be created before tables that use them)
         sql_statements.extend(enums);
-        
+
         // Add tables and their indexes
         for (table_name, table_sql, _) in tables {
             sql_statements.push(table_sql);

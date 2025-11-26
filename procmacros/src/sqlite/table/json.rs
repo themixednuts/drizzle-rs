@@ -1,14 +1,13 @@
 use super::context::MacroContext;
-use crate::sqlite::field::FieldInfo;
+use crate::sqlite::{field::FieldInfo, generators::generate_to_sql};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::collections::HashMap;
-use syn::Result;
+use syn::{Result, Type, TypePath};
 
 // Common SQLite documentation URLs for error messages and macro docs
 const SQLITE_JSON_URL: &str = "https://sqlite.org/json1.html";
 
-/// Generates `FromSql` and `ToSql` impls for JSON fields.
 pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     // Create a filter for JSON fields
     let json_fields: Vec<_> = ctx.field_infos.iter().filter(|info| info.is_json).collect();
@@ -72,11 +71,11 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             let core_conversion = match storage_type {
                 SQLiteType::Text => quote! {
                     let json = serde_json::to_string(&self)?;
-                    Ok(::drizzle::sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
+                    Ok(SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
                 },
                 SQLiteType::Blob => quote! {
                     let json = serde_json::to_vec(&self)?;
-                    Ok(::drizzle::sqlite::values::SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
+                    Ok(SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
                 },
                 _ => return Err(syn::Error::new_spanned(
                     info.ident,
@@ -86,16 +85,53 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
             Ok(quote! {
                 // Core TryInto implementation for SQLiteValue (needed for all drivers)
-                impl<'a> ::std::convert::TryInto<::drizzle::sqlite::values::SQLiteValue<'a>> for #struct_name {
+                impl<'a> ::std::convert::TryInto<SQLiteValue<'a>> for #struct_name {
                     type Error = serde_json::Error;
 
-                    fn try_into(self) -> Result<::drizzle::sqlite::values::SQLiteValue<'a>, Self::Error> {
+                    fn try_into(self) -> Result<SQLiteValue<'a>, Self::Error> {
                         #core_conversion
                     }
                 }
             })
         }).collect::<Result<Vec<_>>>()?
     };
+
+    let to_sql_impl = json_type_storage.values().map(|(s, f)| {
+        let Type::Path(TypePath { path, qself: None }) = f.base_type else {
+            return quote! {};
+        };
+
+        let Some(struct_ident) = path.segments.last().map(|s| &s.ident) else {
+            return quote! {};
+        };
+        match s {
+            SQLiteType::Text => generate_to_sql(
+                struct_ident,
+                quote! {
+                    use std::borrow::Cow;
+                    serde_json::to_string(self)
+                        .map(SQLiteValue::from)
+                        .map(Cow::Owned)
+                        .map(SQL::param)
+                        .map(|sql| json(sql))
+                        .unwrap_or_else(|_| SQL::empty())
+                },
+            ),
+            SQLiteType::Blob => generate_to_sql(
+                struct_ident,
+                quote! {
+                    use std::borrow::Cow;
+                    serde_json::to_vec(self)
+                        .map(SQLiteValue::from)
+                        .map(Cow::Owned)
+                        .map(SQL::param)
+                        .map(|sql| jsonb(sql))
+                        .unwrap_or_else(|_| SQL::empty())
+                },
+            ),
+            _ => quote! {},
+        }
+    });
 
     // Generate rusqlite-specific implementations
     #[cfg(feature = "rusqlite")]
@@ -120,6 +156,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let json_types_impl = quote! {
         #(#core_impls)*
+        #(#to_sql_impl)*
         #(#rusqlite_impls)*
         #(#turso_json_impls)*
         #(#libsql_json_impls)*

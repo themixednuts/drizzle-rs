@@ -234,7 +234,7 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::sqlite::values::SQLiteValue<'a>> {
                     let mut columns = Vec::new();
                     #(#column_specs)*
-                    ::drizzle::core::SQL::join(columns, ", ")
+                    ::drizzle::core::SQL::join(columns, ::drizzle::core::Token::COMMA)
                 }
             }
 

@@ -79,15 +79,15 @@ pub(crate) fn generate_insert_model(
             // Use flexible parameter types for convenience methods
             let (param, assignment) = match type_string.as_str() {
                 s if s.contains("String") => (
-                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, ::std::string::String>> },
+                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },
                 ),
                 s if s.contains("Vec") && s.contains("u8") => (
-                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, ::std::vec::Vec<u8>>> },
+                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>> },
                     quote! { #field_name: #field_name.into() },
                 ),
                 _ => (
-                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, #base_type>> },
+                    quote! { #field_name: impl Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, #base_type>> },
                     quote! { #field_name: #field_name.into() },
                 ),
             };
@@ -152,7 +152,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, ::std::string::String>>
+                        V: Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::string::String>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -165,7 +165,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, ::std::vec::Vec<u8>>>
+                        V: Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -178,7 +178,7 @@ pub(crate) fn generate_insert_model(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, #base_type>>
+                        V: Into<::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -234,19 +234,19 @@ pub(crate) fn generate_insert_model(
         // Convenience methods for setting fields with pattern tracking
         #(#convenience_methods_with_pattern)*
 
-        impl<'a, T> ::drizzle::core::ToSQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #insert_model<'a, T> {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+        impl<'a, T> ToSQL<'a, PostgresValue<'a>> for #insert_model<'a, T> {
+            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 // For insert models, ToSQL delegates to the values() method
                 // which handles mixed placeholders and values correctly
-                ::drizzle::core::SQLModel::values(self)
+                SQLModel::values(self)
             }
         }
 
-        impl<'a, T> ::drizzle::core::SQLModel<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+        impl<'a, T> SQLModel<'a, PostgresValue<'a>> for #insert_model<'a, T> {
+            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
                 // For insert model, return only non-omitted columns to match values()
                 static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = ::drizzle::core::SQLTableInfo::columns(&TABLE);
+                let all_columns = SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
 
                 #(
@@ -264,7 +264,7 @@ pub(crate) fn generate_insert_model(
                 result_columns.into_boxed_slice()
             }
 
-            fn values(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+            fn values(&self) -> SQL<'a, PostgresValue<'a>> {
                 let mut sql_parts = Vec::new();
 
                 #(
@@ -273,7 +273,7 @@ pub(crate) fn generate_insert_model(
                             // Skip omitted fields
                         }
                         ::drizzle::postgres::values::InsertValue::Null => {
-                            sql_parts.push(::drizzle::core::SQL::parameter(::drizzle::postgres::values::PostgresValue::Null));
+                            sql_parts.push(SQL::param(PostgresValue::Null));
                         }
                         ::drizzle::postgres::values::InsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
@@ -281,7 +281,7 @@ pub(crate) fn generate_insert_model(
                     }
                 )*
 
-                ::drizzle::core::SQL::join(sql_parts, ", ")
+                SQL::join(sql_parts, Token::COMMA)
             }
         }
     })
@@ -300,8 +300,8 @@ fn get_field_type_for_model(field_info: &FieldInfo, model_type: ModelType) -> To
             } else {
                 base_type
             };
-            
-            quote!(::drizzle::postgres::values::InsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, #inner_type>)
+
+            quote!(::drizzle::postgres::values::InsertValue<'a, PostgresValue<'a>, #inner_type>)
         }
         _ => {
             // For other model types, use the base type or Option<T>
@@ -383,7 +383,7 @@ fn get_insert_field_conversion(field: &FieldInfo) -> TokenStream {
                     let default_val = self.#name.clone(); // This should never be Omit due to default logic
                     #value_conversion
                 },
-                ::drizzle::postgres::values::InsertValue::Null => ::drizzle::postgres::values::PostgresValue::Null,
+                ::drizzle::postgres::values::InsertValue::Null => PostgresValue::Null,
                 ::drizzle::postgres::values::InsertValue::Value(wrapper) => {
                     wrapper.value.clone()
                 }
@@ -395,9 +395,9 @@ fn get_insert_field_conversion(field: &FieldInfo) -> TokenStream {
             match &self.#name {
                 ::drizzle::postgres::values::InsertValue::Omit => {
                     // Field omitted - database handles default
-                    ::drizzle::postgres::values::PostgresValue::Null // This shouldn't be used if field is omitted
+                    PostgresValue::Null // This shouldn't be used if field is omitted
                 },
-                ::drizzle::postgres::values::InsertValue::Null => ::drizzle::postgres::values::PostgresValue::Null,
+                ::drizzle::postgres::values::InsertValue::Null => PostgresValue::Null,
                 ::drizzle::postgres::values::InsertValue::Value(wrapper) => {
                     wrapper.value.clone()
                 }
