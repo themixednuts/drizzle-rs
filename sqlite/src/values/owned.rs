@@ -259,181 +259,56 @@ impl<'a> From<OwnedSQLiteValue> for SQL<'a, OwnedSQLiteValue> {
 
 //------------------------------------------------------------------------------
 // From<T> implementations
+// Macro-based to reduce boilerplate
 //------------------------------------------------------------------------------
 
-// --- Integer Types ---
+/// Macro to implement From<integer> for OwnedSQLiteValue (converts to INTEGER)
+macro_rules! impl_from_int_for_owned_sqlite_value {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl From<$ty> for OwnedSQLiteValue {
+                #[inline]
+                fn from(value: $ty) -> Self {
+                    OwnedSQLiteValue::Integer(value as i64)
+                }
+            }
 
-// i8
-impl From<i8> for OwnedSQLiteValue {
-    fn from(value: i8) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
+            impl From<&$ty> for OwnedSQLiteValue {
+                #[inline]
+                fn from(value: &$ty) -> Self {
+                    OwnedSQLiteValue::Integer(*value as i64)
+                }
+            }
+        )*
+    };
 }
 
-impl From<&i8> for OwnedSQLiteValue {
-    fn from(value: &i8) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
+/// Macro to implement From<float> for OwnedSQLiteValue (converts to REAL)
+macro_rules! impl_from_float_for_owned_sqlite_value {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl From<$ty> for OwnedSQLiteValue {
+                #[inline]
+                fn from(value: $ty) -> Self {
+                    OwnedSQLiteValue::Real(value as f64)
+                }
+            }
+
+            impl From<&$ty> for OwnedSQLiteValue {
+                #[inline]
+                fn from(value: &$ty) -> Self {
+                    OwnedSQLiteValue::Real(*value as f64)
+                }
+            }
+        )*
+    };
 }
 
-// i16
-impl From<i16> for OwnedSQLiteValue {
-    fn from(value: i16) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
+// Integer types -> OwnedSQLiteValue::Integer
+impl_from_int_for_owned_sqlite_value!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, bool);
 
-impl From<&i16> for OwnedSQLiteValue {
-    fn from(value: &i16) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// i32
-impl From<i32> for OwnedSQLiteValue {
-    fn from(value: i32) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&i32> for OwnedSQLiteValue {
-    fn from(value: &i32) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// i64
-impl From<i64> for OwnedSQLiteValue {
-    fn from(value: i64) -> Self {
-        OwnedSQLiteValue::Integer(value)
-    }
-}
-
-impl From<&i64> for OwnedSQLiteValue {
-    fn from(value: &i64) -> Self {
-        OwnedSQLiteValue::Integer(*value)
-    }
-}
-
-// isize
-impl From<isize> for OwnedSQLiteValue {
-    fn from(value: isize) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&isize> for OwnedSQLiteValue {
-    fn from(value: &isize) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u8
-impl From<u8> for OwnedSQLiteValue {
-    fn from(value: u8) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&u8> for OwnedSQLiteValue {
-    fn from(value: &u8) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u16
-impl From<u16> for OwnedSQLiteValue {
-    fn from(value: u16) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&u16> for OwnedSQLiteValue {
-    fn from(value: &u16) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u32
-impl From<u32> for OwnedSQLiteValue {
-    fn from(value: u32) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&u32> for OwnedSQLiteValue {
-    fn from(value: &u32) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u64
-impl From<u64> for OwnedSQLiteValue {
-    fn from(value: u64) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&u64> for OwnedSQLiteValue {
-    fn from(value: &u64) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// usize
-impl From<usize> for OwnedSQLiteValue {
-    fn from(value: usize) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&usize> for OwnedSQLiteValue {
-    fn from(value: &usize) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
-
-// --- Floating Point Types ---
-
-// f32
-impl From<f32> for OwnedSQLiteValue {
-    fn from(value: f32) -> Self {
-        OwnedSQLiteValue::Real(value as f64)
-    }
-}
-
-impl From<&f32> for OwnedSQLiteValue {
-    fn from(value: &f32) -> Self {
-        OwnedSQLiteValue::Real(*value as f64)
-    }
-}
-
-// f64
-impl From<f64> for OwnedSQLiteValue {
-    fn from(value: f64) -> Self {
-        OwnedSQLiteValue::Real(value)
-    }
-}
-
-impl From<&f64> for OwnedSQLiteValue {
-    fn from(value: &f64) -> Self {
-        OwnedSQLiteValue::Real(*value)
-    }
-}
-
-// --- Boolean ---
-
-impl From<bool> for OwnedSQLiteValue {
-    fn from(value: bool) -> Self {
-        OwnedSQLiteValue::Integer(value as i64)
-    }
-}
-
-impl From<&bool> for OwnedSQLiteValue {
-    fn from(value: &bool) -> Self {
-        OwnedSQLiteValue::Integer(*value as i64)
-    }
-}
+// Float types -> OwnedSQLiteValue::Real
+impl_from_float_for_owned_sqlite_value!(f32, f64);
 
 // --- String Types ---
 

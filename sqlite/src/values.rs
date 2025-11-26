@@ -319,190 +319,56 @@ impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {
 
 //------------------------------------------------------------------------------
 // From<T> implementations
+// Macro-based to reduce boilerplate
 //------------------------------------------------------------------------------
 
-// --- Integer Types ---
+/// Macro to implement From<integer> for SQLiteValue (converts to INTEGER)
+macro_rules! impl_from_int_for_sqlite_value {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl<'a> From<$ty> for SQLiteValue<'a> {
+                #[inline]
+                fn from(value: $ty) -> Self {
+                    SQLiteValue::Integer(value as i64)
+                }
+            }
 
-// i8
-impl<'a> From<i8> for SQLiteValue<'a> {
-    fn from(value: i8) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
+            impl<'a> From<&$ty> for SQLiteValue<'a> {
+                #[inline]
+                fn from(value: &$ty) -> Self {
+                    SQLiteValue::Integer(*value as i64)
+                }
+            }
+        )*
+    };
 }
 
-impl<'a> From<&'a i8> for SQLiteValue<'a> {
-    fn from(value: &'a i8) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
+/// Macro to implement From<float> for SQLiteValue (converts to REAL)
+macro_rules! impl_from_float_for_sqlite_value {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl<'a> From<$ty> for SQLiteValue<'a> {
+                #[inline]
+                fn from(value: $ty) -> Self {
+                    SQLiteValue::Real(value as f64)
+                }
+            }
+
+            impl<'a> From<&$ty> for SQLiteValue<'a> {
+                #[inline]
+                fn from(value: &$ty) -> Self {
+                    SQLiteValue::Real(*value as f64)
+                }
+            }
+        )*
+    };
 }
 
-// i16
-impl<'a> From<i16> for SQLiteValue<'a> {
-    fn from(value: i16) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
+// Integer types -> SQLiteValue::Integer
+impl_from_int_for_sqlite_value!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, bool);
 
-impl<'a> From<&'a i16> for SQLiteValue<'a> {
-    fn from(value: &'a i16) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// i32
-impl<'a> From<i32> for SQLiteValue<'a> {
-    fn from(value: i32) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a i32> for SQLiteValue<'a> {
-    fn from(value: &'a i32) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// i64
-impl<'a> From<i64> for SQLiteValue<'a> {
-    fn from(value: i64) -> Self {
-        SQLiteValue::Integer(value)
-    }
-}
-
-impl<'a> From<&'a i64> for SQLiteValue<'a> {
-    fn from(value: &'a i64) -> Self {
-        SQLiteValue::Integer(*value)
-    }
-}
-
-// isize
-impl<'a> From<isize> for SQLiteValue<'a> {
-    fn from(value: isize) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a isize> for SQLiteValue<'a> {
-    fn from(value: &'a isize) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u8
-impl<'a> From<u8> for SQLiteValue<'a> {
-    fn from(value: u8) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a u8> for SQLiteValue<'a> {
-    fn from(value: &'a u8) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u16
-impl<'a> From<u16> for SQLiteValue<'a> {
-    fn from(value: u16) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a u16> for SQLiteValue<'a> {
-    fn from(value: &'a u16) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u32
-impl<'a> From<u32> for SQLiteValue<'a> {
-    fn from(value: u32) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a u32> for SQLiteValue<'a> {
-    fn from(value: &'a u32) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// u64
-impl<'a> From<u64> for SQLiteValue<'a> {
-    fn from(value: u64) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a u64> for SQLiteValue<'a> {
-    fn from(value: &'a u64) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// usize
-impl<'a> From<usize> for SQLiteValue<'a> {
-    fn from(value: usize) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a usize> for SQLiteValue<'a> {
-    fn from(value: &'a usize) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
-
-// impl<'a, T> From<T> for SQLiteValue<'a>
-// where
-//     T: SQLEnum<Type = SQLiteEnumRepr>,
-// {
-//     fn from(value: T) -> Self {
-//         todo!()
-//     }
-// }
-
-// --- Floating Point Types ---
-
-// f32
-impl<'a> From<f32> for SQLiteValue<'a> {
-    fn from(value: f32) -> Self {
-        SQLiteValue::Real(value as f64)
-    }
-}
-
-impl<'a> From<&'a f32> for SQLiteValue<'a> {
-    fn from(value: &'a f32) -> Self {
-        SQLiteValue::Real(*value as f64)
-    }
-}
-
-// f64
-impl<'a> From<f64> for SQLiteValue<'a> {
-    fn from(value: f64) -> Self {
-        SQLiteValue::Real(value)
-    }
-}
-
-impl<'a> From<&'a f64> for SQLiteValue<'a> {
-    fn from(value: &'a f64) -> Self {
-        SQLiteValue::Real(*value)
-    }
-}
-
-// --- Boolean ---
-
-impl<'a> From<bool> for SQLiteValue<'a> {
-    fn from(value: bool) -> Self {
-        SQLiteValue::Integer(value as i64)
-    }
-}
-
-impl<'a> From<&'a bool> for SQLiteValue<'a> {
-    fn from(value: &'a bool) -> Self {
-        SQLiteValue::Integer(*value as i64)
-    }
-}
+// Float types -> SQLiteValue::Real
+impl_from_float_for_sqlite_value!(f32, f64);
 
 // --- String Types ---
 
