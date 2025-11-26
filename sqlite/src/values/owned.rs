@@ -1,5 +1,7 @@
 //! Owned SQLite value type and implementations
 
+use crate::traits::FromSQLiteValue;
+use crate::SQLiteValue;
 use drizzle_core::{SQL, SQLParam, error::DrizzleError};
 
 #[cfg(feature = "rusqlite")]
@@ -10,8 +12,6 @@ use turso::IntoValue;
 use uuid::Uuid;
 
 use std::borrow::Cow;
-
-use crate::SQLiteValue;
 
 /// Represents a SQLite value (owned version)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -27,6 +27,33 @@ pub enum OwnedSQLiteValue {
     /// NULL value
     #[default]
     Null,
+}
+
+impl OwnedSQLiteValue {
+    /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
+    ///
+    /// This provides a unified conversion interface for all types that implement
+    /// `FromSQLiteValue`, including primitives and enum types.
+    pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
+        match self {
+            OwnedSQLiteValue::Integer(i) => T::from_sqlite_integer(i),
+            OwnedSQLiteValue::Text(s) => T::from_sqlite_text(&s),
+            OwnedSQLiteValue::Real(r) => T::from_sqlite_real(r),
+            OwnedSQLiteValue::Blob(b) => T::from_sqlite_blob(&b),
+            OwnedSQLiteValue::Null => T::from_sqlite_null(),
+        }
+    }
+
+    /// Convert a reference to this SQLite value to a Rust type.
+    pub fn convert_ref<T: FromSQLiteValue>(&self) -> Result<T, DrizzleError> {
+        match self {
+            OwnedSQLiteValue::Integer(i) => T::from_sqlite_integer(*i),
+            OwnedSQLiteValue::Text(s) => T::from_sqlite_text(s),
+            OwnedSQLiteValue::Real(r) => T::from_sqlite_real(*r),
+            OwnedSQLiteValue::Blob(b) => T::from_sqlite_blob(b),
+            OwnedSQLiteValue::Null => T::from_sqlite_null(),
+        }
+    }
 }
 
 impl<'a> From<SQLiteValue<'a>> for OwnedSQLiteValue {

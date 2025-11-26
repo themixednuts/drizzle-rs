@@ -287,6 +287,30 @@ impl<T: FromSQLiteValue> FromSQLiteValue for Option<T> {
 // Driver-specific DrizzleRow implementations
 // =============================================================================
 
+#[cfg(feature = "rusqlite")]
+impl DrizzleRow for rusqlite::Row<'_> {
+    fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError> {
+        let value_ref = self.get_ref(idx)?;
+        match value_ref {
+            rusqlite::types::ValueRef::Integer(i) => T::from_sqlite_integer(i),
+            rusqlite::types::ValueRef::Text(s) => {
+                let s = std::str::from_utf8(s).map_err(|e| {
+                    DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into())
+                })?;
+                T::from_sqlite_text(s)
+            }
+            rusqlite::types::ValueRef::Real(r) => T::from_sqlite_real(r),
+            rusqlite::types::ValueRef::Blob(b) => T::from_sqlite_blob(b),
+            rusqlite::types::ValueRef::Null => T::from_sqlite_null(),
+        }
+    }
+
+    fn get_column_by_name<T: FromSQLiteValue>(&self, name: &str) -> Result<T, DrizzleError> {
+        let idx = self.as_ref().column_index(name)?;
+        self.get_column(idx)
+    }
+}
+
 #[cfg(feature = "libsql")]
 impl DrizzleRow for libsql::Row {
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError> {

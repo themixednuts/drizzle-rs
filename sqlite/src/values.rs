@@ -1,5 +1,6 @@
 //! SQLite value conversion traits and types
 
+use crate::traits::FromSQLiteValue;
 use drizzle_core::{SQL, ToSQL, error::DrizzleError};
 
 mod insert;
@@ -34,6 +35,39 @@ pub enum SQLiteValue<'a> {
     /// NULL value
     #[default]
     Null,
+}
+
+impl<'a> SQLiteValue<'a> {
+    /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
+    ///
+    /// This provides a unified conversion interface for all types that implement
+    /// `FromSQLiteValue`, including primitives and enum types.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let value = SQLiteValue::Integer(42);
+    /// let num: i64 = value.convert()?;
+    /// ```
+    pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
+        match self {
+            SQLiteValue::Integer(i) => T::from_sqlite_integer(i),
+            SQLiteValue::Text(s) => T::from_sqlite_text(&s),
+            SQLiteValue::Real(r) => T::from_sqlite_real(r),
+            SQLiteValue::Blob(b) => T::from_sqlite_blob(&b),
+            SQLiteValue::Null => T::from_sqlite_null(),
+        }
+    }
+
+    /// Convert a reference to this SQLite value to a Rust type.
+    pub fn convert_ref<T: FromSQLiteValue>(&self) -> Result<T, DrizzleError> {
+        match self {
+            SQLiteValue::Integer(i) => T::from_sqlite_integer(*i),
+            SQLiteValue::Text(s) => T::from_sqlite_text(s),
+            SQLiteValue::Real(r) => T::from_sqlite_real(*r),
+            SQLiteValue::Blob(b) => T::from_sqlite_blob(b),
+            SQLiteValue::Null => T::from_sqlite_null(),
+        }
+    }
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for SQLiteValue<'a> {
