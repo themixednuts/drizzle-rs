@@ -214,7 +214,7 @@ fn handle_try_from_field(
     let idx_usize = idx as usize;
     let accessor = quote! {
         {
-            use ::drizzle::sqlite::traits::DrizzleRow;
+            use ::drizzle_sqlite::traits::DrizzleRow;
             <_ as DrizzleRow>::get_column::<#field_type>(row, #idx_usize)
         }
     };

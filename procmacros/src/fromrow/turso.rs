@@ -143,7 +143,7 @@ fn wrap_optional(inner: TokenStream, name: Option<&syn::Ident>, is_optional: boo
             let error_msg = format!("Error converting required field `{}`", field_name);
             quote! {
                 #field_name: #inner
-                    .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
+                    .ok_or_else(|| ::drizzle_core::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
             }
         }
     } else {
@@ -155,7 +155,7 @@ fn wrap_optional(inner: TokenStream, name: Option<&syn::Ident>, is_optional: boo
         } else {
             quote! {
                 #inner
-                    .ok_or_else(|| ::drizzle::error::DrizzleError::ConversionError("Error converting tuple field".to_string().into()))?,
+                    .ok_or_else(|| ::drizzle_core::error::DrizzleError::ConversionError("Error converting tuple field".to_string().into()))?,
             }
         }
     }
@@ -213,7 +213,7 @@ fn handle_try_from_field(
     // The trait implementation handles Option types automatically
     let accessor = quote! {
         {
-            use ::drizzle::sqlite::traits::DrizzleRow;
+            use ::drizzle_sqlite::traits::DrizzleRow;
             <_ as DrizzleRow>::get_column::<#field_type>(row, #idx)
         }
     };

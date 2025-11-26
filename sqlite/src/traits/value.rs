@@ -77,7 +77,9 @@ impl FromSQLiteValue for i64 {
 impl FromSQLiteValue for i32 {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
         value.try_into().map_err(|e| {
-            DrizzleError::ConversionError(format!("i64 {} out of range for i32: {}", value, e).into())
+            DrizzleError::ConversionError(
+                format!("i64 {} out of range for i32: {}", value, e).into(),
+            )
         })
     }
 
@@ -101,7 +103,9 @@ impl FromSQLiteValue for i32 {
 impl FromSQLiteValue for i16 {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
         value.try_into().map_err(|e| {
-            DrizzleError::ConversionError(format!("i64 {} out of range for i16: {}", value, e).into())
+            DrizzleError::ConversionError(
+                format!("i64 {} out of range for i16: {}", value, e).into(),
+            )
         })
     }
 
@@ -125,7 +129,9 @@ impl FromSQLiteValue for i16 {
 impl FromSQLiteValue for i8 {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
         value.try_into().map_err(|e| {
-            DrizzleError::ConversionError(format!("i64 {} out of range for i8: {}", value, e).into())
+            DrizzleError::ConversionError(
+                format!("i64 {} out of range for i8: {}", value, e).into(),
+            )
         })
     }
 
@@ -355,9 +361,7 @@ impl FromSQLiteValue for uuid::Uuid {
     }
 
     fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
-        uuid::Uuid::from_slice(value).map_err(|e| {
-            DrizzleError::ConversionError(format!("invalid UUID bytes: {}", e).into())
-        })
+        uuid::Uuid::from_slice(value)
+            .map_err(|e| DrizzleError::ConversionError(format!("invalid UUID bytes: {}", e).into()))
     }
 }
-
