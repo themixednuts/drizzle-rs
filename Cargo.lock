@@ -1277,7 +1277,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "drizzle"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "divan",
  "drizzle",
@@ -1303,7 +1303,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "compact_str",
  "hashbrown 0.16.1",
@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-mysql"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "drizzle-core",
  "serde",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-postgres"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bitvec",
  "chrono",
@@ -1366,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-sqlite"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "compact_str",
  "drizzle-core",
