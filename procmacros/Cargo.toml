@@ -1,6 +1,6 @@
 [package]
 name = "drizzle-macros"
-version = "0.1.2"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
