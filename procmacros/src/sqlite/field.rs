@@ -662,6 +662,130 @@ impl<'a> FieldInfo<'a> {
         let insert_value_type = self.sqlite_insert_value_type();
         quote!(impl Into<#insert_value_type>)
     }
+
+    // =========================================================================
+    // Schema Metadata Methods - For drizzle-kit compatible migrations
+    // =========================================================================
+
+    /// Convert default value expression to a JSON-compatible value
+    fn default_to_json_value(&self) -> Option<serde_json::Value> {
+        let Expr::Lit(expr_lit) = self.default_value.as_ref()? else {
+            return None;
+        };
+
+        Some(match &expr_lit.lit {
+            Lit::Int(i) => serde_json::Value::Number(
+                i.base10_digits()
+                    .parse::<i64>()
+                    .ok()
+                    .map(serde_json::Number::from)?,
+            ),
+            Lit::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(
+                f.base10_digits().parse::<f64>().ok()?,
+            )?),
+            Lit::Bool(b) => serde_json::Value::Bool(b.value()),
+            Lit::Str(s) => serde_json::Value::String(s.value()),
+            _ => return None,
+        })
+    }
+
+    /// Convert this field to a drizzle-schema Column type.
+    ///
+    /// Uses the actual schema types for type-safe construction,
+    /// ensuring consistency with drizzle-kit format.
+    pub(crate) fn to_column_meta(&self) -> drizzle_schema::sqlite::Column {
+        let mut col = drizzle_schema::sqlite::Column::new(
+            &self.column_name,
+            &self.column_type.to_sql_type().to_lowercase(),
+        );
+
+        if self.is_primary {
+            col = col.primary_key();
+        }
+        if !self.is_nullable {
+            col = col.not_null();
+        }
+        if self.is_autoincrement {
+            col = col.autoincrement();
+        }
+        if let Some(default) = self.default_to_json_value() {
+            col = col.default_value(default);
+        }
+
+        col
+    }
+
+    /// Convert this field to a drizzle-schema ForeignKey if it has a reference.
+    pub(crate) fn to_foreign_key_meta(
+        &self,
+        table_name: &str,
+    ) -> Option<drizzle_schema::sqlite::ForeignKey> {
+        let fk_ref = self.foreign_key.as_ref()?;
+
+        let table_to = fk_ref.table_ident.to_string();
+        let column_to = fk_ref.column_ident.to_string();
+        let fk_name = format!(
+            "{}_{}_{}_{}_fk",
+            table_name, self.column_name, table_to, column_to
+        );
+
+        Some(drizzle_schema::sqlite::ForeignKey {
+            name: fk_name,
+            table_from: table_name.to_string(),
+            columns_from: vec![self.column_name.clone()],
+            table_to,
+            columns_to: vec![column_to],
+            on_update: Some("no action".to_string()),
+            on_delete: Some("no action".to_string()),
+        })
+    }
+}
+
+// =============================================================================
+// Table Metadata Generation - Uses drizzle-schema types
+// =============================================================================
+
+/// Generate the complete table metadata JSON for use in drizzle-kit compatible migrations.
+///
+/// Uses the actual drizzle-schema types for type-safe construction and serde serialization.
+pub(crate) fn generate_table_meta_json(
+    table_name: &str,
+    field_infos: &[FieldInfo],
+    is_composite_pk: bool,
+) -> String {
+    let mut table = drizzle_schema::sqlite::Table::new(table_name);
+
+    // Add columns
+    for field in field_infos {
+        table.add_column(field.to_column_meta());
+    }
+
+    // Add foreign keys
+    for field in field_infos {
+        if let Some(fk) = field.to_foreign_key_meta(table_name) {
+            table.add_foreign_key(fk);
+        }
+    }
+
+    // Add composite primary key if applicable
+    if is_composite_pk {
+        let pk_columns: Vec<String> = field_infos
+            .iter()
+            .filter(|f| f.is_primary)
+            .map(|f| f.column_name.clone())
+            .collect();
+
+        if pk_columns.len() > 1 {
+            let pk_name = format!("{}_pk", table_name);
+            let pk = drizzle_schema::sqlite::CompositePK {
+                name: Some(pk_name.clone()),
+                columns: pk_columns,
+            };
+            table.composite_primary_keys.insert(pk_name, pk);
+        }
+    }
+
+    serde_json::to_string(&table).unwrap_or_else(|_| "{}".to_string())
 }
 
 /// Check if a type is an Option<T>

@@ -100,4 +100,3 @@ pub(crate) fn generate_enum_impls_for_field(info: &FieldInfo) -> Result<TokenStr
         #libsql_impl
     })
 }
-

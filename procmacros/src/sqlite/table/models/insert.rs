@@ -190,7 +190,9 @@ fn generate_marker_types(ctx: &MacroContext) -> Vec<TokenStream> {
 }
 
 /// Generate constructor parameter and assignment based on field type category.
-fn generate_constructor_param(info: &crate::sqlite::field::FieldInfo) -> (TokenStream, TokenStream) {
+fn generate_constructor_param(
+    info: &crate::sqlite::field::FieldInfo,
+) -> (TokenStream, TokenStream) {
     let field_name = info.ident;
     let base_type = info.base_type;
     let category = info.type_category();
@@ -252,7 +254,10 @@ fn generate_constructor_param(info: &crate::sqlite::field::FieldInfo) -> (TokenS
             quote! { #field_name: #field_name.into() },
         ),
         // ArrayString, ArrayVec, Enum, Primitive use base type directly
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Enum | TypeCategory::Primitive => (
+        TypeCategory::ArrayString
+        | TypeCategory::ArrayVec
+        | TypeCategory::Enum
+        | TypeCategory::Primitive => (
             quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),

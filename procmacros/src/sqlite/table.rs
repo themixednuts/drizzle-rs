@@ -20,7 +20,7 @@ pub mod turso;
 #[cfg(feature = "libsql")]
 pub mod libsql;
 
-use super::field::FieldInfo;
+use super::field::{FieldInfo, generate_table_meta_json};
 use alias::generate_aliased_table;
 pub use attributes::TableAttributes;
 use column_definitions::{
@@ -114,6 +114,9 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         })
         .collect();
 
+    // Generate table metadata JSON for drizzle-kit compatible migrations
+    let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
+
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
@@ -128,6 +131,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         without_rowid: attrs.without_rowid,
         strict: attrs.strict,
         has_foreign_keys,
+        is_composite_pk,
     };
 
     // -------------------
@@ -170,6 +174,14 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
+        }
+
+        impl #struct_ident {
+            /// Table metadata in drizzle-kit compatible JSON format.
+            ///
+            /// This constant contains the schema metadata for migrations,
+            /// matching the format used by drizzle-kit snapshots.
+            pub const __DRIZZLE_TABLE_META: &'static str = #table_meta_json;
         }
 
         #column_accessors

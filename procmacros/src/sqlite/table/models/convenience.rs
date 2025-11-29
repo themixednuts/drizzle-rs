@@ -89,18 +89,16 @@ fn generate_insert_convenience_method(
     let category = field.type_category();
 
     match category {
-        TypeCategory::Json => {
-            generate_json_insert_method(
-                field,
-                ctx,
-                field_index,
-                &method_name,
-                base_type,
-                insert_model,
-                &generic_params,
-                &return_pattern_generics,
-            )
-        }
+        TypeCategory::Json => generate_json_insert_method(
+            field,
+            ctx,
+            field_index,
+            &method_name,
+            base_type,
+            insert_model,
+            &generic_params,
+            &return_pattern_generics,
+        ),
         TypeCategory::Uuid => {
             let insert_value_type = field.insert_value_inner_type();
             quote! {
@@ -117,7 +115,10 @@ fn generate_insert_convenience_method(
                 }
             }
         }
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Primitive | TypeCategory::Enum => {
+        TypeCategory::ArrayString
+        | TypeCategory::ArrayVec
+        | TypeCategory::Primitive
+        | TypeCategory::Enum => {
             // These use the base type directly
             quote! {
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
@@ -265,7 +266,11 @@ fn generate_update_convenience_method(
                 }
             }
         }
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Primitive | TypeCategory::Enum | TypeCategory::Json => {
+        TypeCategory::ArrayString
+        | TypeCategory::ArrayVec
+        | TypeCategory::Primitive
+        | TypeCategory::Enum
+        | TypeCategory::Json => {
             // These use the base type directly
             quote! {
                 pub fn #method_name(mut self, value: #base_type) -> Self {
