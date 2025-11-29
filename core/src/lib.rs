@@ -65,3 +65,30 @@ pub use query::*;
 pub use schema::OrderBy;
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
 pub use traits::*;
+
+// =============================================================================
+// Helper Macros - Used by proc macros for code generation
+// =============================================================================
+
+/// Generates TryFrom implementations for multiple integer types that delegate to i64.
+///
+/// Used by the SQLiteEnum derive macro to avoid repetitive code.
+///
+/// # Example
+/// ```ignore
+/// impl_try_from_int!(MyEnum => isize, usize, i32, u32, i16, u16, i8, u8);
+/// ```
+#[macro_export]
+macro_rules! impl_try_from_int {
+    ($name:ty => $($int_type:ty),+ $(,)?) => {
+        $(
+            impl TryFrom<$int_type> for $name {
+                type Error = $crate::error::DrizzleError;
+
+                fn try_from(value: $int_type) -> ::core::result::Result<Self, Self::Error> {
+                    Self::try_from(value as i64)
+                }
+            }
+        )+
+    };
+}

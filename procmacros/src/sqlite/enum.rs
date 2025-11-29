@@ -211,71 +211,9 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                 }
             }
         }
-        // Generic implementation for integer types that aren't explicitly covered
-        impl TryFrom<isize> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: isize) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        impl TryFrom<usize> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        // Generic implementation for integer types that aren't explicitly covered
-        impl TryFrom<i32> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: i32) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        impl TryFrom<u32> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: u32) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        impl TryFrom<i16> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: i16) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        impl TryFrom<u16> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: u16) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        impl TryFrom<i8> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: i8) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
-
-        impl TryFrom<u8> for #name {
-            type Error = DrizzleError;
-
-            fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
-                Self::try_from(value as i64)
-            }
-        }
+        // Integer type conversions - all delegate to i64 conversion
+        // Using macro-generated implementations for cleaner code
+        ::drizzle_core::impl_try_from_int!(#name => isize, usize, i32, u32, i16, u16, i8, u8);
 
         // Implement Display for the enum
         impl std::fmt::Display for #name {
