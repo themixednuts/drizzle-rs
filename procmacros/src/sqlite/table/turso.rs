@@ -133,10 +133,7 @@ fn generate_field_conversion(
 
 /// Generate turso JSON implementations (IntoValue)
 pub(crate) fn generate_json_impls(
-    json_type_storage: &std::collections::HashMap<
-        String,
-        (SQLiteType, &FieldInfo),
-    >,
+    json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
 ) -> Result<Vec<TokenStream>> {
     if json_type_storage.is_empty() {
         return Ok(vec![]);
