@@ -20,8 +20,8 @@ rand = { workspace = true }
 heck = { version = "0.5" }
 proc-macro-crate = "3.4"
 paste = { workspace = true }
-# Schema types for migration metadata generation
-drizzle-schema = { path = "../schema" }
+# Migration types for metadata generation
+drizzle-migrations = { path = "../migrations" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

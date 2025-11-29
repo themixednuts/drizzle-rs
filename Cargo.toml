@@ -11,7 +11,7 @@ rust-version.workspace = true
 
 [workspace]
 resolver = "3"
-members = ["procmacros", "core", "sqlite", "postgres", "mysql", "schema"]
+members = ["procmacros", "core", "sqlite", "postgres", "mysql", "migrations"]
 
 [workspace.package]
 version = "0.1.3"
@@ -30,7 +30,7 @@ drizzle-macros = { path = "./procmacros", version = "0.1" }
 drizzle-mysql = { path = "./mysql", version = "0.1" }
 drizzle-postgres = { path = "./postgres", version = "0.1" }
 drizzle-sqlite = { path = "./sqlite", version = "0.1" }
-drizzle-schema = { path = "./schema", version = "0.1" }
+drizzle-migrations = { path = "./migrations", version = "0.1" }
 
 anyhow = "1.0"
 compact_str = { version = "0.9.0", default-features = false }
@@ -188,7 +188,7 @@ mysql = ["drizzle-macros/mysql", "dep:drizzle-mysql"]
 [dependencies]
 drizzle-core = { workspace = true }
 drizzle-macros = { workspace = true }
-drizzle-schema = { workspace = true }
+drizzle-migrations = { workspace = true }
 paste = { workspace = true }
 
 # Optional dependencies activated by features

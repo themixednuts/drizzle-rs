@@ -312,7 +312,7 @@ impl<Schema> Drizzle<Schema> {
         &self,
         migrations_dir: &std::path::Path,
     ) -> drizzle_core::error::Result<usize> {
-        use drizzle_schema::migrator::load_migrations_from_dir;
+        use drizzle_migrations::migrator::load_migrations_from_dir;
 
         // Load migrations
         let migrations = load_migrations_from_dir(migrations_dir)
@@ -379,7 +379,7 @@ impl<Schema> Drizzle<Schema> {
         &self,
         config_path: &std::path::Path,
     ) -> drizzle_core::error::Result<usize> {
-        use drizzle_schema::Migrator;
+        use drizzle_migrations::Migrator;
 
         let migrator = Migrator::from_config_file(config_path)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;

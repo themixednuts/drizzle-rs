@@ -693,8 +693,8 @@ impl<'a> FieldInfo<'a> {
     ///
     /// Uses the actual schema types for type-safe construction,
     /// ensuring consistency with drizzle-kit format.
-    pub(crate) fn to_column_meta(&self) -> drizzle_schema::sqlite::Column {
-        let mut col = drizzle_schema::sqlite::Column::new(
+    pub(crate) fn to_column_meta(&self) -> drizzle_migrations::sqlite::Column {
+        let mut col = drizzle_migrations::sqlite::Column::new(
             &self.column_name,
             &self.column_type.to_sql_type().to_lowercase(),
         );
@@ -719,7 +719,7 @@ impl<'a> FieldInfo<'a> {
     pub(crate) fn to_foreign_key_meta(
         &self,
         table_name: &str,
-    ) -> Option<drizzle_schema::sqlite::ForeignKey> {
+    ) -> Option<drizzle_migrations::sqlite::ForeignKey> {
         let fk_ref = self.foreign_key.as_ref()?;
 
         let table_to = fk_ref.table_ident.to_string();
@@ -729,7 +729,7 @@ impl<'a> FieldInfo<'a> {
             table_name, self.column_name, table_to, column_to
         );
 
-        Some(drizzle_schema::sqlite::ForeignKey {
+        Some(drizzle_migrations::sqlite::ForeignKey {
             name: fk_name,
             table_from: table_name.to_string(),
             columns_from: vec![self.column_name.clone()],
@@ -753,7 +753,7 @@ pub(crate) fn generate_table_meta_json(
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
 ) -> String {
-    let mut table = drizzle_schema::sqlite::Table::new(table_name);
+    let mut table = drizzle_migrations::sqlite::Table::new(table_name);
 
     // Add columns
     for field in field_infos {
@@ -777,7 +777,7 @@ pub(crate) fn generate_table_meta_json(
 
         if pk_columns.len() > 1 {
             let pk_name = format!("{}_pk", table_name);
-            let pk = drizzle_schema::sqlite::CompositePK {
+            let pk = drizzle_migrations::sqlite::CompositePK {
                 name: Some(pk_name.clone()),
                 columns: pk_columns,
             };

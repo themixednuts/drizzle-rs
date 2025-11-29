@@ -1,9 +1,9 @@
 [package]
-name = "drizzle-schema"
+name = "drizzle-migrations"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Schema metadata and migration types for drizzle-rs"
+description = "Migration infrastructure for drizzle-rs"
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
