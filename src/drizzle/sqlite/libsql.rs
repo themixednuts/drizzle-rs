@@ -302,58 +302,51 @@ where
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Run migrations from the specified directory.
+    /// Run embedded migrations.
     ///
-    /// This method:
-    /// 1. Creates a migrations tracking table if it doesn't exist
-    /// 2. Loads all migrations from the directory
-    /// 3. Applies any pending migrations in order
+    /// This method applies compile-time embedded migrations to the database.
+    /// Migrations are embedded using the `include_migrations!` macro.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use drizzle::prelude::*;
+    /// use drizzle::libsql::Drizzle;
+    ///
+    /// // Embed migrations at compile time
+    /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
+    ///
+    /// async fn run() -> Result<()> {
+    ///     let db_builder = libsql::Builder::new_local(":memory:").build().await?;
+    ///     let conn = db_builder.connect()?;
+    ///     let (db, _) = Drizzle::new(conn, ());
+    ///
+    ///     // Apply embedded migrations
+    ///     let applied = db.migrate(&MIGRATIONS).await?;
+    ///     println!("Applied {} migrations", applied);
+    ///     Ok(())
+    /// }
+    /// ```
     pub async fn migrate(
         &self,
-        migrations_dir: &std::path::Path,
+        migrations: &drizzle_migrations::EmbeddedMigrations,
     ) -> drizzle_core::error::Result<usize> {
-        use drizzle_migrations::migrator::load_migrations_from_dir;
-
-        // Load migrations
-        let migrations = load_migrations_from_dir(migrations_dir)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
         if migrations.is_empty() {
             return Ok(0);
         }
 
         // Create migrations table
-        self.conn
-            .execute(
-                r#"CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                hash TEXT NOT NULL,
-                created_at INTEGER NOT NULL DEFAULT (unixepoch())
-            );"#,
-                (),
-            )
-            .await?;
+        self.conn.execute(migrations.create_table_sql(), ()).await?;
 
         // Get applied migrations
-        let mut rows = self
-            .conn
-            .query(
-                r#"SELECT hash FROM "__drizzle_migrations" ORDER BY id;"#,
-                (),
-            )
-            .await?;
-
+        let mut rows = self.conn.query(migrations.query_applied_sql(), ()).await?;
         let mut applied: Vec<String> = Vec::new();
         while let Some(row) = rows.next().await? {
             applied.push(row.get::<String>(0)?);
         }
 
-        // Apply pending migrations
-        let pending: Vec<_> = migrations
-            .iter()
-            .filter(|m| !applied.contains(&m.tag))
-            .collect();
-
+        // Get pending migrations
+        let pending = migrations.pending(&applied);
         let count = pending.len();
 
         for migration in pending {
@@ -364,49 +357,7 @@ impl<Schema> Drizzle<Schema> {
 
             // Record as applied
             self.conn
-                .execute(
-                    r#"INSERT INTO "__drizzle_migrations" (hash) VALUES (?1);"#,
-                    [migration.tag.as_str()],
-                )
-                .await?;
-        }
-
-        Ok(count)
-    }
-
-    /// Run migrations using a drizzle.toml config file.
-    pub async fn migrate_with_config(
-        &self,
-        config_path: &std::path::Path,
-    ) -> drizzle_core::error::Result<usize> {
-        use drizzle_migrations::Migrator;
-
-        let migrator = Migrator::from_config_file(config_path)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
-        // Create migrations table
-        self.conn
-            .execute(&migrator.create_migrations_table_sql(), ())
-            .await?;
-
-        // Get applied migrations
-        let mut rows = self.conn.query(&migrator.query_applied_sql(), ()).await?;
-        let mut applied: Vec<String> = Vec::new();
-        while let Some(row) = rows.next().await? {
-            applied.push(row.get::<String>(0)?);
-        }
-
-        // Apply pending migrations
-        let pending = migrator.pending_migrations(&applied);
-        let count = pending.len();
-
-        for migration in pending {
-            for stmt in migration.statements() {
-                self.conn.execute(stmt, ()).await?;
-            }
-
-            self.conn
-                .execute(&migrator.record_migration_sql(&migration.tag), ())
+                .execute(migrations.record_migration_sql(), [migration.tag])
                 .await?;
         }
 

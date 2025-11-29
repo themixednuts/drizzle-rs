@@ -23,6 +23,8 @@ paste = { workspace = true }
 # Migration types for metadata generation
 drizzle-migrations = { path = "../migrations" }
 serde_json = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
 
 [dev-dependencies]
 drizzle = { workspace = true, features = [

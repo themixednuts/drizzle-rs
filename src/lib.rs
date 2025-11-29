@@ -74,6 +74,10 @@ pub(crate) use transaction_builder_join_impl;
 pub use drizzle_core::error::Result;
 pub use drizzle_macros::sql;
 
+// Migration types and macro
+pub use drizzle_macros::include_migrations;
+pub use drizzle_migrations::{Dialect, EmbeddedMigration, EmbeddedMigrations};
+
 #[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 #[cfg_attr(
     docsrs,
