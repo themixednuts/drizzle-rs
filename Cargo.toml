@@ -59,6 +59,7 @@ tokio = { version = "1.48" }
 turso = { version = "0.3", default-features = false }
 uuid = { version = "1.18", features = ["v4"] }
 puffin = { version = "0.19" }
+arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
 
 # Add dev-dependencies for tests
 [dev-dependencies]
@@ -155,6 +156,13 @@ rust_decimal = ["drizzle-postgres?/rust_decimal", "drizzle-macros/rust_decimal"]
 ipnet = ["drizzle-postgres?/ipnet", "drizzle-macros/ipnet"]
 geo-types = ["drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
 bitvec = ["drizzle-postgres?/bitvec", "drizzle-macros/bitvec"]
+arrayvec = [
+  "dep:arrayvec",
+  "drizzle-postgres?/arrayvec",
+  "drizzle-sqlite?/arrayvec",
+  "drizzle-macros/arrayvec",
+  "drizzle-core/arrayvec",
+]
 
 # Profiling feature
 profiling = [
@@ -184,6 +192,7 @@ paste = { workspace = true }
 drizzle-sqlite = { workspace = true, optional = true }
 drizzle-postgres = { workspace = true, optional = true }
 drizzle-mysql = { workspace = true, optional = true }
+arrayvec = { workspace = true, optional = true }
 
 libsql = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }

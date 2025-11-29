@@ -360,6 +360,20 @@ impl From<&Uuid> for OwnedSQLiteValue {
     }
 }
 
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> From<arrayvec::ArrayString<N>> for OwnedSQLiteValue {
+    fn from(value: arrayvec::ArrayString<N>) -> Self {
+        OwnedSQLiteValue::Text(value.to_string())
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for OwnedSQLiteValue {
+    fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
+        OwnedSQLiteValue::Blob(value.to_vec().into_boxed_slice())
+    }
+}
+
 // --- Option Types ---
 impl<T> From<Option<T>> for OwnedSQLiteValue
 where
@@ -428,6 +442,52 @@ impl_try_from_owned_sqlite_value!(
 #[cfg(feature = "uuid")]
 impl_try_from_owned_sqlite_value!(Uuid);
 
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> TryFrom<OwnedSQLiteValue> for arrayvec::ArrayString<N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedSQLiteValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedSQLiteValue::Text(s) => {
+                arrayvec::ArrayString::from(&s).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!("Text length {} exceeds ArrayString capacity {}", s.len(), N)
+                            .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayString", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> TryFrom<OwnedSQLiteValue> for arrayvec::ArrayVec<u8, N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedSQLiteValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedSQLiteValue::Blob(bytes) => {
+                arrayvec::ArrayVec::try_from(bytes.as_ref()).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!(
+                            "Blob length {} exceeds ArrayVec capacity {}",
+                            bytes.len(),
+                            N
+                        )
+                        .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
+            )),
+        }
+    }
+}
+
 //------------------------------------------------------------------------------
 // TryFrom<&OwnedSQLiteValue> implementations for borrowing without consuming
 // Uses the FromSQLiteValue trait via convert_ref() for unified conversion logic
@@ -469,6 +529,52 @@ impl_try_from_owned_sqlite_value_ref!(
 
 #[cfg(feature = "uuid")]
 impl_try_from_owned_sqlite_value_ref!(Uuid);
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> TryFrom<&OwnedSQLiteValue> for arrayvec::ArrayString<N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: &OwnedSQLiteValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedSQLiteValue::Text(s) => {
+                arrayvec::ArrayString::from(s.as_str()).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!("Text length {} exceeds ArrayString capacity {}", s.len(), N)
+                            .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayString", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> TryFrom<&OwnedSQLiteValue> for arrayvec::ArrayVec<u8, N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: &OwnedSQLiteValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedSQLiteValue::Blob(bytes) => {
+                arrayvec::ArrayVec::try_from(bytes.as_ref()).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!(
+                            "Blob length {} exceeds ArrayVec capacity {}",
+                            bytes.len(),
+                            N
+                        )
+                        .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
+            )),
+        }
+    }
+}
 
 // --- Borrowed reference types (cannot use FromSQLiteValue) ---
 

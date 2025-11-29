@@ -133,6 +133,11 @@ pub(crate) fn generate_insert_model(
                         quote! { #field_name: #field_name.into() },
                     )
                 }
+                // ArrayString and ArrayVec must be checked BEFORE String/Vec to avoid false matches
+                (_, _, s) if s.contains("ArrayString") || s.contains("ArrayVec") => (
+                    quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #base_type>> },
+                    quote! { #field_name: #field_name.into() },
+                ),
                 (_, _, s) if s.contains("String") => (
                     quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, ::std::string::String>> },
                     quote! { #field_name: #field_name.into() },

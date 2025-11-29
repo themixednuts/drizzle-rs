@@ -76,7 +76,7 @@ impl<'a> MacroContext<'a> {
                     };
                     quote!(::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_type>)
                 } else {
-                    // All other insert fields use InsertValue for three-state handling with owned data
+                    // All other insert fields use InsertValue with the actual type (e.g., ArrayString, ArrayVec, etc.)
                     quote!(::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #base_type>)
                 }
             }

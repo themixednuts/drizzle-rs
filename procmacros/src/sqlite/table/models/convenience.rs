@@ -165,6 +165,20 @@ pub(crate) fn generate_convenience_method(
                         }
                     }
                 }
+                // ArrayString and ArrayVec must be checked BEFORE String/Vec to avoid false matches
+                (_, _, s) if s.contains("ArrayString") || s.contains("ArrayVec") => quote! {
+                    impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
+                        pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
+                        where
+                            V: Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #base_type>>
+                        {
+                            #insert_model {
+                                #(#field_assignments,)*
+                                _pattern: ::std::marker::PhantomData,
+                            }
+                        }
+                    }
+                },
                 (_, _, s) if s.contains("String") => quote! {
                     impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                         pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
@@ -213,6 +227,13 @@ pub(crate) fn generate_convenience_method(
                 (true, _) => quote! {
                     pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
                         let value = value.into();
+                        #assignment
+                        self
+                    }
+                },
+                // ArrayString and ArrayVec must be checked BEFORE String/Vec to avoid false matches
+                (_, s) if s.contains("ArrayString") || s.contains("ArrayVec") => quote! {
+                    pub fn #method_name(mut self, value: #base_type) -> Self {
                         #assignment
                         self
                     }

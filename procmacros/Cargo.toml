@@ -45,6 +45,7 @@ sqlite = []
 postgres = []
 mysql = []
 uuid = []
+arrayvec = []
 # PostgreSQL optional type features
 chrono = []
 rust_decimal = []

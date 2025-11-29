@@ -222,11 +222,24 @@ fn handle_text_field(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
+    let base_type = info.base_type;
+    let base_type_str = base_type.to_token_stream().to_string();
+    
+    // Check if this is an ArrayString type
+    let is_arraystring = base_type_str.contains("ArrayString");
+    
     let accessor = if info.is_enum {
         if is_optional {
             quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
         } else {
             quote!(row.get::<String>(#idx).map(TryInto::try_into)?)
+        }
+    } else if is_arraystring {
+        // Use FromSQLiteValue trait for ArrayString
+        if is_optional {
+            quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(&v).ok())))
+        } else {
+            quote!(row.get::<String>(#idx).map(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(&v))?)
         }
     } else if is_optional {
         quote!(row.get::<Option<String>>(#idx))
@@ -266,10 +279,23 @@ fn handle_real_field(
 fn handle_blob_field(
     idx: i32,
     name: &syn::Ident,
-    _info: &FieldInfo,
+    info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    let accessor = if is_optional {
+    let base_type = info.base_type;
+    let base_type_str = base_type.to_token_stream().to_string();
+    
+    // Check if this is an ArrayVec type
+    let is_arrayvec = base_type_str.contains("ArrayVec");
+    
+    let accessor = if is_arrayvec {
+        // Use FromSQLiteValue trait for ArrayVec
+        if is_optional {
+            quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(&v).ok())))
+        } else {
+            quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(&v))?)
+        }
+    } else if is_optional {
         quote!(row.get::<Option<Vec<u8>>>(#idx))
     } else {
         quote!(row.get::<Vec<u8>>(#idx))

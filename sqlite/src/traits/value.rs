@@ -34,6 +34,22 @@ pub trait FromSQLiteValue: Sized {
             "unexpected NULL value".into(),
         ))
     }
+
+    /// Helper function to convert from rusqlite's ValueRef using FromSQLiteValue
+    #[cfg(feature = "rusqlite")]
+    fn from_value_ref(value: ::rusqlite::types::ValueRef<'_>) -> Result<Self, DrizzleError> {
+        match value {
+            ::rusqlite::types::ValueRef::Null => Self::from_sqlite_null(),
+            ::rusqlite::types::ValueRef::Integer(i) => Self::from_sqlite_integer(i),
+            ::rusqlite::types::ValueRef::Real(r) => Self::from_sqlite_real(r),
+            ::rusqlite::types::ValueRef::Text(text) => {
+                let s = std::str::from_utf8(text)
+                    .map_err(|e| DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into()))?;
+                Self::from_sqlite_text(s)
+            }
+            ::rusqlite::types::ValueRef::Blob(blob) => Self::from_sqlite_blob(blob),
+        }
+    }
 }
 
 /// Trait for database rows that can extract values using `FromSQLiteValue`.
@@ -339,5 +355,98 @@ impl FromSQLiteValue for uuid::Uuid {
     fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
         uuid::Uuid::from_slice(value)
             .map_err(|e| DrizzleError::ConversionError(format!("invalid UUID bytes: {}", e).into()))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> FromSQLiteValue for arrayvec::ArrayString<N> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        let s = value.to_string();
+        arrayvec::ArrayString::from(&s).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!(
+                    "String length {} exceeds ArrayString capacity {}",
+                    s.len(),
+                    N
+                )
+                .into(),
+            )
+        })
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        arrayvec::ArrayString::from(value).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!(
+                    "Text length {} exceeds ArrayString capacity {}",
+                    value.len(),
+                    N
+                )
+                .into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        let s = value.to_string();
+        arrayvec::ArrayString::from(&s).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!(
+                    "String length {} exceeds ArrayString capacity {}",
+                    s.len(),
+                    N
+                )
+                .into(),
+            )
+        })
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        let s = String::from_utf8(value.to_vec())
+            .map_err(|e| DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into()))?;
+        arrayvec::ArrayString::from(&s).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!(
+                    "String length {} exceeds ArrayString capacity {}",
+                    s.len(),
+                    N
+                )
+                .into(),
+            )
+        })
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> FromSQLiteValue for arrayvec::ArrayVec<u8, N> {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to ArrayVec<u8>, use BLOB".into(),
+        ))
+    }
+
+    fn from_sqlite_text(_value: &str) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert TEXT to ArrayVec<u8>, use BLOB".into(),
+        ))
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to ArrayVec<u8>, use BLOB".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        arrayvec::ArrayVec::try_from(value).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!(
+                    "Blob length {} exceeds ArrayVec capacity {}",
+                    value.len(),
+                    N
+                )
+                .into(),
+            )
+        })
     }
 }

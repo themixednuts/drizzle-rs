@@ -149,31 +149,24 @@ pub(crate) fn generate_json_impls(
 fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     let name = info.ident;
     let column_name = &info.column_name;
+    let base_type = info.base_type;
 
-    if info.is_uuid {
-        // Handle UUIDs based on their column type for partial models
-        match info.column_type {
-            crate::sqlite::field::SQLiteType::Text => {
-                // UUID stored as TEXT - get Option<String> and map to Option<Uuid>
-                Ok(quote! {
-                    #name: row.get::<_, Option<String>>(#column_name)
-                        .map(|v| v.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())?.unwrap_or_default(),
-                })
-            }
-            crate::sqlite::field::SQLiteType::Blob => {
-                // UUID stored as BLOB - use direct conversion
-                Ok(quote! {
-                    #name: row.get(#column_name).unwrap_or_default(),
-                })
-            }
-            _ => Err(Error::new_spanned(
-                info.ident,
-                "UUID fields must use either TEXT or BLOB column types",
-            )),
-        }
+    if info.is_json {
+        // JSON types use FromSql directly
+        Ok(quote! {
+            #name: row.get(#column_name).unwrap_or_default(),
+        })
     } else {
-        // Standard field - use unwrap_or_default
-        Ok(quote! { #name: row.get(#column_name).unwrap_or_default(), })
+        // Partial models have all fields as Option<T>
+        Ok(quote! {
+            #name: {
+                let value_ref = row.get_ref(#column_name).unwrap_or(::rusqlite::types::ValueRef::Null);
+                match value_ref {
+                    ::rusqlite::types::ValueRef::Null => None,
+                    _ => <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref).ok(),
+                }
+            },
+        })
     }
 }
 
@@ -181,39 +174,25 @@ fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
 fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     let name = info.ident;
     let column_name = &info.column_name;
+    let base_type = info.base_type;
 
     if info.is_json && !cfg!(feature = "serde") {
         Err(Error::new_spanned(
             info.ident,
             "JSON fields require the 'serde' feature to be enabled",
         ))
-    } else if info.is_uuid {
-        // Handle UUIDs based on their column type - always wrap in Some() for Update models
-        match info.column_type {
-            crate::sqlite::field::SQLiteType::Text => {
-                // UUID stored as TEXT - convert from string and wrap in Some()
-                Ok(quote! {
-                    #name: {
-                        let v: String = row.get(#column_name)?;
-                        Some(::uuid::Uuid::parse_str(&v)?)
-                    },
-                })
-            }
-            crate::sqlite::field::SQLiteType::Blob => {
-                // UUID stored as BLOB - use direct conversion and wrap in Some()
-                Ok(quote! {
-                    #name: Some(row.get(#column_name)?),
-                })
-            }
-            _ => Err(Error::new_spanned(
-                info.ident,
-                "UUID fields must use either TEXT or BLOB column types",
-            )),
-        }
-    } else {
-        // Standard field - wrap in Some()
+    } else if info.is_json {
+        // JSON types use FromSql directly
         Ok(quote! {
             #name: Some(row.get(#column_name)?),
+        })
+    } else {
+        // Update models wrap all values in Some()
+        Ok(quote! {
+            #name: {
+                let value_ref = row.get_ref(#column_name)?;
+                Some(<#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?)
+            },
         })
     }
 }
@@ -222,42 +201,38 @@ fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
 fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     let name = info.ident;
     let column_name = &info.column_name;
+    let base_type = info.base_type;
 
     if info.is_json && !cfg!(feature = "serde") {
         Err(Error::new_spanned(
             info.ident,
             "JSON fields require the 'serde' feature to be enabled",
         ))
-    } else if info.is_uuid {
-        // Handle UUIDs based on their column type
-        match info.column_type {
-            crate::sqlite::field::SQLiteType::Text => {
-                // UUID stored as TEXT - convert from string
-                if info.is_nullable {
-                    Ok(quote! {
-                        #name: row.get::<_, Option<String>>(#column_name)
-                            .map(|v| v.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())??,
-                    })
-                } else {
-                    Ok(quote! {
-                        #name: ::uuid::Uuid::parse_str(&row.get::<_, String>(#column_name)?)?,
-                    })
-                }
-            }
-            crate::sqlite::field::SQLiteType::Blob => {
-                // UUID stored as BLOB - use direct conversion
-                Ok(quote! {
-                    #name: row.get(#column_name)?,
-                })
-            }
-            _ => Err(Error::new_spanned(
-                info.ident,
-                "UUID fields must use either TEXT or BLOB column types",
-            )),
-        }
-    } else {
+    } else if info.is_json {
+        // JSON types use FromSql directly (generated by generate_json_impls)
         Ok(quote! {
             #name: row.get(#column_name)?,
         })
+    } else {
+        // Use FromSQLiteValue::from_value_ref for all non-JSON types
+        // This bypasses rusqlite's FromSql trait and uses our own trait instead
+        if info.is_nullable {
+            Ok(quote! {
+                #name: {
+                    let value_ref = row.get_ref(#column_name)?;
+                    match value_ref {
+                        ::rusqlite::types::ValueRef::Null => None,
+                        _ => Some(<#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?),
+                    }
+                },
+            })
+        } else {
+            Ok(quote! {
+                #name: {
+                    let value_ref = row.get_ref(#column_name)?;
+                    <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?
+                },
+            })
+        }
     }
 }

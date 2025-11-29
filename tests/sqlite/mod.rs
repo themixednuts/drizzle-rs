@@ -1,4 +1,5 @@
 pub mod alias;
+pub mod arrayvec;
 pub mod attributes;
 pub mod conditions;
 pub mod delete;

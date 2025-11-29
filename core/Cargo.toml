@@ -35,6 +35,7 @@ alloc = []
 # Serialization
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]
+arrayvec = []
 
 # Database backends
 sqlite = []

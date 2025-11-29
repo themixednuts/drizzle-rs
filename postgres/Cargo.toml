@@ -19,6 +19,7 @@ rust_decimal = { version = "1.36", optional = true, features = ["serde"] }
 ipnet = { version = "2.10", optional = true, features = ["serde"] }
 geo-types = { version = "0.7", optional = true, features = ["serde"] }
 bitvec = { version = "1.0", optional = true, features = ["serde"] }
+arrayvec = { workspace = true, optional = true }
 # sqlx = { workspace = true, optional = true, default-features = false }
 paste = { workspace = true }
 
@@ -30,4 +31,5 @@ rust_decimal = ["dep:rust_decimal"]
 ipnet = ["dep:ipnet"]
 geo-types = ["dep:geo-types"]
 bitvec = ["dep:bitvec"]
+arrayvec = ["dep:arrayvec"]
 # sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/uuid"]

@@ -390,6 +390,22 @@ impl<'a> From<&'a String> for SQLiteValue<'a> {
     }
 }
 
+// --- ArrayString ---
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<arrayvec::ArrayString<N>> for SQLiteValue<'a> {
+    fn from(value: arrayvec::ArrayString<N>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for SQLiteValue<'a> {
+    fn from(value: &arrayvec::ArrayString<N>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.as_str().to_owned()))
+    }
+}
+
 // --- Binary Data ---
 
 impl<'a> From<&'a [u8]> for SQLiteValue<'a> {
@@ -401,6 +417,22 @@ impl<'a> From<&'a [u8]> for SQLiteValue<'a> {
 impl<'a> From<Vec<u8>> for SQLiteValue<'a> {
     fn from(value: Vec<u8>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value))
+    }
+}
+
+// --- ArrayVec<u8, N> ---
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<arrayvec::ArrayVec<u8, N>> for SQLiteValue<'a> {
+    fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<&arrayvec::ArrayVec<u8, N>> for SQLiteValue<'a> {
+    fn from(value: &arrayvec::ArrayVec<u8, N>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
 }
 

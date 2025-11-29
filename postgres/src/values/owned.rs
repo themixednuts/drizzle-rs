@@ -444,6 +444,20 @@ impl From<serde_json::Value> for OwnedPostgresValue {
     }
 }
 
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> From<arrayvec::ArrayString<N>> for OwnedPostgresValue {
+    fn from(value: arrayvec::ArrayString<N>) -> Self {
+        OwnedPostgresValue::Text(value.to_string())
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for OwnedPostgresValue {
+    fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
+        OwnedPostgresValue::Bytea(value.to_vec())
+    }
+}
+
 // TryFrom conversions back to Rust types
 impl TryFrom<OwnedPostgresValue> for i16 {
     type Error = DrizzleError;
@@ -590,6 +604,52 @@ impl TryFrom<OwnedPostgresValue> for serde_json::Value {
             }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to JSON", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayString<N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::Text(s) => {
+                arrayvec::ArrayString::from(&s).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!("Text length {} exceeds ArrayString capacity {}", s.len(), N)
+                            .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayString", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayVec<u8, N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::Bytea(bytes) => {
+                arrayvec::ArrayVec::try_from(bytes.as_slice()).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!(
+                            "Bytea length {} exceeds ArrayVec capacity {}",
+                            bytes.len(),
+                            N
+                        )
+                        .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
             )),
         }
     }

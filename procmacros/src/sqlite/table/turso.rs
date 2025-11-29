@@ -222,14 +222,23 @@ fn handle_text_field(
     is_optional: bool,
 ) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_text());
+    let base_type = info.base_type;
+    let base_type_str = base_type.to_token_stream().to_string();
 
-    let converter = if info.is_enum {
-        |v: TokenStream| quote!(#v.map(|v| v.try_into()).transpose()?)
+    // Check if this is an ArrayString type
+    let is_arraystring = base_type_str.contains("ArrayString");
+
+    // Generate the converted expression directly to avoid closure type mismatch
+    let converted = if info.is_enum {
+        quote!(#accessor.map(|v| v.try_into()).transpose()?)
+    } else if is_arraystring {
+        // Use FromSQLiteValue trait for ArrayString
+        quote!(#accessor.map(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(v)).transpose()?)
     } else {
-        |v: TokenStream| quote!(#v.cloned())
+        quote!(#accessor.cloned())
     };
 
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    Ok(wrap_optional(converted, name, is_optional))
 }
 
 /// Handle real/float fields
@@ -255,14 +264,25 @@ fn handle_real_field(
 fn handle_blob_field(
     idx: usize,
     name: &syn::Ident,
-    _info: &FieldInfo,
+    info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
     let accessor = quote!(row.get_value(#idx)?.as_blob());
+    let base_type = info.base_type;
+    let base_type_str = base_type.to_token_stream().to_string();
 
-    let converter = |v: TokenStream| quote!(#v.cloned());
+    // Check if this is an ArrayVec type
+    let is_arrayvec = base_type_str.contains("ArrayVec");
 
-    Ok(wrap_optional(converter(accessor), name, is_optional))
+    // Generate the converted expression directly to avoid closure type mismatch
+    let converted = if is_arrayvec {
+        // Use FromSQLiteValue trait for ArrayVec
+        quote!(#accessor.map(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(v)).transpose()?)
+    } else {
+        quote!(#accessor.cloned())
+    };
+
+    Ok(wrap_optional(converted, name, is_optional))
 }
 
 /// Check if the base type needs a reference (&str, &[u8], &i64, etc.)

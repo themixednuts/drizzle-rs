@@ -620,6 +620,22 @@ impl<'a> From<&'a String> for PostgresValue<'a> {
     }
 }
 
+// --- ArrayString ---
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<arrayvec::ArrayString<N>> for PostgresValue<'a> {
+    fn from(value: arrayvec::ArrayString<N>) -> Self {
+        PostgresValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for PostgresValue<'a> {
+    fn from(value: &arrayvec::ArrayString<N>) -> Self {
+        PostgresValue::Text(Cow::Owned(value.as_str().to_owned()))
+    }
+}
+
 // --- Binary Data ---
 
 impl<'a> From<&'a [u8]> for PostgresValue<'a> {
@@ -631,6 +647,22 @@ impl<'a> From<&'a [u8]> for PostgresValue<'a> {
 impl<'a> From<Vec<u8>> for PostgresValue<'a> {
     fn from(value: Vec<u8>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value))
+    }
+}
+
+// --- ArrayVec<u8, N> ---
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<arrayvec::ArrayVec<u8, N>> for PostgresValue<'a> {
+    fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> From<&arrayvec::ArrayVec<u8, N>> for PostgresValue<'a> {
+    fn from(value: &arrayvec::ArrayVec<u8, N>) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
 }
 
@@ -1398,6 +1430,58 @@ impl<'a> TryFrom<PostgresValue<'a>> for BitVec {
             PostgresValue::BitVec(bv) => Ok(bv),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to BitVec", value).into(),
+            )),
+        }
+    }
+}
+
+// --- ArrayVec TryFrom implementations ---
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayString<N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Text(cow_str) => {
+                arrayvec::ArrayString::from(cow_str.as_ref()).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!(
+                            "Text length {} exceeds ArrayString capacity {}",
+                            cow_str.len(),
+                            N
+                        )
+                        .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayString", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayVec<u8, N> {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Bytea(cow_bytes) => {
+                arrayvec::ArrayVec::try_from(cow_bytes.as_ref()).map_err(|_| {
+                    DrizzleError::ConversionError(
+                        format!(
+                            "Bytea length {} exceeds ArrayVec capacity {}",
+                            cow_bytes.len(),
+                            N
+                        )
+                        .into(),
+                    )
+                })
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
             )),
         }
     }
