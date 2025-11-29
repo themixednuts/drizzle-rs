@@ -615,14 +615,11 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayString<N> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Text(s) => {
-                arrayvec::ArrayString::from(&s).map_err(|_| {
-                    DrizzleError::ConversionError(
-                        format!("Text length {} exceeds ArrayString capacity {}", s.len(), N)
-                            .into(),
-                    )
-                })
-            }
+            OwnedPostgresValue::Text(s) => arrayvec::ArrayString::from(&s).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!("Text length {} exceeds ArrayString capacity {}", s.len(), N).into(),
+                )
+            }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to ArrayString", value).into(),
             )),
@@ -636,8 +633,8 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayVec<u8, N> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Bytea(bytes) => {
-                arrayvec::ArrayVec::try_from(bytes.as_slice()).map_err(|_| {
+            OwnedPostgresValue::Bytea(bytes) => arrayvec::ArrayVec::try_from(bytes.as_slice())
+                .map_err(|_| {
                     DrizzleError::ConversionError(
                         format!(
                             "Bytea length {} exceeds ArrayVec capacity {}",
@@ -646,8 +643,7 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayVec<u8, N> {
                         )
                         .into(),
                     )
-                })
-            }
+                }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
             )),

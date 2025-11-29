@@ -448,14 +448,11 @@ impl<const N: usize> TryFrom<OwnedSQLiteValue> for arrayvec::ArrayString<N> {
 
     fn try_from(value: OwnedSQLiteValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedSQLiteValue::Text(s) => {
-                arrayvec::ArrayString::from(&s).map_err(|_| {
-                    DrizzleError::ConversionError(
-                        format!("Text length {} exceeds ArrayString capacity {}", s.len(), N)
-                            .into(),
-                    )
-                })
-            }
+            OwnedSQLiteValue::Text(s) => arrayvec::ArrayString::from(&s).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!("Text length {} exceeds ArrayString capacity {}", s.len(), N).into(),
+                )
+            }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to ArrayString", value).into(),
             )),
@@ -536,14 +533,11 @@ impl<const N: usize> TryFrom<&OwnedSQLiteValue> for arrayvec::ArrayString<N> {
 
     fn try_from(value: &OwnedSQLiteValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedSQLiteValue::Text(s) => {
-                arrayvec::ArrayString::from(s.as_str()).map_err(|_| {
-                    DrizzleError::ConversionError(
-                        format!("Text length {} exceeds ArrayString capacity {}", s.len(), N)
-                            .into(),
-                    )
-                })
-            }
+            OwnedSQLiteValue::Text(s) => arrayvec::ArrayString::from(s.as_str()).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!("Text length {} exceeds ArrayString capacity {}", s.len(), N).into(),
+                )
+            }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to ArrayString", value).into(),
             )),

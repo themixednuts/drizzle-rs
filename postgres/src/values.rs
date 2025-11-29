@@ -1468,8 +1468,8 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayVec<u8, N
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Bytea(cow_bytes) => {
-                arrayvec::ArrayVec::try_from(cow_bytes.as_ref()).map_err(|_| {
+            PostgresValue::Bytea(cow_bytes) => arrayvec::ArrayVec::try_from(cow_bytes.as_ref())
+                .map_err(|_| {
                     DrizzleError::ConversionError(
                         format!(
                             "Bytea length {} exceeds ArrayVec capacity {}",
@@ -1478,8 +1478,7 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayVec<u8, N
                         )
                         .into(),
                     )
-                })
-            }
+                }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
             )),

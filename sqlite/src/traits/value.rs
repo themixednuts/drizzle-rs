@@ -43,8 +43,9 @@ pub trait FromSQLiteValue: Sized {
             ::rusqlite::types::ValueRef::Integer(i) => Self::from_sqlite_integer(i),
             ::rusqlite::types::ValueRef::Real(r) => Self::from_sqlite_real(r),
             ::rusqlite::types::ValueRef::Text(text) => {
-                let s = std::str::from_utf8(text)
-                    .map_err(|e| DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into()))?;
+                let s = std::str::from_utf8(text).map_err(|e| {
+                    DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into())
+                })?;
                 Self::from_sqlite_text(s)
             }
             ::rusqlite::types::ValueRef::Blob(blob) => Self::from_sqlite_blob(blob),
