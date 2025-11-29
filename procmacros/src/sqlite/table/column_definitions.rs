@@ -46,87 +46,8 @@ pub(crate) fn generate_column_definitions<'a>(
         let name = &info.column_name;
         let col_type = &info.column_type.to_sql_type();
 
-        // Generate direct From implementations for enum fields
-        let enum_impl = if info.is_enum {
-            let (conversion, reference_conversion) = match info.column_type {
-                crate::sqlite::field::SQLiteType::Integer => (
-                    quote! {
-                        let integer: i64 = value.into();
-                        ::drizzle_sqlite::values::SQLiteValue::Integer(integer)
-                    },
-                    quote! {
-                        let integer: i64 = value.into();
-                        ::drizzle_sqlite::values::SQLiteValue::Integer(integer)
-                    },
-                ),
-                crate::sqlite::field::SQLiteType::Text => (
-                    quote! {
-                        let text: &str = value.into();
-                        ::drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
-                    },
-                    quote! {
-                        let text: &str = value.into();
-                        ::drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
-                    },
-                ),
-                _ => {
-                    return Err(syn::Error::new_spanned(
-                        info.ident,
-                        "Enum is only supported in text or integer column types",
-                    ));
-                } // Default to Text for other types
-            };
-
-            {
-                #[cfg(feature = "rusqlite")]
-                let rusqlite_impl = super::rusqlite::generate_enum_impls(info)?;
-
-                #[cfg(not(feature = "rusqlite"))]
-                let rusqlite_impl = quote! {};
-
-                #[cfg(feature = "turso")]
-                let turso_impl = super::turso::generate_enum_impls(info)?;
-
-                #[cfg(not(feature = "turso"))]
-                let turso_impl = quote! {};
-
-                #[cfg(feature = "libsql")]
-                let libsql_impl = super::libsql::generate_enum_impls(info)?;
-
-                #[cfg(not(feature = "libsql"))]
-                let libsql_impl = quote! {};
-
-                quote! {
-                    // Generate From implementations for enum values
-                    impl<'a> ::std::convert::From<#value_type> for ::drizzle_sqlite::values::SQLiteValue<'a> {
-                        fn from(value: #value_type) -> Self {
-                            #conversion
-                        }
-                    }
-
-                    impl<'a> ::std::convert::From<&'a #value_type> for ::drizzle_sqlite::values::SQLiteValue<'a> {
-                        fn from(value: &'a #value_type) -> Self {
-                            #reference_conversion
-                        }
-                    }
-
-                    impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #value_type {
-                        fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
-                            let value = self;
-                            #conversion.into()
-                        }
-                    }
-
-
-                    // Include driver-specific implementations
-                    #rusqlite_impl
-                    #turso_impl
-                    #libsql_impl
-                }
-            }
-        } else {
-            quote! {}
-        };
+        // Generate enum implementations using the shared generator
+        let enum_impl = super::enum_impls::generate_enum_impls_for_field(info)?;
 
         // Generate foreign key reference implementation
         let foreign_key_impl = if let Some(ref fk) = info.foreign_key {
