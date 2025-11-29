@@ -6,6 +6,71 @@ use syn::{
     parse::ParseStream,
 };
 
+// =============================================================================
+// Type Category - Centralized type classification for code generation
+// =============================================================================
+
+/// Categorizes Rust types for consistent handling across the macro system.
+///
+/// This enum provides a single source of truth for type detection, eliminating
+/// fragile string matching scattered across multiple files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TypeCategory {
+    /// `arrayvec::ArrayString<N>` - Fixed-capacity string on the stack
+    ArrayString,
+    /// `arrayvec::ArrayVec<u8, N>` - Fixed-capacity byte array on the stack
+    ArrayVec,
+    /// `std::string::String` - Heap-allocated string
+    String,
+    /// `Vec<u8>` - Heap-allocated byte array
+    Blob,
+    /// `uuid::Uuid` - UUID type (handled specially)
+    Uuid,
+    /// Any type with `#[json]` flag
+    Json,
+    /// Any type with `#[enum]` flag  
+    Enum,
+    /// Primitive types: i32, i64, f32, f64, bool, etc.
+    Primitive,
+}
+
+impl TypeCategory {
+    /// Detect the category from a type string representation.
+    ///
+    /// Order matters: more specific types (ArrayString) must be checked
+    /// before more general types (String).
+    pub(crate) fn from_type_string(type_str: &str) -> Self {
+        if type_str.contains("ArrayString") {
+            TypeCategory::ArrayString
+        } else if type_str.contains("ArrayVec") {
+            TypeCategory::ArrayVec
+        } else if type_str.contains("Uuid") {
+            TypeCategory::Uuid
+        } else if type_str.contains("String") {
+            TypeCategory::String
+        } else if type_str.contains("Vec") && type_str.contains("u8") {
+            TypeCategory::Blob
+        } else {
+            TypeCategory::Primitive
+        }
+    }
+
+    /// Check if this category requires the FromSQLiteValue trait for conversion
+    #[allow(dead_code)]
+    pub(crate) fn uses_from_sqlite_value(&self) -> bool {
+        matches!(self, TypeCategory::ArrayString | TypeCategory::ArrayVec)
+    }
+
+    /// Check if this category should use a generic `impl Into<...>` parameter
+    #[allow(dead_code)]
+    pub(crate) fn uses_into_param(&self) -> bool {
+        matches!(
+            self,
+            TypeCategory::String | TypeCategory::Blob | TypeCategory::Uuid
+        )
+    }
+}
+
 /// Enum representing supported SQLite column types.
 ///
 /// These correspond to the [SQLite storage classes](https://sqlite.org/datatype3.html#storage_classes_and_datatypes).
@@ -535,6 +600,67 @@ impl<'a> FieldInfo<'a> {
         self.update_type
             .clone()
             .unwrap_or_else(|| update_type(self.base_type))
+    }
+
+    // =========================================================================
+    // Type Category Methods - Centralized type classification
+    // =========================================================================
+
+    /// Get the category of this field's type for code generation decisions.
+    ///
+    /// This provides a single source of truth for type handling, eliminating
+    /// scattered string matching throughout the codebase.
+    pub(crate) fn type_category(&self) -> TypeCategory {
+        // Special flags take precedence
+        if self.is_json {
+            return TypeCategory::Json;
+        }
+        if self.is_enum {
+            return TypeCategory::Enum;
+        }
+        if self.is_uuid {
+            return TypeCategory::Uuid;
+        }
+
+        // Detect from the base type string
+        let type_str = self.base_type.to_token_stream().to_string();
+        TypeCategory::from_type_string(&type_str)
+    }
+
+    /// Get the inner type for SQLiteInsertValue wrapper.
+    ///
+    /// For types that use `impl Into<...>` parameters, this returns the
+    /// appropriate target type (e.g., String for text, Vec<u8> for blobs).
+    pub(crate) fn insert_value_inner_type(&self) -> TokenStream {
+        let base_type = self.base_type;
+
+        match self.type_category() {
+            TypeCategory::Uuid => {
+                // UUID uses String for TEXT columns, Uuid for BLOB columns
+                match self.column_type {
+                    SQLiteType::Text => quote!(::std::string::String),
+                    _ => quote!(::uuid::Uuid),
+                }
+            }
+            TypeCategory::String => quote!(::std::string::String),
+            TypeCategory::Blob => quote!(::std::vec::Vec<u8>),
+            // ArrayString, ArrayVec, and primitives use the actual type
+            _ => quote!(#base_type),
+        }
+    }
+
+    /// Generate the full SQLiteInsertValue<...> type for this field.
+    #[allow(dead_code)]
+    pub(crate) fn sqlite_insert_value_type(&self) -> TokenStream {
+        let inner = self.insert_value_inner_type();
+        quote!(::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #inner>)
+    }
+
+    /// Generate an `impl Into<SQLiteInsertValue<...>>` parameter type for constructors.
+    #[allow(dead_code)]
+    pub(crate) fn insert_param_type(&self) -> TokenStream {
+        let insert_value_type = self.sqlite_insert_value_type();
+        quote!(impl Into<#insert_value_type>)
     }
 }
 
