@@ -274,6 +274,129 @@ where
     }
 }
 
+impl<Schema> Drizzle<Schema> {
+    /// Run migrations from the specified directory.
+    ///
+    /// This method:
+    /// 1. Creates a migrations tracking table if it doesn't exist
+    /// 2. Loads all migrations from the directory
+    /// 3. Applies any pending migrations in order
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use drizzle::rusqlite::Drizzle;
+    /// use std::path::Path;
+    ///
+    /// let conn = rusqlite::Connection::open("my.db").unwrap();
+    /// let (db, _) = Drizzle::new(conn, ());
+    ///
+    /// // Run migrations from ./drizzle/migrations
+    /// db.migrate(Path::new("./drizzle/migrations")).unwrap();
+    /// ```
+    pub fn migrate(&self, migrations_dir: &std::path::Path) -> drizzle_core::error::Result<usize> {
+        use drizzle_schema::migrator::load_migrations_from_dir;
+
+        // Load migrations
+        let migrations = load_migrations_from_dir(migrations_dir)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+        if migrations.is_empty() {
+            return Ok(0);
+        }
+
+        // Create migrations table
+        self.conn.execute(
+            r#"CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );"#,
+            [],
+        )?;
+
+        // Get applied migrations
+        let mut stmt = self
+            .conn
+            .prepare(r#"SELECT hash FROM "__drizzle_migrations" ORDER BY id;"#)?;
+        let applied: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+
+        // Apply pending migrations
+        let pending: Vec<_> = migrations
+            .iter()
+            .filter(|m| !applied.contains(&m.tag))
+            .collect();
+
+        let count = pending.len();
+
+        for migration in pending {
+            // Execute each statement
+            for stmt in migration.statements() {
+                self.conn.execute(stmt, [])?;
+            }
+
+            // Record as applied
+            self.conn.execute(
+                r#"INSERT INTO "__drizzle_migrations" (hash) VALUES (?1);"#,
+                [&migration.tag],
+            )?;
+        }
+
+        Ok(count)
+    }
+
+    /// Run migrations using a drizzle.toml config file.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use drizzle::rusqlite::Drizzle;
+    /// use std::path::Path;
+    ///
+    /// let conn = rusqlite::Connection::open("my.db").unwrap();
+    /// let (db, _) = Drizzle::new(conn, ());
+    ///
+    /// // Run migrations using config
+    /// db.migrate_with_config(Path::new("./drizzle.toml")).unwrap();
+    /// ```
+    pub fn migrate_with_config(
+        &self,
+        config_path: &std::path::Path,
+    ) -> drizzle_core::error::Result<usize> {
+        use drizzle_schema::Migrator;
+
+        let migrator = Migrator::from_config_file(config_path)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+        // Create migrations table
+        self.conn
+            .execute(&migrator.create_migrations_table_sql(), [])?;
+
+        // Get applied migrations
+        let mut stmt = self.conn.prepare(&migrator.query_applied_sql())?;
+        let applied: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+
+        // Apply pending migrations
+        let pending = migrator.pending_migrations(&applied);
+        let count = pending.len();
+
+        for migration in pending {
+            for stmt in migration.statements() {
+                self.conn.execute(stmt, [])?;
+            }
+
+            self.conn
+                .execute(&migrator.record_migration_sql(&migration.tag), [])?;
+        }
+
+        Ok(count)
+    }
+}
+
 // CTE (WITH) Builder Implementation for RusQLite
 impl<'a, Schema>
     DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
