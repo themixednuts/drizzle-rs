@@ -6,6 +6,8 @@ use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result}
 mod libsql;
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
+#[cfg(any(feature = "libsql", feature = "turso"))]
+mod shared;
 #[cfg(feature = "turso")]
 mod turso;
 
