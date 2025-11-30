@@ -1,8 +1,14 @@
+use crate::dialect::Dialect;
+
 /// A marker trait for types that can be used as SQL parameters.
 ///
 /// This trait is used as a bound on the parameter type in SQL fragments.
 /// It ensures type safety when building SQL queries with parameters.
-pub trait SQLParam: Clone + core::fmt::Debug {}
+pub trait SQLParam: Clone + core::fmt::Debug {
+    /// The SQL dialect for this parameter type
+    /// Default is SQLite (uses `?` placeholders)
+    const DIALECT: Dialect = Dialect::SQLite;
+}
 
 // Implement SQLParam for common types
 // impl<T: SQLParam> SQLParam for Option<T> {}

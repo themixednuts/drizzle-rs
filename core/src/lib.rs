@@ -44,6 +44,7 @@ pub(crate) mod prelude {
 }
 
 pub mod conversions;
+pub mod dialect;
 pub mod error;
 pub mod expressions;
 pub mod helpers;
@@ -59,6 +60,7 @@ pub mod traits;
 
 // Re-export key types and traits
 pub use conversions::ToSQL;
+pub use dialect::Dialect;
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
 pub use query::*;
