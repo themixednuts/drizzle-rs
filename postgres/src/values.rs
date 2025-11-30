@@ -197,9 +197,12 @@ pub enum PostgresValue<'a> {
     /// UUID values
     #[cfg(feature = "uuid")]
     Uuid(Uuid),
-    /// JSON/JSONB values
+    /// JSON values (stored as text in PostgreSQL)
     #[cfg(feature = "serde")]
     Json(serde_json::Value),
+    /// JSONB values (stored as binary in PostgreSQL)
+    #[cfg(feature = "serde")]
+    Jsonb(serde_json::Value),
     /// Native PostgreSQL ENUM values
     Enum(Box<dyn PostgresEnum>),
 
@@ -296,6 +299,8 @@ impl<'a> std::fmt::Display for PostgresValue<'a> {
             PostgresValue::Uuid(uuid) => uuid.to_string(),
             #[cfg(feature = "serde")]
             PostgresValue::Json(json) => json.to_string(),
+            #[cfg(feature = "serde")]
+            PostgresValue::Jsonb(json) => json.to_string(),
             PostgresValue::Enum(enum_val) => enum_val.variant_name().to_string(),
 
             // Date and time types
@@ -1160,6 +1165,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for serde_json::Value {
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
             PostgresValue::Json(json) => Ok(json),
+            PostgresValue::Jsonb(json) => Ok(json),
             PostgresValue::Text(cow) => serde_json::from_str(cow.as_ref()).map_err(|e| {
                 DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
             }),
@@ -1536,8 +1542,95 @@ mod sqlx_impls {
                 PostgresValue::Uuid(uuid) => uuid.encode_by_ref(buf),
                 #[cfg(feature = "serde")]
                 PostgresValue::Json(json) => json.encode_by_ref(buf),
+                #[cfg(feature = "serde")]
+                PostgresValue::Jsonb(json) => json.encode_by_ref(buf),
                 PostgresValue::Enum(enum_val) => enum_val.variant_name().encode_by_ref(buf),
             }
         }
+    }
+}
+
+// postgres/tokio-postgres ToSql implementations
+// Both crates use the same postgres-types underneath, so we only need one implementation
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+mod postgres_tosql_impl {
+    use super::*;
+
+    // Import from whichever crate is available
+    #[cfg(feature = "postgres-sync")]
+    use postgres::types::{IsNull, ToSql, Type};
+
+    #[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
+    use tokio_postgres::types::{IsNull, ToSql, Type};
+
+    use bytes::BytesMut;
+
+    impl<'a> ToSql for PostgresValue<'a> {
+        fn to_sql(
+            &self,
+            ty: &Type,
+            out: &mut BytesMut,
+        ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+            match self {
+                PostgresValue::Null => Ok(IsNull::Yes),
+                PostgresValue::Smallint(i) => i.to_sql(ty, out),
+                PostgresValue::Integer(i) => i.to_sql(ty, out),
+                PostgresValue::Bigint(i) => i.to_sql(ty, out),
+                PostgresValue::Real(f) => f.to_sql(ty, out),
+                PostgresValue::DoublePrecision(f) => f.to_sql(ty, out),
+                PostgresValue::Text(cow) => cow.as_ref().to_sql(ty, out),
+                PostgresValue::Bytea(cow) => cow.as_ref().to_sql(ty, out),
+                PostgresValue::Boolean(b) => b.to_sql(ty, out),
+                #[cfg(feature = "uuid")]
+                PostgresValue::Uuid(uuid) => uuid.to_sql(ty, out),
+                #[cfg(feature = "serde")]
+                PostgresValue::Json(json) => json.to_sql(ty, out),
+                #[cfg(feature = "serde")]
+                PostgresValue::Jsonb(json) => json.to_sql(ty, out),
+                #[cfg(feature = "chrono")]
+                PostgresValue::Timestamp(ts) => ts.to_sql(ty, out),
+                #[cfg(feature = "chrono")]
+                PostgresValue::Date(date) => date.to_sql(ty, out),
+                #[cfg(feature = "chrono")]
+                PostgresValue::Time(time) => time.to_sql(ty, out),
+                #[cfg(feature = "rust_decimal")]
+                PostgresValue::Numeric(num) => num.to_sql(ty, out),
+                #[cfg(feature = "ipnet")]
+                PostgresValue::Inet(ip) => ip.to_sql(ty, out),
+                #[cfg(feature = "ipnet")]
+                PostgresValue::Cidr(ip) => ip.to_sql(ty, out),
+                #[cfg(feature = "geo-types")]
+                PostgresValue::Point(p) => p.to_sql(ty, out),
+                #[cfg(feature = "bitvec")]
+                PostgresValue::Bit(bits) => bits.to_sql(ty, out),
+                PostgresValue::Enum(enum_val) => enum_val.variant_name().to_sql(ty, out),
+                PostgresValue::Array(arr) => {
+                    // For arrays, we need to serialize each element
+                    // This is a simplified version - proper implementation would handle nested types
+                    let elements: Vec<Option<String>> = arr
+                        .iter()
+                        .map(|v| match v {
+                            PostgresValue::Null => None,
+                            PostgresValue::Text(s) => Some(s.to_string()),
+                            PostgresValue::Integer(i) => Some(i.to_string()),
+                            _ => Some(format!("{:?}", v)),
+                        })
+                        .collect();
+                    elements.to_sql(ty, out)
+                }
+            }
+        }
+
+        fn accepts(_ty: &Type) -> bool {
+            // Accept all types - we'll handle conversion on a case-by-case basis
+            true
+        }
+
+        // Use the appropriate macro based on which feature is enabled
+        #[cfg(feature = "postgres-sync")]
+        postgres::types::to_sql_checked!();
+
+        #[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
+        tokio_postgres::types::to_sql_checked!();
     }
 }

@@ -43,9 +43,12 @@ pub enum OwnedPostgresValue {
     /// UUID values
     #[cfg(feature = "uuid")]
     Uuid(Uuid),
-    /// JSON/JSONB values
+    /// JSON values (stored as text in PostgreSQL)
     #[cfg(feature = "serde")]
     Json(serde_json::Value),
+    /// JSONB values (stored as binary in PostgreSQL)
+    #[cfg(feature = "serde")]
+    Jsonb(serde_json::Value),
 
     // Date and time types
     /// DATE values
@@ -144,6 +147,8 @@ impl std::fmt::Display for OwnedPostgresValue {
             OwnedPostgresValue::Uuid(uuid) => uuid.to_string(),
             #[cfg(feature = "serde")]
             OwnedPostgresValue::Json(json) => json.to_string(),
+            #[cfg(feature = "serde")]
+            OwnedPostgresValue::Jsonb(json) => json.to_string(),
 
             // Date and time types
             #[cfg(feature = "chrono")]
@@ -272,6 +277,8 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::Uuid(uuid) => OwnedPostgresValue::Uuid(uuid),
             #[cfg(feature = "serde")]
             PostgresValue::Json(json) => OwnedPostgresValue::Json(json),
+            #[cfg(feature = "serde")]
+            PostgresValue::Jsonb(json) => OwnedPostgresValue::Jsonb(json),
             PostgresValue::Enum(enum_val) => {
                 OwnedPostgresValue::Text(enum_val.variant_name().to_string())
             }
@@ -337,6 +344,8 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::Uuid(uuid) => PostgresValue::Uuid(uuid),
             #[cfg(feature = "serde")]
             OwnedPostgresValue::Json(json) => PostgresValue::Json(json),
+            #[cfg(feature = "serde")]
+            OwnedPostgresValue::Jsonb(json) => PostgresValue::Jsonb(json),
 
             // Date and time types
             #[cfg(feature = "chrono")]
@@ -601,6 +610,7 @@ impl TryFrom<OwnedPostgresValue> for serde_json::Value {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Json(json) => Ok(json),
+            OwnedPostgresValue::Jsonb(json) => Ok(json),
             OwnedPostgresValue::Text(s) => serde_json::from_str(&s).map_err(|e| {
                 DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
             }),
