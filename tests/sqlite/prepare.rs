@@ -1,16 +1,16 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle::{
-    FromRow,
+    SQLiteFromRow,
     core::{and, eq},
     sqlite::params,
 };
 use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle_sqlite::{SQLiteSQL, SQLiteValue};
 
-drizzle_test!(test_prepare_with_placeholder, SimpleSchema, {
+sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -28,7 +28,7 @@ drizzle_test!(test_prepare_with_placeholder, SimpleSchema, {
 
     println!("{prepared_sql}");
 
-    #[derive(FromRow, Default)]
+    #[derive(SQLiteFromRow, Default)]
     struct PartialSimple {
         name: String,
     }
@@ -202,7 +202,7 @@ fn test_prepare_complex_query() {
     assert_eq!(bound_params[1], SQLiteValue::from("%electronics%"));
 }
 
-drizzle_test!(test_prepared_performance_comparison, SimpleSchema, {
+sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     // Insert test data
     let test_data: Vec<_> = (0..1000)
@@ -248,7 +248,7 @@ drizzle_test!(test_prepared_performance_comparison, SimpleSchema, {
     );
 });
 
-drizzle_test!(test_prepared_insert_performance, SimpleSchema, {
+sqlite_test!(test_prepared_insert_performance, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     // Insert test data
 

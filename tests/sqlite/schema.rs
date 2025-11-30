@@ -1,9 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
-#[SQLiteTable(name = "test_table")]
+#[SQLiteTable]
 struct TestTable {
     #[integer(primary)]
     id: i32,
@@ -13,7 +13,7 @@ struct TestTable {
     email: Option<String>,
 }
 
-#[SQLiteTable(name = "strict_table", strict)]
+#[SQLiteTable(strict)]
 struct StrictTable {
     #[integer(primary)]
     id: i32,
@@ -85,7 +85,7 @@ struct AppTestSchema {
     user_name_idx: UserNameIdx,
 }
 
-drizzle_test!(test_schema_derive, AppTestSchema, {
+sqlite_test!(test_schema_derive, AppTestSchema, {
     // Test table SQL generation
     let user = User::new();
     let user_sql = user.sql();
@@ -127,7 +127,7 @@ drizzle_test!(test_schema_derive, AppTestSchema, {
     assert!(!schema.user_name_idx.is_unique());
 });
 
-drizzle_test!(test_schema_with_drizzle_macro, AppTestSchema, {
+sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     // Test that we can use the schema for queries
     let insert_data = InsertUser::new("test@example.com", "Test User");
     let result = drizzle_exec!(db.insert(schema.user).values([insert_data]).execute());
@@ -146,7 +146,7 @@ drizzle_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     assert_eq!(users[0].name, "Test User");
 });
 
-drizzle_test!(test_schema_destructuring, AppTestSchema, {
+sqlite_test!(test_schema_destructuring, AppTestSchema, {
     // Test destructuring the schema into individual components
     let (user, _, _) = schema.into();
 
@@ -222,7 +222,7 @@ struct ComplexTestSchema {
     department: Department,
 }
 
-drizzle_test!(test_deterministic_ordering, ComplexTestSchema, {
+sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     // Get the create statements - this should be deterministically ordered
     let statements = schema.create_statements();
 

@@ -4,9 +4,9 @@ use crate::common::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
 use drizzle::error::DrizzleError;
 use drizzle::prelude::*;
 use drizzle::sqlite::SQLiteTransactionType;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
-drizzle_test!(test_transaction_commit, SimpleSchema, {
+sqlite_test!(test_transaction_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
@@ -37,7 +37,7 @@ drizzle_test!(test_transaction_commit, SimpleSchema, {
     assert_eq!(users[1].name, "user2");
 });
 
-drizzle_test!(test_transaction_rollback, SimpleSchema, {
+sqlite_test!(test_transaction_rollback, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert initial record outside transaction
@@ -72,7 +72,7 @@ drizzle_test!(test_transaction_rollback, SimpleSchema, {
     assert_eq!(users[0].name, "initial_user");
 });
 
-drizzle_test!(test_transaction_types, SimpleSchema, {
+sqlite_test!(test_transaction_types, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Test different transaction types
@@ -99,7 +99,7 @@ drizzle_test!(test_transaction_types, SimpleSchema, {
     assert_eq!(users.len(), 3);
 });
 
-drizzle_test!(test_transaction_query_builders, SimpleSchema, {
+sqlite_test!(test_transaction_query_builders, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -164,7 +164,7 @@ drizzle_test!(test_transaction_query_builders, SimpleSchema, {
     assert!(!names.contains(&"charlie".to_string()));
 });
 
-drizzle_test!(test_transaction_database_error_rollback, SimpleSchema, {
+sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -202,7 +202,7 @@ drizzle_test!(test_transaction_database_error_rollback, SimpleSchema, {
     assert_eq!(users[0].name, "initial");
 });
 
-drizzle_test!(test_transaction_panic_rollback, SimpleSchema, {
+sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -236,7 +236,7 @@ drizzle_test!(test_transaction_panic_rollback, SimpleSchema, {
     assert_eq!(users[0].name, "before_panic");
 });
 
-drizzle_test!(test_nested_transaction_operations, SimpleSchema, {
+sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(
@@ -293,7 +293,7 @@ drizzle_test!(test_nested_transaction_operations, SimpleSchema, {
     assert!(!names.contains(&"user3".to_string()));
 });
 
-drizzle_test!(
+sqlite_test!(
     test_transaction_with_failed_query_in_middle,
     SimpleSchema,
     {
@@ -344,7 +344,7 @@ drizzle_test!(
     }
 );
 
-drizzle_test!(test_large_transaction_rollback, SimpleSchema, {
+sqlite_test!(test_large_transaction_rollback, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Test rollback of transaction with many operations

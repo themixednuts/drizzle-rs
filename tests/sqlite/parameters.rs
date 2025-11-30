@@ -3,7 +3,7 @@
 use crate::common::{InsertSimple, SimpleSchema};
 use drizzle::prelude::*;
 use drizzle_core::{SQL, prepared::prepare_render};
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 use drizzle_sqlite::{SQLiteValue, params};
 
 #[test]
@@ -75,7 +75,7 @@ fn test_placeholder_styles() {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-drizzle_test!(test_insert_with_placeholders, SimpleSchema, {
+sqlite_test!(test_insert_with_placeholders, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Create insert model with explicit placeholders
@@ -103,11 +103,11 @@ drizzle_test!(test_insert_with_placeholders, SimpleSchema, {
     );
 });
 
-drizzle_test!(
+sqlite_test!(
     test_insert_with_placeholders_execute_and_retrieve,
     SimpleSchema,
     {
-        #[derive(FromRow, Debug)]
+        #[derive(SQLiteFromRow, Debug)]
         struct SimpleResult {
             id: i32,
             name: String,
@@ -148,11 +148,11 @@ drizzle_test!(
     }
 );
 
-drizzle_test!(
+sqlite_test!(
     test_parameter_integration_with_query_builder,
     SimpleSchema,
     {
-        #[derive(FromRow, Default)]
+        #[derive(SQLiteFromRow, Default)]
         struct SimpleResult(String);
         let SimpleSchema { simple } = schema;
 

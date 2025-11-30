@@ -6,12 +6,12 @@ use crate::common::{InsertSimple, Role, SimpleSchema, UserConfig, UserMetadata};
 use common::Simple;
 use drizzle::prelude::*;
 use drizzle_core::OrderBy;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
 use crate::common::ComplexSchema;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct SimpleResult {
     id: i32,
     name: String,
@@ -27,7 +27,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct ComplexResult {
     id: uuid::Uuid,
     name: String,
@@ -35,13 +35,13 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct JoinResult {
     name: String,
     title: String,
 }
 
-drizzle_test!(simple_select_with_conditions, SimpleSchema, {
+sqlite_test!(simple_select_with_conditions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     // Insert test data
     let test_data = vec![
@@ -97,7 +97,7 @@ drizzle_test!(simple_select_with_conditions, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(complex_select_with_conditions, ComplexSchema, {
+sqlite_test!(complex_select_with_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -163,7 +163,7 @@ drizzle_test!(complex_select_with_conditions, ComplexSchema, {
 });
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-drizzle_test!(feature_gated_select, ComplexSchema, {
+sqlite_test!(feature_gated_select, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with feature-gated fields

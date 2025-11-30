@@ -1,9 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 // Test struct with various data types for FromRow
-#[derive(FromRow, Debug, PartialEq)]
+#[derive(SQLiteFromRow, Debug, PartialEq)]
 struct AllDataTypes {
     id: i32,
     name: String,
@@ -14,7 +14,7 @@ struct AllDataTypes {
 }
 
 // Test struct with different integer sizes
-#[derive(FromRow, Debug, PartialEq)]
+#[derive(SQLiteFromRow, Debug, PartialEq)]
 struct IntegerTypes {
     id: i32,
     big_num: i64,
@@ -23,7 +23,7 @@ struct IntegerTypes {
 }
 
 // Test struct with float types
-#[derive(FromRow, Debug, PartialEq)]
+#[derive(SQLiteFromRow, Debug, PartialEq)]
 struct FloatTypes {
     id: i32,
     precise: f64,
@@ -31,7 +31,7 @@ struct FloatTypes {
 }
 
 // Test table for comprehensive type testing
-#[SQLiteTable(name = "type_test")]
+#[SQLiteTable]
 struct TypeTest {
     #[integer(primary)]
     id: i32,
@@ -48,7 +48,7 @@ struct TypeTest {
 }
 
 // Table for integer size testing
-#[SQLiteTable(name = "integer_test")]
+#[SQLiteTable]
 struct IntegerTest {
     #[integer(primary)]
     id: i32,
@@ -61,7 +61,7 @@ struct IntegerTest {
 }
 
 // Table for float testing
-#[SQLiteTable(name = "float_test")]
+#[SQLiteTable]
 struct FloatTest {
     #[integer(primary)]
     id: i32,
@@ -76,7 +76,7 @@ pub struct TypeTestSchema {
     type_test: TypeTest,
 }
 
-drizzle_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
+sqlite_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
     // Insert test data with all data types
@@ -104,7 +104,7 @@ struct IntegerSchema {
     integer_test: IntegerTest,
 }
 
-drizzle_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
+sqlite_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
     let IntegerSchema { integer_test } = schema;
 
     // Insert test data with different integer sizes
@@ -129,7 +129,7 @@ drizzle_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
 struct FloatSchema {
     float_test: FloatTest,
 }
-drizzle_test!(test_fromrow_with_float_types, FloatSchema, {
+sqlite_test!(test_fromrow_with_float_types, FloatSchema, {
     let FloatSchema { float_test } = schema;
 
     // Insert test data with different float types
@@ -149,7 +149,7 @@ drizzle_test!(test_fromrow_with_float_types, FloatSchema, {
     println!("✅ Float types test passed: {:?}", result);
 });
 
-drizzle_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
+sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
     // Insert test data with edge case values
@@ -173,13 +173,13 @@ drizzle_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
 });
 
 // Test FromRow derive macro with partial selection
-#[derive(FromRow, Debug, Default)]
+#[derive(SQLiteFromRow, Debug, Default)]
 struct DerivedPartialSimple {
     name: String,
 }
 
 // Test FromRow with column mapping
-#[derive(FromRow, Debug, Default)]
+#[derive(SQLiteFromRow, Debug, Default)]
 struct DerivedSimpleWithColumns {
     #[column(TypeTest::id)]
     table_id: i32,
@@ -187,7 +187,7 @@ struct DerivedSimpleWithColumns {
     table_name: String,
 }
 
-drizzle_test!(
+sqlite_test!(
     test_fromrow_derive_with_partial_selection,
     TypeTestSchema,
     {
@@ -203,7 +203,7 @@ drizzle_test!(
     }
 );
 
-drizzle_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
+sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
     let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);

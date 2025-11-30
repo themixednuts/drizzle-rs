@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 use drizzle_sqlite::SQLiteValue;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub struct Profile {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[derive(FromRow, Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(SQLiteFromRow, Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct UserResult {
     id: Uuid,
     age: i64,
@@ -40,7 +40,7 @@ struct Schema {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-drizzle_test!(json_storage, Schema, {
+sqlite_test!(json_storage, Schema, {
     let Schema { jsonuser } = schema;
 
     println!("{}", jsonuser.sql());

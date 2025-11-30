@@ -2,14 +2,14 @@
 #[cfg(feature = "uuid")]
 use crate::common::Simple;
 use drizzle::{prelude::*, sql};
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 use drizzle_sqlite::values::SQLiteValue;
 
 #[cfg(feature = "uuid")]
 use crate::common::ComplexSchema;
 use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
 
-drizzle_test!(test_simple_select_all_sql_generation, SimpleSchema, {
+sqlite_test!(test_simple_select_all_sql_generation, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let query = db.select(()).from(simple);
@@ -36,7 +36,7 @@ drizzle_test!(test_simple_select_all_sql_generation, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_complex_select_all_sql_generation, ComplexSchema, {
+sqlite_test!(test_complex_select_all_sql_generation, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Test select(()).from(complex) - should generate all complex table columns
@@ -65,7 +65,7 @@ drizzle_test!(test_complex_select_all_sql_generation, ComplexSchema, {
     }
 });
 
-drizzle_test!(test_select_all_with_where_clause, SimpleSchema, {
+sqlite_test!(test_select_all_with_where_clause, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Test select(()).from(table).where(...) - should still work with qualified columns
@@ -92,7 +92,7 @@ drizzle_test!(test_select_all_with_where_clause, SimpleSchema, {
     );
 });
 
-drizzle_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
+sqlite_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Compare select(()) vs select(columns![...])
@@ -116,7 +116,7 @@ drizzle_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
     assert!(select_specific_sql.contains(r#"FROM "simple""#));
 });
 
-drizzle_test!(test_sql_macro, SimpleSchema, {
+sqlite_test!(test_sql_macro, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let id = 4;
@@ -140,7 +140,7 @@ drizzle_test!(test_sql_macro, SimpleSchema, {
     assert_eq!(results[0].name, "test");
 });
 
-drizzle_test!(test_sql_printf_style, SimpleSchema, {
+sqlite_test!(test_sql_printf_style, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     let id = 5;
     let name = "printf_test";
@@ -161,7 +161,7 @@ drizzle_test!(test_sql_printf_style, SimpleSchema, {
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
 });
 
-drizzle_test!(test_sql_mixed_named_positional, SimpleSchema, {
+sqlite_test!(test_sql_mixed_named_positional, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     let id = 6;
     let name = "mixed_test";

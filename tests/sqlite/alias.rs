@@ -3,33 +3,33 @@
 use crate::common::{Complex, InsertComplex, InsertPost, Post};
 use crate::common::{InsertSimple, Simple};
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 use crate::common::SimpleSchema;
 #[cfg(feature = "uuid")]
 use crate::common::{ComplexPostSchema, ComplexSchema};
 
 #[allow(dead_code)]
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
 }
 
 #[cfg(feature = "uuid")]
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct JoinResult {
     user_name: String,
     post_title: String,
 }
 
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct NamePair {
     name1: String,
     name2: String,
 }
 
-drizzle_test!(basic_table_alias, SimpleSchema, {
+sqlite_test!(basic_table_alias, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -51,7 +51,7 @@ drizzle_test!(basic_table_alias, SimpleSchema, {
     assert_eq!(results[0].name, "bob");
 });
 
-drizzle_test!(table_alias_with_conditions, SimpleSchema, {
+sqlite_test!(table_alias_with_conditions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -77,7 +77,7 @@ drizzle_test!(table_alias_with_conditions, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(self_join_with_aliases, ComplexSchema, {
+sqlite_test!(self_join_with_aliases, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert test data with same email domain
@@ -120,7 +120,7 @@ drizzle_test!(self_join_with_aliases, ComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(multiple_table_aliases_join, ComplexPostSchema, {
+sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
     let ComplexPostSchema { complex, post } = schema;
 
     // Insert test users
@@ -163,7 +163,7 @@ drizzle_test!(multiple_table_aliases_join, ComplexPostSchema, {
     assert_eq!(results[1].post_title, "Second Post");
 });
 
-drizzle_test!(alias_with_original_table_comparison, SimpleSchema, {
+sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data

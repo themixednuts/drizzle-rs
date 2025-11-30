@@ -4,19 +4,19 @@ use crate::common::{
     ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
 };
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct JsonExtractResult {
     extract: String,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct ConcatResult {
     concat: String,
 }
 
-drizzle_test!(test_basic_comparison_conditions, SimpleSchema, {
+sqlite_test!(test_basic_comparison_conditions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     let test_data = vec![
         InsertSimple::new("Item A").with_id(1),
@@ -66,7 +66,7 @@ drizzle_test!(test_basic_comparison_conditions, SimpleSchema, {
     assert_eq!(result.len(), 2);
 });
 
-drizzle_test!(test_in_array_conditions, SimpleSchema, {
+sqlite_test!(test_in_array_conditions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -106,7 +106,7 @@ drizzle_test!(test_in_array_conditions, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_null_conditions, ComplexSchema, {
+sqlite_test!(test_null_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
@@ -171,7 +171,7 @@ drizzle_test!(test_null_conditions, ComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_between_conditions, ComplexSchema, {
+sqlite_test!(test_between_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -217,7 +217,7 @@ drizzle_test!(test_between_conditions, ComplexSchema, {
     assert_eq!(result.len(), 2);
 });
 
-drizzle_test!(test_like_conditions, SimpleSchema, {
+sqlite_test!(test_like_conditions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -267,7 +267,7 @@ drizzle_test!(test_like_conditions, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_logical_conditions, ComplexSchema, {
+sqlite_test!(test_logical_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -323,7 +323,7 @@ drizzle_test!(test_logical_conditions, ComplexSchema, {
     assert_eq!(result.len(), 2);
 });
 
-drizzle_test!(test_single_condition_logical_operations, SimpleSchema, {
+sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data - both have same pattern (both set id)
@@ -361,7 +361,7 @@ drizzle_test!(test_single_condition_logical_operations, SimpleSchema, {
     assert_eq!(result.len(), 2); // No condition should return all
 });
 
-drizzle_test!(test_string_operations, SimpleSchema, {
+sqlite_test!(test_string_operations, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -384,7 +384,7 @@ drizzle_test!(test_string_operations, SimpleSchema, {
 });
 
 #[cfg(all(feature = "sqlite", feature = "serde"))]
-drizzle_test!(test_sqlite_json_conditions, ComplexSchema, {
+sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
     use crate::common::{ComplexSchema, UserMetadata};
     use drizzle::sqlite::conditions::*;
 
@@ -422,7 +422,7 @@ drizzle_test!(test_sqlite_json_conditions, ComplexSchema, {
     assert_eq!(result[0].extract, "dark");
 });
 
-drizzle_test!(test_condition_edge_cases, SimpleSchema, {
+sqlite_test!(test_condition_edge_cases, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];

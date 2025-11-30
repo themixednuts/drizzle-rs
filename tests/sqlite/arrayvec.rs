@@ -5,7 +5,7 @@
 
 use arrayvec::{ArrayString, ArrayVec};
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 // Test table with ArrayString as TEXT column
 #[SQLiteTable(name = "arraystring_test")]
@@ -59,7 +59,7 @@ struct MixedArrayVecSchema {
     mixed_arrayvec_test: MixedArrayVecTest,
 }
 
-drizzle_test!(test_arraystring_text_storage, ArrayStringSchema, {
+sqlite_test!(test_arraystring_text_storage, ArrayStringSchema, {
     let table = schema.arraystring_test;
 
     // Create ArrayString (within capacity)
@@ -81,7 +81,7 @@ drizzle_test!(test_arraystring_text_storage, ArrayStringSchema, {
     assert_eq!(results[0].name.as_str(), "Hello");
     assert_eq!(results[0].description, "test description");
 
-    #[derive(FromRow, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as TEXT in the database
     let result: ReturnResult = drizzle_exec!(
@@ -94,7 +94,7 @@ drizzle_test!(test_arraystring_text_storage, ArrayStringSchema, {
     assert_eq!(result.0, "text");
 });
 
-drizzle_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
+sqlite_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
     let table = schema.arrayvec_blob_test;
 
     // Create ArrayVec with some bytes
@@ -118,7 +118,7 @@ drizzle_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
     assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
     assert_eq!(results[0].label, "blob test");
 
-    #[derive(FromRow, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as BLOB in the database
     let result: ReturnResult = drizzle_exec!(
@@ -131,7 +131,7 @@ drizzle_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
     assert_eq!(result.0, "blob");
 });
 
-drizzle_test!(test_arraystring_roundtrip, ArrayStringSchema, {
+sqlite_test!(test_arraystring_roundtrip, ArrayStringSchema, {
     let table = schema.arraystring_test;
 
     // Test with various string lengths (within capacity)
@@ -158,7 +158,7 @@ drizzle_test!(test_arraystring_roundtrip, ArrayStringSchema, {
     }
 });
 
-drizzle_test!(test_arrayvec_roundtrip, ArrayVecBlobSchema, {
+sqlite_test!(test_arrayvec_roundtrip, ArrayVecBlobSchema, {
     let table = schema.arrayvec_blob_test;
 
     // Test with various byte arrays (within capacity)
@@ -192,7 +192,7 @@ drizzle_test!(test_arrayvec_roundtrip, ArrayVecBlobSchema, {
     }
 });
 
-drizzle_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
+sqlite_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
     let table = schema.mixed_arrayvec_test;
 
     // Create data with different capacities
@@ -242,7 +242,7 @@ drizzle_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
     }
 });
 
-drizzle_test!(test_arraystring_empty, ArrayStringSchema, {
+sqlite_test!(test_arraystring_empty, ArrayStringSchema, {
     let table = schema.arraystring_test;
 
     // Test with empty string
@@ -261,7 +261,7 @@ drizzle_test!(test_arraystring_empty, ArrayStringSchema, {
     assert_eq!(results[0].name.as_str(), "");
 });
 
-drizzle_test!(test_arrayvec_empty, ArrayVecBlobSchema, {
+sqlite_test!(test_arrayvec_empty, ArrayVecBlobSchema, {
     let table = schema.arrayvec_blob_test;
 
     // Test with empty ArrayVec
@@ -280,7 +280,7 @@ drizzle_test!(test_arrayvec_empty, ArrayVecBlobSchema, {
     assert_eq!(results[0].data.len(), 0);
 });
 
-drizzle_test!(test_arraystring_max_capacity, ArrayStringSchema, {
+sqlite_test!(test_arraystring_max_capacity, ArrayStringSchema, {
     let table = schema.arraystring_test;
 
     // Test with string at maximum capacity (16 chars)
@@ -300,7 +300,7 @@ drizzle_test!(test_arraystring_max_capacity, ArrayStringSchema, {
     assert_eq!(results[0].name.len(), 16);
 });
 
-drizzle_test!(test_arrayvec_max_capacity, ArrayVecBlobSchema, {
+sqlite_test!(test_arrayvec_max_capacity, ArrayVecBlobSchema, {
     let table = schema.arrayvec_blob_test;
 
     // Test with ArrayVec at maximum capacity (32 bytes)
@@ -325,7 +325,7 @@ drizzle_test!(test_arrayvec_max_capacity, ArrayVecBlobSchema, {
     }
 });
 
-drizzle_test!(test_arrayvec_update, ArrayVecBlobSchema, {
+sqlite_test!(test_arrayvec_update, ArrayVecBlobSchema, {
     let table = schema.arrayvec_blob_test;
 
     // Insert initial data

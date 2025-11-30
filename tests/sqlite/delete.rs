@@ -1,11 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use crate::common::{InsertComplex, InsertSimple, Role, Simple, SimpleComplexSchema, SimpleSchema};
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
@@ -21,7 +21,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct ComplexResult {
     id: Uuid,
     name: String,
@@ -29,7 +29,7 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-drizzle_test!(simple_delete, SimpleSchema, {
+sqlite_test!(simple_delete, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test records
@@ -75,7 +75,7 @@ drizzle_test!(simple_delete, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(feature_gated_delete, SimpleComplexSchema, {
+sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
     let SimpleComplexSchema { simple, complex } = schema;
 
     // Insert test records with UUIDs

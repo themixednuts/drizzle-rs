@@ -5,91 +5,91 @@ use crate::common::{ComplexSchema, InsertComplex};
 use crate::common::{InsertSimple, Role, SelectSimple, SimpleSchema};
 use drizzle::prelude::*;
 use drizzle::sql;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct CountResult {
     count: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct SumResult {
     sum: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct MinResult {
     min: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct MaxResult {
     max: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct AvgResult {
     avg: f64,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct SumRealResult {
     sum: f64,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct MinRealResult {
     min: f64,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct MaxRealResult {
     max: f64,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct DistinctResult {
     name: String,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct CoalesceStringResult {
     coalesce: String,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct CoalesceIntResult {
     coalesce: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct AliasResult {
     item_name: String,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct CountAliasResult {
     total_count: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct SumAliasResult {
     id_sum: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct ComplexAggregateResult {
     count: i32,
     avg: f64,
     max_age: i32,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct CoalesceAvgResult {
     coalesce: f64,
 }
 
-drizzle_test!(test_aggregate_functions, SimpleSchema, {
+sqlite_test!(test_aggregate_functions, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -131,7 +131,7 @@ drizzle_test!(test_aggregate_functions, SimpleSchema, {
 }); /////
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
+sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -184,7 +184,7 @@ drizzle_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     assert!((result[0].max - 92.0).abs() < 0.1);
 });
 
-drizzle_test!(test_distinct_expression, SimpleSchema, {
+sqlite_test!(test_distinct_expression, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -219,7 +219,7 @@ drizzle_test!(test_distinct_expression, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_coalesce_expression, ComplexSchema, {
+sqlite_test!(test_coalesce_expression, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
@@ -268,7 +268,7 @@ drizzle_test!(test_coalesce_expression, ComplexSchema, {
     assert!(result.iter().all(|r| r.coalesce == 0));
 });
 
-drizzle_test!(test_alias_expression, SimpleSchema, {
+sqlite_test!(test_alias_expression, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test Item").with_id(1)];
@@ -301,7 +301,7 @@ drizzle_test!(test_alias_expression, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_complex_expressions, ComplexSchema, {
+sqlite_test!(test_complex_expressions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
@@ -351,7 +351,7 @@ drizzle_test!(test_complex_expressions, ComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_expressions_with_conditions, ComplexSchema, {
+sqlite_test!(test_expressions_with_conditions, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     let test_data = [
@@ -391,7 +391,7 @@ drizzle_test!(test_expressions_with_conditions, ComplexSchema, {
     assert!((result[0].max - 88.7).abs() < 0.1);
 });
 
-drizzle_test!(test_aggregate_with_empty_result, SimpleSchema, {
+sqlite_test!(test_aggregate_with_empty_result, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // No data inserted, test aggregate functions on empty table
@@ -409,7 +409,7 @@ drizzle_test!(test_aggregate_with_empty_result, SimpleSchema, {
     // which would be handled by the driver
 });
 
-drizzle_test!(test_expression_edge_cases, SimpleSchema, {
+sqlite_test!(test_expression_edge_cases, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -453,7 +453,7 @@ drizzle_test!(test_expression_edge_cases, SimpleSchema, {
     assert_eq!(result[0].coalesce, ""); // Empty string is not NULL, so coalesce returns it
 });
 
-drizzle_test!(test_multiple_aliases, SimpleSchema, {
+sqlite_test!(test_multiple_aliases, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -463,7 +463,7 @@ drizzle_test!(test_multiple_aliases, SimpleSchema, {
 
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
-    #[derive(FromRow)]
+    #[derive(SQLiteFromRow)]
     struct ResultRow {
         identifier: i32,
         item_name: String,
@@ -487,7 +487,7 @@ drizzle_test!(test_multiple_aliases, SimpleSchema, {
 
 // CTE tests have moved to use .as_cte() API - see test_cte_integration_* tests below
 
-drizzle_test!(test_cte_integration_simple, SimpleSchema, {
+sqlite_test!(test_cte_integration_simple, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -518,7 +518,7 @@ drizzle_test!(test_cte_integration_simple, SimpleSchema, {
     assert_eq!(result[1].name, "Charlie");
 });
 
-drizzle_test!(test_cte_integration_with_aggregation, SimpleSchema, {
+sqlite_test!(test_cte_integration_with_aggregation, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -536,7 +536,7 @@ drizzle_test!(test_cte_integration_with_aggregation, SimpleSchema, {
         .from(simple)
         .as_cte("user_count");
 
-    #[derive(FromRow)]
+    #[derive(SQLiteFromRow)]
     struct CountResult {
         count: i32,
     }
@@ -553,7 +553,7 @@ drizzle_test!(test_cte_integration_with_aggregation, SimpleSchema, {
     assert_eq!(result[0].count, 3);
 });
 
-drizzle_test!(test_cte_complex_two_levels, SimpleSchema, {
+sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -573,7 +573,7 @@ drizzle_test!(test_cte_complex_two_levels, SimpleSchema, {
         .r#where(gt(simple.id, 2))
         .as_cte("filtered_users");
 
-    #[derive(FromRow)]
+    #[derive(SQLiteFromRow)]
     struct StatsResult {
         count: i32,
         category: String,

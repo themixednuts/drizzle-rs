@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use crate::common::Role;
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -45,7 +45,7 @@ pub struct ComplexPostSchema {
 }
 
 #[cfg(feature = "uuid")]
-drizzle_test!(test_foreign_key_impl, ComplexPostSchema, {
+sqlite_test!(test_foreign_key_impl, ComplexPostSchema, {
     let ComplexPostSchema { complex, post } = schema;
 
     let id = Uuid::new_v4();

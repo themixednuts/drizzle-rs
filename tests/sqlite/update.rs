@@ -5,16 +5,16 @@ use crate::common::{
     InsertSimple, Role, Simple, SimpleSchema, UpdateSimple, UserConfig, UserMetadata,
 };
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct SimpleResult {
     id: i32,
     name: String,
 }
 
 #[cfg(not(feature = "uuid"))]
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct ComplexResult {
     id: i32,
     name: String,
@@ -24,7 +24,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct ComplexResult {
     id: uuid::Uuid,
     name: String,
@@ -33,7 +33,7 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-drizzle_test!(simple_update, SimpleSchema, {
+sqlite_test!(simple_update, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     // Insert initial Simple record
     let insert_data = InsertSimple::new("original");
@@ -72,7 +72,7 @@ drizzle_test!(simple_update, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(complex_update, ComplexSchema, {
+sqlite_test!(complex_update, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert initial Complex record
@@ -131,7 +131,7 @@ drizzle_test!(complex_update, ComplexSchema, {
 });
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-drizzle_test!(feature_gated_update, ComplexSchema, {
+sqlite_test!(feature_gated_update, ComplexSchema, {
     let ComplexSchema { complex } = schema;
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();

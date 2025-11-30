@@ -3,7 +3,7 @@ use crate::common::{Category, InsertCategory, InsertPost, InsertPostCategory, Po
 #[cfg(feature = "uuid")]
 use crate::common::{Complex, InsertComplex};
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
 use std::array;
 #[cfg(feature = "uuid")]
@@ -15,7 +15,7 @@ use crate::common::FullBlogSchema;
 use crate::common::{ComplexPostSchema, FullBlogSchema};
 
 #[cfg(feature = "uuid")]
-#[derive(Debug, FromRow, Default)]
+#[derive(Debug, SQLiteFromRow, Default)]
 struct AuthorPostResult {
     #[column(Complex::name)]
     author_name: String,
@@ -25,7 +25,7 @@ struct AuthorPostResult {
     post_content: Option<String>,
 }
 
-#[derive(Debug, FromRow, Default)]
+#[derive(Debug, SQLiteFromRow, Default)]
 struct PostCategoryResult {
     #[column(Post::title)]
     post_title: String,
@@ -36,7 +36,7 @@ struct PostCategoryResult {
 }
 
 #[cfg(feature = "uuid")]
-drizzle_test!(simple_inner_join, ComplexPostSchema, {
+sqlite_test!(simple_inner_join, ComplexPostSchema, {
     let ComplexPostSchema { complex, post } = schema;
 
     #[cfg(not(feature = "uuid"))]
@@ -127,7 +127,7 @@ drizzle_test!(simple_inner_join, ComplexPostSchema, {
     });
 });
 
-drizzle_test!(many_to_many_join, FullBlogSchema, {
+sqlite_test!(many_to_many_join, FullBlogSchema, {
     let FullBlogSchema {
         category,
         post,

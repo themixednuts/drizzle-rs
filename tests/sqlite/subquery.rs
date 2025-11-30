@@ -2,15 +2,15 @@
 use crate::common::{InsertSimple, SimpleSchema};
 use drizzle::core::{avg, min};
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, SQLiteFromRow)]
 struct SubqueryResult {
     id: i32,
     name: String,
 }
 
-drizzle_test!(test_one_level_subquery, SimpleSchema, {
+sqlite_test!(test_one_level_subquery, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -37,7 +37,7 @@ drizzle_test!(test_one_level_subquery, SimpleSchema, {
 });
 
 // Note: Turso doesn't support nested subqueries in AVG() - turso variant will fail
-drizzle_test!(test_two_level_subquery, SimpleSchema, {
+sqlite_test!(test_two_level_subquery, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -66,7 +66,7 @@ drizzle_test!(test_two_level_subquery, SimpleSchema, {
     assert!(results.iter().any(|r| r.name == "user4"));
 });
 
-drizzle_test!(test_three_level_subquery, SimpleSchema, {
+sqlite_test!(test_three_level_subquery, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert test data

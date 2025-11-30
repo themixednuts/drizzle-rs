@@ -4,11 +4,11 @@
 ))]
 
 use drizzle::prelude::*;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 use uuid::Uuid;
 
 // Test table with UUID as TEXT column
-#[SQLiteTable(name = "uuid_text_test")]
+#[SQLiteTable]
 struct UuidTextTest {
     #[integer(primary)]
     id: i32,
@@ -19,7 +19,7 @@ struct UuidTextTest {
 }
 
 // Test table with UUID as BLOB column
-#[SQLiteTable(name = "uuid_blob_test")]
+#[SQLiteTable]
 struct UuidBlobTest {
     #[integer(primary)]
     id: i32,
@@ -30,7 +30,7 @@ struct UuidBlobTest {
 }
 
 // Test table with UUID TEXT column using default_fn
-#[SQLiteTable(name = "uuid_text_default")]
+#[SQLiteTable]
 struct UuidTextDefault {
     #[integer(primary)]
     id: i32,
@@ -41,7 +41,7 @@ struct UuidTextDefault {
 }
 
 // Test table with UUID BLOB column using default_fn
-#[SQLiteTable(name = "uuid_blob_default")]
+#[SQLiteTable]
 struct UuidBlobDefault {
     #[integer(primary)]
     id: i32,
@@ -71,7 +71,7 @@ struct UuidBlobDefaultSchema {
     uuid_blob_default: UuidBlobDefault,
 }
 
-drizzle_test!(test_uuid_text_storage, UuidTextSchema, {
+sqlite_test!(test_uuid_text_storage, UuidTextSchema, {
     let table = schema.uuid_text_test;
 
     // Generate test UUID
@@ -93,7 +93,7 @@ drizzle_test!(test_uuid_text_storage, UuidTextSchema, {
     assert_eq!(results[0].uuid_field, test_uuid);
     assert_eq!(results[0].name, "text storage test");
 
-    #[derive(FromRow, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as TEXT in the database
     let result: ReturnResult = drizzle_exec!(
@@ -106,7 +106,7 @@ drizzle_test!(test_uuid_text_storage, UuidTextSchema, {
     dbg!(&result);
 });
 
-drizzle_test!(test_uuid_blob_storage, UuidBlobSchema, {
+sqlite_test!(test_uuid_blob_storage, UuidBlobSchema, {
     let table = schema.uuid_blob_test;
 
     // Generate test UUID
@@ -128,7 +128,7 @@ drizzle_test!(test_uuid_blob_storage, UuidBlobSchema, {
     assert_eq!(results[0].uuid_field, test_uuid);
     assert_eq!(results[0].name, "blob storage test");
 
-    #[derive(FromRow, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as BLOB in the database
     let result: ReturnResult = drizzle_exec!(
@@ -141,7 +141,7 @@ drizzle_test!(test_uuid_blob_storage, UuidBlobSchema, {
     assert_eq!(result.0, "blob");
 });
 
-drizzle_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
+sqlite_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
     // Test TEXT storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_text_test;
@@ -157,7 +157,7 @@ drizzle_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
     assert_eq!(results[0].uuid_field, test_uuid);
 });
 
-drizzle_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
+sqlite_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
     // Test BLOB storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_blob_test;
@@ -173,7 +173,7 @@ drizzle_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
     assert_eq!(results[0].uuid_field, test_uuid);
 });
 
-drizzle_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
+sqlite_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     let table = schema.uuid_text_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -193,7 +193,7 @@ drizzle_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     // Verify UUID was generated (not nil)
     assert_ne!(results[0].uuid_field, Uuid::nil());
 
-    #[derive(FromRow, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as TEXT
     let result: ReturnResult = drizzle_exec!(
@@ -206,7 +206,7 @@ drizzle_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     assert_eq!(result.0, "text");
 });
 
-drizzle_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
+sqlite_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     let table = schema.uuid_blob_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -226,7 +226,7 @@ drizzle_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     // Verify UUID was generated (not nil)
     assert_ne!(results[0].uuid_field, Uuid::nil());
 
-    #[derive(FromRow, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as BLOB
     let result: ReturnResult = drizzle_exec!(
@@ -239,7 +239,7 @@ drizzle_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     assert_eq!(result.0, "blob");
 });
 
-drizzle_test!(
+sqlite_test!(
     test_uuid_text_default_fn_uniqueness,
     UuidTextDefaultSchema,
     {
@@ -265,7 +265,7 @@ drizzle_test!(
     }
 );
 
-drizzle_test!(
+sqlite_test!(
     test_uuid_blob_default_fn_uniqueness,
     UuidBlobDefaultSchema,
     {

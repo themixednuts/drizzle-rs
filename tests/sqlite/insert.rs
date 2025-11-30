@@ -4,7 +4,7 @@ use crate::common::{Complex, InsertComplex};
 use crate::common::{InsertSimple, Role, UserConfig, UserMetadata};
 use drizzle::prelude::*;
 use drizzle::sqlite::builder::Conflict;
-use drizzle_macros::drizzle_test;
+use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::common::ComplexSchema;
 use crate::common::SimpleSchema;
 
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
@@ -29,7 +29,7 @@ struct ComplexResult {
 }
 
 #[cfg(feature = "uuid")]
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Debug)]
 struct ComplexResult {
     id: Uuid,
     name: String,
@@ -38,7 +38,7 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-drizzle_test!(simple_insert, SimpleSchema, {
+sqlite_test!(simple_insert, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert Simple record
@@ -60,7 +60,7 @@ drizzle_test!(simple_insert, SimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-drizzle_test!(complex_insert, ComplexSchema, {
+sqlite_test!(complex_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with various field types
@@ -106,7 +106,7 @@ drizzle_test!(complex_insert, ComplexSchema, {
     assert_eq!(results[0].description, Some("Test description".to_string()));
 });
 
-drizzle_test!(conflict_resolution, SimpleSchema, {
+sqlite_test!(conflict_resolution, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Insert initial Simple record
@@ -140,7 +140,7 @@ drizzle_test!(conflict_resolution, SimpleSchema, {
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[cfg(feature = "uuid")]
-drizzle_test!(feature_gated_insert, ComplexSchema, {
+sqlite_test!(feature_gated_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record using feature-gated fields
