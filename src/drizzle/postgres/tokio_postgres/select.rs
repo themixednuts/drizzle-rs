@@ -7,9 +7,9 @@ use drizzle_postgres::{
     common::PostgresSchemaType,
 };
 use drizzle_postgres::{
+    ToPostgresSQL,
     builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet},
     traits::PostgresTable,
-    ToPostgresSQL,
 };
 
 use crate::drizzle::postgres::tokio_postgres::DrizzleBuilder;
@@ -181,7 +181,6 @@ where
             state: PhantomData,
         }
     }
-
 }
 
 impl<'a, Schema, T>

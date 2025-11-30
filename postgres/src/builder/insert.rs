@@ -56,6 +56,7 @@ impl InsertOnConflictSet {
 
 /// Conflict target specification for PostgreSQL ON CONFLICT clause
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ConflictTarget<'a> {
     /// Target specific columns: ON CONFLICT (column1, column2, ...)
     Columns(SQL<'a, PostgresValue<'a>>),
@@ -71,6 +72,7 @@ pub enum ConflictTarget<'a> {
 
 /// Conflict resolution strategies for PostgreSQL
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Conflict<'a> {
     /// Do nothing on conflict - ON CONFLICT DO NOTHING or ON CONFLICT (target) DO NOTHING
     DoNothing {

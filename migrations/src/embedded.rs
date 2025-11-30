@@ -134,24 +134,16 @@ impl EmbeddedMigrations {
             Dialect::Sqlite | Dialect::Postgresql => {
                 r#"SELECT hash FROM "__drizzle_migrations" ORDER BY id;"#
             }
-            Dialect::Mysql => {
-                r#"SELECT hash FROM `__drizzle_migrations` ORDER BY id;"#
-            }
+            Dialect::Mysql => r#"SELECT hash FROM `__drizzle_migrations` ORDER BY id;"#,
         }
     }
 
     /// Get the SQL to record a migration as applied (with placeholder)
     pub fn record_migration_sql(&self) -> &'static str {
         match self.dialect {
-            Dialect::Sqlite => {
-                r#"INSERT INTO "__drizzle_migrations" (hash) VALUES (?1);"#
-            }
-            Dialect::Postgresql => {
-                r#"INSERT INTO "__drizzle_migrations" (hash) VALUES ($1);"#
-            }
-            Dialect::Mysql => {
-                r#"INSERT INTO `__drizzle_migrations` (hash) VALUES (?);"#
-            }
+            Dialect::Sqlite => r#"INSERT INTO "__drizzle_migrations" (hash) VALUES (?1);"#,
+            Dialect::Postgresql => r#"INSERT INTO "__drizzle_migrations" (hash) VALUES ($1);"#,
+            Dialect::Mysql => r#"INSERT INTO `__drizzle_migrations` (hash) VALUES (?);"#,
         }
     }
 }
@@ -191,4 +183,3 @@ mod tests {
         assert_eq!(pending[1].tag, "0002_third");
     }
 }
-

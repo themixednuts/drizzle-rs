@@ -68,8 +68,7 @@ where
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
-    >
-    {
+    > {
         let builder = self.builder.on_conflict(conflict);
         TransactionBuilder {
             transaction: self.transaction,

@@ -329,7 +329,8 @@ where
 }
 
 /// Helper function to create an UPSERT (ON CONFLICT) clause - PostgreSQL specific
-pub(crate) fn on_conflict<'a, T>(
+#[allow(dead_code)]
+pub(crate) fn on_conflict<'a>(
     conflict_target: Option<PostgresSQL<'a>>,
     action: impl ToPostgresSQL<'a>,
 ) -> PostgresSQL<'a> {

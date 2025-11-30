@@ -56,8 +56,7 @@ where
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
-    >
-    {
+    > {
         let builder = self.builder.on_conflict(conflict);
         DrizzleBuilder {
             drizzle: self.drizzle,

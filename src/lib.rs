@@ -2,6 +2,20 @@
 //!
 //! Drizzle is a type-safe SQL query builder for Rust, supporting multiple database
 //! drivers including SQLite (via rusqlite, libsql, turso) and PostgreSQL (via sqlx).
+
+// Allow warnings for WIP code and different driver configurations
+#![allow(
+    unexpected_cfgs,
+    unused_imports,
+    unused_macros,
+    unused_mut,
+    dead_code,
+    clippy::redundant_closure,
+    clippy::needless_question_mark,
+    clippy::await_holding_refcell_ref,
+    clippy::duplicated_attributes,
+    clippy::single_component_path_imports
+)]
 //!
 //! ## Quick Start
 //!

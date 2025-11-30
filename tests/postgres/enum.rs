@@ -60,7 +60,10 @@ mod unit_tests {
 }
 
 // Database execution tests for enum storage/retrieval
-#[cfg(all(feature = "uuid", any(feature = "postgres-sync", feature = "tokio-postgres")))]
+#[cfg(all(
+    feature = "uuid",
+    any(feature = "postgres-sync", feature = "tokio-postgres")
+))]
 mod execution {
     use crate::common::pg::*;
     use drizzle::prelude::*;
@@ -90,7 +93,10 @@ mod execution {
         drizzle_exec!(stmt.execute());
 
         // Select and verify enum was stored correctly
-        let stmt = db.select(()).from(complex).order_by([OrderBy::asc(complex.name)]);
+        let stmt = db
+            .select(())
+            .from(complex)
+            .order_by([OrderBy::asc(complex.name)]);
         let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
         assert_eq!(results.len(), 3);
@@ -123,7 +129,9 @@ mod execution {
     postgres_test!(enum_update, PgComplexSchema, {
         let PgComplexSchema { complex, .. } = schema;
 
-        let stmt = db.insert(complex).values([InsertPgComplex::new("Test User", true, PgRole::User)]);
+        let stmt =
+            db.insert(complex)
+                .values([InsertPgComplex::new("Test User", true, PgRole::User)]);
         drizzle_exec!(stmt.execute());
 
         // Update enum value

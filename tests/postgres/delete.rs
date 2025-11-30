@@ -26,10 +26,9 @@ postgres_test!(delete_single_row, PgSimpleSchema, {
     let PgSimpleSchema { simple } = schema;
 
     // Insert data
-    let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-    ]);
+    let stmt = db
+        .insert(simple)
+        .values([InsertPgSimple::new("Alice"), InsertPgSimple::new("Bob")]);
     drizzle_exec!(stmt.execute());
 
     // Delete one row
@@ -109,9 +108,10 @@ postgres_test!(delete_with_complex_where, PgComplexSchema, {
     drizzle_exec!(stmt.execute());
 
     // Delete inactive users (not admins)
-    let stmt = db
-        .delete(complex)
-        .r#where(and([eq(complex.active, false), eq(complex.role, PgRole::User)]));
+    let stmt = db.delete(complex).r#where(and([
+        eq(complex.active, false),
+        eq(complex.role, PgRole::User),
+    ]));
     drizzle_exec!(stmt.execute());
 
     // Verify correct deletion
@@ -131,15 +131,16 @@ postgres_test!(delete_with_null_check, PgComplexSchema, {
     let PgComplexSchema { complex, .. } = schema;
 
     // Insert data with email
-    let stmt = db.insert(complex).values([
-        InsertPgComplex::new("With Email", true, PgRole::User).with_email("test@example.com"),
-    ]);
+    let stmt =
+        db.insert(complex)
+            .values([InsertPgComplex::new("With Email", true, PgRole::User)
+                .with_email("test@example.com")]);
     drizzle_exec!(stmt.execute());
 
     // Insert data without email (separate insert due to type state)
-    let stmt = db.insert(complex).values([
-        InsertPgComplex::new("No Email", true, PgRole::User),
-    ]);
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
     drizzle_exec!(stmt.execute());
 
     // Delete rows with NULL email
@@ -195,9 +196,7 @@ postgres_test!(delete_with_between, PgComplexSchema, {
     drizzle_exec!(stmt.execute());
 
     // Delete ages between 20 and 50
-    let stmt = db
-        .delete(complex)
-        .r#where(between(complex.age, 20, 50));
+    let stmt = db.delete(complex).r#where(between(complex.age, 20, 50));
     drizzle_exec!(stmt.execute());
 
     // Verify deletion

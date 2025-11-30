@@ -3,7 +3,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::path::PathBuf;
-use syn::{parse::Parse, parse::ParseStream, LitStr, Token};
+use syn::{LitStr, Token, parse::Parse, parse::ParseStream};
 
 /// Input for include_migrations! macro
 pub struct IncludeMigrationsInput {
@@ -35,7 +35,10 @@ impl Parse for IncludeMigrationsInput {
                 other => {
                     return Err(syn::Error::new(
                         dialect_str.span(),
-                        format!("Unknown dialect '{}'. Expected 'sqlite', 'postgresql', or 'mysql'", other),
+                        format!(
+                            "Unknown dialect '{}'. Expected 'sqlite', 'postgresql', or 'mysql'",
+                            other
+                        ),
                     ));
                 }
             }
@@ -85,7 +88,10 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
 
     // Get the directory where Cargo.toml is located (CARGO_MANIFEST_DIR)
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
-        syn::Error::new(span, "CARGO_MANIFEST_DIR not set - are you running from cargo?")
+        syn::Error::new(
+            span,
+            "CARGO_MANIFEST_DIR not set - are you running from cargo?",
+        )
     })?;
 
     let base_path = PathBuf::from(&manifest_dir).join(&path_str);
@@ -95,14 +101,20 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
         // Config file exists, parse it
         let config_path = base_path.join("drizzle.toml");
         let config_content = std::fs::read_to_string(&config_path).map_err(|e| {
-            syn::Error::new(span, format!("Failed to read {}: {}", config_path.display(), e))
+            syn::Error::new(
+                span,
+                format!("Failed to read {}: {}", config_path.display(), e),
+            )
         })?;
 
         let config: DrizzleConfig = toml::from_str(&config_content).map_err(|e| {
-            syn::Error::new(span, format!("Failed to parse {}: {}", config_path.display(), e))
+            syn::Error::new(
+                span,
+                format!("Failed to parse {}: {}", config_path.display(), e),
+            )
         })?;
 
-        let dialect = input.dialect.unwrap_or_else(|| match config.dialect.as_str() {
+        let dialect = input.dialect.unwrap_or(match config.dialect.as_str() {
             "postgresql" => Dialect::Postgresql,
             "mysql" => Dialect::Mysql,
             _ => Dialect::Sqlite,
@@ -111,15 +123,24 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
         (base_path.join(&config.out).join("migrations"), dialect)
     } else if base_path.join("migrations").exists() {
         // Direct migrations directory
-        let journal_path = base_path.join("migrations").join("meta").join("_journal.json");
+        let journal_path = base_path
+            .join("migrations")
+            .join("meta")
+            .join("_journal.json");
         let dialect = if journal_path.exists() {
             let journal_content = std::fs::read_to_string(&journal_path).map_err(|e| {
-                syn::Error::new(span, format!("Failed to read {}: {}", journal_path.display(), e))
+                syn::Error::new(
+                    span,
+                    format!("Failed to read {}: {}", journal_path.display(), e),
+                )
             })?;
             let journal: Journal = serde_json::from_str(&journal_content).map_err(|e| {
-                syn::Error::new(span, format!("Failed to parse {}: {}", journal_path.display(), e))
+                syn::Error::new(
+                    span,
+                    format!("Failed to parse {}: {}", journal_path.display(), e),
+                )
             })?;
-            input.dialect.unwrap_or_else(|| match journal.dialect.as_str() {
+            input.dialect.unwrap_or(match journal.dialect.as_str() {
                 "postgresql" => Dialect::Postgresql,
                 "mysql" => Dialect::Mysql,
                 _ => Dialect::Sqlite,
@@ -147,11 +168,17 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
     }
 
     let journal_content = std::fs::read_to_string(&journal_path).map_err(|e| {
-        syn::Error::new(span, format!("Failed to read {}: {}", journal_path.display(), e))
+        syn::Error::new(
+            span,
+            format!("Failed to read {}: {}", journal_path.display(), e),
+        )
     })?;
 
     let journal: Journal = serde_json::from_str(&journal_content).map_err(|e| {
-        syn::Error::new(span, format!("Failed to parse {}: {}", journal_path.display(), e))
+        syn::Error::new(
+            span,
+            format!("Failed to parse {}: {}", journal_path.display(), e),
+        )
     })?;
 
     // Validate all migration files exist and generate entries
@@ -233,4 +260,3 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
 
     Ok(output)
 }
-

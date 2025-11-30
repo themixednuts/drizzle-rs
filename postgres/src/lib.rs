@@ -4,6 +4,8 @@
 //! for the drizzle-rs ORM. It supports runtime-agnostic database connections
 //! through optional sqlx integration.
 
+#![allow(unexpected_cfgs)]
+
 // Re-export common types and traits
 pub use drizzle_core::{OrderBy, SQL, ToSQL};
 
@@ -21,22 +23,17 @@ pub use traits::{PostgresColumn, PostgresColumnInfo, PostgresEnum};
 pub use values::{PostgresInsertValue, PostgresValue, ValueWrapper};
 
 // Transaction types - PostgreSQL specific isolation levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresTransactionType {
     /// READ UNCOMMITTED isolation level
     ReadUncommitted,
     /// READ COMMITTED isolation level (PostgreSQL default)
+    #[default]
     ReadCommitted,
     /// REPEATABLE READ isolation level
     RepeatableRead,
     /// SERIALIZABLE isolation level
     Serializable,
-}
-
-impl Default for PostgresTransactionType {
-    fn default() -> Self {
-        Self::ReadCommitted
-    }
 }
 
 impl std::fmt::Display for PostgresTransactionType {

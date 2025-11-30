@@ -13,6 +13,15 @@
 //! ### PostgreSQL
 //! - [`PostgresTable`] - Define PostgreSQL table schemas with type safety
 //! - [`PostgresEnum`] - Define enums for PostgreSQL (text, integer, or native ENUM)
+
+// Allow dead code for WIP features
+#![allow(
+    dead_code,
+    unused_variables,
+    unused_imports,
+    unused_assignments,
+    unused_mut
+)]
 //! - [`PostgresIndex`] - Define indexes on PostgreSQL tables
 //! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
 //!

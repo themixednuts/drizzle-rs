@@ -200,14 +200,14 @@ fn diff_columns(prev: &HashMap<String, Column>, cur: &HashMap<String, Column>) -
     }
 
     for (name, cur_col) in cur {
-        if let Some(prev_col) = prev.get(name) {
-            if prev_col != cur_col {
-                diff.altered.push(AlteredColumn {
-                    name: name.clone(),
-                    old: prev_col.clone(),
-                    new: cur_col.clone(),
-                });
-            }
+        if let Some(prev_col) = prev.get(name)
+            && prev_col != cur_col
+        {
+            diff.altered.push(AlteredColumn {
+                name: name.clone(),
+                old: prev_col.clone(),
+                new: cur_col.clone(),
+            });
         }
     }
 
@@ -230,10 +230,10 @@ fn diff_indexes(prev: &HashMap<String, Index>, cur: &HashMap<String, Index>) -> 
     }
 
     for (name, cur_idx) in cur {
-        if let Some(prev_idx) = prev.get(name) {
-            if prev_idx != cur_idx {
-                diff.altered.push((prev_idx.clone(), cur_idx.clone()));
-            }
+        if let Some(prev_idx) = prev.get(name)
+            && prev_idx != cur_idx
+        {
+            diff.altered.push((prev_idx.clone(), cur_idx.clone()));
         }
     }
 
@@ -259,10 +259,10 @@ fn diff_foreign_keys(
     }
 
     for (name, cur_fk) in cur {
-        if let Some(prev_fk) = prev.get(name) {
-            if prev_fk != cur_fk {
-                diff.altered.push((prev_fk.clone(), cur_fk.clone()));
-            }
+        if let Some(prev_fk) = prev.get(name)
+            && prev_fk != cur_fk
+        {
+            diff.altered.push((prev_fk.clone(), cur_fk.clone()));
         }
     }
 
@@ -332,10 +332,10 @@ fn diff_sequences(
     }
 
     for (name, cur_seq) in cur {
-        if let Some(prev_seq) = prev.get(name) {
-            if prev_seq != cur_seq {
-                diff.altered.push((prev_seq.clone(), cur_seq.clone()));
-            }
+        if let Some(prev_seq) = prev.get(name)
+            && prev_seq != cur_seq
+        {
+            diff.altered.push((prev_seq.clone(), cur_seq.clone()));
         }
     }
 

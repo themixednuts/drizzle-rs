@@ -50,6 +50,7 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
 
 /// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::large_enum_variant)]
 pub enum PostgresInsertValue<'a, V: SQLParam, T> {
     /// Omit this column from the INSERT (use database default)
     #[default]
@@ -176,7 +177,7 @@ impl<'a> From<&'a Uuid> for PostgresInsertValue<'a, PostgresValue<'a>, String> {
 //------------------------------------------------------------------------------
 
 /// Represents a PostgreSQL value
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum PostgresValue<'a> {
     /// SMALLINT values (16-bit signed integer)
     Smallint(i16),
@@ -272,13 +273,8 @@ pub enum PostgresValue<'a> {
     Array(Vec<PostgresValue<'a>>),
 
     /// NULL value
+    #[default]
     Null,
-}
-
-impl<'a> Default for PostgresValue<'a> {
-    fn default() -> Self {
-        PostgresValue::Null
-    }
 }
 
 impl<'a> std::fmt::Display for PostgresValue<'a> {
@@ -1514,6 +1510,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Vec<PostgresValue<'a>> {
 //------------------------------------------------------------------------------
 
 // SQLx implementations when the sqlx-postgres feature is enabled
+#[allow(unexpected_cfgs)]
 #[cfg(feature = "sqlx-postgres")]
 mod sqlx_impls {
     use super::*;

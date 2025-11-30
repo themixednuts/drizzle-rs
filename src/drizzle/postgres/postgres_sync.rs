@@ -245,14 +245,14 @@ impl<Schema> Drizzle<Schema> {
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         // Begin transaction
-        let mut tx = self.client.transaction()
+        let mut tx = self
+            .client
+            .transaction()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         // Set isolation level
-        tx.execute(
-            &format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type),
-            &[],
-        ).map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let transaction = Transaction::new(tx, tx_type);
 

@@ -54,8 +54,8 @@ pub mod postgres_sync_setup {
     use postgres::{Client, NoTls};
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Once;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::thread;
     use std::time::Duration;
 
@@ -184,8 +184,8 @@ pub mod tokio_postgres_setup {
     use drizzle::tokio_postgres::Drizzle;
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Once;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::thread;
     use std::time::Duration;
     use tokio_postgres::NoTls;

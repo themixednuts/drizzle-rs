@@ -324,10 +324,8 @@ impl<Schema> Drizzle<Schema> {
             }
 
             // Record as applied
-            self.conn.execute(
-                migrations.record_migration_sql(),
-                [migration.tag],
-            )?;
+            self.conn
+                .execute(migrations.record_migration_sql(), [migration.tag])?;
         }
 
         Ok(count)

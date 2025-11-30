@@ -332,7 +332,10 @@ fn generate_create_index_sql(
 
     // Table name (assume all columns are from the same table, quoted)
     if let Some(first_column) = columns.first() {
-        sql.push_str(&format!(" ON \"{}\"", first_column.table_name.to_lowercase()));
+        sql.push_str(&format!(
+            " ON \"{}\"",
+            first_column.table_name.to_lowercase()
+        ));
     }
 
     // Index method

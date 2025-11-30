@@ -49,7 +49,9 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     // -------------------
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
-    let table_name = attrs.name.unwrap_or_else(|| struct_ident.to_string().to_snake_case());
+    let table_name = attrs
+        .name
+        .unwrap_or_else(|| struct_ident.to_string().to_snake_case());
 
     let fields = if let Data::Struct(data) = &input.data {
         &data.fields

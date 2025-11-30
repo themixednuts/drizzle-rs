@@ -1,11 +1,14 @@
 use std::marker::PhantomData;
 
+use drizzle_core::ToSQL;
 use drizzle_postgres::{
     PostgresValue,
-    builder::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet, update::UpdateBuilder},
+    builder::{
+        UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
+        update::UpdateBuilder,
+    },
     traits::PostgresTable,
 };
-use drizzle_core::ToSQL;
 
 use crate::drizzle::postgres::tokio_postgres::DrizzleBuilder;
 

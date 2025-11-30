@@ -154,7 +154,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     pub fn with<'a, C>(
         &'a self,
         cte: C,
-    ) -> TransactionBuilder<'a, 'conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -247,26 +253,48 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Commits the transaction
     pub(crate) fn commit(&self) -> drizzle_core::error::Result<()> {
-        let tx = self.tx.borrow_mut().take().expect("Transaction already consumed");
-        tx.commit().map_err(|e| DrizzleError::Other(e.to_string().into()))
+        let tx = self
+            .tx
+            .borrow_mut()
+            .take()
+            .expect("Transaction already consumed");
+        tx.commit()
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 
     /// Rolls back the transaction
     pub(crate) fn rollback(&self) -> drizzle_core::error::Result<()> {
-        let tx = self.tx.borrow_mut().take().expect("Transaction already consumed");
-        tx.rollback().map_err(|e| DrizzleError::Other(e.to_string().into()))
+        let tx = self
+            .tx
+            .borrow_mut()
+            .take()
+            .expect("Transaction already consumed");
+        tx.rollback()
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 }
 
 // CTE (WITH) Builder Implementation for Transaction
 impl<'a, 'conn, Schema>
-    TransactionBuilder<'a, 'conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
 {
     #[inline]
     pub fn select<T>(
         self,
         query: T,
-    ) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectInitial>,
+        SelectInitial,
+    >
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -282,7 +310,13 @@ impl<'a, 'conn, Schema>
     pub fn with<C>(
         self,
         cte: C,
-    ) -> TransactionBuilder<'a, 'conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -377,7 +411,8 @@ where
     }
 }
 
-impl<'a, 'conn, S, T, State> ToSQL<'a, PostgresValue<'a>> for TransactionBuilder<'a, 'conn, S, T, State>
+impl<'a, 'conn, S, T, State> ToSQL<'a, PostgresValue<'a>>
+    for TransactionBuilder<'a, 'conn, S, T, State>
 where
     T: ToSQL<'a, PostgresValue<'a>>,
 {

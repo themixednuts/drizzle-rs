@@ -1,13 +1,12 @@
 mod column;
 mod table;
 pub use column::*;
+use drizzle_core::error::DrizzleError;
 use std::any::Any;
 pub use table::*;
 
-use crate::PostgresValue;
-use drizzle_core::{SQLColumn, error::DrizzleError};
-
 /// Trait for PostgreSQL native enum types that can be used as dyn objects
+#[allow(clippy::wrong_self_convention)]
 pub trait PostgresEnum: Send + Sync + Any {
     /// Get the enum type name for PostgreSQL
     fn enum_type_name(&self) -> &'static str;

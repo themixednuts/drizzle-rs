@@ -9,8 +9,8 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
-use tokio_postgres::{Client, Row};
 use std::marker::PhantomData;
+use tokio_postgres::{Client, Row};
 
 use drizzle_postgres::{
     PostgresTransactionType, PostgresValue, ToPostgresSQL,
@@ -245,16 +245,16 @@ impl<Schema> Drizzle<Schema> {
         Fut: std::future::Future<Output = drizzle_core::error::Result<R>>,
     {
         // Begin transaction
-        let mut tx = self.client.transaction().await
+        let mut tx = self
+            .client
+            .transaction()
+            .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         // Set isolation level
-        tx.execute(
-            &format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type),
-            &[],
-        )
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let transaction = Transaction::new(tx, tx_type);
 

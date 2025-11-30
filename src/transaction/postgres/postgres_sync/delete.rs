@@ -1,10 +1,10 @@
 use crate::transaction::postgres::postgres_sync::TransactionBuilder;
+use drizzle_core::ToSQL;
 use drizzle_postgres::{
     PostgresValue,
     builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSet, delete::DeleteBuilder},
     traits::PostgresTable,
 };
-use drizzle_core::ToSQL;
 use std::marker::PhantomData;
 
 impl<'a, 'conn, S, T>
@@ -28,8 +28,13 @@ where
     pub fn returning(
         self,
         columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteReturningSet, T>, DeleteReturningSet>
-    {
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        S,
+        DeleteBuilder<'a, S, DeleteReturningSet, T>,
+        DeleteReturningSet,
+    > {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
@@ -45,8 +50,13 @@ impl<'a, 'conn, S, T>
     pub fn returning(
         self,
         columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteReturningSet, T>, DeleteReturningSet>
-    {
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        S,
+        DeleteBuilder<'a, S, DeleteReturningSet, T>,
+        DeleteReturningSet,
+    > {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,

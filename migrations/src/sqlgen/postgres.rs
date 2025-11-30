@@ -116,9 +116,10 @@ impl PostgresGenerator {
         // Note: PostgreSQL doesn't support removing enum values easily
         // This would require recreating the type
         if !altered.values_removed.is_empty() {
-            statements.push(format!(
+            statements.push(
                 "-- WARNING: Cannot remove enum values in PostgreSQL without recreation"
-            ));
+                    .to_string(),
+            );
             statements.push(format!("-- Removed values: {:?}", altered.values_removed));
         }
 

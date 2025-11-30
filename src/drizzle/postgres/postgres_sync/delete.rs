@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
+use drizzle_core::ToSQL;
 use drizzle_postgres::{
     PostgresValue,
     builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSet, delete::DeleteBuilder},
     traits::PostgresTable,
 };
-use drizzle_core::ToSQL;
 
 use crate::drizzle::postgres::postgres_sync::DrizzleBuilder;
 

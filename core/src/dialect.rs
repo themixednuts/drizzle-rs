@@ -17,4 +17,3 @@ impl Dialect {
         matches!(self, Dialect::PostgreSQL)
     }
 }
-

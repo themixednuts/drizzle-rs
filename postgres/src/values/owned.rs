@@ -22,7 +22,7 @@ use geo_types::{LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Po
 use bitvec::prelude::*;
 
 /// Owned version of PostgresValue that doesn't borrow data
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum OwnedPostgresValue {
     /// SMALLINT values (16-bit signed integer)
     Smallint(i16),
@@ -116,17 +116,12 @@ pub enum OwnedPostgresValue {
     Array(Vec<OwnedPostgresValue>),
 
     /// NULL value
+    #[default]
     Null,
 }
 
 impl SQLParam for OwnedPostgresValue {
     const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::PostgreSQL;
-}
-
-impl Default for OwnedPostgresValue {
-    fn default() -> Self {
-        OwnedPostgresValue::Null
-    }
 }
 
 impl std::fmt::Display for OwnedPostgresValue {
@@ -318,10 +313,7 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             #[cfg(feature = "bitvec")]
             PostgresValue::BitVec(bv) => OwnedPostgresValue::BitVec(bv),
             PostgresValue::Array(arr) => {
-                let owned_arr = arr
-                    .into_iter()
-                    .map(|v| OwnedPostgresValue::from(v))
-                    .collect();
+                let owned_arr = arr.into_iter().map(OwnedPostgresValue::from).collect();
                 OwnedPostgresValue::Array(owned_arr)
             }
         }
@@ -383,7 +375,7 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             #[cfg(feature = "bitvec")]
             OwnedPostgresValue::BitVec(bv) => PostgresValue::BitVec(bv),
             OwnedPostgresValue::Array(arr) => {
-                let postgres_arr = arr.into_iter().map(|v| PostgresValue::from(v)).collect();
+                let postgres_arr = arr.into_iter().map(PostgresValue::from).collect();
                 PostgresValue::Array(postgres_arr)
             }
 

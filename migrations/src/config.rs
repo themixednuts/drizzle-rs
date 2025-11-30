@@ -4,18 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Database dialect
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Dialect {
+    #[default]
     Sqlite,
     Postgresql,
     Mysql,
-}
-
-impl Default for Dialect {
-    fn default() -> Self {
-        Self::Sqlite
-    }
 }
 
 /// Database connection configuration
@@ -96,11 +91,11 @@ impl DrizzleConfig {
     pub fn from_file(path: &std::path::Path) -> Result<Self, ConfigError> {
         let contents =
             std::fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
-        Self::from_str(&contents)
+        Self::parse(&contents)
     }
 
     /// Parse configuration from a TOML string
-    pub fn from_str(s: &str) -> Result<Self, ConfigError> {
+    pub fn parse(s: &str) -> Result<Self, ConfigError> {
         toml::from_str(s).map_err(|e| ConfigError::ParseError(e.to_string()))
     }
 

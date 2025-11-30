@@ -444,10 +444,9 @@ impl PostgreSQLType {
                 (non_serial, "generated_identity")
                     if !matches!(non_serial, Self::Serial | Self::Bigserial) =>
                 {
-                    format!(
-                        "generated_identity can only be used with SERIAL or BIGSERIAL columns. \
+                    "generated_identity can only be used with SERIAL or BIGSERIAL columns. \
                         See: https://www.postgresql.org/docs/current/ddl-identity-columns.html"
-                    )
+                        .to_string()
                 }
                 (non_text_or_binary, "json") => {
                     #[cfg(feature = "serde")]
@@ -459,10 +458,9 @@ impl PostgreSQLType {
                     let supports_json = matches!(non_text_or_binary, Self::Text | Self::Bytea);
 
                     if !supports_json {
-                        format!(
-                            "json can only be used with TEXT, BYTEA, JSON, or JSONB columns. \
+                        "json can only be used with TEXT, BYTEA, JSON, or JSONB columns. \
                             See: https://www.postgresql.org/docs/current/datatype-json.html"
-                        )
+                            .to_string()
                     } else {
                         return Ok(());
                     }
@@ -473,10 +471,9 @@ impl PostgreSQLType {
                         Self::Text | Self::Integer | Self::Smallint | Self::Bigint | Self::Enum(_)
                     ) =>
                 {
-                    format!(
-                        "enum can only be used with TEXT, INTEGER, SMALLINT, BIGINT, or native ENUM columns. \
+                    "enum can only be used with TEXT, INTEGER, SMALLINT, BIGINT, or native ENUM columns. \
                         For custom enum types, see: https://www.postgresql.org/docs/current/datatype-enum.html"
-                    )
+                        .to_string()
                 }
                 _ => format!("'{flag}' is not valid for {} columns", self.to_sql_type()),
             };
@@ -692,10 +689,10 @@ impl FieldInfo {
 
     /// Check if a type is Option<T>
     fn is_option_type(ty: &Type) -> bool {
-        if let Type::Path(type_path) = ty {
-            if let Some(segment) = type_path.path.segments.last() {
-                return segment.ident == "Option";
-            }
+        if let Type::Path(type_path) = ty
+            && let Some(segment) = type_path.path.segments.last()
+        {
+            return segment.ident == "Option";
         }
         false
     }
@@ -703,16 +700,13 @@ impl FieldInfo {
     /// Extract the inner type from Option<T>, returning T
     /// If the type is not Option<T>, returns the original type
     fn extract_option_inner(ty: &Type) -> &Type {
-        if let Type::Path(type_path) = ty {
-            if let Some(segment) = type_path.path.segments.last() {
-                if segment.ident == "Option" {
-                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                            return inner;
-                        }
-                    }
-                }
-            }
+        if let Type::Path(type_path) = ty
+            && let Some(segment) = type_path.path.segments.last()
+            && segment.ident == "Option"
+            && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+            && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+        {
+            return inner;
         }
         ty
     }
@@ -750,7 +744,7 @@ impl FieldInfo {
         let mut foreign_key = None;
 
         // Parse attribute arguments
-        if !attr.meta.require_list().is_err() {
+        if attr.meta.require_list().is_ok() {
             attr.parse_nested_meta(|meta| {
                 let path = meta.path.get_ident().unwrap().to_string();
 
