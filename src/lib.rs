@@ -78,12 +78,17 @@ pub use drizzle_macros::sql;
 pub use drizzle_macros::include_migrations;
 pub use drizzle_migrations::{Dialect, EmbeddedMigration, EmbeddedMigrations};
 
-#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
-#[cfg_attr(
-    docsrs,
-    doc(cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso")))
-)]
-pub use drizzle_macros::FromRow;
+/// SQLite-specific FromRow derive macro for automatic row-to-struct conversion.
+/// Supports rusqlite, libsql, and turso drivers.
+#[cfg(feature = "sqlite")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
+pub use drizzle_macros::SQLiteFromRow;
+
+/// PostgreSQL-specific FromRow derive macro for automatic row-to-struct conversion.
+/// Supports postgres-sync and tokio-postgres drivers.
+#[cfg(feature = "postgres")]
+#[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
+pub use drizzle_macros::PostgresFromRow;
 
 /// Error types and result handling.
 ///
@@ -170,6 +175,32 @@ pub mod turso {
     pub use crate::transaction::sqlite::turso::Transaction;
 }
 
+/// Postgres (sync) driver implementation.
+///
+/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
+/// for working with PostgreSQL databases using the synchronous `postgres` crate.
+///
+/// Enabled with the `postgres-sync` feature flag.
+#[cfg(feature = "postgres-sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
+pub mod postgres_sync {
+    pub use crate::drizzle::postgres::postgres_sync::Drizzle;
+    pub use crate::transaction::postgres::postgres_sync::Transaction;
+}
+
+/// Tokio-postgres (async) driver implementation.
+///
+/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
+/// for working with PostgreSQL databases using the async `tokio-postgres` crate.
+///
+/// Enabled with the `tokio-postgres` feature flag.
+#[cfg(feature = "tokio-postgres")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio-postgres")))]
+pub mod tokio_postgres {
+    pub use crate::drizzle::postgres::tokio_postgres::Drizzle;
+    pub use crate::transaction::postgres::tokio_postgres::Transaction;
+}
+
 // Sqlx PostgreSQL driver
 // #[cfg(feature = "sqlx-postgres")]
 // pub mod sqlx_postgres {
@@ -234,9 +265,6 @@ pub mod prelude {
     // Expression helpers
     pub use drizzle_core::expressions::{cast, r#in, r#typeof};
 
-    // Essential macros
-    pub use drizzle_macros::FromRow;
-
     // Error type for generated code
     pub use drizzle_core::error::DrizzleError;
 
@@ -254,7 +282,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "sqlite")]
-    pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteSchema, SQLiteTable};
+    pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable};
 
     // PostgreSQL crate access for submodules
     #[cfg(feature = "postgres")]
@@ -269,7 +297,9 @@ pub mod prelude {
     };
 
     #[cfg(feature = "postgres")]
-    pub use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresSchema, PostgresTable};
+    pub use drizzle_macros::{
+        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
+    };
 
     // #[cfg(feature = "mysql")]
     // pub use crate::mysql::*;
