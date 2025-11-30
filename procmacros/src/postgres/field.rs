@@ -1,7 +1,57 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{ToTokens, quote};
 use std::{collections::HashSet, fmt::Display};
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type};
+
+// =============================================================================
+// Type Category - Centralized type classification for code generation
+// =============================================================================
+
+/// Categorizes Rust types for consistent handling across the macro system.
+///
+/// This enum provides a single source of truth for type detection, eliminating
+/// fragile string matching scattered across multiple files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TypeCategory {
+    /// `arrayvec::ArrayString<N>` - Fixed-capacity string on the stack
+    ArrayString,
+    /// `arrayvec::ArrayVec<u8, N>` - Fixed-capacity byte array on the stack
+    ArrayVec,
+    /// `std::string::String` - Heap-allocated string
+    String,
+    /// `Vec<u8>` - Heap-allocated byte array
+    Blob,
+    /// `uuid::Uuid` - UUID type (handled specially)
+    Uuid,
+    /// Any type with `#[json]` flag
+    Json,
+    /// Any type with `#[enum]` flag  
+    Enum,
+    /// Primitive types: i32, i64, f32, f64, bool, etc.
+    Primitive,
+}
+
+impl TypeCategory {
+    /// Detect the category from a type string representation.
+    ///
+    /// Order matters: more specific types (ArrayString) must be checked
+    /// before more general types (String).
+    pub(crate) fn from_type_string(type_str: &str) -> Self {
+        if type_str.contains("ArrayString") {
+            TypeCategory::ArrayString
+        } else if type_str.contains("ArrayVec") {
+            TypeCategory::ArrayVec
+        } else if type_str.contains("Uuid") {
+            TypeCategory::Uuid
+        } else if type_str.contains("String") {
+            TypeCategory::String
+        } else if type_str.contains("Vec") && type_str.contains("u8") {
+            TypeCategory::Blob
+        } else {
+            TypeCategory::Primitive
+        }
+    }
+}
 
 /// Enum representing supported PostgreSQL column types.
 ///
@@ -650,6 +700,28 @@ impl FieldInfo {
         false
     }
 
+    /// Extract the inner type from Option<T>, returning T
+    /// If the type is not Option<T>, returns the original type
+    fn extract_option_inner(ty: &Type) -> &Type {
+        if let Type::Path(type_path) = ty {
+            if let Some(segment) = type_path.path.segments.last() {
+                if segment.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                            return inner;
+                        }
+                    }
+                }
+            }
+        }
+        ty
+    }
+
+    /// Get the base type (inner type for Option<T>, or the type itself for non-Option)
+    pub(crate) fn base_type(&self) -> &Type {
+        Self::extract_option_inner(&self.ty)
+    }
+
     /// Parse column attribute information
     fn parse_column_attribute(attr: &Attribute) -> Result<Option<ColumnInfo>> {
         // Only process attributes that match PostgreSQL column types
@@ -830,6 +902,26 @@ impl FieldInfo {
             on_delete: None, // TODO: Add support for ON DELETE/UPDATE actions
             on_update: None,
         })
+    }
+}
+
+impl FieldInfo {
+    /// Get the category of this field's type for code generation decisions.
+    ///
+    /// This provides a single source of truth for type handling, eliminating
+    /// scattered string matching throughout the codebase.
+    pub(crate) fn type_category(&self) -> TypeCategory {
+        // Special flags take precedence
+        if self.is_json {
+            return TypeCategory::Json;
+        }
+        if self.is_enum || self.is_pgenum {
+            return TypeCategory::Enum;
+        }
+
+        // Detect from the base type string
+        let type_str = self.ty.to_token_stream().to_string();
+        TypeCategory::from_type_string(&type_str)
     }
 }
 

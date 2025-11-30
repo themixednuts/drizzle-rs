@@ -1,43 +1,197 @@
+//! Convenience method generation for model types.
+//!
+//! Generates `with_*` methods for Insert, Update, and PartialSelect models.
+
 use super::super::context::{MacroContext, ModelType};
-use crate::postgres::field::FieldInfo;
+use crate::postgres::field::{FieldInfo, TypeCategory};
+use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote};
 
 /// Generates a convenience method for a field based on its type
 pub(crate) fn generate_convenience_method(
     field: &FieldInfo,
     model_type: ModelType,
-    _ctx: &MacroContext,
+    ctx: &MacroContext,
 ) -> TokenStream {
     let field_name = &field.ident;
-    let base_type = &field.ty;
+    let base_type = field.base_type();
     let method_name = format_ident!("with_{}", field_name);
 
-    let assignment = match model_type {
-        ModelType::Insert => quote! { self.#field_name = value.into(); },
-        ModelType::Update => quote! { self.#field_name = Some(value); },
-        ModelType::PartialSelect => quote! { self.#field_name = Some(value); },
-        ModelType::Select => quote! { self.#field_name = value; },
-    };
+    // Find the field index for pattern tracking
+    let field_index = ctx
+        .field_infos
+        .iter()
+        .position(|f| f.ident == field.ident)
+        .expect("Field should exist in context");
 
-    // Generate convenience methods - PostgreSQL has simpler type handling than SQLite
     match model_type {
-        ModelType::Insert => {
-            // For insert models, accept any type that implements Into<InsertValue<T>>
+        ModelType::Insert => generate_insert_convenience_method(field, ctx, field_index),
+        _ => generate_update_convenience_method(field, base_type, &method_name),
+    }
+}
+
+// =============================================================================
+// Insert Model Convenience Methods
+// =============================================================================
+
+fn generate_insert_convenience_method(
+    field: &FieldInfo,
+    ctx: &MacroContext,
+    field_index: usize,
+) -> TokenStream {
+    let field_name = &field.ident;
+    let base_type = field.base_type();
+    let method_name = format_ident!("with_{}", field_name);
+    let insert_model = &ctx.insert_model_ident;
+
+    // Create generic parameters: field names as markers (UserName, UserEmail)
+    let generic_params: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let pascal = f.ident.to_string().to_upper_camel_case();
+            format_ident!("{}{}", ctx.struct_ident, pascal)
+        })
+        .collect();
+
+    // Create return type pattern: this field becomes Set, others stay generic
+    let return_pattern_generics: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let pascal = f.ident.to_string().to_upper_camel_case();
+            if i == field_index {
+                format_ident!("{}{}Set", ctx.struct_ident, pascal)
+            } else {
+                format_ident!("{}{}", ctx.struct_ident, pascal)
+            }
+        })
+        .collect();
+
+    // Generate field assignments - only update the specific field
+    let field_assignments: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let fname = &f.ident;
+            if i == field_index {
+                quote! { #fname: value.into() }
+            } else {
+                quote! { #fname: self.#fname }
+            }
+        })
+        .collect();
+
+    // Dispatch based on type category
+    let category = field.type_category();
+
+    match category {
+        TypeCategory::String => {
             quote! {
-                pub fn #method_name<V>(mut self, value: V) -> Self
-                where
-                    V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, ::drizzle::postgres::values::PostgresValue<'a>, #base_type>>
-                {
+                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
+                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
+                    where
+                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>>
+                    {
+                        #insert_model {
+                            #(#field_assignments,)*
+                            _pattern: ::std::marker::PhantomData,
+                        }
+                    }
+                }
+            }
+        }
+        TypeCategory::Blob => {
+            quote! {
+                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
+                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
+                    where
+                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>>
+                    {
+                        #insert_model {
+                            #(#field_assignments,)*
+                            _pattern: ::std::marker::PhantomData,
+                        }
+                    }
+                }
+            }
+        }
+        // ArrayString, ArrayVec, Uuid, Json, Enum, Primitive use base type directly
+        TypeCategory::ArrayString
+        | TypeCategory::ArrayVec
+        | TypeCategory::Uuid
+        | TypeCategory::Json
+        | TypeCategory::Enum
+        | TypeCategory::Primitive => {
+            quote! {
+                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
+                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
+                    where
+                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #base_type>>
+                    {
+                        #insert_model {
+                            #(#field_assignments,)*
+                            _pattern: ::std::marker::PhantomData,
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Update/PartialSelect Model Convenience Methods
+// =============================================================================
+
+fn generate_update_convenience_method(
+    field: &FieldInfo,
+    base_type: &syn::Type,
+    method_name: &syn::Ident,
+) -> TokenStream {
+    let field_name = &field.ident;
+    let assignment = quote! { self.#field_name = Some(value); };
+    let category = field.type_category();
+
+    match category {
+        TypeCategory::Uuid => {
+            quote! {
+                pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
+                    let value = value.into();
                     #assignment
                     self
                 }
             }
         }
-        _ => {
-            // For other models (Update, Select, PartialSelect), use direct assignment
+        TypeCategory::ArrayString
+        | TypeCategory::ArrayVec
+        | TypeCategory::Primitive
+        | TypeCategory::Enum
+        | TypeCategory::Json => {
+            // These use the base type directly
             quote! {
                 pub fn #method_name(mut self, value: #base_type) -> Self {
+                    #assignment
+                    self
+                }
+            }
+        }
+        TypeCategory::String => {
+            quote! {
+                pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
+                    let value = value.into();
+                    #assignment
+                    self
+                }
+            }
+        }
+        TypeCategory::Blob => {
+            quote! {
+                pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
+                    let value = value.into();
                     #assignment
                     self
                 }
