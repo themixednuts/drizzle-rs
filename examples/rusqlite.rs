@@ -1,5 +1,5 @@
 mod schema;
-use drizzle::FromRow;
+use drizzle::SQLiteFromRow;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
@@ -52,7 +52,7 @@ fn main() {
         println!("Users: {:?}", user_rows);
         println!("Posts: {:?}", post_rows);
 
-        #[derive(FromRow, Default, Debug)]
+        #[derive(SQLiteFromRow, Default, Debug)]
         struct JoinedResult {
             #[cfg(feature = "uuid")]
             #[column(Users::id)]

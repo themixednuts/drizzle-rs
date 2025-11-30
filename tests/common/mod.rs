@@ -51,7 +51,7 @@ pub enum Role {
 }
 
 // Simple type for basic testing
-#[SQLiteTable(name = "simple")]
+#[SQLiteTable]
 pub struct Simple {
     #[integer(primary)]
     pub id: i32,
@@ -59,7 +59,7 @@ pub struct Simple {
     pub name: String,
 }
 #[cfg(all(feature = "uuid", not(feature = "serde")))]
-#[SQLiteTable(name = "complex")]
+#[SQLiteTable]
 pub struct Complex {
     #[blob(primary, default_fn = Uuid::new_v4)]
     pub id: Uuid,
@@ -89,7 +89,7 @@ pub struct Complex {
 }
 
 #[cfg(all(feature = "uuid", feature = "serde"))]
-#[SQLiteTable(name = "complex")]
+#[SQLiteTable]
 pub struct Complex {
     #[blob(primary, default_fn = Uuid::new_v4)]
     pub id: Uuid,
@@ -126,7 +126,7 @@ pub struct Complex {
     pub created_at: Option<String>,
 }
 #[cfg(all(not(feature = "uuid"), feature = "serde"))]
-#[SQLiteTable(name = "complex")]
+#[SQLiteTable]
 pub struct Complex {
     #[integer(primary)]
     pub id: i64,
