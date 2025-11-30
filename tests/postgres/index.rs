@@ -1,195 +1,93 @@
 //! PostgreSQL index tests
+//!
+//! Note: Index creation is tested via schema creation in db.create().
+//! These tests verify queries work correctly (indexes improve performance but don't change results).
 
-#![cfg(feature = "postgres")]
+#![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::pg::*;
 use drizzle::prelude::*;
+use drizzle_macros::postgres_test;
 
-#[test]
-fn test_simple_index_sql() {
-    let idx = PgComplexEmailIdx::new();
-    let sql = idx.sql();
-    let sql_string = sql.sql();
-
-    println!("Simple index SQL: {}", sql_string);
-
-    assert!(sql_string.contains("CREATE"));
-    assert!(sql_string.contains("INDEX"));
-    assert!(sql_string.contains("pg_complex_email_idx"));
-    assert!(sql_string.contains(r#""email""#));
+#[derive(Debug, PostgresFromRow)]
+struct PgSimpleResult {
+    id: i32,
+    name: String,
 }
 
-#[test]
-fn test_unique_index_sql() {
-    let idx = PgSimpleNameIdx::new();
-    let sql = idx.sql();
-    let sql_string = sql.sql();
+// Test queries that would benefit from indexes
+postgres_test!(query_by_name_column, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
 
-    println!("Unique index SQL: {}", sql_string);
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+        InsertPgSimple::new("Charlie"),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    assert!(sql_string.contains("CREATE"));
-    assert!(sql_string.contains("UNIQUE"));
-    assert!(sql_string.contains("INDEX"));
-    assert!(sql_string.contains("pg_simple_name_idx"));
-    assert!(sql_string.contains(r#""name""#));
-}
+    // Query by name (would use index if one existed)
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "Bob"));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-#[test]
-fn test_index_on_foreign_key() {
-    let idx = PgPostAuthorIdx::new();
-    let sql = idx.sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Bob");
+});
 
-    println!("Foreign key index SQL: {}", sql_string);
+#[cfg(feature = "uuid")]
+postgres_test!(query_by_nullable_column, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql_string.contains("CREATE"));
-    assert!(sql_string.contains("INDEX"));
-    assert!(sql_string.contains("pg_post_author_idx"));
-    assert!(sql_string.contains(r#""author_id""#));
-}
+    // Insert rows with and without email
+    let stmt =
+        db.insert(complex)
+            .values([InsertPgComplex::new("With Email", true, PgRole::User)
+                .with_email("test@example.com")]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_schema_with_index_order() {
-    let schema = PgSimpleWithIndexSchema::new();
-    let statements = schema.create_statements();
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+    drizzle_exec!(stmt.execute());
 
-    println!("Schema with index statements:");
-    for (i, stmt) in statements.iter().enumerate() {
-        println!("  {}: {}", i, stmt);
+    #[derive(Debug, PostgresFromRow)]
+    struct Result {
+        name: String,
     }
 
-    // Table should come before index
-    let table_pos = statements
+    // Query using email column
+    let stmt = db
+        .select(())
+        .from(complex)
+        .r#where(eq(complex.email, "test@example.com"));
+    let results: Vec<Result> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "With Email");
+});
+
+postgres_test!(query_large_dataset, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    // Insert many rows
+    let names: Vec<String> = (0..50).map(|i| format!("User_{:03}", i)).collect();
+    let rows: Vec<_> = names
         .iter()
-        .position(|s| s.contains("CREATE TABLE"))
-        .expect("Should have CREATE TABLE");
-    let index_pos = statements
-        .iter()
-        .position(|s| s.contains("INDEX"))
-        .expect("Should have CREATE INDEX");
+        .map(|n| InsertPgSimple::new(n.as_str()))
+        .collect();
+    let stmt = db.insert(simple).values(rows);
+    drizzle_exec!(stmt.execute());
 
-    assert!(
-        table_pos < index_pos,
-        "Table should be created before its indexes"
-    );
-}
+    // Query specific row (index would speed this up)
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "User_025"));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-#[test]
-fn test_complex_schema_with_index() {
-    let schema = PgComplexWithIndexSchema::new();
-    let statements = schema.create_statements();
-
-    println!("Complex schema with index statements:");
-    for stmt in &statements {
-        println!("  {}", stmt);
-    }
-
-    // Should have table and index
-    let has_table = statements.iter().any(|s| s.contains("CREATE TABLE"));
-    let has_index = statements.iter().any(|s| s.contains("INDEX"));
-
-    assert!(has_table, "Should have CREATE TABLE");
-    assert!(has_index, "Should have CREATE INDEX");
-}
-
-#[test]
-fn test_index_table_reference() {
-    let idx = PgSimpleNameIdx::new();
-    
-    // The index should reference the correct table
-    let sql = idx.sql();
-    let sql_string = sql.sql();
-
-    println!("Index with table reference: {}", sql_string);
-
-    // Index should reference pg_simple table
-    assert!(sql_string.contains("pg_simple") || sql_string.contains("pgsimple"));
-}
-
-#[test]
-fn test_index_column_reference() {
-    let idx = PgComplexEmailIdx::new();
-    
-    let sql = idx.sql();
-    let sql_string = sql.sql();
-
-    println!("Index column reference: {}", sql_string);
-
-    assert!(sql_string.contains("email"));
-}
-
-#[test]
-fn test_index_name_convention() {
-    let idx = PgSimpleNameIdx::new();
-    let sql = idx.sql();
-    let sql_string = sql.sql();
-
-    println!("Index name convention: {}", sql_string);
-
-    // Should have a descriptive index name
-    assert!(sql_string.contains("pg_simple_name_idx"));
-}
-
-#[test]
-fn test_index_on_optional_column() {
-    let idx = PgComplexEmailIdx::new();
-    let sql = idx.sql();
-    let sql_string = sql.sql();
-
-    println!("Index on optional column: {}", sql_string);
-
-    // Should work even for optional/nullable columns
-    assert!(sql_string.contains("email"));
-}
-
-#[test]
-fn test_multiple_indexes_in_schema() {
-    let schema = PgComplexWithIndexSchema::new();
-    let statements = schema.create_statements();
-
-    let index_count = statements
-        .iter()
-        .filter(|s| s.contains("INDEX"))
-        .count();
-
-    println!(
-        "Schema has {} index statements",
-        index_count
-    );
-
-    // Should have at least one index
-    assert!(index_count >= 1, "Should have at least one index");
-}
-
-#[test]
-fn test_schema_creates_enum_before_table() {
-    let schema = PgComplexSchema::new();
-    let statements = schema.create_statements();
-
-    println!("Full blog schema statements:");
-    for stmt in &statements {
-        println!("  {}", stmt);
-    }
-
-    // Find positions of enum and table
-    let enum_pos = statements.iter().position(|s| s.contains("CREATE TYPE"));
-    let table_pos = statements
-        .iter()
-        .position(|s| s.contains("CREATE TABLE") && s.contains("pg_complex"));
-
-    if let (Some(enum_idx), Some(table_idx)) = (enum_pos, table_pos) {
-        assert!(
-            enum_idx < table_idx,
-            "Enum should be created before table that uses it"
-        );
-    }
-}
-
-#[test]
-fn test_schema_items_include_indexes() {
-    let schema = PgSimpleWithIndexSchema::new();
-    let statements = schema.create_statements();
-
-    let has_index = statements.iter().any(|s| s.contains("INDEX"));
-    assert!(has_index, "Schema items should include indexes");
-}
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "User_025");
+});

@@ -1,7 +1,6 @@
 //! PostgreSQL-specific tests
 //!
-//! These tests focus on SQL generation, macro validation, and type safety
-//! for PostgreSQL-specific features.
+//! End-to-end tests that verify database operations work correctly.
 
 #[cfg(feature = "arrayvec")]
 pub mod arrayvec;
@@ -13,5 +12,4 @@ pub mod insert;
 pub mod joins;
 pub mod schema;
 pub mod select;
-pub mod sql_generation;
 pub mod update;

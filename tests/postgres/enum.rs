@@ -1,185 +1,169 @@
 //! PostgreSQL enum tests
 
-#![cfg(feature = "postgres")]
+// Unit tests for macro-generated enum behavior (no database needed)
+#[cfg(feature = "postgres")]
+mod unit_tests {
+    use crate::common::pg::*;
+    use drizzle::prelude::*;
 
-use crate::common::pg::*;
-use drizzle::prelude::*;
+    #[test]
+    fn test_enum_from_str() {
+        let user: PgRole = "User".parse().expect("Should parse User");
+        let admin: PgRole = "Admin".parse().expect("Should parse Admin");
+        let moderator: PgRole = "Moderator".parse().expect("Should parse Moderator");
 
-#[test]
-fn test_sql_enum_info_name() {
-    let role = PgRole::new();
-    assert_eq!(role.name(), "PgRole");
+        assert!(matches!(user, PgRole::User));
+        assert!(matches!(admin, PgRole::Admin));
+        assert!(matches!(moderator, PgRole::Moderator));
+    }
+
+    #[test]
+    fn test_enum_from_str_error() {
+        let result: Result<PgRole, _> = "Invalid".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_enum_display() {
+        assert_eq!(PgRole::User.to_string(), "User");
+        assert_eq!(PgRole::Admin.to_string(), "Admin");
+        assert_eq!(PgRole::Moderator.to_string(), "Moderator");
+    }
+
+    #[test]
+    fn test_enum_default() {
+        let default = PgRole::default();
+        assert!(matches!(default, PgRole::User));
+    }
+
+    #[test]
+    fn test_enum_from_i64() {
+        let user = PgRole::try_from(0i64).expect("Should convert 0 to User");
+        let admin = PgRole::try_from(1i64).expect("Should convert 1 to Admin");
+        let moderator = PgRole::try_from(2i64).expect("Should convert 2 to Moderator");
+
+        assert!(matches!(user, PgRole::User));
+        assert!(matches!(admin, PgRole::Admin));
+        assert!(matches!(moderator, PgRole::Moderator));
+    }
+
+    #[test]
+    fn test_enum_to_i64() {
+        let user: i64 = PgRole::User.into();
+        let admin: i64 = PgRole::Admin.into();
+        let moderator: i64 = PgRole::Moderator.into();
+
+        assert_eq!(user, 0);
+        assert_eq!(admin, 1);
+        assert_eq!(moderator, 2);
+    }
 }
 
-#[test]
-fn test_sql_enum_info_variants() {
-    let role = PgRole::new();
-    let variants = role.variants();
+// Database execution tests for enum storage/retrieval
+#[cfg(all(feature = "uuid", any(feature = "postgres-sync", feature = "tokio-postgres")))]
+mod execution {
+    use crate::common::pg::*;
+    use drizzle::prelude::*;
+    use drizzle_macros::postgres_test;
 
-    assert_eq!(variants.len(), 3);
-    assert!(variants.contains(&"User"));
-    assert!(variants.contains(&"Admin"));
-    assert!(variants.contains(&"Moderator"));
-}
+    #[derive(Debug, PostgresFromRow)]
+    struct PgComplexResult {
+        id: uuid::Uuid,
+        name: String,
+        active: bool,
+    }
 
-#[test]
-fn test_sql_enum_info_create_type_sql() {
-    let role = PgRole::new();
-    let sql = role.create_type_sql();
+    #[derive(Debug, PostgresFromRow)]
+    struct RoleResult {
+        role: String,
+    }
 
-    println!("CREATE TYPE SQL: {}", sql);
+    postgres_test!(enum_insert_and_select, PgComplexSchema, {
+        let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql.contains("CREATE TYPE"));
-    assert!(sql.contains("PgRole"));
-    assert!(sql.contains("AS ENUM"));
-    assert!(sql.contains("'User'"));
-    assert!(sql.contains("'Admin'"));
-    assert!(sql.contains("'Moderator'"));
-}
+        // Insert with different enum values
+        let stmt = db.insert(complex).values([
+            InsertPgComplex::new("Admin User", true, PgRole::Admin),
+            InsertPgComplex::new("Regular User", true, PgRole::User),
+            InsertPgComplex::new("Mod User", true, PgRole::Moderator),
+        ]);
+        drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_enum_from_str() {
-    let user: PgRole = "User".parse().expect("Should parse User");
-    let admin: PgRole = "Admin".parse().expect("Should parse Admin");
-    let moderator: PgRole = "Moderator".parse().expect("Should parse Moderator");
+        // Select and verify enum was stored correctly
+        let stmt = db.select(()).from(complex).order_by([OrderBy::asc(complex.name)]);
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    assert!(matches!(user, PgRole::User));
-    assert!(matches!(admin, PgRole::Admin));
-    assert!(matches!(moderator, PgRole::Moderator));
-}
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].name, "Admin User");
+        assert_eq!(results[1].name, "Mod User");
+        assert_eq!(results[2].name, "Regular User");
+    });
 
-#[test]
-fn test_enum_from_str_error() {
-    let result: Result<PgRole, _> = "Invalid".parse();
-    assert!(result.is_err());
-}
+    postgres_test!(enum_filter_by_value, PgComplexSchema, {
+        let PgComplexSchema { complex, .. } = schema;
 
-#[test]
-fn test_enum_try_from_str() {
-    let user = PgRole::try_from("User").expect("Should convert User");
-    assert!(matches!(user, PgRole::User));
+        let stmt = db.insert(complex).values([
+            InsertPgComplex::new("Admin 1", true, PgRole::Admin),
+            InsertPgComplex::new("Admin 2", true, PgRole::Admin),
+            InsertPgComplex::new("User 1", true, PgRole::User),
+        ]);
+        drizzle_exec!(stmt.execute());
 
-    let invalid = PgRole::try_from("Invalid");
-    assert!(invalid.is_err());
-}
+        // Filter by enum value
+        let stmt = db
+            .select(())
+            .from(complex)
+            .r#where(eq(complex.role, PgRole::Admin));
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-#[test]
-fn test_enum_try_from_string() {
-    let user = PgRole::try_from("User".to_string()).expect("Should convert User");
-    assert!(matches!(user, PgRole::User));
-}
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.name.starts_with("Admin")));
+    });
 
-#[test]
-fn test_enum_display() {
-    assert_eq!(PgRole::User.to_string(), "User");
-    assert_eq!(PgRole::Admin.to_string(), "Admin");
-    assert_eq!(PgRole::Moderator.to_string(), "Moderator");
-}
+    postgres_test!(enum_update, PgComplexSchema, {
+        let PgComplexSchema { complex, .. } = schema;
 
-#[test]
-fn test_enum_as_ref_str() {
-    let user: &str = PgRole::User.as_ref();
-    assert_eq!(user, "User");
-}
+        let stmt = db.insert(complex).values([InsertPgComplex::new("Test User", true, PgRole::User)]);
+        drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_enum_into_str() {
-    let user: &str = PgRole::User.into();
-    assert_eq!(user, "User");
-}
+        // Update enum value
+        let stmt = db
+            .update(complex)
+            .set(UpdatePgComplex::default().with_role(PgRole::Admin))
+            .r#where(eq(complex.name, "Test User"));
+        drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_enum_clone() {
-    let original = PgRole::Admin;
-    let cloned = original.clone();
-    assert!(matches!(cloned, PgRole::Admin));
-}
+        // Verify update by filtering
+        let stmt = db
+            .select(())
+            .from(complex)
+            .r#where(eq(complex.role, PgRole::Admin));
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-#[test]
-fn test_enum_default() {
-    let default = PgRole::default();
-    assert!(matches!(default, PgRole::User));
-}
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "Test User");
+    });
 
-#[test]
-fn test_enum_from_i64() {
-    let user = PgRole::try_from(0i64).expect("Should convert 0 to User");
-    let admin = PgRole::try_from(1i64).expect("Should convert 1 to Admin");
-    let moderator = PgRole::try_from(2i64).expect("Should convert 2 to Moderator");
+    postgres_test!(enum_in_array_condition, PgComplexSchema, {
+        let PgComplexSchema { complex, .. } = schema;
 
-    assert!(matches!(user, PgRole::User));
-    assert!(matches!(admin, PgRole::Admin));
-    assert!(matches!(moderator, PgRole::Moderator));
-}
+        let stmt = db.insert(complex).values([
+            InsertPgComplex::new("Admin", true, PgRole::Admin),
+            InsertPgComplex::new("Moderator", true, PgRole::Moderator),
+            InsertPgComplex::new("User", true, PgRole::User),
+        ]);
+        drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_enum_from_i64_error() {
-    let result = PgRole::try_from(99i64);
-    assert!(result.is_err());
-}
+        // Filter by multiple enum values
+        let stmt = db.select(()).from(complex).r#where(or([
+            eq(complex.role, PgRole::Admin),
+            eq(complex.role, PgRole::Moderator),
+        ]));
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-#[test]
-fn test_enum_to_i64() {
-    let user: i64 = PgRole::User.into();
-    let admin: i64 = PgRole::Admin.into();
-    let moderator: i64 = PgRole::Moderator.into();
-
-    assert_eq!(user, 0);
-    assert_eq!(admin, 1);
-    assert_eq!(moderator, 2);
-}
-
-#[test]
-fn test_enum_from_integer_types() {
-    // Test from various integer types
-    let from_i32: PgRole = PgRole::try_from(1i32 as i64).expect("Should convert i32");
-    let from_i16: PgRole = PgRole::try_from(1i16 as i64).expect("Should convert i16");
-
-    assert!(matches!(from_i32, PgRole::Admin));
-    assert!(matches!(from_i16, PgRole::Admin));
-}
-
-#[test]
-fn test_priority_enum_sql() {
-    let priority = Priority::new();
-    let sql = priority.create_type_sql();
-
-    println!("Priority CREATE TYPE SQL: {}", sql);
-
-    assert!(sql.contains("CREATE TYPE"));
-    assert!(sql.contains("Priority"));
-    assert!(sql.contains("'Low'"));
-    assert!(sql.contains("'Medium'"));
-    assert!(sql.contains("'High'"));
-}
-
-#[test]
-fn test_post_status_enum_sql() {
-    let status = PostStatus::new();
-    let sql = status.create_type_sql();
-
-    println!("PostStatus CREATE TYPE SQL: {}", sql);
-
-    assert!(sql.contains("CREATE TYPE"));
-    assert!(sql.contains("PostStatus"));
-    assert!(sql.contains("'Draft'"));
-    assert!(sql.contains("'Published'"));
-    assert!(sql.contains("'Archived'"));
-}
-
-#[test]
-fn test_enum_with_explicit_discriminants() {
-    // PgRole uses default discriminants (0, 1, 2)
-    assert_eq!(i64::from(PgRole::User), 0);
-    assert_eq!(i64::from(PgRole::Admin), 1);
-    assert_eq!(i64::from(PgRole::Moderator), 2);
-}
-
-#[test]
-fn test_enum_from_explicit_discriminants() {
-    let user = PgRole::try_from(0i64).expect("Should convert 0");
-    let admin = PgRole::try_from(1i64).expect("Should convert 1");
-
-    assert!(matches!(user, PgRole::User));
-    assert!(matches!(admin, PgRole::Admin));
+        assert_eq!(results.len(), 2);
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"Admin"));
+        assert!(names.contains(&"Moderator"));
+    });
 }

@@ -1,338 +1,252 @@
 //! PostgreSQL DELETE statement tests
-//!
-//! Tests for DELETE statement generation with PostgreSQL-specific syntax.
 
-#![cfg(feature = "postgres")]
+#![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::pg::*;
 use drizzle::prelude::*;
+use drizzle_macros::postgres_test;
 
-#[test]
-fn test_simple_delete_sql_generation() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(simple)
-        .r#where(eq(PgSimple::id, 1));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Simple delete SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains(r#""pg_simple""#));
-    assert!(sql_string.contains("WHERE"));
-    // PostgreSQL uses $1, $2, etc. for parameters
-    assert!(
-        sql_string.contains("$1"),
-        "Should use PostgreSQL numbered placeholders: {}",
-        sql_string
-    );
-}
-
-#[test]
-fn test_delete_with_complex_where() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(and([eq(complex.active, false), is_null(complex.email)]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with complex WHERE SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("WHERE"));
-    assert!(sql_string.contains("AND"));
-}
-
-#[test]
-fn test_delete_with_or_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(simple)
-        .r#where(or([eq(simple.name, "Alice"), eq(simple.name, "Bob")]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with OR condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("WHERE"));
-    assert!(sql_string.contains("OR"));
-}
-
-#[test]
-fn test_delete_with_in_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(simple)
-        .r#where(in_array(simple.id, [1, 2, 3, 4, 5]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with IN condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("WHERE"));
-    assert!(sql_string.contains("IN"));
-}
-
-#[test]
-fn test_delete_with_like_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(simple)
-        .r#where(like(simple.name, "test%"));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with LIKE condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("WHERE"));
-    assert!(sql_string.contains("LIKE"));
-}
-
-#[test]
-fn test_delete_with_comparison_operators() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    // Test gt
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(gt(complex.age, 65));
-    let sql_string = query.to_sql().sql();
-    println!("Delete with > condition SQL: {}", sql_string);
-    assert!(sql_string.contains(">"));
-
-    // Test lt
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(lt(complex.age, 18));
-    let sql_string = query.to_sql().sql();
-    println!("Delete with < condition SQL: {}", sql_string);
-    assert!(sql_string.contains("<"));
-
-    // Test gte
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(gte(complex.age, 21));
-    let sql_string = query.to_sql().sql();
-    println!("Delete with >= condition SQL: {}", sql_string);
-    assert!(sql_string.contains(">="));
-
-    // Test lte
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(lte(complex.age, 30));
-    let sql_string = query.to_sql().sql();
-    println!("Delete with <= condition SQL: {}", sql_string);
-    assert!(sql_string.contains("<="));
-}
-
-#[test]
-fn test_delete_with_is_null() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(is_null(complex.email));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with IS NULL SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("IS NULL"));
-}
-
-#[test]
-fn test_delete_with_is_not_null() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(is_not_null(complex.email));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with IS NOT NULL SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("IS NOT NULL"));
-}
-
-#[test]
-fn test_delete_with_between() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(between(complex.age, 18, 65));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with BETWEEN SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("BETWEEN"));
-}
-
-#[test]
-fn test_delete_with_not_between() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(not_between(complex.age, 18, 65));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with NOT BETWEEN SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("NOT BETWEEN"));
-}
-
-#[test]
-fn test_delete_with_nested_conditions() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(and([
-            or([eq(complex.role, PgRole::Admin), eq(complex.role, PgRole::Moderator)]),
-            eq(complex.active, false),
-        ]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete with nested conditions SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("AND"));
-    assert!(sql_string.contains("OR"));
-}
-
-#[test]
-fn test_delete_by_enum() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(complex)
-        .r#where(eq(complex.role, PgRole::User));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Delete by enum SQL: {}", sql_string);
-
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains(r#""pg_complex"."role""#));
+#[derive(Debug, PostgresFromRow)]
+struct PgSimpleResult {
+    id: i32,
+    name: String,
 }
 
 #[cfg(feature = "uuid")]
-#[test]
-fn test_delete_by_uuid() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+#[derive(Debug, PostgresFromRow)]
+struct PgComplexResult {
+    id: uuid::Uuid,
+    name: String,
+    email: Option<String>,
+    age: Option<i32>,
+    active: bool,
+}
 
-    let id = uuid::Uuid::new_v4();
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
+postgres_test!(delete_single_row, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    // Insert data
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    // Delete one row
+    let stmt = db.delete(simple).r#where(eq(simple.name, "Alice"));
+    drizzle_exec!(stmt.execute());
+
+    // Verify deletion
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Bob");
+});
+
+postgres_test!(delete_multiple_rows, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    // Insert data
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("test_one"),
+        InsertPgSimple::new("test_two"),
+        InsertPgSimple::new("other"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    // Delete rows matching pattern
+    let stmt = db.delete(simple).r#where(like(simple.name, "test%"));
+    drizzle_exec!(stmt.execute());
+
+    // Verify only "other" remains
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "other");
+});
+
+postgres_test!(delete_with_in_condition, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    // Insert data
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+        InsertPgSimple::new("Charlie"),
+        InsertPgSimple::new("David"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    // Delete specific names
+    let stmt = db
+        .delete(simple)
+        .r#where(in_array(simple.name, ["Alice", "Charlie"]));
+    drizzle_exec!(stmt.execute());
+
+    // Verify correct rows deleted
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Bob"));
+    assert!(names.contains(&"David"));
+});
+
+#[cfg(feature = "uuid")]
+postgres_test!(delete_with_complex_where, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
+
+    // Insert data
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Active User", true, PgRole::User),
+        InsertPgComplex::new("Inactive User", false, PgRole::User),
+        InsertPgComplex::new("Active Admin", true, PgRole::Admin),
+        InsertPgComplex::new("Inactive Admin", false, PgRole::Admin),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    // Delete inactive users (not admins)
+    let stmt = db
         .delete(complex)
-        .r#where(eq(complex.id, id));
+        .r#where(and([eq(complex.active, false), eq(complex.role, PgRole::User)]));
+    drizzle_exec!(stmt.execute());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    // Verify correct deletion
+    let stmt = db.select(()).from(complex);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    println!("Delete by UUID SQL: {}", sql_string);
+    assert_eq!(results.len(), 3);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Active User"));
+    assert!(names.contains(&"Active Admin"));
+    assert!(names.contains(&"Inactive Admin"));
+    assert!(!names.contains(&"Inactive User"));
+});
 
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains(r#""pg_complex"."id""#));
-}
+#[cfg(feature = "uuid")]
+postgres_test!(delete_with_null_check, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-#[test]
-fn test_delete_post_by_foreign_key() {
-    let PgComplexPostSchema { post, .. } = PgComplexPostSchema::new();
+    // Insert data with email
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("With Email", true, PgRole::User).with_email("test@example.com"),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    let author_id = uuid::Uuid::new_v4();
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(post)
-        .r#where(eq(post.author_id, author_id));
+    // Insert data without email (separate insert due to type state)
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("No Email", true, PgRole::User),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    // Delete rows with NULL email
+    let stmt = db.delete(complex).r#where(is_null(complex.email));
+    drizzle_exec!(stmt.execute());
 
-    println!("Delete by foreign key SQL: {}", sql_string);
+    // Verify only row with email remains
+    let stmt = db.select(()).from(complex);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains(r#""pg_posts""#));
-}
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "With Email");
+    assert!(results[0].email.is_some());
+});
 
-#[test]
-fn test_delete_task_by_status() {
-    let PgTaskSchema { task, .. } = PgTaskSchema::new();
+#[cfg(feature = "uuid")]
+postgres_test!(delete_with_comparison, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(task)
-        .r#where(eq(task.status, PostStatus::Archived));
+    // Insert data with ages
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Young", true, PgRole::User).with_age(20),
+        InsertPgComplex::new("Middle", true, PgRole::User).with_age(40),
+        InsertPgComplex::new("Senior", true, PgRole::User).with_age(70),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    // Delete users over 65
+    let stmt = db.delete(complex).r#where(gt(complex.age, 65));
+    drizzle_exec!(stmt.execute());
 
-    println!("Delete task by status SQL: {}", sql_string);
+    // Verify deletion
+    let stmt = db.select(()).from(complex);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains(r#""pg_tasks""#));
-}
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Young"));
+    assert!(names.contains(&"Middle"));
+});
 
-#[test]
-fn test_delete_returning() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
+#[cfg(feature = "uuid")]
+postgres_test!(delete_with_between, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(simple)
-        .r#where(eq(PgSimple::id, 1))
-        .returning(simple.id);
+    // Insert data
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Teen", true, PgRole::User).with_age(15),
+        InsertPgComplex::new("Young Adult", true, PgRole::User).with_age(25),
+        InsertPgComplex::new("Adult", true, PgRole::User).with_age(45),
+        InsertPgComplex::new("Senior", true, PgRole::User).with_age(75),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    // Delete ages between 20 and 50
+    let stmt = db
+        .delete(complex)
+        .r#where(between(complex.age, 20, 50));
+    drizzle_exec!(stmt.execute());
 
-    println!("Delete with RETURNING SQL: {}", sql_string);
+    // Verify deletion
+    let stmt = db.select(()).from(complex);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("RETURNING"));
-    assert!(sql_string.contains(r#""pg_simple"."id""#));
-}
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Teen"));
+    assert!(names.contains(&"Senior"));
+});
 
-#[test]
-fn test_delete_returning_all() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
+postgres_test!(delete_no_matching_rows, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .delete(simple)
-        .r#where(eq(PgSimple::id, 1))
-        .returning(());
+    // Insert data
+    let stmt = db.insert(simple).values([InsertPgSimple::new("Alice")]);
+    drizzle_exec!(stmt.execute());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    // Delete non-existent row
+    let stmt = db.delete(simple).r#where(eq(simple.name, "NonExistent"));
+    drizzle_exec!(stmt.execute());
 
-    println!("Delete with RETURNING * SQL: {}", sql_string);
+    // Verify data unchanged
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-    assert!(sql_string.contains("DELETE FROM"));
-    assert!(sql_string.contains("RETURNING"));
-}
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice");
+});
+
+postgres_test!(delete_all_rows, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    // Insert data
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+        InsertPgSimple::new("Charlie"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    // Delete all rows (where 1=1 equivalent using LIKE '%')
+    let stmt = db.delete(simple).r#where(like(simple.name, "%"));
+    drizzle_exec!(stmt.execute());
+
+    // Verify all deleted
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 0);
+});

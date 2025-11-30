@@ -1,313 +1,160 @@
 //! PostgreSQL INSERT statement tests
-//!
-//! Tests for INSERT statement generation with PostgreSQL-specific syntax.
 
-#![cfg(feature = "postgres")]
+#![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::pg::*;
 use drizzle::prelude::*;
-
-#[test]
-fn test_simple_insert_sql_generation() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let data = InsertPgSimple::new("test_name");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(simple)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Simple insert SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains(r#""pg_simple""#));
-    assert!(sql_string.contains("VALUES"));
-    // PostgreSQL uses $1, $2, etc. for parameters
-    assert!(
-        sql_string.contains("$1"),
-        "Should use PostgreSQL numbered placeholders: {}",
-        sql_string
-    );
-}
-
-#[test]
-fn test_complex_insert_sql_generation() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let data = InsertPgComplex::new("Complex User", true, PgRole::Admin)
-        .with_email("admin@example.com")
-        .with_age(30)
-        .with_score(95.5)
-        .with_description("An administrator");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(complex)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Complex insert SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains(r#""pg_complex""#));
-    assert!(sql_string.contains("VALUES"));
-}
-
-#[test]
-fn test_insert_multiple_rows() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let data = vec![
-        InsertPgSimple::new("row1"),
-        InsertPgSimple::new("row2"),
-        InsertPgSimple::new("row3"),
-    ];
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(simple)
-        .values(data);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Multiple rows insert SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains("VALUES"));
-    // Should have multiple value groups
-    let values_count = sql_string.matches("$").count();
-    assert!(values_count >= 3, "Should have placeholders for 3 rows");
-}
-
-#[test]
-fn test_insert_with_default_values() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let data = InsertPgSimple::new("with_defaults");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(simple)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with defaults SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-}
-
-#[test]
-fn test_insert_returning_clause() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let data = InsertPgSimple::new("returning_test");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(simple)
-        .values([data])
-        .returning(simple.id);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with RETURNING SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains("RETURNING"));
-    assert!(sql_string.contains(r#""pg_simple"."id""#));
-}
-
-#[test]
-fn test_insert_returning_all() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let data = InsertPgSimple::new("returning_all_test");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(simple)
-        .values([data])
-        .returning(());
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with RETURNING * SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains("RETURNING"));
-}
-
-#[test]
-fn test_insert_on_conflict_do_nothing() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let data = InsertPgSimple::new("conflict_test");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(simple)
-        .values([data])
-        .on_conflict_do_nothing();
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert ON CONFLICT DO NOTHING SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains("ON CONFLICT"));
-    assert!(sql_string.contains("DO NOTHING"));
-}
-
-#[test]
-fn test_insert_with_optional_fields() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    // Only set required fields
-    let data = InsertPgComplex::new("minimal_user", true, PgRole::User);
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(complex)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with optional fields SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains(r#""pg_complex""#));
-}
-
-#[test]
-fn test_insert_with_all_optional_fields() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let data = InsertPgComplex::new("full_user", true, PgRole::Admin)
-        .with_email("user@example.com")
-        .with_age(25)
-        .with_score(88.5)
-        .with_description("A test user")
-        .with_data_blob(vec![1, 2, 3, 4])
-        .with_created_at("2024-01-01");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(complex)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with all fields SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-}
-
-#[test]
-fn test_insert_post_with_foreign_key() {
-    let PgComplexPostSchema { post, .. } = PgComplexPostSchema::new();
-
-    let author_id = uuid::Uuid::new_v4();
-    let data = InsertPgPost::new("Test Post", true)
-        .with_content("Post content")
-        .with_author_id(author_id);
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(post)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with foreign key SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains(r#""pg_posts""#));
-}
-
-#[test]
-fn test_insert_category() {
-    let PgCategorySchema { category } = PgCategorySchema::new();
-
-    let data = InsertPgCategory::new("Technology").with_description("Tech related posts");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(category)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert category SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains(r#""pg_categories""#));
-}
-
-#[test]
-fn test_insert_task_with_native_enums() {
-    let PgTaskSchema { task, .. } = PgTaskSchema::new();
-
-    let data = InsertPgTask::new("Complete feature", Priority::High, PostStatus::Draft)
-        .with_description("Implement the new feature");
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(task)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert task with native enums SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
-    assert!(sql_string.contains(r#""pg_tasks""#));
-}
-
-#[cfg(feature = "serde")]
-#[test]
-fn test_insert_with_json() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let metadata_json = r#"{"theme":"dark","notifications":true}"#;
-    let config_json = r#"{"language":"en"}"#;
-
-    let data = InsertPgComplex::new("json_user", true, PgRole::User)
-        .with_metadata(metadata_json)
-        .with_config(config_json);
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(complex)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with JSON SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
+use drizzle_macros::postgres_test;
+
+#[derive(Debug, PostgresFromRow)]
+struct PgSimpleResult {
+    id: i32,
+    name: String,
 }
 
 #[cfg(feature = "uuid")]
-#[test]
-fn test_insert_with_uuid() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let id = uuid::Uuid::new_v4();
-    let data = InsertPgComplex::new("uuid_user", true, PgRole::User).with_id(id);
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .insert(complex)
-        .values([data]);
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Insert with UUID SQL: {}", sql_string);
-
-    assert!(sql_string.contains("INSERT INTO"));
+#[derive(Debug, PostgresFromRow)]
+struct PgComplexResult {
+    id: uuid::Uuid,
+    name: String,
+    email: Option<String>,
+    age: Option<i32>,
+    active: bool,
 }
+
+postgres_test!(insert_single_row, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([InsertPgSimple::new("Alice")]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice");
+    assert!(results[0].id > 0, "ID should be auto-generated");
+});
+
+postgres_test!(insert_multiple_rows, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+        InsertPgSimple::new("Charlie"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 3);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Alice"));
+    assert!(names.contains(&"Bob"));
+    assert!(names.contains(&"Charlie"));
+});
+
+#[cfg(feature = "uuid")]
+postgres_test!(insert_with_optional_fields, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
+
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("Alice", true, PgRole::Admin)
+            .with_email("alice@example.com")
+            .with_age(30)]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select(()).from(complex);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[0].email, Some("alice@example.com".to_string()));
+    assert_eq!(results[0].age, Some(30));
+    assert!(results[0].active);
+});
+
+#[cfg(feature = "uuid")]
+postgres_test!(insert_with_null_fields, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
+
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("Bob", false, PgRole::User)]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select(()).from(complex);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Bob");
+    assert_eq!(results[0].email, None);
+    assert_eq!(results[0].age, None);
+    assert!(!results[0].active);
+});
+
+postgres_test!(insert_special_characters, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("O'Brien"),
+        InsertPgSimple::new("Hello \"World\""),
+        InsertPgSimple::new("Line1\nLine2"),
+        InsertPgSimple::new("Tab\there"),
+        InsertPgSimple::new("Emoji 🎉"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 5);
+    assert!(results.iter().any(|r| r.name == "O'Brien"));
+    assert!(results.iter().any(|r| r.name == "Hello \"World\""));
+    assert!(results.iter().any(|r| r.name == "Line1\nLine2"));
+    assert!(results.iter().any(|r| r.name == "Tab\there"));
+    assert!(results.iter().any(|r| r.name == "Emoji 🎉"));
+});
+
+#[cfg(feature = "uuid")]
+postgres_test!(insert_with_custom_uuid, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
+
+    let custom_id = uuid::Uuid::new_v4();
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("CustomID", true, PgRole::User).with_id(custom_id)]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .select(())
+        .from(complex)
+        .r#where(eq(complex.id, custom_id));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, custom_id);
+    assert_eq!(results[0].name, "CustomID");
+});
+
+postgres_test!(insert_large_batch, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    // Create a batch of 100 rows
+    let names: Vec<String> = (0..100).map(|i| format!("User_{}", i)).collect();
+    let rows: Vec<_> = names
+        .iter()
+        .map(|n| InsertPgSimple::new(n.as_str()))
+        .collect();
+
+    let stmt = db.insert(simple).values(rows);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select((simple.id, simple.name)).from(simple);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 100);
+});

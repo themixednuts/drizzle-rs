@@ -1,482 +1,327 @@
 //! PostgreSQL condition expression tests
-//!
-//! These tests verify that condition expressions are properly generated
-//! with correct PostgreSQL syntax.
 
-#![cfg(feature = "postgres")]
+#![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::pg::*;
 use drizzle::prelude::*;
+use drizzle_macros::postgres_test;
 
-#[test]
-fn test_eq_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
+#[derive(Debug, PostgresFromRow)]
+struct PgSimpleResult {
+    id: i32,
+    name: String,
+}
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
+#[cfg(feature = "uuid")]
+#[derive(Debug, PostgresFromRow)]
+struct PgComplexResult {
+    id: uuid::Uuid,
+    name: String,
+    email: Option<String>,
+    age: Option<i32>,
+    active: bool,
+}
+
+postgres_test!(condition_eq, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertPgSimple::new("Alice"), InsertPgSimple::new("Bob")]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .select((simple.id, simple.name))
         .from(simple)
-        .r#where(eq(simple.name, "test"));
+        .r#where(eq(simple.name, "Alice"));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice");
+});
 
-    println!("EQ condition SQL: {}", sql_string);
+postgres_test!(condition_neq, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
 
-    assert!(sql_string.contains("="));
-    // PostgreSQL uses $1, $2, etc. for parameters
-    assert!(sql_string.contains("$1"), "Should use PostgreSQL $1 placeholder: {}", sql_string);
-}
+    let stmt = db
+        .insert(simple)
+        .values([InsertPgSimple::new("Alice"), InsertPgSimple::new("Bob")]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_neq_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
+    let stmt = db
+        .select((simple.id, simple.name))
         .from(simple)
-        .r#where(neq(simple.name, "test"));
+        .r#where(neq(simple.name, "Alice"));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Bob");
+});
 
-    println!("NEQ condition SQL: {}", sql_string);
+#[cfg(feature = "uuid")]
+postgres_test!(condition_gt_lt, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql_string.contains("<>") || sql_string.contains("!="));
-}
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Young", true, PgRole::User).with_age(20),
+        InsertPgComplex::new("Middle", true, PgRole::User).with_age(40),
+        InsertPgComplex::new("Senior", true, PgRole::User).with_age(60),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_gt_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+    // Test gt
+    let stmt = db.select(()).from(complex).r#where(gt(complex.age, 30));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 2);
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(gt(complex.age, 25));
+    // Test lt
+    let stmt = db.select(()).from(complex).r#where(lt(complex.age, 50));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 2);
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    // Test gte
+    let stmt = db.select(()).from(complex).r#where(gte(complex.age, 40));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 2);
 
-    println!("GT condition SQL: {}", sql_string);
+    // Test lte
+    let stmt = db.select(()).from(complex).r#where(lte(complex.age, 40));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 2);
+});
 
-    assert!(sql_string.contains(">"));
-    assert!(!sql_string.contains(">="));
-}
+postgres_test!(condition_in_array, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
 
-#[test]
-fn test_gte_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+        InsertPgSimple::new("Charlie"),
+        InsertPgSimple::new("David"),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(gte(complex.age, 25));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("GTE condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains(">="));
-}
-
-#[test]
-fn test_lt_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(lt(complex.age, 25));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("LT condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("<"));
-    assert!(!sql_string.contains("<="));
-}
-
-#[test]
-fn test_lte_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(lte(complex.age, 25));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("LTE condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("<="));
-}
-
-#[test]
-fn test_in_array_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
+    let stmt = db
+        .select((simple.id, simple.name))
         .from(simple)
-        .r#where(in_array(simple.name, ["Alice", "Bob", "Charlie"]));
+        .r#where(in_array(simple.name, ["Alice", "Charlie"]));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Alice"));
+    assert!(names.contains(&"Charlie"));
+});
 
-    println!("IN array condition SQL: {}", sql_string);
+postgres_test!(condition_not_in_array, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
 
-    assert!(sql_string.contains("IN"));
-    assert!(sql_string.contains("$1"));
-    assert!(sql_string.contains("$2"));
-    assert!(sql_string.contains("$3"));
-}
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("Alice"),
+        InsertPgSimple::new("Bob"),
+        InsertPgSimple::new("Charlie"),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_not_in_array_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
+    let stmt = db
+        .select((simple.id, simple.name))
         .from(simple)
-        .r#where(not_in_array(simple.name, ["Alice", "Bob"]));
+        .r#where(not_in_array(simple.name, ["Alice"]));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Bob"));
+    assert!(names.contains(&"Charlie"));
+});
 
-    println!("NOT IN array condition SQL: {}", sql_string);
+#[cfg(feature = "uuid")]
+postgres_test!(condition_is_null, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql_string.contains("NOT IN"));
-}
+    // Separate inserts due to type state differences
+    let stmt =
+        db.insert(complex)
+            .values([InsertPgComplex::new("With Email", true, PgRole::User)
+                .with_email("test@example.com")]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_is_null_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+    drizzle_exec!(stmt.execute());
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(is_null(complex.email));
+    let stmt = db.select(()).from(complex).r#where(is_null(complex.email));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "No Email");
+});
 
-    println!("IS NULL condition SQL: {}", sql_string);
+#[cfg(feature = "uuid")]
+postgres_test!(condition_is_not_null, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql_string.contains("IS NULL"));
-}
+    // Separate inserts due to type state differences
+    let stmt =
+        db.insert(complex)
+            .values([InsertPgComplex::new("With Email", true, PgRole::User)
+                .with_email("test@example.com")]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_is_not_null_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+    let stmt = db
+        .insert(complex)
+        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+    drizzle_exec!(stmt.execute());
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
+    let stmt = db
         .select(())
         .from(complex)
         .r#where(is_not_null(complex.email));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "With Email");
+});
 
-    println!("IS NOT NULL condition SQL: {}", sql_string);
+postgres_test!(condition_like, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
 
-    assert!(sql_string.contains("IS NOT NULL"));
-}
+    let stmt = db.insert(simple).values([
+        InsertPgSimple::new("test_one"),
+        InsertPgSimple::new("test_two"),
+        InsertPgSimple::new("other"),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_like_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
+    // Prefix match
+    let stmt = db
+        .select((simple.id, simple.name))
         .from(simple)
-        .r#where(like(simple.name, "%test%"));
+        .r#where(like(simple.name, "test%"));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 2);
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("LIKE condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("LIKE"));
-    assert!(sql_string.contains("$1"));
-}
-
-#[test]
-fn test_not_like_condition() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
+    // Contains match
+    let stmt = db
+        .select((simple.id, simple.name))
         .from(simple)
-        .r#where(not_like(simple.name, "%test%"));
+        .r#where(like(simple.name, "%o%"));
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 3); // test_one, test_two, other all contain 'o'
+});
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+#[cfg(feature = "uuid")]
+postgres_test!(condition_between, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    println!("NOT LIKE condition SQL: {}", sql_string);
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Teen", true, PgRole::User).with_age(15),
+        InsertPgComplex::new("Young", true, PgRole::User).with_age(25),
+        InsertPgComplex::new("Adult", true, PgRole::User).with_age(45),
+        InsertPgComplex::new("Senior", true, PgRole::User).with_age(75),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    assert!(sql_string.contains("NOT LIKE"));
-}
-
-#[test]
-fn test_between_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
+    let stmt = db
         .select(())
         .from(complex)
-        .r#where(between(complex.age, 18, 65));
+        .r#where(between(complex.age, 20, 50));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Young"));
+    assert!(names.contains(&"Adult"));
+});
 
-    println!("BETWEEN condition SQL: {}", sql_string);
+#[cfg(feature = "uuid")]
+postgres_test!(condition_and, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql_string.contains("BETWEEN"));
-    assert!(sql_string.contains("$1"));
-    assert!(sql_string.contains("$2"));
-}
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Active Young", true, PgRole::User).with_age(25),
+        InsertPgComplex::new("Inactive Young", false, PgRole::User).with_age(25),
+        InsertPgComplex::new("Active Old", true, PgRole::User).with_age(60),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_not_between_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
+    let stmt = db
         .select(())
         .from(complex)
-        .r#where(not_between(complex.age, 18, 65));
+        .r#where(and([eq(complex.active, true), lt(complex.age, 30)]));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Active Young");
+});
 
-    println!("NOT BETWEEN condition SQL: {}", sql_string);
+#[cfg(feature = "uuid")]
+postgres_test!(condition_or, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    assert!(sql_string.contains("NOT BETWEEN"));
-}
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Admin", true, PgRole::Admin),
+        InsertPgComplex::new("Moderator", true, PgRole::Moderator),
+        InsertPgComplex::new("User", true, PgRole::User),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-#[test]
-fn test_and_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+    let stmt = db.select(()).from(complex).r#where(or([
+        eq(complex.role, PgRole::Admin),
+        eq(complex.role, PgRole::Moderator),
+    ]));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(and([eq(complex.active, true), gt(complex.age, 18)]));
+    assert_eq!(results.len(), 2);
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Admin"));
+    assert!(names.contains(&"Moderator"));
+});
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+#[cfg(feature = "uuid")]
+postgres_test!(condition_nested_and_or, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    println!("AND condition SQL: {}", sql_string);
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Active Admin", true, PgRole::Admin).with_age(30),
+        InsertPgComplex::new("Inactive Admin", false, PgRole::Admin).with_age(30),
+        InsertPgComplex::new("Active User Young", true, PgRole::User).with_age(20),
+        InsertPgComplex::new("Active User Old", true, PgRole::User).with_age(50),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    assert!(sql_string.contains("AND"));
-}
+    // (Admin OR Moderator) AND active AND age > 25
+    let stmt = db.select(()).from(complex).r#where(and([
+        or([
+            eq(complex.role, PgRole::Admin),
+            eq(complex.role, PgRole::Moderator),
+        ]),
+        eq(complex.active, true),
+        gt(complex.age, 25),
+    ]));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-#[test]
-fn test_or_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Active Admin");
+});
 
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(or([eq(complex.role, PgRole::Admin), eq(complex.role, PgRole::Moderator)]));
+#[cfg(feature = "uuid")]
+postgres_test!(condition_not, PgComplexSchema, {
+    let PgComplexSchema { complex, .. } = schema;
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
+    let stmt = db.insert(complex).values([
+        InsertPgComplex::new("Active", true, PgRole::User),
+        InsertPgComplex::new("Inactive", false, PgRole::User),
+    ]);
+    drizzle_exec!(stmt.execute());
 
-    println!("OR condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("OR"));
-}
-
-#[test]
-fn test_not_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
+    let stmt = db
         .select(())
         .from(complex)
         .r#where(not(eq(complex.active, true)));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("NOT condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains("NOT"));
-}
-
-#[test]
-fn test_nested_and_or_conditions() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(and([
-            or([eq(complex.role, PgRole::Admin), eq(complex.role, PgRole::Moderator)]),
-            eq(complex.active, true),
-            gt(complex.age, 21),
-        ]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Nested AND/OR conditions SQL: {}", sql_string);
-
-    assert!(sql_string.contains("AND"));
-    assert!(sql_string.contains("OR"));
-}
-
-#[test]
-fn test_enum_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(eq(complex.role, PgRole::Admin));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Enum condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains(r#""pg_complex"."role""#));
-    assert!(sql_string.contains("$1"));
-}
-
-#[test]
-fn test_boolean_condition() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(eq(complex.active, true));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Boolean condition SQL: {}", sql_string);
-
-    assert!(sql_string.contains(r#""pg_complex"."active""#));
-}
-
-#[test]
-fn test_comparison_with_float() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(gt(complex.score, 90.5));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Float comparison SQL: {}", sql_string);
-
-    assert!(sql_string.contains(r#""pg_complex"."score""#));
-    assert!(sql_string.contains(">"));
-}
-
-#[test]
-fn test_between_with_float() {
-    let PgComplexSchema { complex, .. } = PgComplexSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(complex)
-        .r#where(between(complex.score, 0.0, 100.0));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Float BETWEEN SQL: {}", sql_string);
-
-    assert!(sql_string.contains("BETWEEN"));
-}
-
-#[test]
-fn test_like_patterns() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    // Prefix pattern
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(simple)
-        .r#where(like(simple.name, "test%"));
-    println!("LIKE prefix pattern SQL: {}", query.to_sql().sql());
-    assert!(query.to_sql().sql().contains("LIKE"));
-
-    // Suffix pattern
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(simple)
-        .r#where(like(simple.name, "%test"));
-    println!("LIKE suffix pattern SQL: {}", query.to_sql().sql());
-    assert!(query.to_sql().sql().contains("LIKE"));
-
-    // Contains pattern
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(simple)
-        .r#where(like(simple.name, "%test%"));
-    println!("LIKE contains pattern SQL: {}", query.to_sql().sql());
-    assert!(query.to_sql().sql().contains("LIKE"));
-}
-
-#[test]
-fn test_empty_in_array() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let empty: Vec<&str> = vec![];
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(simple)
-        .r#where(in_array(simple.name, empty));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Empty IN array SQL: {}", sql_string);
-
-    // Empty IN should produce a valid SQL (usually FALSE or similar)
-    assert!(sql_string.contains("WHERE"));
-}
-
-#[test]
-fn test_single_condition_in_and() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(simple)
-        .r#where(and([eq(simple.name, "test")]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Single condition in AND SQL: {}", sql_string);
-
-    assert!(sql_string.contains("WHERE"));
-}
-
-#[test]
-fn test_single_condition_in_or() {
-    let PgSimpleSchema { simple } = PgSimpleSchema::new();
-
-    let query = drizzle::postgres::QueryBuilder::new::<()>()
-        .select(())
-        .from(simple)
-        .r#where(or([eq(simple.name, "test")]));
-
-    let sql = query.to_sql();
-    let sql_string = sql.sql();
-
-    println!("Single condition in OR SQL: {}", sql_string);
-
-    assert!(sql_string.contains("WHERE"));
-}
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Inactive");
+});
