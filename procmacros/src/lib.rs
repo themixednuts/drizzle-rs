@@ -612,16 +612,51 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```ignore
 /// use drizzle::prelude::*;
 ///
-/// #[derive(FromRow, Default)]
+/// #[derive(SQLiteFromRow, Default)]
 /// struct NameOnly(String);
 ///
 /// let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
 /// ```
-#[proc_macro_derive(FromRow, attributes(column))]
-pub fn from_row_derive(input: TokenStream) -> TokenStream {
+#[cfg(feature = "sqlite")]
+#[proc_macro_derive(SQLiteFromRow, attributes(column))]
+pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::fromrow::generate_from_row_impl(input) {
+    match crate::fromrow::generate_sqlite_from_row_impl(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Automatically implements row-to-struct conversion for PostgreSQL database drivers.
+///
+/// This derive macro generates `TryFrom` implementations for PostgreSQL database
+/// drivers, allowing seamless conversion from database rows to Rust structs.
+///
+/// # Supported Drivers
+///
+/// Implementations are generated based on enabled features:
+/// - **postgres** - `TryFrom<&postgres::Row>` (sync)
+/// - **tokio-postgres** - `TryFrom<&tokio_postgres::Row>` (async) - coming soon
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+///
+/// #[derive(PostgresFromRow, Debug, Default)]
+/// struct User {
+///     id: i32,
+///     name: String,
+///     email: Option<String>,
+/// }
+/// ```
+#[cfg(feature = "postgres")]
+#[proc_macro_derive(PostgresFromRow, attributes(column))]
+pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::fromrow::generate_postgres_from_row_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -909,7 +944,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// # Syntax
 ///
 /// ```ignore
-/// drizzle_test!(test_name, SchemaType, {
+/// sqlite_test!(test_name, SchemaType, {
 ///     // Test body - uses `db` and `schema` variables
 ///     let SchemaType { my_table } = schema;
 ///     let result = drizzle_exec!(db.insert(my_table).values([data]).execute());
@@ -940,7 +975,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// use drizzle::prelude::*;
-/// use drizzle_macros::drizzle_test;
+/// use drizzle_macros::sqlite_test;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
@@ -955,7 +990,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 ///     users: Users,
 /// }
 ///
-/// drizzle_test!(insert_and_select, TestSchema, {
+/// sqlite_test!(insert_and_select, TestSchema, {
 ///     let TestSchema { users } = schema;
 ///
 ///     // Insert a user
@@ -973,8 +1008,82 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// });
 /// ```
 #[proc_macro]
-pub fn drizzle_test(input: TokenStream) -> TokenStream {
+pub fn sqlite_test(input: TokenStream) -> TokenStream {
     crate::drizzle_test::drizzle_test_impl(input)
+}
+
+/// Generates test functions for all enabled PostgreSQL drivers.
+///
+/// This macro creates separate test functions for PostgreSQL drivers (postgres-sync, tokio-postgres),
+/// each with proper async/sync handling and driver-specific setup.
+///
+/// # Syntax
+///
+/// ```ignore
+/// postgres_test!(test_name, SchemaType, {
+///     // Test body - uses `db` and `schema` variables
+///     let SchemaType { my_table } = schema;
+///     let result = drizzle_exec!(db.insert(my_table).values([data]).execute());
+///     assert_eq!(result, 1);
+/// });
+/// ```
+///
+/// # Generated Functions
+///
+/// For a test named `my_test`, this generates:
+/// - `my_test_postgres_sync()` - Sync test for postgres (when `postgres-sync` feature enabled)
+///
+/// # Available Macros in Test Body
+///
+/// - `drizzle_exec!(operation)` - Execute operation with proper async/sync handling
+/// - `drizzle_try!(operation)` - Try operation, returns early on error
+/// - `drizzle_tx!(tx_type, { body })` - Execute transaction with proper async/sync handling
+///
+/// # Variables Available in Test Body
+///
+/// - `db` - The Drizzle instance for the current driver
+/// - `schema` - The schema instance with all tables
+/// - `tx` - The transaction instance (within `drizzle_tx!` blocks)
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle::prelude::*;
+/// use drizzle_macros::postgres_test;
+///
+/// #[PostgresTable(name = "users")]
+/// struct Users {
+///     #[serial(primary)]
+///     id: i32,
+///     #[text]
+///     name: String,
+/// }
+///
+/// #[derive(PostgresSchema)]
+/// struct TestSchema {
+///     users: Users,
+/// }
+///
+/// postgres_test!(insert_and_select, TestSchema, {
+///     let TestSchema { users } = schema;
+///
+///     // Insert a user
+///     drizzle_exec!(db.insert(users)
+///         .values([InsertUsers::new("Alice")])
+///         .execute());
+///
+///     // Select all users
+///     let results: Vec<SelectUsers> = drizzle_exec!(
+///         db.select(()).from(users).all()
+///     );
+///
+///     assert_eq!(results.len(), 1);
+///     assert_eq!(results[0].name, "Alice");
+/// });
+/// ```
+#[proc_macro]
+pub fn postgres_test(input: TokenStream) -> TokenStream {
+    crate::drizzle_test::postgres_test_impl(input)
 }
 
 /// Derive macro for creating PostgreSQL-compatible enums.

@@ -4,6 +4,8 @@ use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result}
 
 #[cfg(feature = "libsql")]
 mod libsql;
+#[cfg(feature = "postgres")]
+mod postgres;
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
 #[cfg(any(feature = "libsql", feature = "turso"))]
@@ -25,58 +27,55 @@ fn parse_column_reference(field: &Field) -> Option<ExprPath> {
     None
 }
 
-/// Generate a `TryFrom<&Row<'_>>` implementation for a struct using field name-based or index-based column access
-pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+/// Helper to extract struct fields
+fn extract_struct_fields(
+    input: &DeriveInput,
+) -> Result<(&syn::punctuated::Punctuated<Field, syn::token::Comma>, bool)> {
     let struct_name = &input.ident;
-
-    // Check if this is a struct and determine field type
-    let (fields, is_tuple) = match &input.data {
+    match &input.data {
         Data::Struct(data_struct) => match &data_struct.fields {
-            Fields::Named(fields) => (&fields.named, false),
-            Fields::Unnamed(fields) => (&fields.unnamed, true),
-            Fields::Unit => {
-                return Err(Error::new_spanned(
-                    struct_name,
-                    "FromRow cannot be derived for unit structs",
-                ));
-            }
-        },
-        _ => {
-            return Err(Error::new_spanned(
+            Fields::Named(fields) => Ok((&fields.named, false)),
+            Fields::Unnamed(fields) => Ok((&fields.unnamed, true)),
+            Fields::Unit => Err(Error::new_spanned(
                 struct_name,
-                "FromRow can only be derived for structs",
-            ));
-        }
-    };
+                "FromRow cannot be derived for unit structs",
+            )),
+        },
+        _ => Err(Error::new_spanned(
+            struct_name,
+            "FromRow can only be derived for structs",
+        )),
+    }
+}
 
-    #[cfg(feature = "rusqlite")]
-    let field_assignments = if is_tuple {
-        fields
-            .iter()
-            .enumerate()
-            .map(|(idx, field)| rusqlite::generate_field_assignment(idx, field, None))
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    } else {
-        fields
-            .iter()
-            .enumerate()
-            .map(|(idx, field)| {
-                let field_name = field.ident.as_ref().unwrap();
-                rusqlite::generate_field_assignment(idx, field, Some(field_name))
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    };
+/// Generate SQLite-specific FromRow implementation (rusqlite, libsql, turso)
+#[cfg(feature = "sqlite")]
+pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+    let struct_name = &input.ident;
+    let (fields, is_tuple) = extract_struct_fields(&input)?;
 
-    // Generate implementations for all drivers
-    #[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
-
-    #[cfg(not(any(feature = "rusqlite", feature = "libsql", feature = "turso")))]
-    let impl_blocks: Vec<TokenStream> = Vec::new();
 
     // Rusqlite implementation
     #[cfg(feature = "rusqlite")]
     {
+        let field_assignments = if is_tuple {
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| rusqlite::generate_field_assignment(idx, field, None))
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        } else {
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let field_name = field.ident.as_ref().unwrap();
+                    rusqlite::generate_field_assignment(idx, field, Some(field_name))
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+
         let rusqlite_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
@@ -201,13 +200,8 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
         impl_blocks.push(libsql_impl);
     }
 
-    let impl_block = quote! {
-        #(#impl_blocks)*
-    };
-
-    // Generate ToSQL implementation for FromRow structs
+    // Generate ToSQL implementation for SQLite FromRow structs
     let tosql_impl = if is_tuple {
-        // For tuple structs, can't easily generate ToSQL as we don't have field names
         quote! {}
     } else {
         let column_specs = fields
@@ -216,14 +210,11 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                 let field_name = field.ident.as_ref().unwrap();
                 let field_name_str = field_name.to_string();
 
-                // Check for column reference attribute
                 if let Some(column_ref) = parse_column_reference(field) {
-                    // Use the column reference with alias
                     quote! {
                         columns.push(#column_ref.to_sql().alias(#field_name_str));
                     }
                 } else {
-                    // Fallback to field name as raw SQL
                     quote! {
                         columns.push(::drizzle_core::SQL::raw(#field_name_str));
                     }
@@ -239,25 +230,99 @@ pub(crate) fn generate_from_row_impl(input: DeriveInput) -> Result<TokenStream> 
                     ::drizzle_core::SQL::join(columns, ::drizzle_core::Token::COMMA)
                 }
             }
-
-            // impl<'a> ::drizzle_core::SQLModel<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #struct_name {
-            //     fn columns(&self) -> Box<[&'static dyn ::drizzle_core::SQLColumnInfo]> {
-            //         // This is a simplified implementation since we don't have access to table info
-            //         // In practice, FromRow structs used with .select() will typically be generated
-            //         // by the table macro which provides proper column info
-            //         Box::new([])
-            //     }
-
-            //     fn values(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
-            //         // FromRow structs are primarily for result mapping, not value generation
-            //         ::drizzle_core::SQL::empty()
-            //     }
-            // }
         }
     };
 
     Ok(quote! {
-        #impl_block
+        #(#impl_blocks)*
+        #tosql_impl
+    })
+}
+
+/// Generate PostgreSQL-specific FromRow implementation (postgres-sync, tokio-postgres)
+#[cfg(feature = "postgres")]
+pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+    let struct_name = &input.ident;
+    let (fields, is_tuple) = extract_struct_fields(&input)?;
+
+    let field_assignments = if is_tuple {
+        fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| postgres::generate_field_assignment(idx, field, None))
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    } else {
+        fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| {
+                let field_name = field.ident.as_ref().unwrap();
+                postgres::generate_field_assignment(idx, field, Some(field_name))
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+
+    let postgres_impl = if is_tuple {
+        quote! {
+            impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
+                type Error = ::drizzle_core::error::DrizzleError;
+
+                fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+                    Ok(Self(
+                        #(#field_assignments)*
+                    ))
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
+                type Error = ::drizzle_core::error::DrizzleError;
+
+                fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+                    Ok(Self {
+                        #(#field_assignments)*
+                    })
+                }
+            }
+        }
+    };
+
+    // Generate ToSQL implementation for PostgreSQL FromRow structs
+    let tosql_impl = if is_tuple {
+        quote! {}
+    } else {
+        let column_specs = fields
+            .iter()
+            .map(|field| {
+                let field_name = field.ident.as_ref().unwrap();
+                let field_name_str = field_name.to_string();
+
+                if let Some(column_ref) = parse_column_reference(field) {
+                    quote! {
+                        columns.push(#column_ref.to_sql().alias(#field_name_str));
+                    }
+                } else {
+                    quote! {
+                        columns.push(::drizzle_core::SQL::raw(#field_name_str));
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        quote! {
+            impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> for #struct_name {
+                fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> {
+                    let mut columns = Vec::new();
+                    #(#column_specs)*
+                    ::drizzle_core::SQL::join(columns, ::drizzle_core::Token::COMMA)
+                }
+            }
+        }
+    };
+
+    Ok(quote! {
+        #postgres_impl
         #tosql_impl
     })
 }

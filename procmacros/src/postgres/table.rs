@@ -17,6 +17,7 @@ use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
 use context::MacroContext;
+use heck::ToSnakeCase;
 use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -39,7 +40,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let table_name = attrs
         .name
         .clone()
-        .unwrap_or_else(|| struct_ident.to_string());
+        .unwrap_or_else(|| struct_ident.to_string().to_snake_case());
 
     let fields = if let Data::Struct(data) = &input.data {
         &data.fields

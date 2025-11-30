@@ -27,6 +27,7 @@ use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
 use context::MacroContext;
+use heck::ToSnakeCase;
 use json::generate_json_impls;
 use models::generate_model_definitions;
 use sql_generation::{generate_create_table_sql, generate_create_table_sql_runtime};
@@ -48,7 +49,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     // -------------------
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
-    let table_name = attrs.name.unwrap_or_else(|| struct_ident.to_string());
+    let table_name = attrs.name.unwrap_or_else(|| struct_ident.to_string().to_snake_case());
 
     let fields = if let Data::Struct(data) = &input.data {
         &data.fields
