@@ -22,8 +22,10 @@ pub(super) fn generate_create_table_sql(
     if attrs.if_not_exists {
         sql.push_str("IF NOT EXISTS ");
     }
+    // Quote table name for PostgreSQL
+    sql.push('"');
     sql.push_str(table_name);
-    sql.push_str(" (");
+    sql.push_str("\" (");
 
     // Column definitions
     let mut column_defs = Vec::new();
@@ -32,9 +34,10 @@ pub(super) fn generate_create_table_sql(
     for field_info in field_infos {
         let mut column_def = String::new();
 
-        // Column name
+        // Column name (quoted for PostgreSQL)
+        column_def.push('"');
         column_def.push_str(&field_info.ident.to_string());
-        column_def.push(' ');
+        column_def.push_str("\" ");
 
         // Column type
         match &field_info.column_type {
@@ -53,7 +56,7 @@ pub(super) fn generate_create_table_sql(
                     column_def.push_str(" PRIMARY KEY");
                 }
                 PostgreSQLFlag::Primary if is_composite_pk => {
-                    primary_key_columns.push(field_info.ident.to_string());
+                    primary_key_columns.push(format!("\"{}\"", field_info.ident));
                 }
                 PostgreSQLFlag::Unique => {
                     column_def.push_str(" UNIQUE");
@@ -96,9 +99,9 @@ pub(super) fn generate_create_table_sql(
             }
         }
 
-        // Foreign key constraints
+        // Foreign key constraints (with quoted identifiers)
         if let Some(fk) = &field_info.foreign_key {
-            column_def.push_str(&format!(" REFERENCES {}({})", fk.table, fk.column));
+            column_def.push_str(&format!(" REFERENCES \"{}\"(\"{}\")", fk.table, fk.column));
             if let Some(on_delete) = &fk.on_delete {
                 column_def.push_str(&format!(" ON DELETE {}", on_delete));
             }

@@ -327,11 +327,12 @@ fn generate_create_index_sql(
     if attr.if_not_exists {
         sql.push_str("IF NOT EXISTS ");
     }
-    sql.push_str(index_name);
+    // Quote index name
+    sql.push_str(&format!("\"{}\"", index_name));
 
-    // Table name (assume all columns are from the same table)
+    // Table name (assume all columns are from the same table, quoted)
     if let Some(first_column) = columns.first() {
-        sql.push_str(&format!(" ON {}", first_column.table_name.to_lowercase()));
+        sql.push_str(&format!(" ON \"{}\"", first_column.table_name.to_lowercase()));
     }
 
     // Index method
@@ -339,8 +340,11 @@ fn generate_create_index_sql(
         sql.push_str(&format!(" USING {}", method.to_uppercase()));
     }
 
-    // Column list
-    let column_names: Vec<String> = columns.iter().map(|col| col.column_name.clone()).collect();
+    // Column list (quoted)
+    let column_names: Vec<String> = columns
+        .iter()
+        .map(|col| format!("\"{}\"", col.column_name))
+        .collect();
     sql.push_str(&format!(" ({})", column_names.join(", ")));
 
     // Tablespace
