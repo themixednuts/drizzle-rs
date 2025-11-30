@@ -47,14 +47,6 @@ fn generate_model_trait_impls(
 
     let struct_ident = &ctx.struct_ident;
 
-    // Collect field names for update model
-    let mut update_field_names = Vec::new();
-
-    for info in ctx.field_infos.iter() {
-        let name = &info.ident;
-        update_field_names.push(name);
-    }
-
     let partial_impl = quote! {
         impl<'a> SQLModel<'a, PostgresValue<'a>> for #select_model_partial {
             fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
@@ -107,23 +99,13 @@ fn generate_model_trait_impls(
             }
 
             fn values(&self) -> SQL<'a, PostgresValue<'a>> {
-                let mut values = Vec::new();
-                // For Update model, only include values that are Some()
-                #(
-                    if let Some(val) = &self.#update_field_names {
-                        values.push(val.clone().try_into().unwrap_or(PostgresValue::Null));
-                    }
-                )*
-                SQL::param_list(values)
+                // Note: Update model's to_sql() uses SQL::assignments() directly
+                // This method is not typically used for updates
+                SQL::empty()
             }
         }
 
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_model {
-            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                SQLModel::values(self)
-            }
-        }
-
+        // ToSQL impl for Update model is generated in update.rs using SQL::assignments()
 
         #partial_impl
 
