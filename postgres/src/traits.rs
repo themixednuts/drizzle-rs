@@ -7,12 +7,6 @@ pub use table::*;
 use crate::PostgresValue;
 use drizzle_core::{SQLColumn, error::DrizzleError};
 
-pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {
-    const SERIAL: bool = false;
-    const BIGSERIAL: bool = false;
-    const GENERATED_IDENTITY: bool = false;
-}
-
 /// Trait for PostgreSQL native enum types that can be used as dyn objects
 pub trait PostgresEnum: Send + Sync + Any {
     /// Get the enum type name for PostgreSQL
