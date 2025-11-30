@@ -505,7 +505,7 @@ mod postgres_tests {
 
         assert_eq!(
             sql.sql(),
-            r#"SELECT "users"."id" FROM "users" WHERE "users"."id" = ?"#
+            r#"SELECT "users"."id" FROM "users" WHERE "users"."id" = $1"#
         );
 
         let sql = InsertUser::new("name", Status::Active, Priority::Low).with_email("test@email");
