@@ -414,7 +414,9 @@ impl<'a> From<SQL<'a, PostgresValue<'a>>> for PostgresValue<'a> {
 }
 
 // Implement core traits required by Drizzle
-impl<'a> SQLParam for PostgresValue<'a> {}
+impl<'a> SQLParam for PostgresValue<'a> {
+    const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::PostgreSQL;
+}
 
 impl<'a> From<PostgresValue<'a>> for SQL<'a, PostgresValue<'a>> {
     fn from(value: PostgresValue<'a>) -> Self {

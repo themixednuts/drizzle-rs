@@ -116,7 +116,9 @@ pub enum OwnedPostgresValue {
     Null,
 }
 
-impl SQLParam for OwnedPostgresValue {}
+impl SQLParam for OwnedPostgresValue {
+    const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::PostgreSQL;
+}
 
 impl Default for OwnedPostgresValue {
     fn default() -> Self {

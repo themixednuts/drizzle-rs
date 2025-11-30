@@ -1,7 +1,7 @@
 //! SQLite value conversion traits and types
 
 use crate::traits::FromSQLiteValue;
-use drizzle_core::{SQL, ToSQL, error::DrizzleError};
+use drizzle_core::{Dialect, SQL, SQLParam, ToSQL, error::DrizzleError};
 
 mod insert;
 mod owned;
@@ -309,7 +309,9 @@ impl<'a> From<&SQLiteValue<'a>> for libsql::Value {
 }
 
 // Implement core traits required by Drizzle
-impl<'a> drizzle_core::traits::SQLParam for SQLiteValue<'a> {}
+impl<'a> SQLParam for SQLiteValue<'a> {
+    const DIALECT: Dialect = Dialect::SQLite;
+}
 
 impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {
     fn from(value: SQLiteValue<'a>) -> Self {
