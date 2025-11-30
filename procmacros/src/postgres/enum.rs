@@ -412,6 +412,14 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
+        // Implement new() for schema integration - returns the default variant
+        impl #name {
+            /// Creates a new instance of this enum with its default variant.
+            /// Used by PostgresSchema for schema initialization.
+            pub const fn new() -> Self {
+                #name::#first_variant
+            }
+        }
 
     })
 }
