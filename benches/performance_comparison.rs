@@ -1,3 +1,5 @@
+#![allow(clippy::redundant_closure)]
+
 use divan::{AllocProfiler, Bencher, black_box};
 use drizzle::prelude::*;
 

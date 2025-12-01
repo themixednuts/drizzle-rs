@@ -696,7 +696,7 @@ impl<'a> FieldInfo<'a> {
     pub(crate) fn to_column_meta(&self) -> drizzle_migrations::sqlite::Column {
         let mut col = drizzle_migrations::sqlite::Column::new(
             &self.column_name,
-            &self.column_type.to_sql_type().to_lowercase(),
+            self.column_type.to_sql_type().to_lowercase(),
         );
 
         if self.is_primary {

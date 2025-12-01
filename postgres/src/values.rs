@@ -1590,16 +1590,45 @@ mod postgres_tosql_impl {
                 PostgresValue::Date(date) => date.to_sql(ty, out),
                 #[cfg(feature = "chrono")]
                 PostgresValue::Time(time) => time.to_sql(ty, out),
+                #[cfg(feature = "chrono")]
+                PostgresValue::TimestampTz(ts) => ts.to_sql(ty, out),
+                #[cfg(feature = "chrono")]
+                PostgresValue::Interval(dur) => dur.to_string().to_sql(ty, out),
+                // These types don't implement postgres::types::ToSql directly
+                // We convert them to string representations for serialization
                 #[cfg(feature = "rust_decimal")]
-                PostgresValue::Numeric(num) => num.to_sql(ty, out),
+                PostgresValue::Decimal(num) => num.to_string().to_sql(ty, out),
                 #[cfg(feature = "ipnet")]
-                PostgresValue::Inet(ip) => ip.to_sql(ty, out),
+                PostgresValue::Inet(ip) => ip.to_string().to_sql(ty, out),
                 #[cfg(feature = "ipnet")]
-                PostgresValue::Cidr(ip) => ip.to_sql(ty, out),
+                PostgresValue::Cidr(ip) => ip.to_string().to_sql(ty, out),
+                #[cfg(feature = "ipnet")]
+                PostgresValue::MacAddr(mac) => {
+                    format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]).to_sql(ty, out)
+                }
+                #[cfg(feature = "ipnet")]
+                PostgresValue::MacAddr8(mac) => {
+                    format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]).to_sql(ty, out)
+                }
                 #[cfg(feature = "geo-types")]
-                PostgresValue::Point(p) => p.to_sql(ty, out),
+                PostgresValue::Point(p) => format!("({},{})", p.x(), p.y()).to_sql(ty, out),
+                #[cfg(feature = "geo-types")]
+                PostgresValue::LineString(ls) => {
+                    let points: Vec<String> = ls.points().map(|p| format!("({},{})", p.x(), p.y())).collect();
+                    format!("({})", points.join(",")).to_sql(ty, out)
+                }
+                #[cfg(feature = "geo-types")]
+                PostgresValue::Polygon(poly) => format!("{:?}", poly).to_sql(ty, out),
+                #[cfg(feature = "geo-types")]
+                PostgresValue::MultiPoint(mp) => format!("{:?}", mp).to_sql(ty, out),
+                #[cfg(feature = "geo-types")]
+                PostgresValue::MultiLineString(mls) => format!("{:?}", mls).to_sql(ty, out),
+                #[cfg(feature = "geo-types")]
+                PostgresValue::MultiPolygon(mpoly) => format!("{:?}", mpoly).to_sql(ty, out),
                 #[cfg(feature = "bitvec")]
-                PostgresValue::Bit(bits) => bits.to_sql(ty, out),
+                PostgresValue::BitVec(bits) => format!("{:?}", bits).to_sql(ty, out),
                 PostgresValue::Enum(enum_val) => enum_val.variant_name().to_sql(ty, out),
                 PostgresValue::Array(arr) => {
                     // For arrays, we need to serialize each element

@@ -167,6 +167,7 @@ fn generate_insert_convenience_method(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_json_insert_method(
     field: &FieldInfo,
     ctx: &MacroContext,

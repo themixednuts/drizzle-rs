@@ -1,3 +1,5 @@
+#![allow(clippy::wrong_self_convention)]
+
 use crate::drizzle::sqlite::turso::DrizzleBuilder;
 use crate::drizzle_builder_join_impl;
 use drizzle_core::{SQLTable, ToSQL};

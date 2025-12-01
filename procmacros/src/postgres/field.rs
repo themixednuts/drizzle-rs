@@ -315,10 +315,6 @@ impl PostgreSQLType {
             #[cfg(feature = "chrono")]
             "interval" => Some(Self::Interval),
 
-            // Decimal alias (rust_decimal feature)
-            #[cfg(feature = "rust_decimal")]
-            "decimal" => Some(Self::Decimal),
-
             // Network address types
             #[cfg(feature = "ipnet")]
             "inet" => Some(Self::Inet),

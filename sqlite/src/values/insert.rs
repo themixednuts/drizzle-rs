@@ -26,6 +26,7 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
 
 /// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::large_enum_variant)]
 pub enum SQLiteInsertValue<'a, V: SQLParam, T> {
     /// Omit this column from the INSERT (use database default)
     #[default]

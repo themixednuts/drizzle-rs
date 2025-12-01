@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use uuid::Uuid;
 
 #[cfg(feature = "chrono")]
-use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 
 #[cfg(feature = "rust_decimal")]
 use rust_decimal::Decimal;

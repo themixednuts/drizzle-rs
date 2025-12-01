@@ -131,11 +131,10 @@ fn generate_json_conversion<D: DriverConfig>(
         _ => unreachable!(),
     };
 
-    Ok(if is_optional {
-        quote!(#accessor.map(|v| #deserialize).transpose()?)
-    } else {
-        quote!(#accessor.map(|v| #deserialize).transpose()?)
-    })
+    // Both optional and non-optional JSON fields use the same pattern since
+    // the JSON deserialization needs to handle the Option wrapper uniformly
+    let _ = is_optional;
+    Ok(quote!(#accessor.map(|v| #deserialize).transpose()?))
 }
 
 #[allow(dead_code)]
