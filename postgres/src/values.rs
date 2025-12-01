@@ -1603,20 +1603,25 @@ mod postgres_tosql_impl {
                 #[cfg(feature = "ipnet")]
                 PostgresValue::Cidr(ip) => ip.to_string().to_sql(ty, out),
                 #[cfg(feature = "ipnet")]
-                PostgresValue::MacAddr(mac) => {
-                    format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]).to_sql(ty, out)
-                }
+                PostgresValue::MacAddr(mac) => format!(
+                    "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+                )
+                .to_sql(ty, out),
                 #[cfg(feature = "ipnet")]
-                PostgresValue::MacAddr8(mac) => {
-                    format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]).to_sql(ty, out)
-                }
+                PostgresValue::MacAddr8(mac) => format!(
+                    "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
+                )
+                .to_sql(ty, out),
                 #[cfg(feature = "geo-types")]
                 PostgresValue::Point(p) => format!("({},{})", p.x(), p.y()).to_sql(ty, out),
                 #[cfg(feature = "geo-types")]
                 PostgresValue::LineString(ls) => {
-                    let points: Vec<String> = ls.points().map(|p| format!("({},{})", p.x(), p.y())).collect();
+                    let points: Vec<String> = ls
+                        .points()
+                        .map(|p| format!("({},{})", p.x(), p.y()))
+                        .collect();
                     format!("({})", points.join(",")).to_sql(ty, out)
                 }
                 #[cfg(feature = "geo-types")]

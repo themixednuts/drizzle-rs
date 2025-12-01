@@ -552,6 +552,7 @@ mod postgres_tests {
             r#"SELECT "users"."id" FROM "users" WHERE "users"."id" = $1"#
         );
 
-        let _insert = InsertUser::new("name", Status::Active, Priority::Low).with_email("test@email");
+        let _insert =
+            InsertUser::new("name", Status::Active, Priority::Low).with_email("test@email");
     }
 }
