@@ -57,8 +57,8 @@ enum Commands {
         #[arg(long, default_value = "index")]
         prefix: String,
 
-        /// Add statement breakpoints
-        #[arg(long, default_value = "true")]
+        /// Add statement breakpoints (use --no-breakpoints to disable)
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         breakpoints: bool,
     },
 
@@ -92,6 +92,17 @@ enum Commands {
         /// Output directory containing migrations
         #[arg(short, long)]
         out: Option<String>,
+    },
+
+    /// Upgrade snapshots to the latest version
+    Up {
+        /// Output directory containing migrations
+        #[arg(short, long)]
+        out: Option<String>,
+
+        /// Database dialect
+        #[arg(short, long)]
+        dialect: Option<String>,
     },
 }
 
@@ -164,6 +175,18 @@ fn run() -> anyhow::Result<()> {
                 .or_else(|| config.as_ref().map(|c| c.out.to_string_lossy().to_string()))
                 .unwrap_or_else(|| "drizzle".to_string());
             commands::status::run(&out_dir)?;
+        }
+
+        Commands::Up { out, dialect } => {
+            let opts = commands::up::UpOptions {
+                out_dir: out
+                    .or_else(|| config.as_ref().map(|c| c.out.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| "drizzle".to_string()),
+                dialect: dialect
+                    .or_else(|| config.as_ref().map(|c| c.dialect.to_string()))
+                    .unwrap_or_else(|| "sqlite".to_string()),
+            };
+            commands::up::run(opts)?;
         }
     }
 

@@ -28,4 +28,3 @@ pub enum CliError {
     #[error("TOML error: {0}")]
     Toml(#[from] toml::de::Error),
 }
-
