@@ -150,7 +150,7 @@ url = "sqlite:./dev.db"
 table = "__drizzle_migrations"
 "#;
 
-        let config = DrizzleConfig::from_str(toml).unwrap();
+        let config = DrizzleConfig::parse(toml).unwrap();
         assert_eq!(config.dialect, Dialect::Sqlite);
         assert_eq!(config.out, PathBuf::from("./drizzle"));
         assert!(config.breakpoints);
