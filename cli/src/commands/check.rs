@@ -9,7 +9,7 @@
 
 use crate::error::CliError;
 use colored::Colorize;
-use drizzle_migrations::{is_supported_version, snapshot_version, Dialect, Journal};
+use drizzle_migrations::{Dialect, Journal, is_supported_version, needs_upgrade, snapshot_version};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -26,8 +26,10 @@ struct CheckReport {
     missing_snapshots: Vec<String>,
     /// Snapshots that failed to parse
     malformed: Vec<(String, String)>,
-    /// Snapshots with non-latest versions
+    /// Snapshots with non-latest versions (warning)
     non_latest: Vec<(String, String, String)>, // (file, found_version, expected_version)
+    /// Snapshots with versions too old to be supported (error - needs upgrade)
+    too_old: Vec<(String, String)>, // (file, found_version)
     /// Snapshots with same prevId (collision)
     collisions: Vec<(String, Vec<String>)>, // (parent_id, [snapshot files])
     /// Empty SQL files
@@ -40,6 +42,7 @@ impl CheckReport {
             || !self.missing_snapshots.is_empty()
             || !self.malformed.is_empty()
             || !self.collisions.is_empty()
+            || !self.too_old.is_empty()
     }
 
     fn has_warnings(&self) -> bool {
@@ -107,8 +110,14 @@ pub fn run(opts: CheckOptions) -> anyhow::Result<()> {
             let snapshot_content = std::fs::read_to_string(&snapshot_path)?;
             match validate_snapshot(&snapshot_content, opts.dialect) {
                 Ok(snapshot_info) => {
-                    // Check version
-                    if snapshot_info.version != expected_version {
+                    // Check if version is too old (needs upgrade)
+                    if needs_upgrade(opts.dialect, &snapshot_info.version) {
+                        report
+                            .too_old
+                            .push((entry.tag.clone(), snapshot_info.version.clone()));
+                        entry_valid = false;
+                    } else if snapshot_info.version != expected_version {
+                        // Not the latest but still supported - just a warning
                         report.non_latest.push((
                             entry.tag.clone(),
                             snapshot_info.version.clone(),
@@ -184,6 +193,15 @@ pub fn run(opts: CheckOptions) -> anyhow::Result<()> {
             println!("  {} Malformed snapshot {}: {}", "✗".red(), file, err);
         }
 
+        for (file, version) in &report.too_old {
+            println!(
+                "  {} {} has unsupported version {} - run 'drizzle up' to upgrade",
+                "✗".red(),
+                file,
+                version
+            );
+        }
+
         for (parent, snapshots) in &report.collisions {
             println!(
                 "  {} Collision: [{}] all point to parent {}",
@@ -198,6 +216,7 @@ pub fn run(opts: CheckOptions) -> anyhow::Result<()> {
             report.missing_sql.len()
                 + report.missing_snapshots.len()
                 + report.malformed.len()
+                + report.too_old.len()
                 + report.collisions.len()
         );
     }

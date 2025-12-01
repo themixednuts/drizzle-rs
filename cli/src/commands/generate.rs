@@ -1,7 +1,7 @@
 //! Generate migration command
 //!
 //! This command generates a new migration by:
-//! 1. Loading the current schema from a JSON file (exported by build.rs or the app)
+//! 1. Loading the current schema from a JSON file
 //! 2. Loading the last snapshot from the migrations directory
 //! 3. Diffing the two to find changes
 //! 4. Generating SQL statements for the changes

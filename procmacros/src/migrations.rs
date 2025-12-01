@@ -225,9 +225,8 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
         Dialect::Mysql => quote! { ::drizzle_migrations::Dialect::Mysql },
     };
 
-    // Generate rerun-if-changed directives for build script
-    // (These are printed but don't affect proc macros directly - users should
-    // add them to build.rs if they want rebuild on migration changes)
+    // Note: Proc macros automatically detect file changes for recompilation.
+    // Migration files are embedded at compile time via include_str!().
 
     // Generate the final output
     let num_migrations = migration_entries.len();

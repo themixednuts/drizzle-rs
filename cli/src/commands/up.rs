@@ -2,10 +2,17 @@
 //!
 //! This command upgrades all snapshots to the latest schema version.
 //! This is needed when the snapshot format changes between drizzle versions.
+//!
+//! The upgrade process transforms the data structure, not just the version number:
+//! - SQLite v5 → v6: JSON defaults become escaped strings, views field added
+//! - PostgreSQL v5 → v6: Table keys become schema.name, enum format changes
+//! - PostgreSQL v6 → v7: Index format changes, policies/sequences/roles added
 
 use crate::error::CliError;
 use colored::Colorize;
-use drizzle_migrations::{snapshot_version, Dialect, Journal};
+use drizzle_migrations::{
+    Dialect, Journal, needs_upgrade, snapshot_version, upgrade::upgrade_to_latest,
+};
 use std::path::Path;
 
 pub struct UpOptions {
@@ -59,8 +66,8 @@ pub fn run(opts: UpOptions) -> anyhow::Result<()> {
 
         let content = std::fs::read_to_string(&snapshot_path)?;
 
-        // Parse as generic JSON to check/update version
-        let mut raw: serde_json::Value = serde_json::from_str(&content)?;
+        // Parse as generic JSON
+        let raw: serde_json::Value = serde_json::from_str(&content)?;
 
         let current_version = raw
             .get("version")
@@ -79,16 +86,41 @@ pub fn run(opts: UpOptions) -> anyhow::Result<()> {
             continue;
         }
 
-        // Upgrade the version
-        if let Some(obj) = raw.as_object_mut() {
-            obj.insert(
-                "version".to_string(),
-                serde_json::Value::String(expected_version.to_string()),
+        // Check if this version is too old and needs upgrade
+        if !needs_upgrade(opts.dialect, &current_version) && current_version != expected_version {
+            // Version is supported but not latest - still upgrade
+            println!(
+                "  {} {} - v{} is supported but upgrading to v{}",
+                "↑".cyan(),
+                entry.tag,
+                current_version,
+                expected_version
             );
         }
 
+        // Perform the actual upgrade with data transformation
+        let upgraded_json = upgrade_to_latest(raw, opts.dialect);
+
+        // Verify the upgrade worked
+        let new_version = upgraded_json
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        if new_version != expected_version {
+            println!(
+                "  {} {} - upgrade failed (got v{}, expected v{})",
+                "✗".red(),
+                entry.tag,
+                new_version,
+                expected_version
+            );
+            errors += 1;
+            continue;
+        }
+
         // Write back
-        let upgraded_content = serde_json::to_string_pretty(&raw)?;
+        let upgraded_content = serde_json::to_string_pretty(&upgraded_json)?;
         std::fs::write(&snapshot_path, upgraded_content)?;
 
         println!(
