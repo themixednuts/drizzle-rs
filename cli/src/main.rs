@@ -9,8 +9,37 @@ mod error;
 mod schema;
 mod snapshot;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
+use drizzle_migrations::Dialect;
+
+/// CLI-specific dialect enum that maps to drizzle_migrations::Dialect
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum CliDialect {
+    Sqlite,
+    Postgresql,
+    Mysql,
+}
+
+impl From<CliDialect> for Dialect {
+    fn from(d: CliDialect) -> Self {
+        match d {
+            CliDialect::Sqlite => Dialect::Sqlite,
+            CliDialect::Postgresql => Dialect::Postgresql,
+            CliDialect::Mysql => Dialect::Mysql,
+        }
+    }
+}
+
+impl From<Dialect> for CliDialect {
+    fn from(d: Dialect) -> Self {
+        match d {
+            Dialect::Sqlite => CliDialect::Sqlite,
+            Dialect::Postgresql => CliDialect::Postgresql,
+            Dialect::Mysql => CliDialect::Mysql,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -42,8 +71,8 @@ enum Commands {
         out: Option<String>,
 
         /// Database dialect: sqlite, postgresql, mysql
-        #[arg(short, long)]
-        dialect: Option<String>,
+        #[arg(short, long, value_enum)]
+        dialect: Option<CliDialect>,
 
         /// Custom migration name
         #[arg(short, long)]
@@ -57,7 +86,7 @@ enum Commands {
         #[arg(long, default_value = "index")]
         prefix: String,
 
-        /// Add statement breakpoints (use --no-breakpoints to disable)
+        /// Add statement breakpoints (use --breakpoints=false to disable)
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         breakpoints: bool,
     },
@@ -69,8 +98,8 @@ enum Commands {
         out: Option<String>,
 
         /// Database dialect
-        #[arg(short, long)]
-        dialect: Option<String>,
+        #[arg(short, long, value_enum)]
+        dialect: Option<CliDialect>,
     },
 
     /// Drop a migration
@@ -83,8 +112,8 @@ enum Commands {
     /// Initialize a new drizzle.toml configuration file
     Init {
         /// Database dialect: sqlite, postgresql, mysql
-        #[arg(short, long, default_value = "sqlite")]
-        dialect: String,
+        #[arg(short, long, value_enum, default_value = "sqlite")]
+        dialect: CliDialect,
     },
 
     /// Show the current schema status
@@ -101,8 +130,8 @@ enum Commands {
         out: Option<String>,
 
         /// Database dialect
-        #[arg(short, long)]
-        dialect: Option<String>,
+        #[arg(short, long, value_enum)]
+        dialect: Option<CliDialect>,
     },
 }
 
@@ -129,14 +158,17 @@ fn run() -> anyhow::Result<()> {
             prefix,
             breakpoints,
         } => {
+            let dialect = dialect
+                .map(Dialect::from)
+                .or_else(|| config.as_ref().map(|c| c.dialect))
+                .unwrap_or(Dialect::Sqlite);
+
             let opts = commands::generate::GenerateOptions {
                 schema_path: schema,
                 out_dir: out
                     .or_else(|| config.as_ref().map(|c| c.out.to_string_lossy().to_string()))
                     .unwrap_or_else(|| "drizzle".to_string()),
-                dialect: dialect
-                    .or_else(|| config.as_ref().map(|c| c.dialect.to_string()))
-                    .unwrap_or_else(|| "sqlite".to_string()),
+                dialect,
                 name,
                 custom,
                 prefix,
@@ -146,13 +178,16 @@ fn run() -> anyhow::Result<()> {
         }
 
         Commands::Check { out, dialect } => {
+            let dialect = dialect
+                .map(Dialect::from)
+                .or_else(|| config.as_ref().map(|c| c.dialect))
+                .unwrap_or(Dialect::Sqlite);
+
             let opts = commands::check::CheckOptions {
                 out_dir: out
                     .or_else(|| config.as_ref().map(|c| c.out.to_string_lossy().to_string()))
                     .unwrap_or_else(|| "drizzle".to_string()),
-                dialect: dialect
-                    .or_else(|| config.as_ref().map(|c| c.dialect.to_string()))
-                    .unwrap_or_else(|| "sqlite".to_string()),
+                dialect,
             };
             commands::check::run(opts)?;
         }
@@ -167,7 +202,7 @@ fn run() -> anyhow::Result<()> {
         }
 
         Commands::Init { dialect } => {
-            commands::init::run(&dialect)?;
+            commands::init::run(dialect.into())?;
         }
 
         Commands::Status { out } => {
@@ -178,13 +213,16 @@ fn run() -> anyhow::Result<()> {
         }
 
         Commands::Up { out, dialect } => {
+            let dialect = dialect
+                .map(Dialect::from)
+                .or_else(|| config.as_ref().map(|c| c.dialect))
+                .unwrap_or(Dialect::Sqlite);
+
             let opts = commands::up::UpOptions {
                 out_dir: out
                     .or_else(|| config.as_ref().map(|c| c.out.to_string_lossy().to_string()))
                     .unwrap_or_else(|| "drizzle".to_string()),
-                dialect: dialect
-                    .or_else(|| config.as_ref().map(|c| c.dialect.to_string()))
-                    .unwrap_or_else(|| "sqlite".to_string()),
+                dialect,
             };
             commands::up::run(opts)?;
         }
@@ -192,4 +230,3 @@ fn run() -> anyhow::Result<()> {
 
     Ok(())
 }
-

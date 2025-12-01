@@ -9,17 +9,13 @@
 
 use crate::error::CliError;
 use colored::Colorize;
-use drizzle_migrations::Journal;
+use drizzle_migrations::{is_supported_version, snapshot_version, Dialect, Journal};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Current snapshot versions by dialect
-const SQLITE_SNAPSHOT_VERSION: &str = "6";
-const POSTGRES_SNAPSHOT_VERSION: &str = "7";
-
 pub struct CheckOptions {
     pub out_dir: String,
-    pub dialect: String,
+    pub dialect: Dialect,
 }
 
 #[derive(Default)]
@@ -83,11 +79,7 @@ pub fn run(opts: CheckOptions) -> anyhow::Result<()> {
     let mut report = CheckReport::default();
     let mut prev_id_map: HashMap<String, Vec<String>> = HashMap::new();
 
-    let expected_version = match opts.dialect.as_str() {
-        "sqlite" | "turso" | "libsql" => SQLITE_SNAPSHOT_VERSION,
-        "postgresql" | "postgres" => POSTGRES_SNAPSHOT_VERSION,
-        _ => "6",
-    };
+    let expected_version = snapshot_version(opts.dialect);
 
     for entry in &journal.entries {
         let sql_path = migrations_dir.join(format!("{}.sql", entry.tag));
@@ -113,7 +105,7 @@ pub fn run(opts: CheckOptions) -> anyhow::Result<()> {
         } else {
             // Validate snapshot JSON
             let snapshot_content = std::fs::read_to_string(&snapshot_path)?;
-            match validate_snapshot(&snapshot_content, &opts.dialect) {
+            match validate_snapshot(&snapshot_content, opts.dialect) {
                 Ok(snapshot_info) => {
                     // Check version
                     if snapshot_info.version != expected_version {
@@ -220,7 +212,7 @@ struct SnapshotInfo {
     prev_id: String,
 }
 
-fn validate_snapshot(content: &str, dialect: &str) -> Result<SnapshotInfo, String> {
+fn validate_snapshot(content: &str, dialect: Dialect) -> Result<SnapshotInfo, String> {
     // First parse as generic JSON to extract version and prevId
     let raw: serde_json::Value =
         serde_json::from_str(content).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -237,18 +229,29 @@ fn validate_snapshot(content: &str, dialect: &str) -> Result<SnapshotInfo, Strin
         .unwrap_or("unknown")
         .to_string();
 
+    // Check if version is supported (not newer than what we support)
+    if !is_supported_version(dialect, &version) {
+        return Err(format!(
+            "Unsupported version {} - please update drizzle-cli",
+            version
+        ));
+    }
+
     // Now validate the full schema
     match dialect {
-        "sqlite" | "turso" | "libsql" => {
+        Dialect::Sqlite => {
             serde_json::from_str::<drizzle_migrations::sqlite::SQLiteSnapshot>(content)
                 .map(|_| SnapshotInfo { version, prev_id })
                 .map_err(|e| format!("Schema validation failed: {}", e))
         }
-        "postgresql" | "postgres" => {
+        Dialect::Postgresql => {
             serde_json::from_str::<drizzle_migrations::postgres::PostgresSnapshot>(content)
                 .map(|_| SnapshotInfo { version, prev_id })
                 .map_err(|e| format!("Schema validation failed: {}", e))
         }
-        _ => Err(format!("Unknown dialect: {}", dialect)),
+        Dialect::Mysql => {
+            // MySQL schema validation not yet implemented
+            Ok(SnapshotInfo { version, prev_id })
+        }
     }
 }

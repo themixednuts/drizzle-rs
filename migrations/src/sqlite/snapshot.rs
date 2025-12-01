@@ -1,6 +1,7 @@
 //! SQLite snapshot types matching drizzle-kit format
 
 use super::{Table, View};
+use crate::version::{ORIGIN_UUID, SQLITE_SNAPSHOT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -75,16 +76,13 @@ impl Default for SQLiteSnapshot {
 }
 
 impl SQLiteSnapshot {
-    /// Origin UUID for first snapshot
-    pub const ORIGIN_UUID: &'static str = "00000000-0000-0000-0000-000000000000";
-
     /// Create a new empty SQLite snapshot
     pub fn new() -> Self {
         Self {
-            version: "6".to_string(),
+            version: SQLITE_SNAPSHOT_VERSION.to_string(),
             dialect: "sqlite".to_string(),
             id: uuid::Uuid::new_v4().to_string(),
-            prev_id: Self::ORIGIN_UUID.to_string(),
+            prev_id: ORIGIN_UUID.to_string(),
             tables: HashMap::new(),
             views: HashMap::new(),
             enums: HashMap::new(),
@@ -156,7 +154,7 @@ mod tests {
         let snapshot = SQLiteSnapshot::new();
         assert_eq!(snapshot.version, "6");
         assert_eq!(snapshot.dialect, "sqlite");
-        assert_eq!(snapshot.prev_id, SQLiteSnapshot::ORIGIN_UUID);
+        assert_eq!(snapshot.prev_id, crate::ORIGIN_UUID);
         assert!(snapshot.tables.is_empty());
     }
 

@@ -35,13 +35,19 @@ pub mod migrator;
 pub mod postgres;
 pub mod sqlgen;
 pub mod sqlite;
+pub mod version;
 pub mod words;
 pub mod writer;
 
-pub use config::DrizzleConfig;
-pub use embedded::{Dialect, EmbeddedMigration, EmbeddedMigrations};
+pub use config::{Dialect, DrizzleConfig};
+pub use embedded::{EmbeddedMigration, EmbeddedMigrations};
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{Migration, Migrator, MigratorError};
+pub use version::{
+    is_latest_version, is_supported_version, snapshot_version, JOURNAL_VERSION,
+    MYSQL_SNAPSHOT_VERSION, ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION, SINGLESTORE_SNAPSHOT_VERSION,
+    SQLITE_SNAPSHOT_VERSION,
+};
 
 // Re-export serde_json for generated code to use
 pub use serde_json;

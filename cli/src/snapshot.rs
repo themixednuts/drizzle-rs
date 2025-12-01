@@ -5,12 +5,16 @@
 
 use crate::error::CliError;
 use drizzle_migrations::sqlite::SQLiteSnapshot;
+use drizzle_migrations::Dialect;
 use std::path::Path;
 
 /// Load the latest snapshot from the migrations meta directory
-pub fn load_latest_snapshot(migrations_dir: &Path, dialect: &str) -> Result<Option<SQLiteSnapshot>, CliError> {
+pub fn load_latest_snapshot(
+    migrations_dir: &Path,
+    dialect: Dialect,
+) -> Result<Option<SQLiteSnapshot>, CliError> {
     let meta_dir = migrations_dir.join("meta");
-    
+
     if !meta_dir.exists() {
         return Ok(None);
     }
@@ -38,9 +42,9 @@ pub fn load_latest_snapshot(migrations_dir: &Path, dialect: &str) -> Result<Opti
     }
 
     let snapshot_content = std::fs::read_to_string(&snapshot_path)?;
-    
+
     match dialect {
-        "sqlite" | "turso" | "libsql" => {
+        Dialect::Sqlite => {
             let snapshot: SQLiteSnapshot = serde_json::from_str(&snapshot_content)?;
             Ok(Some(snapshot))
         }
@@ -67,10 +71,9 @@ pub fn save_snapshot(
 }
 
 /// Create an empty snapshot for the given dialect
-pub fn empty_snapshot(dialect: &str) -> Result<SQLiteSnapshot, CliError> {
+pub fn empty_snapshot(dialect: Dialect) -> Result<SQLiteSnapshot, CliError> {
     match dialect {
-        "sqlite" | "turso" | "libsql" => Ok(SQLiteSnapshot::new()),
+        Dialect::Sqlite => Ok(SQLiteSnapshot::new()),
         _ => Err(CliError::InvalidDialect(dialect.to_string())),
     }
 }
-

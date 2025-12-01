@@ -35,7 +35,7 @@ pub fn run(out_dir: &str) -> anyhow::Result<()> {
     let journal_content = std::fs::read_to_string(&journal_path)?;
     let journal: Journal = serde_json::from_str(&journal_content)?;
 
-    println!("  Dialect: {}", journal.dialect.cyan());
+    println!("  Dialect: {}", journal.dialect.to_string().cyan());
     println!("  Version: {}", journal.version);
     println!("  Directory: {}", migrations_dir.display());
     println!();

@@ -6,18 +6,19 @@
 
 use crate::error::CliError;
 use drizzle_migrations::sqlite::SQLiteSnapshot;
+use drizzle_migrations::Dialect;
 use std::path::Path;
 
 /// Dialect-agnostic schema holder
 #[derive(Debug)]
 pub enum Schema {
     Sqlite(SQLiteSnapshot),
-    // Postgres(drizzle_migrations::postgres::PgSnapshot),
+    // Postgres(drizzle_migrations::postgres::PostgresSnapshot),
 }
 
 impl Schema {
     /// Load schema from a JSON file
-    pub fn load(path: &Path, dialect: &str) -> Result<Self, CliError> {
+    pub fn load(path: &Path, dialect: Dialect) -> Result<Self, CliError> {
         if !path.exists() {
             return Err(CliError::SchemaNotFound(path.display().to_string()));
         }
@@ -25,25 +26,24 @@ impl Schema {
         let content = std::fs::read_to_string(path)?;
 
         match dialect {
-            "sqlite" | "turso" | "libsql" => {
+            Dialect::Sqlite => {
                 let snapshot: SQLiteSnapshot = serde_json::from_str(&content)?;
                 Ok(Schema::Sqlite(snapshot))
             }
-            // "postgresql" | "postgres" => {
-            //     let snapshot: drizzle_migrations::postgres::PgSnapshot = serde_json::from_str(&content)?;
+            // Dialect::Postgresql => {
+            //     let snapshot: drizzle_migrations::postgres::PostgresSnapshot = serde_json::from_str(&content)?;
             //     Ok(Schema::Postgres(snapshot))
             // }
-            other => Err(CliError::InvalidDialect(other.to_string())),
+            _ => Err(CliError::InvalidDialect(dialect.to_string())),
         }
     }
 
-    /// Get the dialect string
+    /// Get the dialect
     #[allow(dead_code)]
-    pub fn dialect(&self) -> &'static str {
+    pub fn dialect(&self) -> Dialect {
         match self {
-            Schema::Sqlite(_) => "sqlite",
-            // Schema::Postgres(_) => "postgresql",
+            Schema::Sqlite(_) => Dialect::Sqlite,
+            // Schema::Postgres(_) => Dialect::Postgresql,
         }
     }
 }
-

@@ -5,16 +5,12 @@
 
 use crate::error::CliError;
 use colored::Colorize;
-use drizzle_migrations::Journal;
+use drizzle_migrations::{snapshot_version, Dialect, Journal};
 use std::path::Path;
-
-/// Current snapshot versions by dialect
-const SQLITE_SNAPSHOT_VERSION: &str = "6";
-const POSTGRES_SNAPSHOT_VERSION: &str = "7";
 
 pub struct UpOptions {
     pub out_dir: String,
-    pub dialect: String,
+    pub dialect: Dialect,
 }
 
 pub fn run(opts: UpOptions) -> anyhow::Result<()> {
@@ -44,11 +40,7 @@ pub fn run(opts: UpOptions) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let expected_version = match opts.dialect.as_str() {
-        "sqlite" | "turso" | "libsql" => SQLITE_SNAPSHOT_VERSION,
-        "postgresql" | "postgres" => POSTGRES_SNAPSHOT_VERSION,
-        _ => "6",
-    };
+    let expected_version = snapshot_version(opts.dialect);
 
     println!("Upgrading snapshots to version {}...\n", expected_version);
 
@@ -60,11 +52,7 @@ pub fn run(opts: UpOptions) -> anyhow::Result<()> {
         let snapshot_path = meta_dir.join(format!("{:04}_snapshot.json", entry.idx));
 
         if !snapshot_path.exists() {
-            println!(
-                "  {} Missing snapshot for {}",
-                "✗".red(),
-                entry.tag
-            );
+            println!("  {} Missing snapshot for {}", "✗".red(), entry.tag);
             errors += 1;
             continue;
         }
@@ -81,7 +69,12 @@ pub fn run(opts: UpOptions) -> anyhow::Result<()> {
             .to_string();
 
         if current_version == expected_version {
-            println!("  {} {} (already v{})", "✓".green(), entry.tag, expected_version);
+            println!(
+                "  {} {} (already v{})",
+                "✓".green(),
+                entry.tag,
+                expected_version
+            );
             already_current += 1;
             continue;
         }
@@ -131,4 +124,3 @@ pub fn run(opts: UpOptions) -> anyhow::Result<()> {
 
     Ok(())
 }
-

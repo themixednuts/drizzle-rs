@@ -1,9 +1,10 @@
 //! Init command - create a new drizzle.toml configuration file
 
 use colored::Colorize;
+use drizzle_migrations::Dialect;
 use std::path::Path;
 
-pub fn run(dialect: &str) -> anyhow::Result<()> {
+pub fn run(dialect: Dialect) -> anyhow::Result<()> {
     let config_path = Path::new("drizzle.toml");
 
     if config_path.exists() {
@@ -11,7 +12,7 @@ pub fn run(dialect: &str) -> anyhow::Result<()> {
     }
 
     let config_content = match dialect {
-        "sqlite" => {
+        Dialect::Sqlite => {
             r#"# Drizzle configuration for SQLite
 dialect = "sqlite"
 out = "./drizzle"
@@ -29,7 +30,7 @@ breakpoints = true
 # table = "__drizzle_migrations"
 "#
         }
-        "postgresql" | "postgres" => {
+        Dialect::Postgresql => {
             r#"# Drizzle configuration for PostgreSQL
 dialect = "postgresql"
 out = "./drizzle"
@@ -48,7 +49,7 @@ breakpoints = true
 # schema = "public"
 "#
         }
-        "mysql" => {
+        Dialect::Mysql => {
             r#"# Drizzle configuration for MySQL
 dialect = "mysql"
 out = "./drizzle"
@@ -66,9 +67,6 @@ breakpoints = true
 # table = "__drizzle_migrations"
 "#
         }
-        _ => {
-            anyhow::bail!("Invalid dialect: {}. Expected: sqlite, postgresql, mysql", dialect);
-        }
     };
 
     std::fs::write(config_path, config_content)?;
@@ -81,4 +79,3 @@ breakpoints = true
 
     Ok(())
 }
-

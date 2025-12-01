@@ -4,6 +4,7 @@ use crate::config::DrizzleConfig;
 use crate::journal::Journal;
 use crate::sqlgen::sqlite::SqliteGenerator;
 use crate::sqlite::{SQLiteSnapshot, SchemaDiff as SqliteSchemaDiff};
+use crate::version::ORIGIN_UUID;
 use crate::words::generate_migration_tag;
 
 use std::fs;
@@ -37,12 +38,7 @@ impl MigrationWriter {
 
     /// Load or create the journal
     pub fn load_journal(&self) -> io::Result<Journal> {
-        let dialect = match self.config.dialect {
-            crate::config::Dialect::Sqlite => "sqlite",
-            crate::config::Dialect::Postgresql => "postgresql",
-            crate::config::Dialect::Mysql => "mysql",
-        };
-        Journal::load_or_create(&self.config.journal_path(), dialect)
+        Journal::load_or_create(&self.config.journal_path(), self.config.dialect)
     }
 
     /// Get the path to a snapshot file
@@ -111,7 +107,7 @@ impl MigrationWriter {
         // Create snapshot with proper chain
         let mut snapshot = current_snapshot.clone();
         let prev_id = if journal.entries.is_empty() {
-            SQLiteSnapshot::ORIGIN_UUID.to_string()
+            ORIGIN_UUID.to_string()
         } else {
             // Load previous snapshot to get its ID
             let prev_snapshot = self

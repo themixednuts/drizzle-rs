@@ -3,6 +3,8 @@
 //! This module provides types for migrations that are embedded into the binary
 //! at compile time using the `include_migrations!` macro.
 
+use crate::config::Dialect;
+
 /// A single embedded migration entry
 #[derive(Debug, Clone, Copy)]
 pub struct EmbeddedMigration {
@@ -47,14 +49,6 @@ pub struct EmbeddedMigrations {
     entries: &'static [EmbeddedMigration],
     /// Dialect for SQL generation
     dialect: Dialect,
-}
-
-/// Database dialect
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Dialect {
-    Sqlite,
-    Postgresql,
-    Mysql,
 }
 
 impl EmbeddedMigrations {

@@ -1,6 +1,7 @@
 //! PostgreSQL snapshot types matching drizzle-kit format
 
 use super::{Enum, Sequence, Table, View};
+use crate::version::{ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -46,8 +47,6 @@ impl Default for PostgresSnapshot {
 }
 
 impl PostgresSnapshot {
-    pub const ORIGIN_UUID: &'static str = "00000000-0000-0000-0000-000000000000";
-
     pub fn new() -> Self {
         let mut schemas = HashMap::new();
         schemas.insert(
@@ -58,10 +57,10 @@ impl PostgresSnapshot {
         );
 
         Self {
-            version: "7".to_string(),
+            version: POSTGRES_SNAPSHOT_VERSION.to_string(),
             dialect: "postgresql".to_string(),
             id: uuid::Uuid::new_v4().to_string(),
-            prev_id: Self::ORIGIN_UUID.to_string(),
+            prev_id: ORIGIN_UUID.to_string(),
             tables: HashMap::new(),
             enums: HashMap::new(),
             schemas,

@@ -2,6 +2,8 @@
 //!
 //! The journal (_journal.json) tracks all applied migrations in order.
 
+use crate::config::Dialect;
+use crate::version::{snapshot_version, JOURNAL_VERSION};
 use serde::{Deserialize, Serialize};
 
 /// Migration journal - tracks all migrations
@@ -10,7 +12,7 @@ pub struct Journal {
     /// Journal format version
     pub version: String,
     /// Database dialect
-    pub dialect: String,
+    pub dialect: Dialect,
     /// List of migration entries
     pub entries: Vec<JournalEntry>,
 }
@@ -31,20 +33,11 @@ pub struct JournalEntry {
 }
 
 impl Journal {
-    /// Create a new SQLite journal
-    pub fn new_sqlite() -> Self {
+    /// Create a new journal for the given dialect
+    pub fn new(dialect: Dialect) -> Self {
         Self {
-            version: "7".to_string(),
-            dialect: "sqlite".to_string(),
-            entries: Vec::new(),
-        }
-    }
-
-    /// Create a new PostgreSQL journal
-    pub fn new_postgresql() -> Self {
-        Self {
-            version: "7".to_string(),
-            dialect: "postgresql".to_string(),
+            version: JOURNAL_VERSION.to_string(),
+            dialect,
             entries: Vec::new(),
         }
     }
@@ -57,9 +50,10 @@ impl Journal {
     /// Add a new entry to the journal
     pub fn add_entry(&mut self, tag: String, breakpoints: bool) -> &JournalEntry {
         let idx = self.next_idx();
+        let entry_version = snapshot_version(self.dialect);
         let entry = JournalEntry {
             idx,
-            version: "6".to_string(),
+            version: entry_version.to_string(),
             when: current_timestamp_ms(),
             tag,
             breakpoints,
@@ -86,14 +80,11 @@ impl Journal {
     }
 
     /// Load journal from file, or create new if doesn't exist
-    pub fn load_or_create(path: &std::path::Path, dialect: &str) -> std::io::Result<Self> {
+    pub fn load_or_create(path: &std::path::Path, dialect: Dialect) -> std::io::Result<Self> {
         if path.exists() {
             Self::load(path)
         } else {
-            Ok(match dialect {
-                "postgresql" => Self::new_postgresql(),
-                _ => Self::new_sqlite(),
-            })
+            Ok(Self::new(dialect))
         }
     }
 
@@ -125,15 +116,15 @@ mod tests {
 
     #[test]
     fn test_new_sqlite_journal() {
-        let journal = Journal::new_sqlite();
+        let journal = Journal::new(Dialect::Sqlite);
         assert_eq!(journal.version, "7");
-        assert_eq!(journal.dialect, "sqlite");
+        assert_eq!(journal.dialect, Dialect::Sqlite);
         assert!(journal.entries.is_empty());
     }
 
     #[test]
     fn test_add_entry() {
-        let mut journal = Journal::new_sqlite();
+        let mut journal = Journal::new(Dialect::Sqlite);
         journal.add_entry("0000_initial".to_string(), true);
 
         assert_eq!(journal.entries.len(), 1);
@@ -144,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_journal_serialization() {
-        let mut journal = Journal::new_sqlite();
+        let mut journal = Journal::new(Dialect::Sqlite);
         journal.add_entry("0000_test".to_string(), true);
 
         let json = journal.to_json().unwrap();

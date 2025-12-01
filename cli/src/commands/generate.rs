@@ -10,15 +10,15 @@
 use crate::schema::Schema;
 use crate::snapshot;
 use colored::Colorize;
-use drizzle_migrations::Journal;
 use drizzle_migrations::sqlgen::sqlite::SqliteGenerator;
 use drizzle_migrations::sqlite::SQLiteSnapshot;
+use drizzle_migrations::{Dialect, Journal};
 use std::path::Path;
 
 pub struct GenerateOptions {
     pub schema_path: Option<String>,
     pub out_dir: String,
-    pub dialect: String,
+    pub dialect: Dialect,
     pub name: Option<String>,
     pub custom: bool,
     pub prefix: String,
@@ -33,7 +33,7 @@ pub fn run(opts: GenerateOptions) -> anyhow::Result<()> {
         return create_custom_migration(
             &migrations_dir,
             opts.name.as_deref(),
-            &opts.dialect,
+            opts.dialect,
             opts.breakpoints,
         );
     }
@@ -46,7 +46,7 @@ pub fn run(opts: GenerateOptions) -> anyhow::Result<()> {
         )
     })?;
 
-    let current_schema = Schema::load(Path::new(&schema_path), &opts.dialect)?;
+    let current_schema = Schema::load(Path::new(&schema_path), opts.dialect)?;
 
     // Get the current snapshot from schema
     let current_snapshot = match current_schema {
@@ -54,8 +54,8 @@ pub fn run(opts: GenerateOptions) -> anyhow::Result<()> {
     };
 
     // Load the previous snapshot (or create empty)
-    let prev_snapshot = snapshot::load_latest_snapshot(&migrations_dir, &opts.dialect)?
-        .unwrap_or_else(|| snapshot::empty_snapshot(&opts.dialect).unwrap());
+    let prev_snapshot = snapshot::load_latest_snapshot(&migrations_dir, opts.dialect)?
+        .unwrap_or_else(|| snapshot::empty_snapshot(opts.dialect).unwrap());
 
     // Diff the snapshots
     let diff = drizzle_migrations::sqlite::diff_snapshots(&prev_snapshot, &current_snapshot);
@@ -79,7 +79,7 @@ pub fn run(opts: GenerateOptions) -> anyhow::Result<()> {
         &migrations_dir,
         &sql_statements,
         &current_snapshot,
-        &opts.dialect,
+        opts.dialect,
         opts.name.as_deref(),
         &opts.prefix,
         opts.breakpoints,
@@ -97,7 +97,7 @@ pub fn run(opts: GenerateOptions) -> anyhow::Result<()> {
 fn create_custom_migration(
     migrations_dir: &Path,
     name: Option<&str>,
-    dialect: &str,
+    dialect: Dialect,
     breakpoints: bool,
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(migrations_dir.join("meta"))?;
@@ -145,7 +145,7 @@ fn write_migration(
     migrations_dir: &Path,
     statements: &[String],
     snapshot: &SQLiteSnapshot,
-    dialect: &str,
+    dialect: Dialect,
     name: Option<&str>,
     prefix: &str,
     breakpoints: bool,

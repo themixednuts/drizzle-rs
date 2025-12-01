@@ -718,7 +718,10 @@ mod generate {
             sql_content.contains("CREATE TABLE"),
             "Should have CREATE TABLE"
         );
-        assert!(sql_content.contains("users"), "Should reference users table");
+        assert!(
+            sql_content.contains("users"),
+            "Should reference users table"
+        );
         assert!(sql_content.contains("`id`"), "Should have id column");
         assert!(sql_content.contains("`name`"), "Should have name column");
         assert!(sql_content.contains("`email`"), "Should have email column");
@@ -1019,11 +1022,7 @@ mod up {
         // Snapshot with current version (v6)
         std::fs::write(
             meta_dir.join("0000_snapshot.json"),
-            sqlite_snapshot(
-                "test-id",
-                "00000000-0000-0000-0000-000000000000",
-                "",
-            ),
+            sqlite_snapshot("test-id", "00000000-0000-0000-0000-000000000000", ""),
         )
         .unwrap();
 
