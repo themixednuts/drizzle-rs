@@ -13,6 +13,28 @@ pub enum Dialect {
     Mysql,
 }
 
+impl std::fmt::Display for Dialect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Dialect::Sqlite => write!(f, "sqlite"),
+            Dialect::Postgresql => write!(f, "postgresql"),
+            Dialect::Mysql => write!(f, "mysql"),
+        }
+    }
+}
+
+impl Dialect {
+    /// Parse a dialect from a string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "sqlite" | "turso" | "libsql" => Some(Dialect::Sqlite),
+            "postgresql" | "postgres" | "pg" => Some(Dialect::Postgresql),
+            "mysql" => Some(Dialect::Mysql),
+            _ => None,
+        }
+    }
+}
+
 /// Database connection configuration
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct DatabaseConfig {

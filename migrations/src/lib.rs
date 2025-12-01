@@ -20,7 +20,7 @@
 //! fn main() -> Result<()> {
 //!     let conn = rusqlite::Connection::open("app.db")?;
 //!     let (db, schema) = Drizzle::new(conn, AppSchema::new());
-//!     
+//!
 //!     // Apply embedded migrations
 //!     db.migrate(&MIGRATIONS)?;
 //!     
@@ -35,7 +35,7 @@ pub mod migrator;
 pub mod postgres;
 pub mod sqlgen;
 pub mod sqlite;
-mod words;
+pub mod words;
 pub mod writer;
 
 pub use config::DrizzleConfig;

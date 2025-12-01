@@ -24,7 +24,7 @@ fn test_index() {
     let idx = UserIdx::new();
     let sql = idx.to_sql().sql();
 
-    assert_eq!(sql, r#"CREATE INDEX "user_idx" ON "User" (id)"#);
+    assert_eq!(sql, r#"CREATE INDEX "user_idx" ON "user" (id)"#);
 }
 
 #[test]
@@ -34,6 +34,6 @@ fn test_unique_index() {
 
     assert_eq!(
         sql,
-        r#"CREATE UNIQUE INDEX "user_email_username_idx" ON "User" (email, username)"#
+        r#"CREATE UNIQUE INDEX "user_email_username_idx" ON "user" (email, username)"#
     );
 }
