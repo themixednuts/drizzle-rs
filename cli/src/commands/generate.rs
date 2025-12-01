@@ -10,9 +10,9 @@
 use crate::schema::Schema;
 use crate::snapshot;
 use colored::Colorize;
-use drizzle_migrations::sqlite::{AlteredColumn, SQLiteSnapshot};
-use drizzle_migrations::sqlgen::sqlite::SqliteGenerator;
 use drizzle_migrations::Journal;
+use drizzle_migrations::sqlgen::sqlite::SqliteGenerator;
+use drizzle_migrations::sqlite::SQLiteSnapshot;
 use std::path::Path;
 
 pub struct GenerateOptions {
@@ -250,11 +250,7 @@ fn print_diff_summary(diff: &drizzle_migrations::sqlite::SchemaDiff) {
             println!("    {} column {}", "-".red(), name.red());
         }
         for ac in &altered.columns.altered {
-            println!(
-                "    {} column {}",
-                "~".yellow(),
-                ac.name.yellow()
-            );
+            println!("    {} column {}", "~".yellow(), ac.name.yellow());
         }
 
         // Indexes

@@ -38,6 +38,7 @@ impl Schema {
     }
 
     /// Get the dialect string
+    #[allow(dead_code)]
     pub fn dialect(&self) -> &'static str {
         match self {
             Schema::Sqlite(_) => "sqlite",

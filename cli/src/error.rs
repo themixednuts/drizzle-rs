@@ -19,12 +19,6 @@ pub enum CliError {
     #[error("Snapshot not found: {0}")]
     SnapshotNotFound(String),
 
-    #[error("Migration file missing: {0}")]
-    MigrationFileMissing(String),
-
-    #[error("Invalid snapshot: {0}")]
-    InvalidSnapshot(String),
-
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

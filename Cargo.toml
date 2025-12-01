@@ -77,6 +77,15 @@ tokio-postgres = { version = "0.7.15", default-features = false, features = [
   "runtime",
 ] }
 
+# CLI-specific dependencies
+colored = { version = "3.0" }
+glob = { version = "0.3" }
+
+# Testing dependencies
+tempfile = { version = "3.23" }
+assert_cmd = { version = "2.1" }
+predicates = { version = "3.1" }
+
 # Add dev-dependencies for tests
 [dev-dependencies]
 drizzle = { workspace = true, features = [

@@ -1442,14 +1442,13 @@ dependencies = [
 
 [[package]]
 name = "drizzle-cli"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
  "colored",
  "drizzle-migrations",
- "fs_extra",
  "glob",
  "predicates",
  "serde",
@@ -2017,12 +2016,6 @@ checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
 ]
-
-[[package]]
-name = "fs_extra"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "funty"

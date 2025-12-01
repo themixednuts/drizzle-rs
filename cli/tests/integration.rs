@@ -1,5 +1,6 @@
 //! End-to-end integration tests for drizzle CLI
 
+use assert_cmd::cargo;
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
@@ -7,7 +8,7 @@ use tempfile::TempDir;
 
 /// Get the drizzle CLI binary
 fn drizzle_cli() -> Command {
-    Command::cargo_bin("drizzle").unwrap()
+    Command::new(cargo::cargo_bin!("drizzle"))
 }
 
 mod init {
@@ -356,4 +357,3 @@ mod help {
             .stdout(predicate::str::contains("--dialect"));
     }
 }
-

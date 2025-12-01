@@ -14,7 +14,10 @@ pub fn run(out_dir: &str) -> anyhow::Result<()> {
 
     if !migrations_dir.exists() {
         println!("  {} No migrations directory", "!".yellow());
-        println!("  Run {} to create your first migration", "drizzle generate".cyan());
+        println!(
+            "  Run {} to create your first migration",
+            "drizzle generate".cyan()
+        );
         return Ok(());
     }
 
@@ -22,7 +25,10 @@ pub fn run(out_dir: &str) -> anyhow::Result<()> {
     let journal_path = meta_dir.join("_journal.json");
     if !journal_path.exists() {
         println!("  {} No journal file", "!".yellow());
-        println!("  Run {} to create your first migration", "drizzle generate".cyan());
+        println!(
+            "  Run {} to create your first migration",
+            "drizzle generate".cyan()
+        );
         return Ok(());
     }
 
@@ -36,7 +42,10 @@ pub fn run(out_dir: &str) -> anyhow::Result<()> {
 
     if journal.entries.is_empty() {
         println!("  {} No migrations yet", "!".yellow());
-        println!("  Run {} to create your first migration", "drizzle generate".cyan());
+        println!(
+            "  Run {} to create your first migration",
+            "drizzle generate".cyan()
+        );
         return Ok(());
     }
 
@@ -45,11 +54,7 @@ pub fn run(out_dir: &str) -> anyhow::Result<()> {
         let sql_path = migrations_dir.join(format!("{}.sql", entry.tag));
         let exists = sql_path.exists();
 
-        let status = if exists {
-            "✓".green()
-        } else {
-            "✗".red()
-        };
+        let status = if exists { "✓".green() } else { "✗".red() };
 
         let timestamp = format_timestamp(entry.when);
 
@@ -85,4 +90,3 @@ fn format_timestamp(ms: u64) -> String {
         .trim()
         .to_string()
 }
-
