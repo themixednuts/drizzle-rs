@@ -2,276 +2,453 @@
 
 A type-safe SQL query builder for Rust inspired by Drizzle ORM.
 
-## Schema Setup
+## Features
 
-First, create a `schema.rs` file to define your database tables. All schema
-items must be `pub` for proper destructuring:
+- **Type-safe queries** - Compile-time checked SQL generation
+- **Multiple database support** - SQLite and PostgreSQL
+- **Multiple drivers** - rusqlite, libsql, turso, postgres, tokio-postgres
+- **Zero-cost abstractions** - No runtime overhead for type safety
+- **Automatic model generation** - Insert, Select, and Update types generated
+  from table definitions
+- **Flexible queries** - JOINs, subqueries, CTEs, and raw SQL support
+
+## Database Support
+
+| Database   | Driver         | Feature Flag     | Status |
+| ---------- | -------------- | ---------------- | ------ |
+| SQLite     | rusqlite       | `rusqlite`       | ✅     |
+| SQLite     | libsql         | `libsql`         | ✅     |
+| SQLite     | turso          | `turso`          | ✅     |
+| PostgreSQL | postgres       | `postgres-sync`  | ✅     |
+| PostgreSQL | tokio-postgres | `tokio-postgres` | ✅     |
+
+## Installation
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+drizzle = { version = "0.1", features = ["rusqlite"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+# For PostgreSQL
+# drizzle = { version = "0.1", features = ["postgres-sync"] }
+# postgres = "0.19"
+
+# Optional features
+# uuid = { version = "1.18", features = ["v4"] }  # requires "uuid" feature
+# serde = "1.0"                                    # requires "serde" feature
+```
+
+## Quick Start
+
+### SQLite Example
 
 ```rust
 use drizzle::prelude::*;
-use uuid::Uuid;
-
-#[derive(SQLiteSchema)]
-pub struct Schema {
-    pub users: Users,
-    pub posts: Posts,
-    pub user_email_idx: UserEmailIdx,
-    pub user_email_username_idx: UserEmailUsernameIdx,
-}
+use drizzle::rusqlite::Drizzle;
 
 #[SQLiteTable(name = "users")]
 pub struct Users {
-    #[blob(primary, default_fn = Uuid::new_v4)]
-    pub id: Uuid,
+    #[integer(primary, autoincrement)]
+    pub id: i32,
     #[text]
     pub name: String,
     #[text]
     pub email: Option<String>,
     #[integer]
-    pub age: u64,
+    pub age: i32,
 }
 
-#[SQLiteTable(name = "posts")]
-pub struct Posts {
-    #[blob(primary, default_fn = Uuid::new_v4)]
-    pub id: Uuid,
-    #[blob(references = Users::id)]
-    pub user_id: Uuid,
-    #[text]
-    pub context: Option<String>,
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub users: Users,
 }
-
-// Index definitions
-#[SQLiteIndex(unique)]
-pub struct UserEmailUsernameIdx(Users::email, Users::name);
-
-#[SQLiteIndex]
-pub struct UserEmailIdx(Users::email);
-```
-
-### UUID Storage Options
-
-Choose between binary (BLOB) or string (TEXT) storage:
-
-```rust
-// Binary storage (16 bytes) - more efficient
-#[blob(primary, default_fn = Uuid::new_v4)]
-pub id: Uuid,
-
-// String storage (36 characters) - human readable
-#[text(primary, default_fn = || Uuid::new_v4)]
-pub id: Uuid,
-```
-
-### Indexes
-
-Indexes are defined as separate structs and included in your schema. They
-reference table columns using the `Table::column` syntax:
-
-```rust
-use drizzle::prelude::*;
-
-// Unique compound index on email and name
-#[SQLiteIndex(unique)]
-pub struct UserEmailUsernameIdx(Users::email, Users::name);
-
-// Simple index on email column
-#[SQLiteIndex]
-pub struct UserEmailIdx(Users::email);
-```
-
-The indexes are automatically created when you call `db.create()` and must be
-included as fields in your schema struct.
-
-## Basic Usage
-
-In your `main.rs`, use the schema without feature flags:
-
-```rust
-mod schema;
-
-use drizzle::prelude::*;
-use drizzle::rusqlite::Drizzle;
-use rusqlite::Connection;
-use uuid::Uuid;
-
-use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
 fn main() -> drizzle::Result<()> {
-    let conn = Connection::open_in_memory()?;
-    let (mut db, Schema { users, posts, .. }) = Drizzle::new(conn, Schema::new());
+    let conn = rusqlite::Connection::open_in_memory()?;
+    let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
 
-    // Create tables (only on fresh database)
+    // Create tables
     db.create()?;
-
-    let id = Uuid::new_v4();
 
     // Insert data
     db.insert(users)
-        .values([InsertUsers::new("Alex Smith", 26).with_id(id)])
-        .execute()?;
-
-    db.insert(posts)
-        .values([InsertPosts::new(id).with_context("just testing")])
+        .values([InsertUsers::new("Alice", 25).with_email("alice@example.com")])
         .execute()?;
 
     // Query data
-    let user_rows: Vec<SelectUsers> = db.select(()).from(users).all()?;
-    let post_rows: Vec<SelectPosts> = db.select(()).from(posts).all()?;
+    let all_users: Vec<SelectUsers> = db.select(()).from(users).all()?;
+    println!("Users: {:?}", all_users);
 
-    println!("Users: {:?}", user_rows);
-    println!("Posts: {:?}", post_rows);
-
-    // JOIN queries with custom result struct
-    #[derive(FromRow, Default, Debug)]
-    struct JoinedResult {
-        #[column(Users::id)]
-        id: Uuid,
-        #[column(Posts::id)]
-        post_id: Uuid,
-        name: String,
-        age: u64,
-    }
-
-    let row: JoinedResult = db
-        .select(JoinedResult::default())
+    // Query with conditions
+    let adult_users: Vec<SelectUsers> = db
+        .select(())
         .from(users)
-        .left_join(posts, eq(users.id, posts.user_id))
-        .get()?;
+        .r#where(gte(users.age, 18))
+        .all()?;
 
     Ok(())
 }
 ```
 
-## Insert Models
+### PostgreSQL Example
 
 ```rust
-// Always use new() as it forces you at compile time to input required fields
-InsertUsers::new("John Doe", 25)
-    .with_email("john@example.com") // Optional fields or fields with defaults via .with_*
-```
+use drizzle::prelude::*;
+use drizzle::postgres_sync::Drizzle;
 
-> [!WARNING]\
-> Avoid using `InsertUsers::default()`, as it will fail at runtime if required
-> fields are not provided.
+#[PostgresTable(name = "users")]
+pub struct Users {
+    #[serial(primary)]
+    pub id: i32,
+    #[text]
+    pub name: String,
+    #[text]
+    pub email: Option<String>,
+    #[integer]
+    pub age: i32,
+}
 
-The `.values()` method automatically batches inserts of the same type:
+#[derive(PostgresSchema)]
+pub struct Schema {
+    pub users: Users,
+}
 
-```rust
-// Same insert model type - will batch
-db.insert(users)
-    .values([
-        InsertUsers::new("Alice", 30),
-        InsertUsers::new("Bob", 25),
-    ])
-    .execute()?;
+fn main() -> drizzle::Result<()> {
+    let mut conn = postgres::Client::connect(
+        "host=localhost user=postgres password=postgres dbname=test",
+        postgres::NoTls
+    )?;
+    let (db, Schema { users }) = Drizzle::new(&mut conn, Schema::new());
 
-// compile time failure
-db.insert(users)
-    .values([
-        InsertUsers::new("Alice", 30),
-        InsertUsers::new("Bob", 25).with_email("bob@example.com"),
-    ])
-    .execute()?;
-```
+    db.create()?;
 
-## Transactions
-
-For multiple different operations or when you need ACID guarantees, use
-transactions:
-
-```rust
-use drizzle::sqlite::SQLiteTransactionType;
-
-// sync drivers
-db.transaction(SQLiteTransactionType::Deferred, |tx| {
-    // Insert users
-    tx.insert(users)
-        .values([InsertUsers::new("Alice", 30)])
+    db.insert(users)
+        .values([InsertUsers::new("Alice", 25).with_email("alice@example.com")])
         .execute()?;
 
-    // Insert posts
-    tx.insert(posts)
-        .values([InsertPosts::new(user_id)])
-        .execute()?;
-
-    // Update data
-    tx.update(users)
-        .set(UpdateUsers::default().with_age(31))
-        .r#where(eq(users.name, "Alice"))
-        .execute()?;
+    let all_users: Vec<SelectUsers> = db.select(()).from(users).all()?;
+    println!("Users: {:?}", all_users);
 
     Ok(())
-})?;
-
-// async drivers - api is wip as I think pinning here is gross.
-db.transaction(SQLiteTransactionType::Deferred, |tx| Box::pin(async move {
-    // Insert users
-    tx.insert(users)
-        .values([InsertUsers::new("Alice", 30)])
-        .execute()
-        .await?;
-
-    // Insert posts
-    tx.insert(posts)
-        .values([InsertPosts::new(user_id)])
-        .execute()
-        .await?;
-
-    // Update data
-    tx.update(users)
-        .set(UpdateUsers::default().with_age(31))
-        .r#where(eq(users.name, "Alice"))
-        .execute()
-        .await?;
-
-    Ok(())
-})).await?;
+}
 ```
 
-For more details on transaction types, see the
-[SQLite Transaction Documentation](https://www.sqlite.org/lang_transaction.html).
+---
 
-## Table Attributes
+## SQLite Schema Definition
+
+### Table Definition
+
+The `#[SQLiteTable]` attribute macro transforms a Rust struct into a complete
+SQLite table definition.
 
 ```rust
-#[SQLiteTable] // Basic table
-#[SQLiteTable(name = "custom_name")] // Custom table name
-#[SQLiteTable(strict)] // SQLite STRICT mode
-#[SQLiteTable(without_rowid)] // WITHOUT ROWID table
-#[SQLiteTable(name = "users", strict, without_rowid)] // Combined
+#[SQLiteTable]                              // Table name defaults to snake_case: "my_table"
+#[SQLiteTable(name = "custom_name")]        // Custom table name
+#[SQLiteTable(strict)]                      // SQLite STRICT mode
+#[SQLiteTable(without_rowid)]               // WITHOUT ROWID table
+#[SQLiteTable(name = "users", strict)]      // Combined options
 ```
 
-## Field Attributes
+### Column Types
+
+| Attribute    | SQLite Type | Rust Types                                                   |
+| ------------ | ----------- | ------------------------------------------------------------ |
+| `#[integer]` | INTEGER     | `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool` |
+| `#[text]`    | TEXT        | `String`, `&str`, enums (with `enum` flag)                   |
+| `#[real]`    | REAL        | `f32`, `f64`                                                 |
+| `#[blob]`    | BLOB        | `Vec<u8>`, `Uuid` (with `uuid` feature)                      |
+| `#[boolean]` | INTEGER     | `bool` (stored as 0/1)                                       |
+
+### Column Constraints
 
 ```rust
-// Column types
-#[integer] // INTEGER column
-#[text]    // TEXT column
-#[real]    // REAL column
-#[blob]    // BLOB column
-#[boolean] // Stored as INTEGER (0/1)
+#[SQLiteTable(name = "users")]
+pub struct Users {
+    // Primary key with auto-increment
+    #[integer(primary, autoincrement)]
+    pub id: i32,
 
-// Constraints
-#[integer(primary)]              // Primary key
-#[integer(primary, autoincrement)] // Auto-incrementing primary key
-#[text(unique)]                  // Unique constraint
-#[text(primary)]                 // Text primary key
+    // Unique constraint
+    #[text(unique)]
+    pub email: String,
 
-// Default values
-#[text(default = "hello")]             // Compile-time default
-#[integer(default = 42)]               // Compile-time default
-#[text(default_fn = String::new)]      // Runtime default function
+    // Compile-time default value
+    #[text(default = "active")]
+    pub status: String,
 
-// Special types
-#[text(enum)]    // Store enum as TEXT
-#[integer(enum)] // Store enum as INTEGER
-#[text(json)]    // JSON serialized to TEXT
-#[blob(json)]    // JSON serialized to BLOB
+    // Runtime default function
+    #[blob(primary, default_fn = uuid::Uuid::new_v4)]
+    pub uuid_id: Uuid,
 
-// Foreign keys
-#[integer(references = Users::id)] // Foreign key reference
+    // Foreign key reference
+    #[integer(references = Posts::id)]
+    pub post_id: i32,
+
+    // Enum stored as TEXT (variant name)
+    #[text(enum)]
+    pub role: UserRole,
+
+    // Enum stored as INTEGER (discriminant)
+    #[integer(enum)]
+    pub priority: Priority,
+
+    // JSON serialization (requires `serde` feature)
+    #[text(json)]
+    pub metadata: Option<UserMetadata>,
+
+    #[blob(json)]
+    pub config: Option<UserConfig>,
+}
 ```
+
+#### Constraint Reference
+
+| Constraint      | Description                                  | Example                                  |
+| --------------- | -------------------------------------------- | ---------------------------------------- |
+| `primary`       | Primary key constraint                       | `#[integer(primary)]`                    |
+| `autoincrement` | Auto-incrementing (INTEGER PRIMARY KEY only) | `#[integer(primary, autoincrement)]`     |
+| `unique`        | Unique constraint                            | `#[text(unique)]`                        |
+| `default`       | Compile-time default value                   | `#[text(default = "value")]`             |
+| `default_fn`    | Runtime default function                     | `#[blob(default_fn = Uuid::new_v4)]`     |
+| `references`    | Foreign key reference                        | `#[integer(references = Table::column)]` |
+| `enum`          | Store enum as TEXT or INTEGER                | `#[text(enum)]` or `#[integer(enum)]`    |
+| `json`          | JSON serialization (requires `serde`)        | `#[text(json)]` or `#[blob(json)]`       |
+
+### Enum Definition
+
+```rust
+#[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+pub enum UserRole {
+    #[default]
+    User,       // Stored as "User" with #[text(enum)]
+    Admin,      // Stored as "Admin"
+    Moderator,  // Stored as "Moderator"
+}
+
+#[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+pub enum Priority {
+    Low = 1,    // Stored as 1 with #[integer(enum)]
+    #[default]
+    Medium = 5, // Stored as 5
+    High = 10,  // Stored as 10
+}
+```
+
+### Index Definition
+
+```rust
+// Simple index
+#[SQLiteIndex]
+pub struct UserEmailIdx(Users::email);
+
+// Unique index
+#[SQLiteIndex(unique)]
+pub struct UserEmailUniqueIdx(Users::email);
+
+// Composite index
+#[SQLiteIndex]
+pub struct UserNameEmailIdx(Users::name, Users::email);
+```
+
+### Schema Definition
+
+```rust
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub users: Users,
+    pub posts: Posts,
+    pub user_email_idx: UserEmailIdx,
+}
+
+// Usage
+let (db, Schema { users, posts, .. }) = Drizzle::new(conn, Schema::new());
+db.create()?; // Creates all tables and indexes
+```
+
+---
+
+## PostgreSQL Schema Definition
+
+### Table Definition
+
+The `#[PostgresTable]` attribute macro transforms a Rust struct into a
+PostgreSQL table definition.
+
+```rust
+#[PostgresTable]                              // Table name defaults to snake_case
+#[PostgresTable(name = "custom_name")]        // Custom table name
+#[PostgresTable(unlogged)]                    // UNLOGGED table
+#[PostgresTable(temporary)]                   // TEMPORARY table
+#[PostgresTable(if_not_exists)]               // IF NOT EXISTS clause
+```
+
+### Column Types
+
+| Attribute             | PostgreSQL Type  | Rust Types                      |
+| --------------------- | ---------------- | ------------------------------- |
+| `#[serial]`           | SERIAL           | `i32`                           |
+| `#[bigserial]`        | BIGSERIAL        | `i64`                           |
+| `#[smallint]`         | SMALLINT         | `i16`                           |
+| `#[integer]`          | INTEGER          | `i32`                           |
+| `#[bigint]`           | BIGINT           | `i64`                           |
+| `#[real]`             | REAL             | `f32`                           |
+| `#[double_precision]` | DOUBLE PRECISION | `f64`                           |
+| `#[numeric]`          | NUMERIC          | `Decimal` (with `rust_decimal`) |
+| `#[text]`             | TEXT             | `String`                        |
+| `#[varchar]`          | VARCHAR          | `String`                        |
+| `#[boolean]`          | BOOLEAN          | `bool`                          |
+| `#[bytea]`            | BYTEA            | `Vec<u8>`                       |
+| `#[uuid]`             | UUID             | `Uuid` (with `uuid` feature)    |
+| `#[json]`             | JSON             | serde types (with `serde`)      |
+| `#[jsonb]`            | JSONB            | serde types (with `serde`)      |
+| `#[timestamp]`        | TIMESTAMP        | datetime types                  |
+| `#[timestamptz]`      | TIMESTAMPTZ      | datetime types with timezone    |
+| `#[date]`             | DATE             | date types                      |
+| `#[time]`             | TIME             | time types                      |
+| `#[r#enum(EnumType)]` | Custom ENUM      | Custom enum type                |
+
+### Column Constraints
+
+```rust
+#[PostgresTable(name = "users")]
+pub struct Users {
+    // Auto-incrementing primary key
+    #[serial(primary)]
+    pub id: i32,
+
+    // UUID primary key with default
+    #[uuid(primary, default_fn = uuid::Uuid::new_v4)]
+    pub uuid_id: Uuid,
+
+    // Unique constraint
+    #[text(unique)]
+    pub email: String,
+
+    // Foreign key reference
+    #[integer(references = Posts::id)]
+    pub post_id: i32,
+
+    // Enum stored as TEXT
+    #[text(enum)]
+    pub role: UserRole,
+
+    // Native PostgreSQL ENUM type
+    #[r#enum(Priority)]
+    pub priority: Priority,
+
+    // JSON/JSONB (requires `serde` feature)
+    #[jsonb]
+    pub metadata: Option<serde_json::Value>,
+}
+```
+
+#### Constraint Reference
+
+| Constraint   | Description                   | Example                                  |
+| ------------ | ----------------------------- | ---------------------------------------- |
+| `primary`    | Primary key constraint        | `#[serial(primary)]`                     |
+| `unique`     | Unique constraint             | `#[text(unique)]`                        |
+| `default`    | Compile-time default value    | `#[text(default = "value")]`             |
+| `default_fn` | Runtime default function      | `#[uuid(default_fn = Uuid::new_v4)]`     |
+| `references` | Foreign key reference         | `#[integer(references = Table::column)]` |
+| `enum`       | Store enum as TEXT or INTEGER | `#[text(enum)]` or `#[integer(enum)]`    |
+| `json`       | JSON serialization            | `#[text(json)]`                          |
+
+### Enum Definition
+
+PostgreSQL supports both text-based enums and native ENUM types:
+
+```rust
+#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+pub enum UserRole {
+    #[default]
+    User,
+    Admin,
+    Moderator,
+}
+
+#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+pub enum Priority {
+    Low = 1,
+    #[default]
+    Medium = 5,
+    High = 10,
+}
+
+#[PostgresTable(name = "tasks")]
+pub struct Tasks {
+    #[serial(primary)]
+    pub id: i32,
+
+    // Store as TEXT: "User", "Admin", etc.
+    #[text(enum)]
+    pub role: UserRole,
+
+    // Native PostgreSQL ENUM type
+    #[r#enum(Priority)]
+    pub priority: Priority,
+}
+```
+
+### Index Definition
+
+```rust
+#[PostgresIndex]
+pub struct UserEmailIdx(Users::email);
+
+#[PostgresIndex(unique)]
+pub struct UserEmailUniqueIdx(Users::email);
+
+#[PostgresIndex]
+pub struct UserNameEmailIdx(Users::name, Users::email);
+```
+
+### Schema Definition
+
+For PostgreSQL, enums used with `#[r#enum(...)]` must be included in the schema:
+
+```rust
+#[derive(PostgresSchema)]
+pub struct Schema {
+    // Enums must be listed before tables that use them
+    pub priority: Priority,
+    pub role: UserRole,
+    // Tables
+    pub users: Users,
+    pub tasks: Tasks,
+    // Indexes
+    pub user_email_idx: UserEmailIdx,
+}
+```
+
+---
+
+## Naming Conventions
+
+By default, table and column names are converted to `snake_case`:
+
+```rust
+#[SQLiteTable]           // Table name: "my_users"
+pub struct MyUsers {
+    #[integer(primary)]
+    pub userId: i32,     // Column name: "userId" (field name as-is)
+}
+```
+
+Use the `name` attribute to customize:
+
+```rust
+#[SQLiteTable(name = "users")]
+pub struct MyUsers {
+    #[integer(primary)]
+    pub id: i32,
+}
+```
+
+---
 
 ## Nullability
 
@@ -279,106 +456,131 @@ Nullability is controlled by Rust's type system:
 
 ```rust
 #[SQLiteTable(name = "example")]
-struct Example {
+pub struct Example {
     #[integer(primary)]
-    id: i32,           // NOT NULL - required field
+    pub id: i32,           // NOT NULL - required
+
     #[text]
-    name: String,      // NOT NULL - required field
+    pub name: String,      // NOT NULL - required in InsertExample::new()
+
     #[text]
-    email: Option<String>, // NULL allowed - optional field
+    pub email: Option<String>, // NULL allowed - set via .with_email()
 }
 ```
 
-## Enums
+---
+
+## Generated Types
+
+For a table named `Users`, the macro generates:
+
+| Type          | Purpose              | Usage                                      |
+| ------------- | -------------------- | ------------------------------------------ |
+| `SelectUsers` | SELECT query results | `Vec<SelectUsers>`                         |
+| `InsertUsers` | INSERT operations    | `InsertUsers::new(...).with_optional(...)` |
+| `UpdateUsers` | UPDATE operations    | `UpdateUsers::default().with_field(...)`   |
+
+### Insert Model
 
 ```rust
-#[derive(SQLiteEnum, Default)]
-enum UserRole {
-    #[default]
-    User,
-    Admin,
-    Moderator,
-}
+// Required fields go in new()
+// Optional fields and fields with defaults use .with_*()
+let insert = InsertUsers::new("Alice", 25)
+    .with_email("alice@example.com")
+    .with_role(UserRole::Admin);
 
-#[SQLiteTable(name = "users")]
-struct Users {
-    #[integer(primary)]
-    id: i32,
-    #[text(enum)] // Stored as TEXT: "User", "Admin", "Moderator"
-    role: UserRole,
-}
+db.insert(users).values([insert]).execute()?;
+
+// Batch insert
+db.insert(users)
+    .values([
+        InsertUsers::new("Alice", 25),
+        InsertUsers::new("Bob", 30),
+        InsertUsers::new("Charlie", 28),
+    ])
+    .execute()?;
 ```
 
-## JSON Fields
+### Update Model
 
 ```rust
-#[derive(serde::Serialize, serde::Deserialize)]
-struct UserMetadata {
-    preferences: Vec<String>,
-    theme: String,
-}
+let update = UpdateUsers::default()
+    .with_name("Alice Smith")
+    .with_age(26);
 
-#[SQLiteTable(name = "users")]
-struct Users {
-    #[integer(primary)]
-    id: i32,
-    #[text(json)] // JSON stored as TEXT
-    metadata: Option<UserMetadata>,
-    #[blob(json)] // JSON stored as BLOB (binary)
-    config: Option<UserMetadata>,
-}
+db.update(users)
+    .set(update)
+    .r#where(eq(users.id, 1))
+    .execute()?;
 ```
 
-## FromRow Derive Macro
+---
 
-The `FromRow` derive macro automatically generates `TryFrom<&Row>`
-implementations for converting database rows into your structs.
+## Query Building
 
-### Basic Usage
+### SELECT Queries
+
+```rust
+// Select all columns
+let all_users: Vec<SelectUsers> = db.select(()).from(users).all()?;
+
+// Select specific columns
+let names: Vec<String> = db.select(users.name).from(users).all()?;
+
+// Select multiple columns
+let results = db.select((users.id, users.name)).from(users).all()?;
+
+// Get single row (returns error if no rows found)
+let user: SelectUsers = db.select(()).from(users).get()?;
+```
+
+### WHERE Conditions
 
 ```rust
 use drizzle::prelude::*;
 
-#[derive(FromRow, Debug)]
-struct User {
-    id: i32,
-    name: String,
-    email: String,
-}
+// Equality
+db.select(()).from(users).r#where(eq(users.id, 1)).all()?;
 
-// Query returns User structs directly
-let users: Vec<User> = db.select(()).from(users_table).all()?;
-```
+// Comparison operators
+db.select(()).from(users).r#where(gt(users.age, 18)).all()?;
+db.select(()).from(users).r#where(gte(users.age, 18)).all()?;
+db.select(()).from(users).r#where(lt(users.age, 65)).all()?;
+db.select(()).from(users).r#where(lte(users.age, 65)).all()?;
+db.select(()).from(users).r#where(ne(users.status, "inactive")).all()?;
 
-### Column Mapping
+// IS NULL / IS NOT NULL
+db.select(()).from(users).r#where(is_null(users.email)).all()?;
+db.select(()).from(users).r#where(is_not_null(users.email)).all()?;
 
-Use the `#[column]` attribute to map struct fields to specific table columns:
+// LIKE
+db.select(()).from(users).r#where(like(users.name, "%Alice%")).all()?;
 
-```rust
-#[derive(FromRow, Debug)]
-struct UserInfo {
-    #[column(Users::id)]
-    user_id: i32,
-    #[column(Users::name)]
-    full_name: String,
-    #[column(Users::email)]
-    email_address: String,
-}
+// IN
+db.select(()).from(users).r#where(r#in(users.id, [1, 2, 3])).all()?;
 
-// Use in SELECT queries with custom column mapping
-// You can collect into your favorite container
-let info: Vec<UserInfo> = db
-    .select(UserInfo::default())
+// Combining conditions with AND/OR
+db.select(())
     .from(users)
+    .r#where(and(
+        gte(users.age, 18),
+        eq(users.status, "active")
+    ))
+    .all()?;
+
+db.select(())
+    .from(users)
+    .r#where(or(
+        eq(users.role, "admin"),
+        eq(users.role, "moderator")
+    ))
     .all()?;
 ```
 
 ### JOIN Queries
 
-Perfect for handling JOIN query results:
-
 ```rust
-#[derive(FromRow, Debug)]
+#[derive(SQLiteFromRow, Default, Debug)]
 struct UserPost {
     #[column(Users::id)]
     user_id: i32,
@@ -387,43 +589,326 @@ struct UserPost {
     #[column(Posts::id)]
     post_id: i32,
     #[column(Posts::title)]
-    post_title: String,
+    title: String,
 }
 
+// INNER JOIN
 let results: Vec<UserPost> = db
     .select(UserPost::default())
     .from(users)
     .inner_join(posts, eq(users.id, posts.user_id))
     .all()?;
-```
 
-### Tuple Structs
-
-Also works with tuple structs for simple cases:
-
-```rust
-#[derive(FromRow, Debug)]
-struct UserName(String);
-
-let names: Vec<UserName> = db
-    .select(users.name)
+// LEFT JOIN
+let results: Vec<UserPost> = db
+    .select(UserPost::default())
     .from(users)
+    .left_join(posts, eq(users.id, posts.user_id))
+    .all()?;
+
+// RIGHT JOIN (PostgreSQL)
+let results: Vec<UserPost> = db
+    .select(UserPost::default())
+    .from(users)
+    .right_join(posts, eq(users.id, posts.user_id))
     .all()?;
 ```
 
-The macro automatically handles:
+### ORDER BY and LIMIT
 
-- Type conversions between SQLite types and Rust types
-- Optional fields (`Option<T>`)
-- All supported column types (integers, text, blobs, JSON, enums)
+```rust
+db.select(())
+    .from(users)
+    .order_by(users.name, OrderBy::Asc)
+    .limit(10)
+    .offset(20)
+    .all()?;
+```
+
+### DELETE Queries
+
+```rust
+db.delete(users)
+    .r#where(eq(users.id, 1))
+    .execute()?;
+```
+
+---
+
+## FromRow Derive
+
+The `FromRow` derive macro generates row-to-struct conversion:
+
+### SQLite
+
+```rust
+#[derive(SQLiteFromRow, Debug, Default)]
+struct User {
+    id: i32,
+    name: String,
+    email: Option<String>,
+}
+
+// With column mapping for JOINs
+#[derive(SQLiteFromRow, Debug, Default)]
+struct UserPost {
+    #[column(Users::id)]
+    user_id: i32,
+    #[column(Posts::id)]
+    post_id: i32,
+    name: String,
+}
+
+// Tuple structs
+#[derive(SQLiteFromRow, Default)]
+struct Count(i64);
+```
+
+### PostgreSQL
+
+```rust
+#[derive(PostgresFromRow, Debug, Default)]
+struct User {
+    id: i32,
+    name: String,
+    email: Option<String>,
+}
+
+#[derive(PostgresFromRow, Debug, Default)]
+struct UserPost {
+    #[column(Users::id)]
+    user_id: i32,
+    #[column(Posts::id)]
+    post_id: i32,
+}
+```
+
+---
+
+## Transactions
+
+### SQLite (Sync)
+
+```rust
+use drizzle::sqlite::SQLiteTransactionType;
+
+db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 25)])
+        .execute()?;
+
+    tx.update(users)
+        .set(UpdateUsers::default().with_age(26))
+        .r#where(eq(users.name, "Alice"))
+        .execute()?;
+
+    Ok(())
+})?;
+```
+
+Transaction types: `Deferred`, `Immediate`, `Exclusive`
+
+### SQLite (Async - libsql/turso)
+
+```rust
+db.transaction(SQLiteTransactionType::Deferred, |tx| Box::pin(async move {
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 25)])
+        .execute()
+        .await?;
+
+    Ok(())
+})).await?;
+```
+
+### PostgreSQL
+
+```rust
+use drizzle::postgres::PostgresTransactionType;
+
+db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 25)])
+        .execute()?;
+
+    Ok(())
+})?;
+```
+
+---
 
 ## SQLite PRAGMA Support
 
 ```rust
-use drizzle::sqlite::pragma::{Pragma, JournalMode};
+use drizzle::sqlite::pragma::{Pragma, JournalMode, Synchronous};
+use drizzle::core::ToSQL;
 
-// Type-safe pragma statements
-let pragma = Pragma::foreign_keys(true);
-// Execute with drizzle
-db.execute(pragma)?;
+// Enable foreign keys
+db.execute(Pragma::foreign_keys(true))?;
+
+// Set WAL mode for better concurrency
+db.execute(Pragma::journal_mode(JournalMode::Wal))?;
+
+// Configure synchronous mode
+db.execute(Pragma::Synchronous(Synchronous::Normal))?;
+
+// Introspection
+db.execute(Pragma::table_info("users"))?;
+db.execute(Pragma::integrity_check(None))?;
 ```
+
+---
+
+## UUID Support
+
+Enable the `uuid` feature for UUID support:
+
+```toml
+[dependencies]
+drizzle = { version = "0.1", features = ["rusqlite", "uuid"] }
+uuid = { version = "1.18", features = ["v4"] }
+```
+
+### SQLite (BLOB storage - recommended)
+
+```rust
+use uuid::Uuid;
+
+#[SQLiteTable(name = "users")]
+pub struct Users {
+    #[blob(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,  // 16 bytes binary storage
+}
+```
+
+### SQLite (TEXT storage)
+
+```rust
+#[SQLiteTable(name = "users")]
+pub struct Users {
+    #[text(primary, default_fn = || Uuid::new_v4())]
+    pub id: Uuid,  // 36 character string storage
+}
+```
+
+### PostgreSQL (native UUID type)
+
+```rust
+#[PostgresTable(name = "users")]
+pub struct Users {
+    #[uuid(primary, default_fn = Uuid::new_v4)]
+    pub id: Uuid,
+}
+```
+
+---
+
+## JSON Support
+
+Enable the `serde` feature for JSON support:
+
+```toml
+[dependencies]
+drizzle = { version = "0.1", features = ["rusqlite", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+```
+
+### SQLite
+
+```rust
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct UserMetadata {
+    theme: String,
+    notifications: bool,
+}
+
+#[SQLiteTable(name = "users")]
+pub struct Users {
+    #[integer(primary)]
+    pub id: i32,
+
+    #[text(json)]  // JSON stored as TEXT
+    pub metadata: Option<UserMetadata>,
+
+    #[blob(json)]  // JSON stored as BLOB
+    pub config: Option<UserMetadata>,
+}
+```
+
+### PostgreSQL
+
+```rust
+#[PostgresTable(name = "users")]
+pub struct Users {
+    #[serial(primary)]
+    pub id: i32,
+
+    #[json]   // Standard JSON
+    pub metadata: Option<serde_json::Value>,
+
+    #[jsonb]  // Binary JSON (faster queries)
+    pub config: Option<serde_json::Value>,
+}
+```
+
+---
+
+## Migrations
+
+Embed migrations at compile time for runtime execution:
+
+```rust
+use drizzle::prelude::*;
+
+const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
+
+fn main() -> drizzle::Result<()> {
+    let conn = rusqlite::Connection::open("app.db")?;
+    let (db, schema) = Drizzle::new(conn, Schema::new());
+
+    // Apply embedded migrations
+    let applied = db.migrate(&MIGRATIONS)?;
+    println!("Applied {} migrations", applied);
+
+    Ok(())
+}
+```
+
+---
+
+## Raw SQL
+
+Use the `sql!` macro for raw SQL with type safety:
+
+```rust
+use drizzle::sql;
+
+// Embedded expressions
+let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
+
+// Printf-style syntax
+let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
+```
+
+---
+
+## Feature Flags
+
+| Feature          | Description                           |
+| ---------------- | ------------------------------------- |
+| `rusqlite`       | SQLite via rusqlite (sync)            |
+| `libsql`         | SQLite via libsql (async)             |
+| `turso`          | SQLite via turso (async)              |
+| `postgres-sync`  | PostgreSQL via postgres crate (sync)  |
+| `tokio-postgres` | PostgreSQL via tokio-postgres (async) |
+| `uuid`           | UUID type support                     |
+| `serde`          | JSON serialization support            |
+| `chrono`         | Date/time types for PostgreSQL        |
+| `arrayvec`       | Fixed-capacity strings and arrays     |
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
