@@ -97,6 +97,9 @@ drizzle = { workspace = true, features = [
   "postgres",
   "sqlite",
   "profiling",
+  "postgres-sync",
+  "tokio-postgres",
+  "arrayvec",
   # "sqlx-postgres",
 ] }
 drizzle-macros = { workspace = true, features = [

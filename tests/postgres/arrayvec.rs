@@ -42,14 +42,14 @@ struct PgArrayVecBlobSchema {
 #[derive(Debug, PostgresFromRow)]
 struct ArrayStringResult {
     id: i32,
-    name: String,
+    name: ArrayString<16>,
     description: String,
 }
 
 #[derive(Debug, PostgresFromRow)]
 struct ArrayVecBlobResult {
     id: i32,
-    data: Vec<u8>,
+    data: ArrayVec<u8, 32>,
     label: String,
 }
 
@@ -66,7 +66,7 @@ postgres_test!(arraystring_insert_and_select, PgArrayStringSchema, {
     let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].name, "Hello");
+    assert_eq!(results[0].name.as_str(), "Hello");
     assert_eq!(results[0].description, "test description");
 });
 
@@ -85,7 +85,7 @@ postgres_test!(arrayvec_blob_insert_and_select, PgArrayVecBlobSchema, {
     let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].data, vec![1, 2, 3, 4, 5]);
+    assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
     assert_eq!(results[0].label, "blob test");
 });
 
@@ -102,7 +102,7 @@ postgres_test!(arraystring_empty, PgArrayStringSchema, {
     let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].name, "");
+    assert_eq!(results[0].name.as_str(), "");
 });
 
 postgres_test!(arrayvec_empty, PgArrayVecBlobSchema, {
@@ -135,7 +135,7 @@ postgres_test!(arraystring_max_capacity, PgArrayStringSchema, {
     let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].name, "1234567890123456");
+    assert_eq!(results[0].name.as_str(), "1234567890123456");
 });
 
 postgres_test!(arrayvec_max_capacity, PgArrayVecBlobSchema, {
@@ -178,7 +178,7 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
 
     let stmt = db
         .update(table)
-        .set(UpdatePgArrayVecBlobTest::default().with_data(updated))
+        .set(UpdatePgArrayVecBlobTest::default().with_data(updated.clone()))
         .r#where(eq(table.label, "to update"));
     drizzle_exec!(stmt.execute());
 
@@ -186,5 +186,76 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
     let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].data, vec![9, 8, 7, 6, 5]);
+    assert_eq!(results[0].data.as_slice(), &[9, 8, 7, 6, 5]);
+});
+
+#[PostgresTable(name = "pg_array_nullable_test")]
+struct PgArrayNullableTest {
+    #[serial(primary)]
+    id: i32,
+    #[text]
+    name: Option<ArrayString<16>>,
+    #[bytea]
+    data: Option<ArrayVec<u8, 32>>,
+}
+
+#[derive(PostgresSchema)]
+struct PgArrayNullableSchema {
+    table: PgArrayNullableTest,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct ArrayNullableResult {
+    id: i32,
+    name: Option<ArrayString<16>>,
+    data: Option<ArrayVec<u8, 32>>,
+}
+
+postgres_test!(array_nullable_test, PgArrayNullableSchema, {
+    let PgArrayNullableSchema { table } = schema;
+
+    // Test inserting Some values
+    let name = ArrayString::<16>::from("Some Name").unwrap();
+    let mut data = ArrayVec::<u8, 32>::new();
+    data.extend([10, 20, 30]);
+
+    let stmt = db.insert(table).values([InsertPgArrayNullableTest::new()
+        .with_name(name)
+        .with_data(data.clone())]);
+    drizzle_exec!(stmt.execute());
+
+    // Test inserting None values
+    let stmt = db.insert(table).values([InsertPgArrayNullableTest::new()]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select(()).from(table).order_by(table.id);
+    let results: Vec<ArrayNullableResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 2);
+
+    // Check first row (Some values)
+    assert_eq!(results[0].name.as_ref().unwrap().as_str(), "Some Name");
+    assert_eq!(results[0].data.as_ref().unwrap().as_slice(), &[10, 20, 30]);
+
+    // Check second row (None values)
+    assert!(results[1].name.is_none());
+    assert!(results[1].data.is_none());
+});
+
+postgres_test!(arraystring_unicode_boundary, PgArrayStringSchema, {
+    let PgArrayStringSchema { table } = schema;
+
+    // "こんにちは" is 15 bytes (3 bytes per char * 5 chars)
+    // Capacity is 16, so this fits
+    let name = ArrayString::<16>::from("こんにちは").unwrap();
+    let stmt = db
+        .insert(table)
+        .values([InsertPgArrayStringTest::new(name, "unicode test")]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db.select(()).from(table);
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name.as_str(), "こんにちは");
 });

@@ -5,9 +5,6 @@ A type-safe SQL query builder for Rust inspired by Drizzle ORM.
 ## Features
 
 - **Type-safe queries** - Compile-time checked SQL generation
-- **Multiple database support** - SQLite and PostgreSQL
-- **Multiple drivers** - rusqlite, libsql, turso, postgres, tokio-postgres
-- **Zero-cost abstractions** - No runtime overhead for type safety
 - **Automatic model generation** - Insert, Select, and Update types generated
   from table definitions
 - **Flexible queries** - JOINs, subqueries, CTEs, and raw SQL support
