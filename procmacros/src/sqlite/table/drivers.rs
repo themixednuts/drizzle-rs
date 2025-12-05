@@ -196,7 +196,7 @@ fn generate_arraystring_conversion<D: DriverConfig>(
 
     Ok(quote!(
         #accessor
-            .map(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(v))
+            .map(|v| <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(v))
             .transpose()?
     ))
 }
@@ -212,7 +212,7 @@ fn generate_arrayvec_conversion<D: DriverConfig>(
 
     Ok(quote!(
         #accessor
-            .map(|v| <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(v))
+            .map(|v| <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(v))
             .transpose()?
     ))
 }

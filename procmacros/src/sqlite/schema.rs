@@ -73,7 +73,7 @@ pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
         }
 
         // Implement SQLSchemaImpl trait
-        impl ::drizzle_core::SQLSchemaImpl for #struct_name {
+        impl drizzle_core::SQLSchemaImpl for #struct_name {
             fn create_statements(&self) -> Vec<String> {
                 #create_statements_impl
             }
@@ -100,29 +100,29 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     // Generate different implementations based on available features
     #[cfg(feature = "sqlite")]
     let impl_tokens = quote! {
-        let mut tables: Vec<(&str, String, &dyn ::drizzle_core::SQLTableInfo)> = Vec::new();
+        let mut tables: Vec<(&str, String, &dyn drizzle_core::SQLTableInfo)> = Vec::new();
         let mut indexes: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
 
         // Collect all tables and indexes
         #(
-            match <#field_types as ::drizzle_core::SQLSchema<'_, ::drizzle_sqlite::common::SQLiteSchemaType, ::drizzle_sqlite::values::SQLiteValue<'_>>>::TYPE {
-                ::drizzle_sqlite::common::SQLiteSchemaType::Table(table_info) => {
-                    let table_name = ::drizzle_core::SQLTableInfo::name(table_info);
-                    let table_sql = <_ as ::drizzle_core::SQLSchema<'_, ::drizzle_sqlite::common::SQLiteSchemaType, ::drizzle_sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
+            match <#field_types as drizzle_core::SQLSchema<'_, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'_>>>::TYPE {
+                drizzle_sqlite::common::SQLiteSchemaType::Table(table_info) => {
+                    let table_name = drizzle_core::SQLTableInfo::name(table_info);
+                    let table_sql = <_ as drizzle_core::SQLSchema<'_, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
-                ::drizzle_sqlite::common::SQLiteSchemaType::Index(index_info) => {
-                    let index_sql = <_ as ::drizzle_core::SQLSchema<'_, ::drizzle_sqlite::common::SQLiteSchemaType, ::drizzle_sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
-                    let table_name = ::drizzle_core::SQLIndexInfo::table(index_info).name();
+                drizzle_sqlite::common::SQLiteSchemaType::Index(index_info) => {
+                    let index_sql = <_ as drizzle_core::SQLSchema<'_, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'_>>>::sql(&self.#field_names).sql();
+                    let table_name = drizzle_core::SQLIndexInfo::table(index_info).name();
                     indexes
                         .entry(table_name)
                         .or_insert_with(Vec::new)
                         .push(index_sql);
                 }
-                ::drizzle_sqlite::common::SQLiteSchemaType::View => {
+                drizzle_sqlite::common::SQLiteSchemaType::View => {
                     // Views not implemented yet
                 }
-                ::drizzle_sqlite::common::SQLiteSchemaType::Trigger => {
+                drizzle_sqlite::common::SQLiteSchemaType::Trigger => {
                     // Triggers not implemented yet
                 }
             }
@@ -133,9 +133,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             use std::cmp::Ordering;
 
             // Check if a depends on b
-            let a_depends_on_b = ::drizzle_core::SQLTableInfo::dependencies(a.2).iter().any(|dep| dep.name() == b.0);
+            let a_depends_on_b = drizzle_core::SQLTableInfo::dependencies(a.2).iter().any(|dep| dep.name() == b.0);
             // Check if b depends on a
-            let b_depends_on_a = ::drizzle_core::SQLTableInfo::dependencies(b.2).iter().any(|dep| dep.name() == a.0);
+            let b_depends_on_a = drizzle_core::SQLTableInfo::dependencies(b.2).iter().any(|dep| dep.name() == a.0);
 
             match (a_depends_on_b, b_depends_on_a) {
                 (true, false) => Ordering::Greater,  // a comes after b

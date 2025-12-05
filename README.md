@@ -1,41 +1,6 @@
 # Drizzle RS
 
-A type-safe SQL query builder for Rust inspired by Drizzle ORM.
-
-## Features
-
-- **Type-safe queries** - Compile-time checked SQL generation
-- **Automatic model generation** - Insert, Select, and Update types generated
-  from table definitions
-- **Flexible queries** - JOINs, subqueries, CTEs, and raw SQL support
-
-## Database Support
-
-| Database   | Driver         | Feature Flag     | Status |
-| ---------- | -------------- | ---------------- | ------ |
-| SQLite     | rusqlite       | `rusqlite`       | ✅     |
-| SQLite     | libsql         | `libsql`         | ✅     |
-| SQLite     | turso          | `turso`          | ✅     |
-| PostgreSQL | postgres       | `postgres-sync`  | ✅     |
-| PostgreSQL | tokio-postgres | `tokio-postgres` | ✅     |
-
-## Installation
-
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-drizzle = { version = "0.1", features = ["rusqlite"] }
-rusqlite = { version = "0.37", features = ["bundled"] }
-
-# For PostgreSQL
-# drizzle = { version = "0.1", features = ["postgres-sync"] }
-# postgres = "0.19"
-
-# Optional features
-# uuid = { version = "1.18", features = ["v4"] }  # requires "uuid" feature
-# serde = "1.0"                                    # requires "serde" feature
-```
+SQL ORM inspired by Drizzle ORM.
 
 ## Quick Start
 
@@ -45,7 +10,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 use drizzle::prelude::*;
 use drizzle::rusqlite::Drizzle;
 
-#[SQLiteTable(name = "users")]
+#[SQLiteTable]
 pub struct Users {
     #[integer(primary, autoincrement)]
     pub id: i32,
@@ -66,7 +31,7 @@ fn main() -> drizzle::Result<()> {
     let conn = rusqlite::Connection::open_in_memory()?;
     let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
 
-    // Create tables
+    // Create tables, only use on new database.
     db.create()?;
 
     // Insert data
@@ -95,7 +60,7 @@ fn main() -> drizzle::Result<()> {
 use drizzle::prelude::*;
 use drizzle::postgres_sync::Drizzle;
 
-#[PostgresTable(name = "users")]
+#[PostgresTable]
 pub struct Users {
     #[serial(primary)]
     pub id: i32,
@@ -162,7 +127,7 @@ SQLite table definition.
 ### Column Constraints
 
 ```rust
-#[SQLiteTable(name = "users")]
+#[SQLiteTable]
 pub struct Users {
     // Primary key with auto-increment
     #[integer(primary, autoincrement)]
@@ -310,7 +275,7 @@ PostgreSQL table definition.
 ### Column Constraints
 
 ```rust
-#[PostgresTable(name = "users")]
+#[PostgresTable]
 pub struct Users {
     // Auto-incrementing primary key
     #[serial(primary)]
@@ -375,7 +340,7 @@ pub enum Priority {
     High = 10,
 }
 
-#[PostgresTable(name = "tasks")]
+#[PostgresTable]
 pub struct Tasks {
     #[serial(primary)]
     pub id: i32,

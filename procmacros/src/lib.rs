@@ -26,7 +26,7 @@
 //! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
 //!
 //! ### Shared
-//! - [`FromRow`] - Derive automatic row-to-struct conversion
+//! - [`SQLiteFromRow`] - Derive automatic row-to-struct conversion
 //! - [`sql!`] - Build SQL queries with embedded expressions
 //!
 //! ## Example Usage
@@ -518,7 +518,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 /// use drizzle::prelude::*;
 ///
-/// #[derive(FromRow, Debug, Default)]
+/// #[derive(SQLiteFromRow, Debug, Default)]
 /// struct User {
 ///     id: i32,
 ///     name: String,
@@ -553,7 +553,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     title: String,
 /// }
 ///
-/// #[derive(FromRow, Debug, Default)]
+/// #[derive(SQLiteFromRow, Debug, Default)]
 /// struct UserPost {
 ///     #[column(Users::id)]     // Explicitly use users.id
 ///     user_id: i32,
@@ -574,11 +574,11 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// use drizzle::prelude::*;
 ///
 /// // Single column result
-/// #[derive(FromRow, Default)]
+/// #[derive(SQLiteFromRow, Default)]
 /// struct Count(i64);
 ///
 /// // Multiple columns by index
-/// #[derive(FromRow, Default)]
+/// #[derive(SQLiteFromRow, Default)]
 /// struct IdAndName(i32, String);
 /// ```
 ///
@@ -588,7 +588,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// use drizzle::prelude::*;
 /// use uuid::Uuid;
 ///
-/// #[derive(FromRow, Debug)]
+/// #[derive(SQLiteFromRow, Debug)]
 /// struct UserWithId {
 ///     id: Uuid,        // Stored as BLOB (16 bytes)
 ///     name: String,
@@ -607,7 +607,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     website: Option<String>,
 /// }
 ///
-/// #[derive(FromRow, Debug)]
+/// #[derive(SQLiteFromRow, Debug)]
 /// struct UserWithProfile {
 ///     id: i32,
 ///     name: String,

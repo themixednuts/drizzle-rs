@@ -210,7 +210,7 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
         let idx = entry.idx;
 
         migration_entries.push(quote! {
-            ::drizzle_migrations::EmbeddedMigration::new(
+            drizzle_migrations::EmbeddedMigration::new(
                 #tag,
                 include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #relative_path)),
                 #idx,
@@ -220,9 +220,9 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
 
     // Generate dialect token
     let dialect_token = match dialect {
-        Dialect::Sqlite => quote! { ::drizzle_migrations::Dialect::Sqlite },
-        Dialect::Postgresql => quote! { ::drizzle_migrations::Dialect::Postgresql },
-        Dialect::Mysql => quote! { ::drizzle_migrations::Dialect::Mysql },
+        Dialect::Sqlite => quote! { drizzle_migrations::Dialect::Sqlite },
+        Dialect::Postgresql => quote! { drizzle_migrations::Dialect::Postgresql },
+        Dialect::Mysql => quote! { drizzle_migrations::Dialect::Mysql },
     };
 
     // Note: Proc macros automatically detect file changes for recompilation.
@@ -233,7 +233,7 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
     let output = quote! {
         {
             // Static array of embedded migrations
-            static ENTRIES: &[::drizzle_migrations::EmbeddedMigration] = &[
+            static ENTRIES: &[drizzle_migrations::EmbeddedMigration] = &[
                 #(#migration_entries),*
             ];
 
@@ -244,7 +244,7 @@ pub fn include_migrations_impl(input: IncludeMigrationsInput) -> Result<TokenStr
                 }
             };
 
-            ::drizzle_migrations::EmbeddedMigrations::new(ENTRIES, #dialect_token)
+            drizzle_migrations::EmbeddedMigrations::new(ENTRIES, #dialect_token)
         }
     };
 

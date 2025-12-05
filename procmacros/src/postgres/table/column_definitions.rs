@@ -48,69 +48,69 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 PostgreSQLType::Smallint => (
                     quote! {
                         let smallint: i16 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Smallint(smallint)
+                        drizzle_postgres::values::PostgresValue::Smallint(smallint)
                     },
                     quote! {
                         let smallint: i16 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Smallint(smallint)
+                        drizzle_postgres::values::PostgresValue::Smallint(smallint)
                     },
                 ),
                 PostgreSQLType::Integer => (
                     quote! {
                         let integer: i32 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Integer(integer)
+                        drizzle_postgres::values::PostgresValue::Integer(integer)
                     },
                     quote! {
                         let integer: i32 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Integer(integer)
+                        drizzle_postgres::values::PostgresValue::Integer(integer)
                     },
                 ),
                 PostgreSQLType::Bigint => (
                     quote! {
                         let bigint: i64 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Bigint(bigint)
+                        drizzle_postgres::values::PostgresValue::Bigint(bigint)
                     },
                     quote! {
                         let bigint: i64 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Bigint(bigint)
+                        drizzle_postgres::values::PostgresValue::Bigint(bigint)
                     },
                 ),
                 PostgreSQLType::Serial => (
                     quote! {
                         let integer: i32 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Integer(integer)
+                        drizzle_postgres::values::PostgresValue::Integer(integer)
                     },
                     quote! {
                         let integer: i32 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Integer(integer)
+                        drizzle_postgres::values::PostgresValue::Integer(integer)
                     },
                 ),
                 PostgreSQLType::Bigserial => (
                     quote! {
                         let bigint: i64 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Bigint(bigint)
+                        drizzle_postgres::values::PostgresValue::Bigint(bigint)
                     },
                     quote! {
                         let bigint: i64 = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Bigint(bigint)
+                        drizzle_postgres::values::PostgresValue::Bigint(bigint)
                     },
                 ),
                 PostgreSQLType::Text | PostgreSQLType::Varchar | PostgreSQLType::Char => (
                     quote! {
                         let text: &str = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Text(::std::borrow::Cow::Borrowed(text))
+                        drizzle_postgres::values::PostgresValue::Text(::std::borrow::Cow::Borrowed(text))
                     },
                     quote! {
                         let text: &str = value.into();
-                        ::drizzle_postgres::values::PostgresValue::Text(::std::borrow::Cow::Borrowed(text))
+                        drizzle_postgres::values::PostgresValue::Text(::std::borrow::Cow::Borrowed(text))
                     },
                 ),
                 PostgreSQLType::Enum(_) => (
                     quote! {
-                        ::drizzle_postgres::values::PostgresValue::Enum(Box::new(value))
+                        drizzle_postgres::values::PostgresValue::Enum(Box::new(value))
                     },
                     quote! {
-                        ::drizzle_postgres::values::PostgresValue::Enum(Box::new((*value).clone()))
+                        drizzle_postgres::values::PostgresValue::Enum(Box::new((*value).clone()))
                     },
                 ),
                 _ => {
@@ -125,20 +125,20 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
             quote! {
                 // Generate From implementations for enum values
-                impl<'a> ::std::convert::From<#value_type> for ::drizzle_postgres::values::PostgresValue<'a> {
+                impl<'a> ::std::convert::From<#value_type> for drizzle_postgres::values::PostgresValue<'a> {
                     fn from(value: #value_type) -> Self {
                         #conversion
                     }
                 }
 
-                impl<'a> ::std::convert::From<&'a #value_type> for ::drizzle_postgres::values::PostgresValue<'a> {
+                impl<'a> ::std::convert::From<&'a #value_type> for drizzle_postgres::values::PostgresValue<'a> {
                     fn from(value: &'a #value_type) -> Self {
                         #reference_conversion
                     }
                 }
 
-                impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> for #value_type {
-                    fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> {
+                impl<'a> drizzle_core::ToSQL<'a, drizzle_postgres::values::PostgresValue<'a>> for #value_type {
+                    fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_postgres::values::PostgresValue<'a>> {
                         let value = self.clone();
                         #conversion.into()
                     }
@@ -174,67 +174,67 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 }
             }
 
-            impl<'a> ::drizzle_core::SQLSchema<'a, &'a str, ::drizzle_postgres::values::PostgresValue<'a>> for #zst_ident {
+            impl<'a> drizzle_core::SQLSchema<'a, &'a str, drizzle_postgres::values::PostgresValue<'a>> for #zst_ident {
                 const NAME: &'a str = #name;
                 const TYPE: &'a str = #col_type;
-                const SQL: ::drizzle_core::SQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> = ::drizzle_core::SQL::empty();
+                const SQL: drizzle_core::SQL<'a, drizzle_postgres::values::PostgresValue<'a>> = drizzle_core::SQL::empty();
 
-                fn sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> {
-                    ::drizzle_core::SQL::raw(#sql)
+                fn sql(&self) -> drizzle_core::SQL<'a, drizzle_postgres::values::PostgresValue<'a>> {
+                    drizzle_core::SQL::raw(#sql)
                 }
             }
 
-            impl ::drizzle_core::SQLColumnInfo for #zst_ident {
+            impl drizzle_core::SQLColumnInfo for #zst_ident {
                 fn name(&self) -> &str {
-                    <Self as ::drizzle_core::SQLSchema<'_, &'static str, ::drizzle_postgres::values::PostgresValue<'_>>>::NAME
+                    <Self as drizzle_core::SQLSchema<'_, &'static str, drizzle_postgres::values::PostgresValue<'_>>>::NAME
                 }
                 fn r#type(&self) -> &str {
-                    <Self as ::drizzle_core::SQLSchema<'_, &'static str, ::drizzle_postgres::values::PostgresValue<'_>>>::TYPE
+                    <Self as drizzle_core::SQLSchema<'_, &'static str, drizzle_postgres::values::PostgresValue<'_>>>::TYPE
                 }
                 fn is_primary_key(&self) -> bool {
-                    <Self as ::drizzle_core::SQLColumn<'_, ::drizzle_postgres::values::PostgresValue<'_>>>::PRIMARY_KEY
+                    <Self as drizzle_core::SQLColumn<'_, drizzle_postgres::values::PostgresValue<'_>>>::PRIMARY_KEY
                 }
                 fn is_not_null(&self) -> bool {
-                    <Self as ::drizzle_core::SQLColumn<'_, ::drizzle_postgres::values::PostgresValue<'_>>>::NOT_NULL
+                    <Self as drizzle_core::SQLColumn<'_, drizzle_postgres::values::PostgresValue<'_>>>::NOT_NULL
                 }
                 fn is_unique(&self) -> bool {
-                    <Self as ::drizzle_core::SQLColumn<'_, ::drizzle_postgres::values::PostgresValue<'_>>>::UNIQUE
+                    <Self as drizzle_core::SQLColumn<'_, drizzle_postgres::values::PostgresValue<'_>>>::UNIQUE
                 }
                 fn has_default(&self) -> bool {
                     #has_default
                 }
-                fn table(&self) -> &dyn ::drizzle_core::SQLTableInfo {
+                fn table(&self) -> &dyn drizzle_core::SQLTableInfo {
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
-                fn foreign_key(&self) -> Option<&'static dyn ::drizzle_core::SQLColumnInfo> {
+                fn foreign_key(&self) -> Option<&'static dyn drizzle_core::SQLColumnInfo> {
                     #foreign_key_impl
                 }
             }
 
-            impl ::drizzle_postgres::traits::PostgresColumnInfo for #zst_ident {
-                fn table(&self) -> &dyn ::drizzle_postgres::traits::PostgresTableInfo {
+            impl drizzle_postgres::traits::PostgresColumnInfo for #zst_ident {
+                fn table(&self) -> &dyn drizzle_postgres::traits::PostgresTableInfo {
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
 
                 fn is_serial(&self) -> bool {
-                    <Self as ::drizzle_postgres::traits::PostgresColumn<'_>>::SERIAL
+                    <Self as drizzle_postgres::traits::PostgresColumn<'_>>::SERIAL
                 }
                 fn is_bigserial(&self) -> bool {
-                    <Self as ::drizzle_postgres::traits::PostgresColumn<'_>>::BIGSERIAL
+                    <Self as drizzle_postgres::traits::PostgresColumn<'_>>::BIGSERIAL
                 }
                 fn is_generated_identity(&self) -> bool {
-                    <Self as ::drizzle_postgres::traits::PostgresColumn<'_>>::GENERATED_IDENTITY
+                    <Self as drizzle_postgres::traits::PostgresColumn<'_>>::GENERATED_IDENTITY
                 }
                 fn postgres_type(&self) -> &'static str {
                     #col_type
                 }
             }
 
-            impl<'a> ::drizzle_core::SQLColumn<'a, ::drizzle_postgres::values::PostgresValue<'a>> for #zst_ident {
+            impl<'a> drizzle_core::SQLColumn<'a, drizzle_postgres::values::PostgresValue<'a>> for #zst_ident {
                 type Table = #struct_ident;
-                type TableType = ::drizzle_postgres::common::PostgresSchemaType;
+                type TableType = drizzle_postgres::common::PostgresSchemaType;
                 type Type = #rust_type;
 
                 const PRIMARY_KEY: bool = #is_primary;
@@ -247,17 +247,17 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 }
             }
 
-            impl ::drizzle_postgres::traits::PostgresColumn<'_> for #zst_ident {
+            impl drizzle_postgres::traits::PostgresColumn<'_> for #zst_ident {
                 const SERIAL: bool = #is_serial;
                 const BIGSERIAL: bool = false; // TODO: Add bigserial support
                 const GENERATED_IDENTITY: bool = false; // TODO: Add generated identity support
             }
 
 
-            impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> for #zst_ident {
-                fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_postgres::values::PostgresValue<'a>> {
+            impl<'a> drizzle_core::ToSQL<'a, drizzle_postgres::values::PostgresValue<'a>> for #zst_ident {
+                fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_postgres::values::PostgresValue<'a>> {
                     static INSTANCE: #zst_ident = #zst_ident;
-                    ::drizzle_core::SQL::column(&INSTANCE)
+                    drizzle_core::SQL::column(&INSTANCE)
                 }
             }
 

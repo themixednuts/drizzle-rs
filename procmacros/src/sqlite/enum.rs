@@ -213,7 +213,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
         // Integer type conversions - all delegate to i64 conversion
         // Using macro-generated implementations for cleaner code
-        ::drizzle_core::impl_try_from_int!(#name => isize, usize, i32, u32, i16, u16, i8, u8);
+        drizzle_core::impl_try_from_int!(#name => isize, usize, i32, u32, i16, u16, i8, u8);
 
         // Implement Display for the enum
         impl std::fmt::Display for #name {
@@ -328,23 +328,23 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     // This trait provides a unified interface for value conversion
     #[cfg(any(feature = "libsql", feature = "turso"))]
     let from_sqlite_value_impl = quote! {
-        impl ::drizzle_sqlite::traits::FromSQLiteValue for #name {
-            fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, ::drizzle_core::error::DrizzleError> {
+        impl drizzle_sqlite::traits::FromSQLiteValue for #name {
+            fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, drizzle_core::error::DrizzleError> {
                 Self::try_from(value).map_err(Into::into)
             }
 
-            fn from_sqlite_text(value: &str) -> ::std::result::Result<Self, ::drizzle_core::error::DrizzleError> {
+            fn from_sqlite_text(value: &str) -> ::std::result::Result<Self, drizzle_core::error::DrizzleError> {
                 Self::try_from(value).map_err(Into::into)
             }
 
-            fn from_sqlite_real(_value: f64) -> ::std::result::Result<Self, ::drizzle_core::error::DrizzleError> {
-                Err(::drizzle_core::error::DrizzleError::ConversionError(
+            fn from_sqlite_real(_value: f64) -> ::std::result::Result<Self, drizzle_core::error::DrizzleError> {
+                Err(drizzle_core::error::DrizzleError::ConversionError(
                     format!("cannot convert REAL to {}", stringify!(#name)).into()
                 ))
             }
 
-            fn from_sqlite_blob(_value: &[u8]) -> ::std::result::Result<Self, ::drizzle_core::error::DrizzleError> {
-                Err(::drizzle_core::error::DrizzleError::ConversionError(
+            fn from_sqlite_blob(_value: &[u8]) -> ::std::result::Result<Self, drizzle_core::error::DrizzleError> {
+                Err(drizzle_core::error::DrizzleError::ConversionError(
                     format!("cannot convert BLOB to {}", stringify!(#name)).into()
                 ))
             }

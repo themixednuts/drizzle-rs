@@ -105,7 +105,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_type>>
+                        V: Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -124,7 +124,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #base_type>>
+                        V: Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -139,7 +139,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, ::std::string::String>>
+                        V: Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, ::std::string::String>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -154,7 +154,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
+                        V: Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -183,11 +183,11 @@ fn generate_json_insert_method(
             {
                 let json_str = serde_json::to_string(&value)
                     .unwrap_or_else(|_| "null".to_string());
-                ::drizzle_sqlite::values::SQLiteInsertValue::Value(
-                    ::drizzle_sqlite::values::ValueWrapper {
-                        value: ::drizzle_sqlite::expression::json(
-                            ::drizzle_core::SQL::param(
-                                ::drizzle_sqlite::values::SQLiteValue::Text(
+                drizzle_sqlite::values::SQLiteInsertValue::Value(
+                    drizzle_sqlite::values::ValueWrapper {
+                        value: drizzle_sqlite::expression::json(
+                            drizzle_core::SQL::param(
+                                drizzle_sqlite::values::SQLiteValue::Text(
                                     ::std::borrow::Cow::Owned(json_str)
                                 )
                             )),
@@ -200,11 +200,11 @@ fn generate_json_insert_method(
             {
                 let json_bytes = serde_json::to_vec(&value)
                     .unwrap_or_else(|_| "null".as_bytes().to_vec());
-                ::drizzle_sqlite::values::SQLiteInsertValue::Value(
-                    ::drizzle_sqlite::values::ValueWrapper {
-                        value: ::drizzle_sqlite::expression::jsonb(
-                            ::drizzle_core::SQL::param(
-                                ::drizzle_sqlite::values::SQLiteValue::Blob(
+                drizzle_sqlite::values::SQLiteInsertValue::Value(
+                    drizzle_sqlite::values::ValueWrapper {
+                        value: drizzle_sqlite::expression::jsonb(
+                            drizzle_core::SQL::param(
+                                drizzle_sqlite::values::SQLiteValue::Blob(
                                     ::std::borrow::Cow::Owned(json_bytes)
                                 )
                             )),

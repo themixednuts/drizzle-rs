@@ -38,7 +38,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #select_model_ident {
-            type Error = ::drizzle_core::error::DrizzleError;
+            type Error = drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -52,7 +52,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #partial_ident {
-            type Error = ::drizzle_core::error::DrizzleError;
+            type Error = drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -64,7 +64,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #update_model_ident {
-            type Error = ::drizzle_core::error::DrizzleError;
+            type Error = drizzle_core::error::DrizzleError;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -111,7 +111,7 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
                 let value_ref = row.get_ref(#column_name)?;
                 match value_ref {
                     ::rusqlite::types::ValueRef::Null => None,
-                    _ => Some(<#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?),
+                    _ => Some(<#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?),
                 }
             },
         })
@@ -119,7 +119,7 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
         Ok(quote! {
             #name: {
                 let value_ref = row.get_ref(#column_name)?;
-                <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?
+                <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?
             },
         })
     }
@@ -148,7 +148,7 @@ fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     Ok(quote! {
         #name: {
             let value_ref = row.get_ref(#column_name)?;
-            Some(<#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?)
+            Some(<#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref)?)
         },
     })
 }
@@ -172,7 +172,7 @@ fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
             let value_ref = row.get_ref(#column_name).unwrap_or(::rusqlite::types::ValueRef::Null);
             match value_ref {
                 ::rusqlite::types::ValueRef::Null => None,
-                _ => <#base_type as ::drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref).ok(),
+                _ => <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_value_ref(value_ref).ok(),
             }
         },
     })

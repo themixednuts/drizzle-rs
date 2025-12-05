@@ -96,21 +96,21 @@ pub(crate) fn generate_insert_model(
         // Convenience methods for setting fields
         #(#insert_convenience_methods)*
 
-        impl<'a, T> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
-                ::drizzle_core::SQLModel::values(self)
+        impl<'a, T> drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
+            fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
+                drizzle_core::SQLModel::values(self)
             }
         }
 
-        impl<'a, T> ::drizzle_core::SQLModel<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> Box<[&'static dyn ::drizzle_core::SQLColumnInfo]> {
+        impl<'a, T> drizzle_core::SQLModel<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #insert_model<'a, T> {
+            fn columns(&self) -> Box<[&'static dyn drizzle_core::SQLColumnInfo]> {
                 static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = ::drizzle_core::SQLTableInfo::columns(&TABLE);
+                let all_columns = drizzle_core::SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle_sqlite::values::SQLiteInsertValue::Omit => {}
+                        drizzle_sqlite::values::SQLiteInsertValue::Omit => {}
                         _ => {
                             result_columns.push(all_columns[#insert_field_indices]);
                         }
@@ -120,22 +120,22 @@ pub(crate) fn generate_insert_model(
                 result_columns.into_boxed_slice()
             }
 
-            fn values(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
+            fn values(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
                 let mut sql_parts = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle_sqlite::values::SQLiteInsertValue::Omit => {}
-                        ::drizzle_sqlite::values::SQLiteInsertValue::Null => {
-                            sql_parts.push(::drizzle_core::SQL::param(::drizzle_sqlite::values::SQLiteValue::Null));
+                        drizzle_sqlite::values::SQLiteInsertValue::Omit => {}
+                        drizzle_sqlite::values::SQLiteInsertValue::Null => {
+                            sql_parts.push(drizzle_core::SQL::param(drizzle_sqlite::values::SQLiteValue::Null));
                         }
-                        ::drizzle_sqlite::values::SQLiteInsertValue::Value(wrapper) => {
+                        drizzle_sqlite::values::SQLiteInsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
                         }
                     }
                 )*
 
-                ::drizzle_core::SQL::join(sql_parts, ::drizzle_core::Token::COMMA)
+                drizzle_core::SQL::join(sql_parts, drizzle_core::Token::COMMA)
             }
         }
     })
@@ -204,11 +204,11 @@ fn generate_constructor_param(
                     #field_name: {
                         let json_str = serde_json::to_string(&#field_name)
                             .unwrap_or_else(|_| "null".to_string());
-                        ::drizzle_sqlite::values::SQLiteInsertValue::Value(
-                            ::drizzle_sqlite::values::ValueWrapper {
-                                value: ::drizzle_sqlite::expression::json(
-                                    ::drizzle_core::SQL::param(
-                                        ::drizzle_sqlite::values::SQLiteValue::Text(
+                        drizzle_sqlite::values::SQLiteInsertValue::Value(
+                            drizzle_sqlite::values::ValueWrapper {
+                                value: drizzle_sqlite::expression::json(
+                                    drizzle_core::SQL::param(
+                                        drizzle_sqlite::values::SQLiteValue::Text(
                                             ::std::borrow::Cow::Owned(json_str)
                                         )
                                     )),
@@ -221,11 +221,11 @@ fn generate_constructor_param(
                     #field_name: {
                         let json_bytes = serde_json::to_vec(&#field_name)
                             .unwrap_or_else(|_| "null".as_bytes().to_vec());
-                        ::drizzle_sqlite::values::SQLiteInsertValue::Value(
-                            ::drizzle_sqlite::values::ValueWrapper {
-                                value: ::drizzle_sqlite::expression::jsonb(
-                                    ::drizzle_core::SQL::param(
-                                        ::drizzle_sqlite::values::SQLiteValue::Blob(
+                        drizzle_sqlite::values::SQLiteInsertValue::Value(
+                            drizzle_sqlite::values::ValueWrapper {
+                                value: drizzle_sqlite::expression::jsonb(
+                                    drizzle_core::SQL::param(
+                                        drizzle_sqlite::values::SQLiteValue::Blob(
                                             ::std::borrow::Cow::Owned(json_bytes)
                                         )
                                     )),
@@ -241,16 +241,16 @@ fn generate_constructor_param(
         TypeCategory::Uuid => {
             let insert_value_type = info.insert_value_inner_type();
             (
-                quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_type>> },
+                quote! { #field_name: impl Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_type>> },
                 quote! { #field_name: #field_name.into() },
             )
         }
         TypeCategory::String => (
-            quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, ::std::string::String>> },
+            quote! { #field_name: impl Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, ::std::string::String>> },
             quote! { #field_name: #field_name.into() },
         ),
         TypeCategory::Blob => (
-            quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
+            quote! { #field_name: impl Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
             quote! { #field_name: #field_name.into() },
         ),
         // ArrayString, ArrayVec, Enum, Primitive use base type directly
@@ -258,7 +258,7 @@ fn generate_constructor_param(
         | TypeCategory::ArrayVec
         | TypeCategory::Enum
         | TypeCategory::Primitive => (
-            quote! { #field_name: impl Into<::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #base_type>> },
+            quote! { #field_name: impl Into<drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),
     }

@@ -43,11 +43,11 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
             #(#update_convenience_methods)*
         }
 
-        impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #update_model {
-            fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
+        impl<'a> drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #update_model {
+            fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
                 let mut assignments = Vec::new();
                 #(#update_field_conversions)*
-                ::drizzle_core::SQL::assignments(assignments)
+                drizzle_core::SQL::assignments(assignments)
             }
         }
     })

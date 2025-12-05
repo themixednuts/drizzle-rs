@@ -85,7 +85,7 @@ impl<'a> MacroContext<'a> {
             ModelType::Insert => {
                 // Use TypeCategory to determine the insert value type
                 let insert_value_inner = field.insert_value_inner_type();
-                quote!(::drizzle_sqlite::values::SQLiteInsertValue<'a, ::drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_inner>)
+                quote!(drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, #insert_value_inner>)
             }
             ModelType::Update | ModelType::PartialSelect => {
                 quote!(Option<#base_type>)
@@ -108,7 +108,7 @@ impl<'a> MacroContext<'a> {
         }
 
         // Default to Omit so database can handle defaults
-        quote! { #name: ::drizzle_sqlite::values::SQLiteInsertValue::Omit }
+        quote! { #name: drizzle_sqlite::values::SQLiteInsertValue::Omit }
     }
 
     // =========================================================================
@@ -127,13 +127,13 @@ impl<'a> MacroContext<'a> {
         if matches!(category, TypeCategory::Uuid) {
             let uuid_conversion = match field.column_type {
                 SQLiteType::Text => {
-                    quote! { ::drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Owned(val.to_string())) }
+                    quote! { drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Owned(val.to_string())) }
                 }
                 SQLiteType::Blob => {
-                    quote! { ::drizzle_sqlite::values::SQLiteValue::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
+                    quote! { drizzle_sqlite::values::SQLiteValue::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
                 }
                 _ => {
-                    quote! { val.clone().try_into().unwrap_or(::drizzle_sqlite::values::SQLiteValue::Null) }
+                    quote! { val.clone().try_into().unwrap_or(drizzle_sqlite::values::SQLiteValue::Null) }
                 }
             };
 
@@ -148,7 +148,7 @@ impl<'a> MacroContext<'a> {
         let conversion = if matches!(category, TypeCategory::Enum) {
             quote! { val.clone().into() }
         } else {
-            quote! { val.clone().try_into().unwrap_or(::drizzle_sqlite::values::SQLiteValue::Null) }
+            quote! { val.clone().try_into().unwrap_or(drizzle_sqlite::values::SQLiteValue::Null) }
         };
 
         quote! {

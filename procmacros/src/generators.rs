@@ -15,7 +15,7 @@ pub fn generate_sql_column_info(
     table: TokenStream,
 ) -> TokenStream {
     quote! {
-        impl ::drizzle_core::SQLColumnInfo for #struct_ident {
+        impl drizzle_core::SQLColumnInfo for #struct_ident {
             fn name(&self) -> &str {
                 #name
             }
@@ -34,10 +34,10 @@ pub fn generate_sql_column_info(
             fn has_default(&self) -> bool {
                 #has_default
             }
-            fn table(&self) -> &dyn ::drizzle_core::SQLTableInfo {
+            fn table(&self) -> &dyn drizzle_core::SQLTableInfo {
                 #table
             }
-            fn foreign_key(&self) -> Option<&'static dyn ::drizzle_core::SQLColumnInfo> {
+            fn foreign_key(&self) -> Option<&'static dyn drizzle_core::SQLColumnInfo> {
                 #foreign_key
             }
         }
@@ -51,12 +51,12 @@ pub fn generate_sql_table_info(
     columns: TokenStream,
 ) -> TokenStream {
     quote! {
-        impl ::drizzle_core::SQLTableInfo for #struct_ident {
+        impl drizzle_core::SQLTableInfo for #struct_ident {
             fn name(&self) -> &str {
                 #name
             }
 
-            fn columns(&self) -> Box<[&'static dyn ::drizzle_core::SQLColumnInfo]> {
+            fn columns(&self) -> Box<[&'static dyn drizzle_core::SQLColumnInfo]> {
                 #columns
             }
         }

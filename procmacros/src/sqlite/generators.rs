@@ -4,8 +4,8 @@ use quote::quote;
 /// Generate SQLite ToSQL trait implementation
 pub fn generate_to_sql(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
-        impl<'a> ::drizzle_core::ToSQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
+        impl<'a> drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
+            fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
                 #body
             }
         }
@@ -26,7 +26,7 @@ pub fn generate_sql_column(
     default_fn: TokenStream,
 ) -> TokenStream {
     quote! {
-        impl<'a> ::drizzle_core::SQLColumn<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
+        impl<'a> drizzle_core::SQLColumn<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
             type Table = #table;
             type TableType = #table_type;
             type Type = #r#type;
@@ -85,7 +85,7 @@ pub fn generate_sqlite_table_info(
 ) -> TokenStream {
     quote! {
         impl drizzle_sqlite::traits::SQLiteTableInfo for #struct_ident {
-            fn r#type(&self) -> &::drizzle_sqlite::common::SQLiteSchemaType {
+            fn r#type(&self) -> &drizzle_sqlite::common::SQLiteSchemaType {
                 #r#type
             }
 
@@ -125,7 +125,7 @@ pub fn generate_sql_table(
     aliased: TokenStream,
 ) -> TokenStream {
     quote! {
-        impl<'a> ::drizzle_core::SQLTable<'a, ::drizzle_sqlite::common::SQLiteSchemaType, ::drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
+        impl<'a> drizzle_core::SQLTable<'a, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
             type Select = #select;
             type Insert<T> = #insert;
             type Update = #update;
@@ -149,17 +149,17 @@ pub fn generate_sql_schema(
     let fn_method = runtime_sql
         .map(|v| {
             quote! {
-                fn sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
+                fn sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
                     #v
                 }
             }
         })
         .unwrap_or_else(|| quote! {});
     quote! {
-        impl<'a> ::drizzle_core::SQLSchema<'a, ::drizzle_sqlite::common::SQLiteSchemaType, ::drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
+        impl<'a> drizzle_core::SQLSchema<'a, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
             const NAME: &'a str = #name;
-            const TYPE: ::drizzle_sqlite::common::SQLiteSchemaType = #r#type;
-            const SQL: ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> = #const_sql;
+            const TYPE: drizzle_sqlite::common::SQLiteSchemaType = #r#type;
+            const SQL: drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> = #const_sql;
             #fn_method
         }
     }
@@ -173,12 +173,12 @@ pub fn generate_sql_schema_field(
     sql: TokenStream,
 ) -> TokenStream {
     quote! {
-        impl<'a> ::drizzle_core::SQLSchema<'a, &'a str, ::drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
+        impl<'a> drizzle_core::SQLSchema<'a, &'a str, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident {
             const NAME: &'a str = #name;
             const TYPE: &'a str = #r#type;
-            const SQL: ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> = ::drizzle_core::SQL::empty();
+            const SQL: drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> = drizzle_core::SQL::empty();
 
-            fn sql(&self) -> ::drizzle_core::SQL<'a, ::drizzle_sqlite::values::SQLiteValue<'a>> {
+            fn sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
                 #sql
             }
         }
