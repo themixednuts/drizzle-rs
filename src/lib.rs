@@ -158,6 +158,7 @@ pub mod sqlite {
 
     // SQLite types and traits
     pub use drizzle_sqlite::builder;
+    pub use drizzle_sqlite::columns;
     pub use drizzle_sqlite::common;
     pub use drizzle_sqlite::traits;
     pub use drizzle_sqlite::values;
@@ -177,6 +178,9 @@ pub mod sqlite {
         };
         pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue, ValueWrapper};
         pub use drizzle_sqlite::{SQLiteTransactionType, conditions, expression, params, pragma};
+
+        /// Re-export the sqlite module so generated code can use `sqlite::columns::*`
+        pub use crate::sqlite;
     }
 }
 
@@ -277,6 +281,7 @@ pub mod postgres {
 
     // PostgreSQL types and traits
     pub use drizzle_postgres::builder;
+    pub use drizzle_postgres::columns;
     pub use drizzle_postgres::common;
     pub use drizzle_postgres::traits;
     pub use drizzle_postgres::values;
@@ -294,6 +299,9 @@ pub mod postgres {
             PostgresColumn, PostgresColumnInfo, PostgresEnum, PostgresTable, PostgresTableInfo,
         };
         pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue};
+
+        /// Re-export the postgres module so generated code can use `postgres::columns::*`
+        pub use crate::postgres;
     }
 }
 
@@ -318,11 +326,25 @@ pub mod mysql {
 pub mod prelude {
     pub use crate::core::prelude::*;
 
+    // Note: We only glob-export one dialect's prelude to avoid name conflicts.
+    // When both sqlite and postgres features are enabled, sqlite takes precedence
+    // in the main prelude. Users should use drizzle::postgres::prelude::* directly
+    // for PostgreSQL-specific items when using both databases.
+
     #[cfg(feature = "sqlite")]
     pub use crate::sqlite::prelude::*;
 
-    #[cfg(feature = "postgres")]
+    /// Re-export the sqlite module so generated code can use `sqlite::columns::*`
+    #[cfg(feature = "sqlite")]
+    pub use crate::sqlite;
+
+    // Only glob-export postgres prelude if sqlite is NOT enabled (to avoid conflicts)
+    #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
     pub use crate::postgres::prelude::*;
+
+    /// Re-export the postgres module so generated code can use `postgres::columns::*`
+    #[cfg(feature = "postgres")]
+    pub use crate::postgres;
 }
 
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
