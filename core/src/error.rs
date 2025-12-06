@@ -76,6 +76,15 @@ pub enum DrizzleError {
     #[error("LibSQL error: {0}")]
     LibSQL(#[from] libsql::Error),
 
+    /// Postgres specific errors
+    #[cfg(feature = "tokio-postgres")]
+    #[error("Postgres error: {0}")]
+    Postgres(#[from] tokio_postgres::Error),
+
+    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    #[error("Postgres error: {0}")]
+    Postgres(#[from] postgres::Error),
+
     /// UUID parsing error
     #[cfg(feature = "uuid")]
     #[error("UUID error: {0}")]

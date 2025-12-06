@@ -197,10 +197,7 @@ impl<Schema> Drizzle<Schema> {
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self
-            .client
-            .query(&sql_str, &param_refs[..])
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let rows = self.client.query(&sql_str, &param_refs[..])?;
 
         let results = rows
             .iter()
@@ -227,10 +224,7 @@ impl<Schema> Drizzle<Schema> {
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        let row = self
-            .client
-            .query_one(&sql_str, &param_refs[..])
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let row = self.client.query_one(&sql_str, &param_refs[..])?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -245,14 +239,10 @@ impl<Schema> Drizzle<Schema> {
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         // Begin transaction
-        let mut tx = self
-            .client
-            .transaction()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut tx = self.client.transaction()?;
 
         // Set isolation level
-        tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])?;
 
         let transaction = Transaction::new(tx, tx_type);
 
@@ -290,9 +280,7 @@ where
         let statements = schema.create_statements();
 
         for statement in statements {
-            self.client
-                .execute(&statement, &[])
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            self.client.execute(&statement, &[])?;
         }
 
         Ok(())
@@ -353,11 +341,7 @@ where
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        Ok(self
-            .drizzle
-            .client
-            .execute(&sql_str, &param_refs[..])
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?)
+        Ok(self.drizzle.client.execute(&sql_str, &param_refs[..])?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -376,11 +360,7 @@ where
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self
-            .drizzle
-            .client
-            .query(&sql_str, &param_refs[..])
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let rows = self.drizzle.client.query(&sql_str, &param_refs[..])?;
 
         let results = rows
             .iter()
@@ -405,11 +385,7 @@ where
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        let row = self
-            .drizzle
-            .client
-            .query_one(&sql_str, &param_refs[..])
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let row = self.drizzle.client.query_one(&sql_str, &param_refs[..])?;
 
         R::try_from(&row).map_err(Into::into)
     }

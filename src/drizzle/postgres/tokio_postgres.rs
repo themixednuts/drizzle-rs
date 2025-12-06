@@ -194,11 +194,7 @@ impl<Schema> Drizzle<Schema> {
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self
-            .client
-            .query(&sql_str, &param_refs[..])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let rows = self.client.query(&sql_str, &param_refs[..]).await?;
 
         let results = rows
             .iter()
@@ -225,11 +221,7 @@ impl<Schema> Drizzle<Schema> {
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let row = self
-            .client
-            .query_one(&sql_str, &param_refs[..])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let row = self.client.query_one(&sql_str, &param_refs[..]).await?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -245,16 +237,11 @@ impl<Schema> Drizzle<Schema> {
         Fut: std::future::Future<Output = drizzle_core::error::Result<R>>,
     {
         // Begin transaction
-        let mut tx = self
-            .client
-            .transaction()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut tx = self.client.transaction().await?;
 
         // Set isolation level
         tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .await?;
 
         let transaction = Transaction::new(tx, tx_type);
 
@@ -282,10 +269,7 @@ where
         let statements = schema.create_statements();
 
         for statement in statements {
-            self.client
-                .execute(&statement, &[])
-                .await
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            self.client.execute(&statement, &[]).await?;
         }
 
         Ok(())
@@ -350,8 +334,7 @@ where
             .drizzle
             .client
             .execute(&sql_str, &param_refs[..])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?)
+            .await?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -370,12 +353,7 @@ where
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self
-            .drizzle
-            .client
-            .query(&sql_str, &param_refs[..])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let rows = self.drizzle.client.query(&sql_str, &param_refs[..]).await?;
 
         let results = rows
             .iter()
@@ -404,8 +382,7 @@ where
             .drizzle
             .client
             .query_one(&sql_str, &param_refs[..])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .await?;
 
         R::try_from(&row).map_err(Into::into)
     }

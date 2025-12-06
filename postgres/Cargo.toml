@@ -28,14 +28,28 @@ tokio = { workspace = true, optional = true }
 bytes = { version = "1.11", optional = true }
 
 [features]
-serde = ["dep:serde_json", "dep:serde", "postgres?/with-serde_json-1", "tokio-postgres?/with-serde_json-1"]
+serde = [
+    "dep:serde_json",
+    "dep:serde",
+    "postgres?/with-serde_json-1",
+    "tokio-postgres?/with-serde_json-1",
+]
 uuid = ["dep:uuid", "postgres?/with-uuid-1", "tokio-postgres?/with-uuid-1"]
-chrono = ["dep:chrono", "postgres?/with-chrono-0_4", "tokio-postgres?/with-chrono-0_4"]
+chrono = [
+    "dep:chrono",
+    "postgres?/with-chrono-0_4",
+    "tokio-postgres?/with-chrono-0_4",
+]
 rust_decimal = ["dep:rust_decimal"]
 ipnet = ["dep:ipnet"]
 geo-types = ["dep:geo-types"]
 bitvec = ["dep:bitvec"]
 arrayvec = ["dep:arrayvec"]
 # sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/uuid"]
-postgres-sync = ["dep:postgres", "dep:bytes"]
-tokio-postgres = ["dep:tokio-postgres", "dep:tokio", "dep:bytes"]
+postgres-sync = ["dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
+tokio-postgres = [
+    "dep:tokio-postgres",
+    "dep:tokio",
+    "dep:bytes",
+    "drizzle-core/tokio-postgres",
+]
