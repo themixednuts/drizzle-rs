@@ -7,6 +7,7 @@
 //------------------------------------------------------------------------------
 
 pub mod builder;
+pub mod columns;
 pub mod common;
 pub mod conditions;
 pub mod expression;

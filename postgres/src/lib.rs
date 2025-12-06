@@ -11,6 +11,7 @@ pub use drizzle_core::{OrderBy, SQL, ToSQL};
 
 // Re-export PostgreSQL-specific modules
 pub mod builder;
+pub mod columns;
 pub mod common;
 pub mod helpers;
 pub mod traits;
