@@ -68,16 +68,6 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let create_table_sql =
         generate_create_table_sql(&table_name, &field_infos, is_composite_pk, &attrs);
 
-    // Calculate required fields pattern for const generic
-    let required_fields_pattern: Vec<bool> = field_infos
-        .iter()
-        .map(|info| {
-            let is_optional =
-                info.is_nullable || info.has_default || info.default_fn.is_some() || info.is_serial;
-            !is_optional
-        })
-        .collect();
-
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
@@ -91,6 +81,12 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         has_foreign_keys,
         attrs: &attrs,
     };
+
+    // Calculate required fields pattern for const generic
+    let required_fields_pattern: Vec<bool> = field_infos
+        .iter()
+        .map(|info| !ctx.is_field_optional_in_insert(info))
+        .collect();
 
     // -------------------
     // 2. Generation Phase

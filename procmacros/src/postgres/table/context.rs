@@ -36,3 +36,12 @@ pub(super) struct MacroContext<'a> {
     /// Table attributes
     pub attrs: &'a TableAttributes,
 }
+
+impl<'a> MacroContext<'a> {
+    /// Determines if a field should be optional in the Insert model.
+    /// A field is optional when it is nullable, has a database or runtime default,
+    /// or is auto-generated (serial/bigserial).
+    pub(crate) fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
+        field.is_nullable || field.has_default || field.default_fn.is_some() || field.is_serial
+    }
+}

@@ -35,7 +35,7 @@ pub(crate) fn generate_insert_model(
     for (field_index, info) in ctx.field_infos.iter().enumerate() {
         let name = &info.ident;
         let field_type = get_field_type_for_model(info, ModelType::Insert);
-        let is_optional = is_field_optional_in_insert(info);
+        let is_optional = ctx.is_field_optional_in_insert(info);
 
         insert_fields.push(quote! { #name: #field_type });
         insert_default_fields.push(get_insert_default_value(info));
@@ -202,22 +202,6 @@ fn get_field_type_for_model(field_info: &FieldInfo, model_type: ModelType) -> To
         }
         _ => quote!(#base_type),
     }
-}
-
-/// Determines if a field should be optional in the Insert model
-fn is_field_optional_in_insert(field: &FieldInfo) -> bool {
-    // Nullable fields are always optional
-    if field.is_nullable {
-        return true;
-    }
-
-    // Fields with explicit defaults (SQL or runtime) are optional
-    if field.has_default || field.default_fn.is_some() {
-        return true;
-    }
-
-    // SERIAL fields are auto-generated and optional
-    field.is_serial
 }
 
 /// Gets the default value expression for insert model
