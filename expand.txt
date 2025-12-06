@@ -121,7 +121,7 @@ mod schema {
         ///
         /// This constant contains the schema metadata for migrations,
         /// matching the format used by drizzle-kit snapshots.
-        pub const __DRIZZLE_TABLE_META: &'static str = "{\"name\":\"users\",\"columns\":{\"age\":{\"name\":\"age\",\"type\":\"integer\",\"primaryKey\":false,\"notNull\":true},\"id\":{\"name\":\"id\",\"type\":\"blob\",\"primaryKey\":true,\"notNull\":true},\"name\":{\"name\":\"name\",\"type\":\"text\",\"primaryKey\":false,\"notNull\":true}},\"indexes\":{},\"foreignKeys\":{},\"compositePrimaryKeys\":{},\"uniqueConstraints\":{},\"checkConstraints\":{}}";
+        pub const __DRIZZLE_TABLE_META: &'static str = "{\"name\":\"users\",\"columns\":{\"name\":{\"name\":\"name\",\"type\":\"text\",\"primaryKey\":false,\"notNull\":true},\"id\":{\"name\":\"id\",\"type\":\"blob\",\"primaryKey\":true,\"notNull\":true},\"age\":{\"name\":\"age\",\"type\":\"integer\",\"primaryKey\":false,\"notNull\":true}},\"indexes\":{},\"foreignKeys\":{},\"compositePrimaryKeys\":{},\"uniqueConstraints\":{},\"checkConstraints\":{}}";
     }
     #[allow(non_upper_case_globals)]
     impl Users {
@@ -631,8 +631,8 @@ mod schema {
         fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
             SQLTableInfo::columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -646,7 +646,7 @@ mod schema {
         fn without_rowid(&self) -> bool {
             false
         }
-        fn columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
+        fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
             #[allow(non_upper_case_globals)]
             static UsersId: UsersId = UsersId::new();
             #[allow(non_upper_case_globals)]
@@ -661,11 +661,11 @@ mod schema {
             ];
             &SQLITE_COLUMNS
         }
-        fn dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-            SQLiteTableInfo::columns(self)
+        fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+            SQLiteTableInfo::sqlite_columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLiteColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLiteColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -1924,8 +1924,8 @@ mod schema {
         fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
             SQLTableInfo::columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -1942,15 +1942,15 @@ mod schema {
             static ORIGINAL_TABLE: Users = Users::new();
             SQLiteTableInfo::without_rowid(&ORIGINAL_TABLE)
         }
-        fn columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
+        fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
             static ORIGINAL_TABLE: Users = Users::new();
-            <Users as SQLiteTableInfo>::columns(&ORIGINAL_TABLE)
+            <Users as SQLiteTableInfo>::sqlite_columns(&ORIGINAL_TABLE)
         }
-        fn dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-            SQLiteTableInfo::columns(self)
+        fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+            SQLiteTableInfo::sqlite_columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLiteColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLiteColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -2233,7 +2233,7 @@ mod schema {
         ///
         /// This constant contains the schema metadata for migrations,
         /// matching the format used by drizzle-kit snapshots.
-        pub const __DRIZZLE_TABLE_META: &'static str = "{\"name\":\"posts\",\"columns\":{\"id\":{\"name\":\"id\",\"type\":\"blob\",\"primaryKey\":true,\"notNull\":true},\"user_id\":{\"name\":\"user_id\",\"type\":\"blob\",\"primaryKey\":false,\"notNull\":true},\"context\":{\"name\":\"context\",\"type\":\"text\",\"primaryKey\":false,\"notNull\":false}},\"indexes\":{},\"foreignKeys\":{\"posts_user_id_Users_id_fk\":{\"name\":\"posts_user_id_Users_id_fk\",\"tableFrom\":\"posts\",\"columnsFrom\":[\"user_id\"],\"tableTo\":\"Users\",\"columnsTo\":[\"id\"],\"onUpdate\":\"no action\",\"onDelete\":\"no action\"}},\"compositePrimaryKeys\":{},\"uniqueConstraints\":{},\"checkConstraints\":{}}";
+        pub const __DRIZZLE_TABLE_META: &'static str = "{\"name\":\"posts\",\"columns\":{\"context\":{\"name\":\"context\",\"type\":\"text\",\"primaryKey\":false,\"notNull\":false},\"id\":{\"name\":\"id\",\"type\":\"blob\",\"primaryKey\":true,\"notNull\":true},\"user_id\":{\"name\":\"user_id\",\"type\":\"blob\",\"primaryKey\":false,\"notNull\":true}},\"indexes\":{},\"foreignKeys\":{\"posts_user_id_Users_id_fk\":{\"name\":\"posts_user_id_Users_id_fk\",\"tableFrom\":\"posts\",\"columnsFrom\":[\"user_id\"],\"tableTo\":\"Users\",\"columnsTo\":[\"id\"],\"onUpdate\":\"no action\",\"onDelete\":\"no action\"}},\"compositePrimaryKeys\":{},\"uniqueConstraints\":{},\"checkConstraints\":{}}";
     }
     #[allow(non_upper_case_globals)]
     impl Posts {
@@ -2784,8 +2784,8 @@ mod schema {
         fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
             SQLTableInfo::columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -2799,7 +2799,7 @@ mod schema {
         fn without_rowid(&self) -> bool {
             false
         }
-        fn columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
+        fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
             #[allow(non_upper_case_globals)]
             static PostsId: PostsId = PostsId::new();
             #[allow(non_upper_case_globals)]
@@ -2814,11 +2814,11 @@ mod schema {
             ];
             &SQLITE_COLUMNS
         }
-        fn dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-            SQLiteTableInfo::columns(self)
+        fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+            SQLiteTableInfo::sqlite_columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLiteColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLiteColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -4095,8 +4095,8 @@ mod schema {
         fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
             SQLTableInfo::columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLColumnInfo::table(fk_col))
                 .collect()
         }
     }
@@ -4113,15 +4113,15 @@ mod schema {
             static ORIGINAL_TABLE: Posts = Posts::new();
             SQLiteTableInfo::without_rowid(&ORIGINAL_TABLE)
         }
-        fn columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
+        fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
             static ORIGINAL_TABLE: Posts = Posts::new();
-            <Posts as SQLiteTableInfo>::columns(&ORIGINAL_TABLE)
+            <Posts as SQLiteTableInfo>::sqlite_columns(&ORIGINAL_TABLE)
         }
-        fn dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-            SQLiteTableInfo::columns(self)
+        fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+            SQLiteTableInfo::sqlite_columns(self)
                 .iter()
-                .filter_map(|col| col.foreign_key())
-                .map(|fk_col| fk_col.table())
+                .filter_map(|col| SQLiteColumnInfo::foreign_key(*col))
+                .map(|fk_col| SQLiteColumnInfo::table(fk_col))
                 .collect()
         }
     }

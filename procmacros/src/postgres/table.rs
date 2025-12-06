@@ -3,6 +3,8 @@ mod attributes;
 mod column_definitions;
 mod context;
 mod models;
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+mod postgres_driver;
 mod sql_generation;
 mod traits;
 mod validation;
@@ -99,6 +101,12 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let alias_definitions = generate_aliased_table(&ctx)?;
 
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    let driver_impls = postgres_driver::generate_postgres_driver_impls(&ctx)?;
+
+    #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
+    let driver_impls = quote!();
+
     // Generate fields for new() method
     let new_method_fields = field_infos
         .iter()
@@ -133,6 +141,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #table_impls
         #model_definitions
         #alias_definitions
+        #driver_impls
         // #json_impls
 
         // Database-specific implementations
