@@ -66,7 +66,7 @@ mod unit_tests {
 ))]
 mod execution {
     use crate::common::pg::*;
-    use drizzle::prelude::*;
+    use drizzle::postgres::prelude::*;
     use drizzle_macros::postgres_test;
 
     #[derive(Debug, PostgresFromRow)]

@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
 use crate::common::Simple;
-use drizzle::{prelude::*, sql};
+use drizzle::{sql, sqlite::prelude::*};
 use drizzle_macros::sqlite_test;
 use drizzle_sqlite::values::SQLiteValue;
 

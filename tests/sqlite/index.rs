@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 
 // Define a simple table for testing indexes
 #[SQLiteTable]

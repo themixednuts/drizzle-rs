@@ -6,7 +6,7 @@
 ))]
 
 use arrayvec::{ArrayString, ArrayVec};
-use drizzle::prelude::*;
+use drizzle::postgres::prelude::*;
 use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable, postgres_test};
 
 #[PostgresTable(name = "pg_arraystring_test")]

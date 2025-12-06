@@ -3,7 +3,7 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::pg::*;
-use drizzle::prelude::*;
+use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]

@@ -4,7 +4,7 @@ use crate::common::InsertComplex;
 use crate::common::{InsertSimple, Role, SimpleSchema, UserConfig, UserMetadata};
 #[cfg(not(feature = "uuid"))]
 use common::Simple;
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_core::OrderBy;
 use drizzle_macros::sqlite_test;
 

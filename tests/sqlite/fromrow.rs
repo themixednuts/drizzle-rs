@@ -1,5 +1,5 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 // Test struct with various data types for FromRow

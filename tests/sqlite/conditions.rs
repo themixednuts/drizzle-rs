@@ -3,7 +3,7 @@
 use crate::common::{
     ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
 };
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 #[derive(Debug, SQLiteFromRow)]

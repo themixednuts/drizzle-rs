@@ -2,7 +2,7 @@
 use crate::common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post, Role};
 #[cfg(feature = "uuid")]
 use crate::common::{Complex, InsertComplex};
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 use std::array;

@@ -4,7 +4,7 @@ use crate::common::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
 use crate::common::{
     InsertSimple, Role, Simple, SimpleSchema, UpdateSimple, UserConfig, UserMetadata,
 };
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 #[derive(Debug, SQLiteFromRow)]

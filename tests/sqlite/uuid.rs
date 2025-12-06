@@ -3,7 +3,7 @@
     feature = "uuid"
 ))]
 
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 use uuid::Uuid;
 
