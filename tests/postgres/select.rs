@@ -212,6 +212,28 @@ postgres_test!(select_with_offset, PgSimpleSchema, {
     assert_eq!(results[1].name, "three");
 });
 
+// Validate that the generated Select model can be used directly
+postgres_test!(select_with_generated_model, PgSimpleSchema, {
+    let PgSimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values(vec![
+        InsertPgSimple::new("sel_a"),
+        InsertPgSimple::new("sel_b"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .select(())
+        .from(simple)
+        .order_by([OrderBy::asc(simple.id)]);
+
+    let results: Vec<SelectPgSimple> = drizzle_exec!(stmt.all());
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "sel_a");
+    assert_eq!(results[1].name, "sel_b");
+});
+
 #[cfg(feature = "uuid")]
 postgres_test!(select_with_multiple_order_by, PgComplexSchema, {
     let PgComplexSchema { complex, .. } = schema;

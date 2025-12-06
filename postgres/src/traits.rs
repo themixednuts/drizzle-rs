@@ -1,9 +1,12 @@
 mod column;
 mod table;
+mod value;
+
 pub use column::*;
 use drizzle_core::error::DrizzleError;
 use std::any::Any;
 pub use table::*;
+pub use value::*;
 
 /// Trait for PostgreSQL native enum types that can be used as dyn objects
 #[allow(clippy::wrong_self_convention)]

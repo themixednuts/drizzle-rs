@@ -262,29 +262,17 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
             .collect::<std::result::Result<Vec<_>, _>>()?
     };
 
-    let postgres_impl = if is_tuple {
+    let struct_construct = if is_tuple {
         quote! {
-            impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
-                type Error = DrizzleError;
-
-                fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                    Ok(Self(
-                        #(#field_assignments)*
-                    ))
-                }
-            }
+            Ok(Self(
+                #(#field_assignments)*
+            ))
         }
     } else {
         quote! {
-            impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
-                type Error = DrizzleError;
-
-                fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                    Ok(Self {
-                        #(#field_assignments)*
-                    })
-                }
-            }
+            Ok(Self {
+                #(#field_assignments)*
+            })
         }
     };
 
@@ -321,8 +309,30 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         }
     };
 
+    // Generate the implementations with proper conditional compilation
+    // to avoid duplicate implementations (postgres::Row is tokio_postgres::Row)
     Ok(quote! {
-        #postgres_impl
+        // When tokio-postgres is enabled, use tokio_postgres::Row
+        // This covers both "tokio-postgres only" and "both features enabled" cases
+        #[cfg(feature = "tokio-postgres")]
+        impl ::std::convert::TryFrom<&::tokio_postgres::Row> for #struct_name {
+            type Error = DrizzleError;
+
+            fn try_from(row: &::tokio_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+                #struct_construct
+            }
+        }
+
+        // When only postgres-sync is enabled (without tokio-postgres), use postgres::Row
+        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+        impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
+            type Error = DrizzleError;
+
+            fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+                #struct_construct
+            }
+        }
+
         #tosql_impl
     })
 }
