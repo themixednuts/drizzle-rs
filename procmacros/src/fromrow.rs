@@ -127,7 +127,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         let turso_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = drizzle_core::error::DrizzleError;
+                    type Error = DrizzleError;
 
                     fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self(
@@ -139,7 +139,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         } else {
             quote! {
                 impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = drizzle_core::error::DrizzleError;
+                    type Error = DrizzleError;
 
                     fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self {
@@ -175,7 +175,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         let libsql_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = drizzle_core::error::DrizzleError;
+                    type Error = DrizzleError;
 
                     fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self(
@@ -187,7 +187,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         } else {
             quote! {
                 impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = drizzle_core::error::DrizzleError;
+                    type Error = DrizzleError;
 
                     fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                         Ok(Self {
@@ -216,18 +216,18 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
                     }
                 } else {
                     quote! {
-                        columns.push(drizzle_core::SQL::raw(#field_name_str));
+                        columns.push(SQL::raw(#field_name_str));
                     }
                 }
             })
             .collect::<Vec<_>>();
 
         quote! {
-            impl<'a> drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_name {
-                fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
+            impl<'a> ToSQL<'a, SQLiteValue<'a>> for #struct_name {
+                fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
                     let mut columns = Vec::new();
                     #(#column_specs)*
-                    drizzle_core::SQL::join(columns, drizzle_core::Token::COMMA)
+                    SQL::join(columns, Token::COMMA)
                 }
             }
         }
@@ -265,7 +265,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
     let postgres_impl = if is_tuple {
         quote! {
             impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
-                type Error = drizzle_core::error::DrizzleError;
+                type Error = DrizzleError;
 
                 fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                     Ok(Self(
@@ -277,7 +277,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
     } else {
         quote! {
             impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
-                type Error = drizzle_core::error::DrizzleError;
+                type Error = DrizzleError;
 
                 fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                     Ok(Self {
@@ -304,18 +304,18 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
                     }
                 } else {
                     quote! {
-                        columns.push(drizzle_core::SQL::raw(#field_name_str));
+                        columns.push(SQL::raw(#field_name_str));
                     }
                 }
             })
             .collect::<Vec<_>>();
 
         quote! {
-            impl<'a> drizzle_core::ToSQL<'a, drizzle_postgres::values::PostgresValue<'a>> for #struct_name {
-                fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_postgres::values::PostgresValue<'a>> {
+            impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_name {
+                fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                     let mut columns = Vec::new();
                     #(#column_specs)*
-                    drizzle_core::SQL::join(columns, drizzle_core::Token::COMMA)
+                    SQL::join(columns, Token::COMMA)
                 }
             }
         }

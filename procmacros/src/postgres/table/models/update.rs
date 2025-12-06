@@ -44,11 +44,11 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
             #(#update_convenience_methods)*
         }
 
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #update_ident {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_ident {
+            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 let mut assignments = Vec::new();
                 #(#update_field_conversions)*
-                ::drizzle::core::SQL::assignments(assignments)
+                SQL::assignments(assignments)
             }
         }
     })
@@ -75,7 +75,7 @@ fn get_update_field_conversion(field_info: &FieldInfo) -> TokenStream {
     // Generate conversion based on field type
     quote! {
         if let Some(val) = &self.#name {
-            assignments.push((#column_name, val.clone().try_into().unwrap_or(::drizzle::postgres::values::PostgresValue::Null)));
+            assignments.push((#column_name, val.clone().try_into().unwrap_or(PostgresValue::Null)));
         }
     }
 }

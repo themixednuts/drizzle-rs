@@ -153,14 +153,14 @@ pub(crate) fn sqlite_index_attr_macro(
             }
         }
 
-        impl<'a> drizzle_core::SQLIndex<'a, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident
+        impl<'a> SQLIndex<'a, SQLiteSchemaType, SQLiteValue<'a>> for #struct_ident
         {
             type Table = #table_type;
         }
 
-        impl drizzle_core::SQLIndexInfo for #struct_ident
+        impl SQLIndexInfo for #struct_ident
         {
-            fn table(&self) -> &dyn drizzle_core::SQLTableInfo {
+            fn table(&self) -> &dyn SQLTableInfo {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #table_type = #table_type::new();
                 &TABLE_INSTANCE
@@ -175,29 +175,29 @@ pub(crate) fn sqlite_index_attr_macro(
             }
         }
 
-        impl<'a> drizzle_core::SQLSchema<'a, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident
+        impl<'a> SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>> for #struct_ident
         {
             const NAME: &'a str = #index_name;
-            const TYPE: drizzle_sqlite::common::SQLiteSchemaType = {
+            const TYPE: SQLiteSchemaType = {
                 #[allow(non_upper_case_globals)]
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
-                drizzle_sqlite::common::SQLiteSchemaType::Index(&INDEX_INSTANCE)
+                SQLiteSchemaType::Index(&INDEX_INSTANCE)
             };
-            const SQL: drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> = drizzle_core::SQL::empty();
+            const SQL: SQL<'a, SQLiteValue<'a>> = SQL::empty();
 
-            fn sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
+            fn sql(&self) -> SQL<'a, SQLiteValue<'a>> {
                 self.to_sql()
             }
         }
 
-        impl<'a> drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #struct_ident
+        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #struct_ident
         {
-            fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
-                let table_name = <#table_type as drizzle_core::SQLSchema<'_, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'_>>>::NAME;
+            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+                let table_name = <#table_type as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::NAME;
                 let column_names = vec![#(#column_name_exprs),*];
                 let column_list = column_names.join(", ");
                 let sql = format!("CREATE {}INDEX \"{}\" ON \"{}\" ({})", #unique_keyword, #index_name, table_name, column_list);
-                drizzle_core::SQL::raw(sql)
+                SQL::raw(sql)
             }
         }
     })

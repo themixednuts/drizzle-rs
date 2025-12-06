@@ -352,12 +352,12 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         // Implement PostgresEnum trait for native PostgreSQL enum support
-        impl ::drizzle::postgres::traits::PostgresEnum for #name {
+        impl PostgresEnum for #name {
             fn enum_type_name(&self) -> &'static str {
                 stringify!(#name)
             }
 
-            fn as_enum(&self) -> &dyn ::drizzle::postgres::traits::PostgresEnum {
+            fn as_enum(&self) -> &dyn PostgresEnum {
                 self
             }
 
@@ -367,7 +367,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                 }
             }
 
-            fn into_boxed(&self) -> Box<dyn ::drizzle::postgres::traits::PostgresEnum> {
+            fn into_boxed(&self) -> Box<dyn PostgresEnum> {
                 Box::new(self.clone())
             }
 
@@ -377,7 +377,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         // Implement SQLEnumInfo trait for schema integration
-        impl ::drizzle::core::SQLEnumInfo for #name {
+        impl SQLEnumInfo for #name {
             fn name(&self) -> &'static str {
                 stringify!(#name)
             }

@@ -10,19 +10,22 @@ pub trait SQLiteColumnInfo: SQLColumnInfo {
     fn is_autoincrement(&self) -> bool;
     fn table(&self) -> &dyn SQLiteTableInfo;
 
-    /// Returns the foreign key reference if this column has one
+    /// Returns the foreign key reference if this column has one.
     fn foreign_key(&self) -> Option<&'static dyn SQLiteColumnInfo> {
         None
     }
-}
 
-pub trait AsColumnInfo: SQLColumnInfo {
-    fn as_column(&self) -> &dyn SQLiteColumnInfo;
-}
-
-impl<T: SQLiteColumnInfo> AsColumnInfo for T {
-    fn as_column(&self) -> &dyn SQLiteColumnInfo {
+    /// Erased access to the SQLite column info.
+    fn as_sqlite_column(&self) -> &dyn SQLiteColumnInfo
+    where
+        Self: Sized,
+    {
         self
+    }
+
+    /// Core-erased foreign key reference for call sites that only need generic info.
+    fn foreign_key_core(&self) -> Option<&'static dyn SQLColumnInfo> {
+        <Self as SQLiteColumnInfo>::foreign_key(self).map(|fk| fk as &dyn SQLColumnInfo)
     }
 }
 

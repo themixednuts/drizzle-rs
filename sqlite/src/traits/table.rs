@@ -14,11 +14,11 @@ pub trait SQLiteTableInfo: SQLTableInfo {
     fn without_rowid(&self) -> bool;
     fn strict(&self) -> bool;
 
-    fn columns(&self) -> Box<[&'static dyn SQLiteColumnInfo]>;
+    fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo];
 
     /// Returns all tables this table depends on via foreign keys
-    fn dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-        SQLiteTableInfo::columns(self)
+    fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+        SQLiteTableInfo::sqlite_columns(self)
             .iter()
             .filter_map(|&col| SQLiteColumnInfo::foreign_key(col))
             .map(|fk_col| SQLiteColumnInfo::table(fk_col))
@@ -31,10 +31,10 @@ impl std::fmt::Debug for dyn SQLiteTableInfo {
         f.debug_struct("SQLiteTableInfo")
             .field("name", &self.name())
             .field("type", &self.r#type())
-            .field("columns", &SQLiteTableInfo::columns(self))
+            .field("columns", &SQLiteTableInfo::sqlite_columns(self))
             .field("without_rowid", &self.without_rowid())
             .field("strict", &self.strict())
-            .field("dependencies", &SQLiteTableInfo::dependencies(self))
+            .field("dependencies", &SQLiteTableInfo::sqlite_dependencies(self))
             .finish()
     }
 }

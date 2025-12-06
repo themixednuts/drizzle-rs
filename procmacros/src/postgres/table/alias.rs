@@ -49,39 +49,39 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
 
             // Implement column info traits for the aliased field
-            impl ::drizzle::core::SQLColumnInfo for #aliased_field_type {
+            impl SQLColumnInfo for #aliased_field_type {
                 fn is_not_null(&self) -> bool {
                     // Forward to the original field instance with explicit trait qualification
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::is_not_null(&ORIGINAL_FIELD)
+                    <#original_field_type as SQLColumnInfo>::is_not_null(&ORIGINAL_FIELD)
                 }
 
                 fn is_primary_key(&self) -> bool {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::is_primary_key(&ORIGINAL_FIELD)
+                    <#original_field_type as SQLColumnInfo>::is_primary_key(&ORIGINAL_FIELD)
                 }
 
                 fn is_unique(&self) -> bool {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::is_unique(&ORIGINAL_FIELD)
+                    <#original_field_type as SQLColumnInfo>::is_unique(&ORIGINAL_FIELD)
                 }
 
                 fn name(&self) -> &str {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::name(&ORIGINAL_FIELD)
+                    <#original_field_type as SQLColumnInfo>::name(&ORIGINAL_FIELD)
                 }
 
                 fn r#type(&self) -> &str {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::r#type(&ORIGINAL_FIELD)
+                    <#original_field_type as SQLColumnInfo>::r#type(&ORIGINAL_FIELD)
                 }
 
                 fn has_default(&self) -> bool {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::core::SQLColumnInfo>::has_default(&ORIGINAL_FIELD)
+                    <#original_field_type as SQLColumnInfo>::has_default(&ORIGINAL_FIELD)
                 }
 
-                fn table(&self) -> &dyn ::drizzle::core::SQLTableInfo {
+                fn table(&self) -> &dyn SQLTableInfo {
                     // This is tricky - we need a static reference but each column has different alias
                     // For now, return the original table info
                     static ORIGINAL_TABLE: #table_name = #table_name::new();
@@ -90,50 +90,50 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
 
             // Implement PostgreSQL-specific column info traits
-            impl ::drizzle::postgres::traits::PostgresColumnInfo for #aliased_field_type {
+            impl PostgresColumnInfo for #aliased_field_type {
                 fn is_serial(&self) -> bool {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::postgres::traits::PostgresColumnInfo>::is_serial(&ORIGINAL_FIELD)
+                    <#original_field_type as PostgresColumnInfo>::is_serial(&ORIGINAL_FIELD)
                 }
 
                 fn is_bigserial(&self) -> bool {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::postgres::traits::PostgresColumnInfo>::is_bigserial(&ORIGINAL_FIELD)
+                    <#original_field_type as PostgresColumnInfo>::is_bigserial(&ORIGINAL_FIELD)
                 }
 
                 fn is_generated_identity(&self) -> bool {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::postgres::traits::PostgresColumnInfo>::is_generated_identity(&ORIGINAL_FIELD)
+                    <#original_field_type as PostgresColumnInfo>::is_generated_identity(&ORIGINAL_FIELD)
                 }
 
                 fn postgres_type(&self) -> &'static str {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::postgres::traits::PostgresColumnInfo>::postgres_type(&ORIGINAL_FIELD)
+                    <#original_field_type as PostgresColumnInfo>::postgres_type(&ORIGINAL_FIELD)
                 }
 
-                fn table(&self) -> &dyn ::drizzle::postgres::traits::PostgresTableInfo {
+                fn table(&self) -> &dyn PostgresTableInfo {
                     // This is tricky - we need a static reference to our aliased table info
                     // For now, we'll use a workaround
                     todo!("Need to implement aliased PostgresTableInfo reference")
                 }
 
-                fn foreign_key(&self) -> Option<&'static dyn ::drizzle::postgres::traits::PostgresColumnInfo> {
+                fn foreign_key(&self) -> Option<&'static dyn PostgresColumnInfo> {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as ::drizzle::postgres::traits::PostgresColumnInfo>::foreign_key(&ORIGINAL_FIELD)
+                    <#original_field_type as PostgresColumnInfo>::foreign_key(&ORIGINAL_FIELD)
                 }
             }
 
-            // AsColumnInfo is already implemented via blanket impl for PostgresColumnInfo
+            // Column info is provided directly via PostgresColumnInfo::as_postgres_column
             // Implement SQLColumn trait for aliased field
-            impl<'a> ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #aliased_field_type {
+            impl<'a> SQLColumn<'a, PostgresValue<'a>> for #aliased_field_type {
                 type Table = #aliased_table_name;
-                type TableType = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>>>::TableType;
-                type Type = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>>>::Type;
+                type TableType = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::TableType;
+                type Type = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::Type;
 
-                const PRIMARY_KEY: bool = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>>>::PRIMARY_KEY;
-                const NOT_NULL: bool = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>>>::NOT_NULL;
-                const UNIQUE: bool = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>>>::UNIQUE;
-                const DEFAULT: Option<Self::Type> = <#original_field_type as ::drizzle::core::SQLColumn<'a, ::drizzle::postgres::values::PostgresValue<'a>>>::DEFAULT;
+                const PRIMARY_KEY: bool = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::PRIMARY_KEY;
+                const NOT_NULL: bool = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::NOT_NULL;
+                const UNIQUE: bool = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::UNIQUE;
+                const DEFAULT: Option<Self::Type> = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::DEFAULT;
 
                 fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
@@ -142,22 +142,22 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
 
             // Implement PostgresColumn trait for aliased field
-            impl<'a> ::drizzle::postgres::traits::PostgresColumn<'a> for #aliased_field_type {
+            impl<'a> PostgresColumn<'a> for #aliased_field_type {
                 // PostgreSQL columns don't have autoincrement like SQLite, but may have other specific traits
             }
 
             // Implement SQLSchema trait for aliased field
-            impl<'a> ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::postgres::values::PostgresValue<'a>> for #aliased_field_type {
-                const NAME: &'a str = <#original_field_type as ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::postgres::values::PostgresValue<'a>>>::NAME;
-                const TYPE: &'a str = <#original_field_type as ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::postgres::values::PostgresValue<'a>>>::TYPE;
+            impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #aliased_field_type {
+                const NAME: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::NAME;
+                const TYPE: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::TYPE;
 
-                const SQL: ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> = <#original_field_type as ::drizzle::core::SQLSchema<'a, &'a str, ::drizzle::postgres::values::PostgresValue<'a>>>::SQL;
+                const SQL: SQL<'a, PostgresValue<'a>> = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::SQL;
             }
             // ToSQL implementation that uses the alias
-            impl<'a, V: ::drizzle::core::SQLParam + 'a> ::drizzle::core::ToSQL<'a, V> for #aliased_field_type {
-                fn to_sql(&self) -> ::drizzle::core::SQL<'a, V> {
-                    use ::drizzle::core::SQLColumnInfo;
-                    ::drizzle::core::SQL::raw(format!(r#""{}"."{}""#, self.alias, self.name()))
+            impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for #aliased_field_type {
+                fn to_sql(&self) -> SQL<'a, V> {
+                    use SQLColumnInfo;
+                    SQL::raw(format!(r#""{}"."{}""#, self.alias, self.name()))
                 }
             }
         }
@@ -208,45 +208,55 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
 
         // Implement table traits for the aliased table
-        impl ::drizzle::core::SQLTableInfo for #aliased_table_name {
+        impl SQLTableInfo for #aliased_table_name {
             fn name(&self) -> &str {
                 self.alias
             }
 
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::core::SQLColumnInfo]> {
+            fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
                 // TODO: This is tricky because we need static references but each alias instance
                 // has a different alias string. For now, return original columns.
                 // The individual aliased fields can still be accessed directly via table.field
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as ::drizzle::core::SQLTableInfo>::columns(&ORIGINAL_TABLE)
+                <#table_name as SQLTableInfo>::columns(&ORIGINAL_TABLE)
+            }
+
+            fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as SQLTableInfo>::dependencies(&ORIGINAL_TABLE)
             }
         }
 
         // Implement PostgreSQL-specific table traits for aliased table
-        impl ::drizzle::postgres::traits::PostgresTableInfo for #aliased_table_name {
-            fn r#type(&self) -> &::drizzle::postgres::common::PostgresSchemaType {
+        impl PostgresTableInfo for #aliased_table_name {
+            fn r#type(&self) -> &PostgresSchemaType {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 ORIGINAL_TABLE.r#type()
             }
 
-            fn columns(&self) -> Box<[&'static dyn ::drizzle::postgres::traits::PostgresColumnInfo]> {
+            fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
                 // TODO: This is tricky because we need static references but each alias instance
                 // has a different alias string. For now, return original columns.
                 // The individual aliased fields can still be accessed directly via table.field
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as ::drizzle::postgres::traits::PostgresTableInfo>::columns(&ORIGINAL_TABLE)
+                <#table_name as PostgresTableInfo>::postgres_columns(&ORIGINAL_TABLE)
+            }
+
+            fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as PostgresTableInfo>::postgres_dependencies(&ORIGINAL_TABLE)
             }
         }
 
-        impl<'a> ::drizzle::postgres::traits::PostgresTable<'a> for #aliased_table_name {
+        impl<'a> PostgresTable<'a> for #aliased_table_name {
             // PostgreSQL tables don't have WITHOUT_ROWID or STRICT like SQLite
         }
 
         // Implement core SQLTable trait for aliased table
-        impl<'a> ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #aliased_table_name {
-            type Select = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::Select;
-            type Insert<T> = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::Insert<T>;
-            type Update = <#table_name as ::drizzle::core::SQLTable<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::Update;
+        impl<'a> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #aliased_table_name {
+            type Select = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Select;
+            type Insert<T> = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Insert<T>;
+            type Update = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Update;
             // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
             type Aliased = #aliased_table_name;
 
@@ -256,15 +266,15 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         }
 
         // Implement SQLSchema trait for aliased table
-        impl<'a> ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>> for #aliased_table_name {
-            const NAME: &'a str = <#table_name as ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::NAME;
-            const TYPE: ::drizzle::postgres::common::PostgresSchemaType = <#table_name as ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::TYPE;
-            const SQL: ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> = <#table_name as ::drizzle::core::SQLSchema<'a, ::drizzle::postgres::common::PostgresSchemaType, ::drizzle::postgres::values::PostgresValue<'a>>>::SQL;
+        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #aliased_table_name {
+            const NAME: &'a str = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::NAME;
+            const TYPE: PostgresSchemaType = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::TYPE;
+            const SQL: SQL<'a, PostgresValue<'a>> = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::SQL;
         }
 
         // ToSQL implementation for aliased table
-        impl<'a> ::drizzle::core::ToSQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> for #aliased_table_name {
-            fn to_sql(&self) -> ::drizzle::core::SQL<'a, ::drizzle::postgres::values::PostgresValue<'a>> {
+        impl<'a> ToSQL<'a, PostgresValue<'a>> for #aliased_table_name {
+            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 ORIGINAL_TABLE.to_sql().alias(self.alias)
             }

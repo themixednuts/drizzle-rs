@@ -30,21 +30,21 @@ pub(crate) fn generate_enum_impls_for_field(info: &FieldInfo) -> Result<TokenStr
         SQLiteType::Integer => (
             quote! {
                 let integer: i64 = value.into();
-                drizzle_sqlite::values::SQLiteValue::Integer(integer)
+                SQLiteValue::Integer(integer)
             },
             quote! {
                 let integer: i64 = value.into();
-                drizzle_sqlite::values::SQLiteValue::Integer(integer)
+                SQLiteValue::Integer(integer)
             },
         ),
         SQLiteType::Text => (
             quote! {
                 let text: &str = value.into();
-                drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
+                SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
             },
             quote! {
                 let text: &str = value.into();
-                drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
+                SQLiteValue::Text(::std::borrow::Cow::Borrowed(text))
             },
         ),
         _ => {
@@ -73,22 +73,22 @@ pub(crate) fn generate_enum_impls_for_field(info: &FieldInfo) -> Result<TokenStr
 
     Ok(quote! {
         // From<Enum> for SQLiteValue (owned)
-        impl<'a> ::std::convert::From<#value_type> for drizzle_sqlite::values::SQLiteValue<'a> {
+        impl<'a> ::std::convert::From<#value_type> for SQLiteValue<'a> {
             fn from(value: #value_type) -> Self {
                 #conversion
             }
         }
 
         // From<&Enum> for SQLiteValue (reference)
-        impl<'a> ::std::convert::From<&'a #value_type> for drizzle_sqlite::values::SQLiteValue<'a> {
+        impl<'a> ::std::convert::From<&'a #value_type> for SQLiteValue<'a> {
             fn from(value: &'a #value_type) -> Self {
                 #reference_conversion
             }
         }
 
         // ToSQL implementation
-        impl<'a> drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> for #value_type {
-            fn to_sql(&self) -> drizzle_core::SQL<'a, drizzle_sqlite::values::SQLiteValue<'a>> {
+        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #value_type {
+            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
                 let value = self;
                 #conversion.into()
             }

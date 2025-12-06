@@ -37,7 +37,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -49,7 +49,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #update_model_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -221,9 +221,9 @@ fn handle_arraystring_field(
 ) -> Result<TokenStream> {
     let base_type = info.base_type;
     let accessor = if is_optional {
-        quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(&v).ok())))
+        quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| <#base_type as FromSQLiteValue>::from_sqlite_text(&v).ok())))
     } else {
-        quote!(row.get::<String>(#idx).map(|v| <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_text(&v))?)
+        quote!(row.get::<String>(#idx).map(|v| <#base_type as FromSQLiteValue>::from_sqlite_text(&v))?)
     };
 
     Ok(quote! { #name: #accessor?, })
@@ -237,9 +237,9 @@ fn handle_arrayvec_field(
 ) -> Result<TokenStream> {
     let base_type = info.base_type;
     let accessor = if is_optional {
-        quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(&v).ok())))
+        quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| <#base_type as FromSQLiteValue>::from_sqlite_blob(&v).ok())))
     } else {
-        quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as drizzle_sqlite::traits::FromSQLiteValue>::from_sqlite_blob(&v))?)
+        quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as FromSQLiteValue>::from_sqlite_blob(&v))?)
     };
 
     Ok(quote! { #name: #accessor?, })

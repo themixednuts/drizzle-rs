@@ -33,7 +33,7 @@ pub(crate) fn generate_field_assignment<D: DriverJsonAccessor>(
     let field_type = &field.ty;
     let accessor = quote! {
         {
-            use drizzle_sqlite::traits::DrizzleRow;
+            use DrizzleRow;
             <_ as DrizzleRow>::get_column::<#field_type>(row, #idx)
         }
     };

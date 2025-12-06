@@ -305,13 +305,13 @@ where
     // Since all rows have the same PATTERN, they all have the same columns
     // Get column info from the first row (all rows will have the same columns)
     let columns_info = rows[0].columns();
-
+    let columns_slice = columns_info.as_ref();
     // Check if this is a DEFAULT VALUES case (no columns)
-    if columns_info.is_empty() {
+    if columns_slice.is_empty() {
         return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
     }
 
-    let columns_sql = columns_info_to_sql(&columns_info);
+    let columns_sql = columns_info_to_sql(columns_slice);
     let value_clauses: Vec<_> = rows.iter().map(|row| row.values().parens()).collect();
 
     columns_sql

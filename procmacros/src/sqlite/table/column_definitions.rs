@@ -82,7 +82,7 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let sqlite_column_info_impl = generate_sqlite_column_info(
             &zst_ident,
-            quote! {<Self as drizzle_sqlite::traits::SQLiteColumn<'_>>::AUTOINCREMENT},
+            quote! {<Self as SQLiteColumn<'_>>::AUTOINCREMENT},
             quote! {
                 static TABLE: #struct_ident = #struct_ident::new();
                 &TABLE
@@ -92,13 +92,13 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let to_sql_body = quote! {
             static INSTANCE: #zst_ident = #zst_ident;
-            drizzle_core::SQL::column(&INSTANCE)
+            SQL::column(&INSTANCE)
         };
 
         let into_sqlite_value_impl = quote! {
-            impl<'a> ::std::convert::Into<drizzle_sqlite::values::SQLiteValue<'a>> for #zst_ident {
-                fn into(self) -> drizzle_sqlite::values::SQLiteValue<'a> {
-                    drizzle_sqlite::values::SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
+            impl<'a> ::std::convert::Into<SQLiteValue<'a>> for #zst_ident {
+                fn into(self) -> SQLiteValue<'a> {
+                    SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
                 }
             }
         };
@@ -108,24 +108,24 @@ pub(crate) fn generate_column_definitions<'a>(
             &zst_ident,
             quote! {#name},
             quote! {#col_type},
-            quote! {drizzle_core::SQL::raw(#sql)},
+            quote! {SQL::raw(#sql)},
         );
         let sql_column_info_impl = generate_sql_column_info(
             &zst_ident,
             quote! {
-                <Self as drizzle_core::SQLSchema<'_, &'static str, drizzle_sqlite::values::SQLiteValue<'_>>>::NAME
+                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::NAME
             },
             quote! {
-                <Self as drizzle_core::SQLSchema<'_, &'static str, drizzle_sqlite::values::SQLiteValue<'_>>>::TYPE
+                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::TYPE
             },
             quote! {
-                <Self as drizzle_core::SQLColumn<'_, drizzle_sqlite::values::SQLiteValue<'_>>>::PRIMARY_KEY
+                <Self as SQLColumn<'_, SQLiteValue<'_>>>::PRIMARY_KEY
             },
             quote! {
-                <Self as drizzle_core::SQLColumn<'_, drizzle_sqlite::values::SQLiteValue<'_>>>::NOT_NULL
+                <Self as SQLColumn<'_, SQLiteValue<'_>>>::NOT_NULL
             },
             quote! {
-                <Self as drizzle_core::SQLColumn<'_, drizzle_sqlite::values::SQLiteValue<'_>>>::UNIQUE
+                <Self as SQLColumn<'_, SQLiteValue<'_>>>::UNIQUE
             },
             quote! {
                 #has_default
@@ -141,7 +141,7 @@ pub(crate) fn generate_column_definitions<'a>(
         let sql_column_impl = generate_sql_column(
             &zst_ident,
             quote! {#struct_ident},
-            quote! {drizzle_sqlite::common::SQLiteSchemaType},
+            quote! {SQLiteSchemaType},
             quote! {#rust_type},
             quote! {#is_primary},
             quote! {#is_not_null},

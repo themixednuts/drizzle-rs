@@ -9,6 +9,7 @@ pub(super) fn generate_table_impls(
     column_zst_idents: &[Ident],
     _required_fields_pattern: &[bool],
 ) -> Result<TokenStream> {
+    let columns_len = column_zst_idents.len();
     let struct_ident = ctx.struct_ident;
     let aliased_table_ident = format_ident!("Aliased{}", struct_ident);
     let table_name = &ctx.table_name;
@@ -74,25 +75,45 @@ pub(super) fn generate_table_impls(
             fn name(&self) -> &str {
                 <Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::NAME
             }
-            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
+            fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
                 #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+                #[allow(non_upper_case_globals)]
+                static COLUMNS: [&'static dyn SQLColumnInfo; #columns_len] =
+                    [#(&#column_zst_idents,)*];
+                &COLUMNS
+            }
 
-                Box::new([#(AsColumnInfo::as_column(&#column_zst_idents),)*])
+            fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
+                SQLTableInfo::columns(self)
+                    .iter()
+                    .filter_map(|col| SQLColumnInfo::foreign_key(*col))
+                    .map(|fk_col| SQLColumnInfo::table(fk_col))
+                    .collect()
             }
         }
 
-        impl drizzle::postgres::traits::PostgresTableInfo for #struct_ident {
+        impl PostgresTableInfo for #struct_ident {
             fn r#type(&self) -> &PostgresSchemaType {
                 &<Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE
             }
-            fn columns(&self) -> Box<[&'static dyn drizzle::postgres::traits::PostgresColumnInfo]> {
+            fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
                 #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+                #[allow(non_upper_case_globals)]
+                static POSTGRES_COLUMNS: [&'static dyn PostgresColumnInfo; #columns_len] =
+                    [#(&#column_zst_idents,)*];
+                &POSTGRES_COLUMNS
+            }
 
-                Box::new([#(drizzle::postgres::traits::AsColumnInfo::as_column(&#column_zst_idents),)*])
+            fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
+                PostgresTableInfo::postgres_columns(self)
+                    .iter()
+                    .filter_map(|col| PostgresColumnInfo::foreign_key(*col))
+                    .map(|fk_col| PostgresColumnInfo::table(fk_col))
+                    .collect()
             }
         }
 
-        impl<'a> drizzle::postgres::traits::PostgresTable<'a> for #struct_ident {}
+        impl<'a> PostgresTable<'a> for #struct_ident {}
 
         impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_ident {
             fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {

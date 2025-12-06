@@ -9,16 +9,9 @@ pub trait PostgresTable<'a>:
 
 pub trait PostgresTableInfo: SQLTableInfo {
     fn r#type(&self) -> &PostgresSchemaType;
-    fn columns(&self) -> Box<[&'static dyn PostgresColumnInfo]>;
+    fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo];
 
-    /// Returns all tables this table depends on via foreign keys
-    fn dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
-        PostgresTableInfo::columns(self)
-            .iter()
-            .filter_map(|&col| PostgresColumnInfo::foreign_key(col))
-            .map(|fk_col| PostgresColumnInfo::table(fk_col))
-            .collect()
-    }
+    fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]>;
 }
 
 impl std::fmt::Debug for dyn PostgresTableInfo {
@@ -26,8 +19,11 @@ impl std::fmt::Debug for dyn PostgresTableInfo {
         f.debug_struct("PostgresTableInfo")
             .field("name", &self.name())
             .field("type", &self.r#type())
-            .field("columns", &PostgresTableInfo::columns(self))
-            .field("dependencies", &PostgresTableInfo::dependencies(self))
+            .field("columns", &PostgresTableInfo::postgres_columns(self))
+            .field(
+                "dependencies",
+                &PostgresTableInfo::postgres_dependencies(self),
+            )
             .finish()
     }
 }

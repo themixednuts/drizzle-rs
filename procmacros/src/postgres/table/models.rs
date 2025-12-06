@@ -49,7 +49,9 @@ fn generate_model_trait_impls(
 
     let partial_impl = quote! {
         impl<'a> SQLModel<'a, PostgresValue<'a>> for #select_model_partial {
-            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
+            type Columns = &'static [&'static dyn SQLColumnInfo];
+
+            fn columns(&self) -> Self::Columns {
                 // For partial select model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
                 <#struct_ident as SQLTableInfo>::columns(&INSTANCE)
@@ -70,7 +72,9 @@ fn generate_model_trait_impls(
     Ok(quote! {
         // SQLModel implementations
         impl<'a> SQLModel<'a, PostgresValue<'a>> for #select_model {
-            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
+            type Columns = &'static [&'static dyn SQLColumnInfo];
+
+            fn columns(&self) -> Self::Columns {
                 // For select model, return all columns
                 static INSTANCE: #struct_ident = #struct_ident::new();
                 <#struct_ident as SQLTableInfo>::columns(&INSTANCE)
@@ -92,7 +96,9 @@ fn generate_model_trait_impls(
         }
 
         impl<'a> SQLModel<'a, PostgresValue<'a>> for #update_model {
-            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
+            type Columns = &'static [&'static dyn SQLColumnInfo];
+
+            fn columns(&self) -> Self::Columns {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
                 <#struct_ident as SQLTableInfo>::columns(&INSTANCE)

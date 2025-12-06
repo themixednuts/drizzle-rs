@@ -103,14 +103,16 @@ pub(crate) fn generate_insert_model(
         }
 
         impl<'a, T> SQLModel<'a, PostgresValue<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]> {
+            type Columns = Box<[&'static dyn SQLColumnInfo]>;
+
+            fn columns(&self) -> Self::Columns {
                 static TABLE: #struct_ident = #struct_ident::new();
                 let all_columns = SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle::postgres::values::PostgresInsertValue::Omit => {}
+                        PostgresInsertValue::Omit => {}
                         _ => {
                             result_columns.push(all_columns[#insert_field_indices]);
                         }
@@ -125,11 +127,11 @@ pub(crate) fn generate_insert_model(
 
                 #(
                     match &self.#insert_field_names {
-                        ::drizzle::postgres::values::PostgresInsertValue::Omit => {}
-                        ::drizzle::postgres::values::PostgresInsertValue::Null => {
+                        PostgresInsertValue::Omit => {}
+                        PostgresInsertValue::Null => {
                             sql_parts.push(SQL::param(PostgresValue::Null));
                         }
-                        ::drizzle::postgres::values::PostgresInsertValue::Value(wrapper) => {
+                        PostgresInsertValue::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
                         }
                     }
@@ -196,7 +198,7 @@ fn get_field_type_for_model(field_info: &FieldInfo, model_type: ModelType) -> To
         ModelType::Insert => {
             // For insert fields, use the base type (inner type for Option<T>)
             // since InsertValue handles the three-state (Omit, Null, Value) logic
-            quote!(::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #base_type>)
+            quote!(PostgresInsertValue<'a, PostgresValue<'a>, #base_type>)
         }
         _ => quote!(#base_type),
     }
@@ -229,11 +231,11 @@ fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
 
     // Handle compile-time PostgreSQL defaults (SQL defaults - let database handle)
     if field.default.is_some() {
-        return quote! { #name: ::drizzle::postgres::values::PostgresInsertValue::Omit };
+        return quote! { #name: PostgresInsertValue::Omit };
     }
 
     // Default to Omit so database can handle defaults
-    quote! { #name: ::drizzle::postgres::values::PostgresInsertValue::Omit }
+    quote! { #name: PostgresInsertValue::Omit }
 }
 
 /// Generate constructor parameter and assignment based on field type category.
@@ -244,11 +246,11 @@ fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
 
     match category {
         TypeCategory::String => (
-            quote! { #field_name: impl Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>> },
+            quote! { #field_name: impl Into<PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>> },
             quote! { #field_name: #field_name.into() },
         ),
         TypeCategory::Blob => (
-            quote! { #field_name: impl Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>> },
+            quote! { #field_name: impl Into<PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>> },
             quote! { #field_name: #field_name.into() },
         ),
         // ArrayString, ArrayVec, Uuid, Json, Enum, Primitive use base type directly
@@ -258,7 +260,7 @@ fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
         | TypeCategory::Json
         | TypeCategory::Enum
         | TypeCategory::Primitive => (
-            quote! { #field_name: impl Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #base_type>> },
+            quote! { #field_name: impl Into<PostgresInsertValue<'a, PostgresValue<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),
     }

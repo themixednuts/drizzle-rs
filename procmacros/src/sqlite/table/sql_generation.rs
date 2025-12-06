@@ -24,7 +24,7 @@ pub(crate) fn generate_create_table_sql_runtime(
                     {
                         let base_def = #base_def;
                         let table_name = #table_ident::NAME.to_string();
-                        let column_name = <_ as drizzle_core::SQLColumnInfo>::name(&#table_ident::#column_ident).to_string();
+                        let column_name = <_ as SQLColumnInfo>::name(&#table_ident::#column_ident).to_string();
                         format!("{} REFERENCES {}({})", base_def, table_name, column_name)
                     }
                 }

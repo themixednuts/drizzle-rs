@@ -11,18 +11,18 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     fn has_default(&self) -> bool;
 
     fn table(&self) -> &dyn SQLTableInfo;
-    /// Returns the foreign key reference if this column has one
+    /// Returns the foreign key reference if this column has one.
     fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
         None
     }
-}
 
-pub trait AsColumnInfo: Sized + SQLColumnInfo {
-    fn as_column(&self) -> &dyn SQLColumnInfo {
+    fn as_column(&self) -> &dyn SQLColumnInfo
+    where
+        Self: Sized,
+    {
         self
     }
 }
-impl<T: SQLColumnInfo> AsColumnInfo for T {}
 
 pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value>

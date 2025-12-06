@@ -128,6 +128,19 @@ pub mod core {
 
     // Expression functions
     pub use drizzle_core::expressions::*;
+
+    /// Core prelude with the minimal set of commonly used items.
+    pub mod prelude {
+        pub use drizzle_core::error::DrizzleError;
+        pub use drizzle_core::expressions::conditions::*;
+        pub use drizzle_core::expressions::*;
+        pub use drizzle_core::impl_try_from_int;
+        pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+        pub use drizzle_core::traits::*;
+        pub use drizzle_core::{
+            OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL, Token,
+        };
+    }
 }
 
 /// SQLite-specific functionality and components.
@@ -148,6 +161,23 @@ pub mod sqlite {
     pub use drizzle_sqlite::common;
     pub use drizzle_sqlite::traits;
     pub use drizzle_sqlite::values;
+
+    /// SQLite-focused prelude that layers on top of `core::prelude`.
+    pub mod prelude {
+        pub use crate::core::prelude::*;
+        pub use drizzle_macros::{
+            SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable,
+        };
+        pub use drizzle_sqlite::builder::QueryBuilder;
+        pub use drizzle_sqlite::common::SQLiteSchemaType;
+        pub use drizzle_sqlite::expression::{json, jsonb};
+        pub use drizzle_sqlite::traits::{
+            DrizzleRow, FromSQLiteValue, SQLiteColumn, SQLiteColumnInfo, SQLiteTable,
+            SQLiteTableInfo,
+        };
+        pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue, ValueWrapper};
+        pub use drizzle_sqlite::{SQLiteTransactionType, conditions, expression, params, pragma};
+    }
 }
 
 /// Rusqlite driver implementation.
@@ -250,6 +280,21 @@ pub mod postgres {
     pub use drizzle_postgres::common;
     pub use drizzle_postgres::traits;
     pub use drizzle_postgres::values;
+
+    /// PostgreSQL-focused prelude that layers on top of `core::prelude`.
+    pub mod prelude {
+        pub use crate::core::prelude::*;
+        pub use drizzle_macros::{
+            PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
+        };
+        pub use drizzle_postgres::PostgresTransactionType;
+        pub use drizzle_postgres::builder::QueryBuilder;
+        pub use drizzle_postgres::common::PostgresSchemaType;
+        pub use drizzle_postgres::traits::{
+            PostgresColumn, PostgresColumnInfo, PostgresEnum, PostgresTable, PostgresTableInfo,
+        };
+        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue};
+    }
 }
 
 /// MySQL-specific functionality and components.
@@ -263,68 +308,27 @@ pub mod mysql {
     // pub use querybuilder::mysql::...;
 }
 
-/// A comprehensive prelude that brings commonly used items into scope.
-///
-/// This includes all shared functionality but NOT the `Drizzle` struct.
-/// Users must explicitly import the driver they want:
+/// A layered prelude that composes driver-specific preludes on top of core.
 ///
 /// ```
-/// use drizzle::prelude::*;           // Shared functionality
-/// use drizzle::rusqlite::Drizzle;    // Explicit driver choice
+/// use drizzle::prelude::*;            // Core + enabled drivers
+/// use drizzle::sqlite::prelude::*;    // SQLite-specific additions
+/// use drizzle::postgres::prelude::*;  // Postgres-specific additions
 /// ```
 pub mod prelude {
-    // Core components (traits, types, expressions)
-    pub use crate::core::*;
-
-    // Expression helpers
-    pub use drizzle_core::expressions::{cast, r#in, r#typeof};
-
-    // Error type for generated code
-    pub use drizzle_core::error::DrizzleError;
-
-    // SQLite crate access for submodules
-    #[cfg(feature = "sqlite")]
-    pub use drizzle_sqlite;
-
-    // SQLite types and traits needed by macro-generated code
-    #[cfg(feature = "sqlite")]
-    pub use drizzle_sqlite::{
-        common::SQLiteSchemaType,
-        expression::{json, jsonb},
-        traits::{SQLiteColumn, SQLiteColumnInfo},
-        values::{SQLiteInsertValue, SQLiteValue, ValueWrapper},
-    };
+    pub use crate::core::prelude::*;
 
     #[cfg(feature = "sqlite")]
-    pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable};
-
-    // PostgreSQL crate access for submodules
-    #[cfg(feature = "postgres")]
-    pub use drizzle_postgres;
-
-    // PostgreSQL types and traits needed by macro-generated code
-    #[cfg(feature = "postgres")]
-    pub use drizzle_postgres::{
-        common::PostgresSchemaType,
-        traits::{PostgresColumn, PostgresColumnInfo},
-        values::{PostgresInsertValue, PostgresValue},
-    };
+    pub use crate::sqlite::prelude::*;
 
     #[cfg(feature = "postgres")]
-    pub use drizzle_macros::{
-        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
-    };
-
-    // #[cfg(feature = "mysql")]
-    // pub use crate::mysql::*;
-    // #[cfg(feature = "mysql")]
-    // pub use procmacros::{MySQLEnum, MySQLTable};
+    pub use crate::postgres::prelude::*;
 }
 
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod sqlite_tests {
-    use drizzle::prelude::*;
+    use drizzle::sqlite::prelude::*;
     use drizzle_macros::SQLiteTable;
 
     use drizzle_sqlite::builder::QueryBuilder;
@@ -448,7 +452,7 @@ mod sqlite_tests {
 #[cfg(feature = "postgres")]
 #[cfg(test)]
 mod postgres_tests {
-    use crate::prelude::*;
+    use crate::postgres::prelude::*;
     use drizzle_core::{SQLColumnInfo, ToSQL, expressions::conditions::eq};
 
     #[derive(Debug, Clone, Default, PostgresEnum)]

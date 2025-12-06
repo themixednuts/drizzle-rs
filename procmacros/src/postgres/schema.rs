@@ -73,7 +73,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
         }
 
         // Implement SQLSchemaImpl trait
-        impl drizzle_core::SQLSchemaImpl for #struct_name {
+        impl SQLSchemaImpl for #struct_name {
             fn create_statements(&self) -> Vec<String> {
                 #create_statements_impl
             }
@@ -94,34 +94,34 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        let mut tables: Vec<(&str, String, &dyn drizzle_core::SQLTableInfo)> = Vec::new();
+        let mut tables: Vec<(&str, String, &dyn SQLTableInfo)> = Vec::new();
         let mut indexes: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
         let mut enums: Vec<String> = Vec::new();
 
         // Collect all tables, indexes, and enums
         #(
-            match <#field_types as drizzle_core::SQLSchema<'_, drizzle_postgres::PostgresSchemaType, drizzle_postgres::PostgresValue<'_>>>::TYPE {
-                drizzle_postgres::PostgresSchemaType::Table(table_info) => {
+            match <#field_types as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE {
+                PostgresSchemaType::Table(table_info) => {
                     let table_name = table_info.name();
-                    let table_sql = <_ as drizzle_core::SQLSchema<'_, drizzle_postgres::PostgresSchemaType, drizzle_postgres::PostgresValue<'_>>>::sql(&self.#field_names).sql();
+                    let table_sql = <_ as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
-                drizzle_postgres::PostgresSchemaType::Index(index_info) => {
-                    let index_sql = <_ as drizzle_core::SQLSchema<'_, drizzle_postgres::PostgresSchemaType, drizzle_postgres::PostgresValue<'_>>>::sql(&self.#field_names).sql();
+                PostgresSchemaType::Index(index_info) => {
+                    let index_sql = <_ as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::sql(&self.#field_names).sql();
                     let table_name = index_info.table().name();
                     indexes
                         .entry(table_name)
                         .or_insert_with(Vec::new)
                         .push(index_sql);
                 }
-                drizzle_postgres::PostgresSchemaType::Enum(enum_info) => {
+                PostgresSchemaType::Enum(enum_info) => {
                     let enum_sql = enum_info.create_type_sql();
                     enums.push(enum_sql);
                 }
-                drizzle_postgres::PostgresSchemaType::View => {
+                PostgresSchemaType::View => {
                     // Views not implemented yet
                 }
-                drizzle_postgres::PostgresSchemaType::Trigger => {
+                PostgresSchemaType::Trigger => {
                     // Triggers not implemented yet
                 }
             }

@@ -653,7 +653,7 @@ impl<'a> FieldInfo<'a> {
     #[allow(dead_code)]
     pub(crate) fn sqlite_insert_value_type(&self) -> TokenStream {
         let inner = self.insert_value_inner_type();
-        quote!(drizzle_sqlite::values::SQLiteInsertValue<'a, drizzle_sqlite::values::SQLiteValue<'a>, #inner>)
+        quote!(SQLiteInsertValue<'a, SQLiteValue<'a>, #inner>)
     }
 
     /// Generate an `impl Into<SQLiteInsertValue<...>>` parameter type for constructors.

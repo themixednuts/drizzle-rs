@@ -17,7 +17,7 @@ impl DriverJsonAccessor for LibsqlDriver {
     }
 
     fn error_type() -> TokenStream {
-        quote!(drizzle_core::error::DrizzleError)
+        quote!(DrizzleError)
     }
 }
 

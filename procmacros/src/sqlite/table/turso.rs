@@ -42,7 +42,7 @@ impl DriverConfig for TursoDriver {
         let error_msg = errors::conversion::required_field(&name.to_string());
         quote! {
             #name: #inner
-                .ok_or_else(|| drizzle_core::error::DrizzleError::ConversionError(#error_msg.to_string().into()))?,
+                .ok_or_else(|| DrizzleError::ConversionError(#error_msg.to_string().into()))?,
         }
     }
 
@@ -86,7 +86,7 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&#row_type> for #select_model_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &#row_type) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -98,7 +98,7 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&#row_type> for #update_model_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &#row_type) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {

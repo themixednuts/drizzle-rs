@@ -94,7 +94,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>>
+                        V: Into<PostgresInsertValue<'a, PostgresValue<'a>, ::std::string::String>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -109,7 +109,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>>
+                        V: Into<PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -130,7 +130,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<::drizzle::postgres::values::PostgresInsertValue<'a, PostgresValue<'a>, #base_type>>
+                        V: Into<PostgresInsertValue<'a, PostgresValue<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*

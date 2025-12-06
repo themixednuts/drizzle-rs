@@ -22,7 +22,7 @@ pub use libsql::*;
 
 pub mod helpers;
 
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -364,7 +364,7 @@ pub struct FullBlogSchema {
 
 #[cfg(feature = "postgres")]
 pub mod pg {
-    use drizzle::prelude::*;
+    use drizzle::postgres::prelude::*;
 
     #[cfg(feature = "uuid")]
     use uuid::Uuid;

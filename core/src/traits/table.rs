@@ -3,7 +3,11 @@ use crate::{SQL, SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
 use core::any::Any;
 
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
-    fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]>;
+    /// Columns referenced by this model. Use an associated type so models that
+    /// always return the same columns can expose a static slice, while dynamic
+    /// models (e.g. INSERT with optional fields) can allocate.
+    type Columns: AsRef<[&'static dyn SQLColumnInfo]>;
+    fn columns(&self) -> Self::Columns;
     fn values(&self) -> SQL<'a, V>;
 }
 
@@ -42,16 +46,8 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
 
 pub trait SQLTableInfo: Any + Send + Sync {
     fn name(&self) -> &str;
-    fn columns(&self) -> Box<[&'static dyn SQLColumnInfo]>;
-
-    /// Returns all tables this table depends on via foreign keys
-    fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
-        self.columns()
-            .iter()
-            .filter_map(|col| col.foreign_key())
-            .map(|fk_col| fk_col.table())
-            .collect()
-    }
+    fn columns(&self) -> &'static [&'static dyn SQLColumnInfo];
+    fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]>;
 }
 
 impl core::fmt::Debug for dyn SQLTableInfo {

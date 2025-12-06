@@ -11,6 +11,7 @@ pub(crate) fn generate_table_impls(
     column_zst_idents: &[Ident],
     _required_fields_pattern: &[bool],
 ) -> Result<TokenStream> {
+    let columns_len = column_zst_idents.len();
     let MacroContext {
         strict,
         without_rowid,
@@ -31,30 +32,24 @@ pub(crate) fn generate_table_impls(
         // Use runtime SQL generation for tables with foreign keys
         if let Some(ref runtime_sql) = ctx.create_table_sql_runtime {
             (
-                quote! { drizzle_core::SQL::empty() }, // Empty const, use runtime method
+                quote! { SQL::empty() }, // Empty const, use runtime method
                 Some(quote! {
                     let runtime_sql = #runtime_sql;
-                    drizzle_core::SQL::raw(runtime_sql)
+                    SQL::raw(runtime_sql)
                 }),
             )
         } else {
             // Use static SQL
-            (
-                quote! { drizzle_core::SQL::raw_const(#create_table_sql) },
-                None,
-            )
+            (quote! { SQL::raw_const(#create_table_sql) }, None)
         }
     } else {
         // Use static SQL for tables without foreign keys
-        (
-            quote! { drizzle_core::SQL::raw_const(#create_table_sql) },
-            None,
-        )
+        (quote! { SQL::raw_const(#create_table_sql) }, None)
     };
 
     let to_sql_body = quote! {
         static INSTANCE: #struct_ident = #struct_ident::new();
-        drizzle_core::SQL::table(&INSTANCE)
+        SQL::table(&INSTANCE)
     };
 
     let sql_schema_impl = generate_sql_schema(
@@ -64,7 +59,7 @@ pub(crate) fn generate_table_impls(
             {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                drizzle_sqlite::common::SQLiteSchemaType::Table(&TABLE_INSTANCE)
+                SQLiteSchemaType::Table(&TABLE_INSTANCE)
             }
         },
         quote! {#sql_const},
@@ -81,24 +76,29 @@ pub(crate) fn generate_table_impls(
     let sql_table_info_impl = generate_sql_table_info(
         struct_ident,
         quote! {
-            <Self as drizzle_core::SQLSchema<'_, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'_>>>::NAME
+            <Self as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::NAME
         },
         quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-
-            Box::new([#(drizzle_core::AsColumnInfo::as_column(&#column_zst_idents),)*])
+            #[allow(non_upper_case_globals)]
+            static COLUMNS: [&'static dyn SQLColumnInfo; #columns_len] =
+                [#(&#column_zst_idents,)*];
+            &COLUMNS
         },
     );
     let sqlite_table_info_impl = generate_sqlite_table_info(
         struct_ident,
         quote! {
-            &<Self as drizzle_core::SQLSchema<'_, drizzle_sqlite::common::SQLiteSchemaType, drizzle_sqlite::values::SQLiteValue<'_>>>::TYPE
+            &<Self as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::TYPE
         },
         quote! {#strict},
         quote! {#without_rowid},
         quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-            Box::new([#(drizzle_sqlite::traits::AsColumnInfo::as_column(&#column_zst_idents),)*])
+            #[allow(non_upper_case_globals)]
+            static SQLITE_COLUMNS: [&'static dyn SQLiteColumnInfo; #columns_len] =
+                [#(&#column_zst_idents,)*];
+            &SQLITE_COLUMNS
         },
     );
     let sqlite_table_impl =
@@ -112,5 +112,6 @@ pub(crate) fn generate_table_impls(
         #sqlite_table_info_impl
         #sqlite_table_impl
         #to_sql_impl
+
     })
 }

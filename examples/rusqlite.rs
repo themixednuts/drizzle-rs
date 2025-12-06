@@ -1,5 +1,5 @@
 mod schema;
-use drizzle::SQLiteFromRow;
+use drizzle::sqlite::prelude::*;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;

@@ -91,43 +91,46 @@ fn generate_rusqlite_test(
     let test_name_str = test_name.to_string();
     quote! {
         #[cfg(feature = "rusqlite")]
-        #[test]
-        fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
-            use crate::common::helpers::rusqlite_setup;
-            let (mut db, schema) = rusqlite_setup::setup_db::<#schema_type>();
+        mod #test_fn_name {
+            use super::*;
+            #[test]
+            fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
+                use crate::common::helpers::rusqlite_setup;
+                let (mut db, schema) = rusqlite_setup::setup_db::<#schema_type>();
 
-            // Debug prints
-            println!("🔧 RUSQLITE Driver: Test {} starting", #test_name_str);
-            println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-            println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                // Debug prints
+                println!("🔧 RUSQLITE Driver: Test {} starting", #test_name_str);
+                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
+                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
 
-            // Driver-specific macros for rusqlite
-            #[allow(unused_macros)]
-            macro_rules! drizzle_exec {
-                ($operation:expr) => { $operation.unwrap() };
+                // Driver-specific macros for rusqlite
+                #[allow(unused_macros)]
+                macro_rules! drizzle_exec {
+                    ($operation:expr) => { $operation.unwrap() };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_try {
+                    ($operation:expr) => { $operation };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_tx {
+                    ($tx:ident, $body:block) => {
+                        $body
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_catch_unwind {
+                    ($operation:expr) => {
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
+                    };
+                }
+
+
+                #test_body
+
+                println!("✅ RUSQLITE Driver: Test {} completed", #test_name_str);
+                Ok(())
             }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_try {
-                ($operation:expr) => { $operation };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_tx {
-                ($tx:ident, $body:block) => {
-                    $body
-                };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_catch_unwind {
-                ($operation:expr) => {
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
-                };
-            }
-
-
-            #test_body
-
-            println!("✅ RUSQLITE Driver: Test {} completed", #test_name_str);
-            Ok(())
         }
     }
 }
@@ -137,45 +140,48 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
     let test_name_str = test_name.to_string();
     quote! {
         #[cfg(feature = "libsql")]
-        #[tokio::test]
-        async fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
-            use crate::common::helpers::libsql_setup;
-            let (mut db, schema) = libsql_setup::setup_db::<#schema_type>().await;
+        mod #test_fn_name {
+            use super::*;
+            #[tokio::test]
+            async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
+                use crate::common::helpers::libsql_setup;
+                let (mut db, schema) = libsql_setup::setup_db::<#schema_type>().await;
 
-            // Debug prints
-            println!("🔧 LIBSQL Driver: Test {} starting", #test_name_str);
-            println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-            println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                // Debug prints
+                println!("🔧 LIBSQL Driver: Test {} starting", #test_name_str);
+                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
+                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
 
-            // Driver-specific macros for libsql
-            #[allow(unused_macros)]
-            macro_rules! drizzle_exec {
-                ($operation:expr) => { $operation.await.unwrap() };
+                // Driver-specific macros for libsql
+                #[allow(unused_macros)]
+                macro_rules! drizzle_exec {
+                    ($operation:expr) => { $operation.await.unwrap() };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_try {
+                    ($operation:expr) => { $operation.await };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_tx {
+                    ($tx:ident, $body:block) => {
+                        Box::pin(async move $body)
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_catch_unwind {
+                    ($operation:expr) => {
+                        futures_util::future::FutureExt::catch_unwind(
+                            std::panic::AssertUnwindSafe($operation)
+                        ).await
+                    };
+                }
+
+
+                #test_body
+
+                println!("✅ LIBSQL Driver: Test {} completed", #test_name_str);
+                Ok(())
             }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_try {
-                ($operation:expr) => { $operation.await };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_tx {
-                ($tx:ident, $body:block) => {
-                    Box::pin(async move $body)
-                };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_catch_unwind {
-                ($operation:expr) => {
-                    futures_util::future::FutureExt::catch_unwind(
-                        std::panic::AssertUnwindSafe($operation)
-                    ).await
-                };
-            }
-
-
-            #test_body
-
-            println!("✅ LIBSQL Driver: Test {} completed", #test_name_str);
-            Ok(())
         }
     }
 }
@@ -185,45 +191,48 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
     let test_name_str = test_name.to_string();
     quote! {
         #[cfg(feature = "turso")]
-        #[tokio::test]
-        async fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
-            use crate::common::helpers::turso_setup;
-            let (mut db, schema) = turso_setup::setup_db::<#schema_type>().await;
+        mod #test_fn_name {
+            use super::*;
+            #[tokio::test]
+            async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
+                use crate::common::helpers::turso_setup;
+                let (mut db, schema) = turso_setup::setup_db::<#schema_type>().await;
 
-            // Debug prints
-            println!("🔧 TURSO Driver: Test {} starting", #test_name_str);
-            println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-            println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                // Debug prints
+                println!("🔧 TURSO Driver: Test {} starting", #test_name_str);
+                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
+                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
 
-            // Driver-specific macros for turso
-            #[allow(unused_macros)]
-            macro_rules! drizzle_exec {
-                ($operation:expr) => { $operation.await.unwrap() };
+                // Driver-specific macros for turso
+                #[allow(unused_macros)]
+                macro_rules! drizzle_exec {
+                    ($operation:expr) => { $operation.await.unwrap() };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_try {
+                    ($operation:expr) => { $operation.await };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_tx {
+                    ($tx:ident, $body:block) => {
+                        Box::pin(async move $body)
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_catch_unwind {
+                    ($operation:expr) => {
+                        futures_util::future::FutureExt::catch_unwind(
+                            std::panic::AssertUnwindSafe($operation)
+                        ).await
+                    };
+                }
+
+
+                #test_body
+
+                println!("✅ TURSO Driver: Test {} completed", #test_name_str);
+                Ok(())
             }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_try {
-                ($operation:expr) => { $operation.await };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_tx {
-                ($tx:ident, $body:block) => {
-                    Box::pin(async move $body)
-                };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_catch_unwind {
-                ($operation:expr) => {
-                    futures_util::future::FutureExt::catch_unwind(
-                        std::panic::AssertUnwindSafe($operation)
-                    ).await
-                };
-            }
-
-
-            #test_body
-
-            println!("✅ TURSO Driver: Test {} completed", #test_name_str);
-            Ok(())
         }
     }
 }
@@ -237,43 +246,46 @@ fn generate_postgres_sync_test(
     let test_name_str = test_name.to_string();
     quote! {
         #[cfg(feature = "postgres-sync")]
-        #[test]
-        fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
-            use crate::common::helpers::postgres_sync_setup;
-            let (mut db, schema) = postgres_sync_setup::setup_db::<#schema_type>();
+        mod #test_fn_name {
+            use super::*;
+            #[test]
+            fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
+                use crate::common::helpers::postgres_sync_setup;
+                let (mut db, schema) = postgres_sync_setup::setup_db::<#schema_type>();
 
-            // Debug prints
-            println!("🔧 POSTGRES-SYNC Driver: Test {} starting", #test_name_str);
-            println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-            println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                // Debug prints
+                println!("🔧 POSTGRES-SYNC Driver: Test {} starting", #test_name_str);
+                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
+                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
 
-            // Driver-specific macros for postgres-sync
-            #[allow(unused_macros)]
-            macro_rules! drizzle_exec {
-                ($operation:expr) => { $operation.unwrap() };
+                // Driver-specific macros for postgres-sync
+                #[allow(unused_macros)]
+                macro_rules! drizzle_exec {
+                    ($operation:expr) => { $operation.unwrap() };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_try {
+                    ($operation:expr) => { $operation };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_tx {
+                    ($tx:ident, $body:block) => {
+                        $body
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_catch_unwind {
+                    ($operation:expr) => {
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
+                    };
+                }
+
+
+                #test_body
+
+                println!("✅ POSTGRES-SYNC Driver: Test {} completed", #test_name_str);
+                Ok(())
             }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_try {
-                ($operation:expr) => { $operation };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_tx {
-                ($tx:ident, $body:block) => {
-                    $body
-                };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_catch_unwind {
-                ($operation:expr) => {
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
-                };
-            }
-
-
-            #test_body
-
-            println!("✅ POSTGRES-SYNC Driver: Test {} completed", #test_name_str);
-            Ok(())
         }
     }
 }
@@ -287,45 +299,48 @@ fn generate_tokio_postgres_test(
     let test_name_str = test_name.to_string();
     quote! {
         #[cfg(feature = "tokio-postgres")]
-        #[tokio::test]
-        async fn #test_fn_name() -> std::result::Result<(), drizzle::error::DrizzleError> {
-            use crate::common::helpers::tokio_postgres_setup;
-            let (mut db, schema) = tokio_postgres_setup::setup_db::<#schema_type>().await;
+        mod #test_fn_name {
+            use super::*;
+            #[tokio::test]
+            async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
+                use crate::common::helpers::tokio_postgres_setup;
+                let (mut db, schema) = tokio_postgres_setup::setup_db::<#schema_type>().await;
 
-            // Debug prints
-            println!("🔧 TOKIO-POSTGRES Driver: Test {} starting", #test_name_str);
-            println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-            println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                // Debug prints
+                println!("🔧 TOKIO-POSTGRES Driver: Test {} starting", #test_name_str);
+                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
+                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
 
-            // Driver-specific macros for tokio-postgres
-            #[allow(unused_macros)]
-            macro_rules! drizzle_exec {
-                ($operation:expr) => { $operation.await.unwrap() };
+                // Driver-specific macros for tokio-postgres
+                #[allow(unused_macros)]
+                macro_rules! drizzle_exec {
+                    ($operation:expr) => { $operation.await.unwrap() };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_try {
+                    ($operation:expr) => { $operation.await };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_tx {
+                    ($tx:ident, $body:block) => {
+                        Box::pin(async move $body)
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_catch_unwind {
+                    ($operation:expr) => {
+                        futures_util::future::FutureExt::catch_unwind(
+                            std::panic::AssertUnwindSafe($operation)
+                        ).await
+                    };
+                }
+
+
+                #test_body
+
+                println!("✅ TOKIO-POSTGRES Driver: Test {} completed", #test_name_str);
+                Ok(())
             }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_try {
-                ($operation:expr) => { $operation.await };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_tx {
-                ($tx:ident, $body:block) => {
-                    Box::pin(async move $body)
-                };
-            }
-            #[allow(unused_macros)]
-            macro_rules! drizzle_catch_unwind {
-                ($operation:expr) => {
-                    futures_util::future::FutureExt::catch_unwind(
-                        std::panic::AssertUnwindSafe($operation)
-                    ).await
-                };
-            }
-
-
-            #test_body
-
-            println!("✅ TOKIO-POSTGRES Driver: Test {} completed", #test_name_str);
-            Ok(())
         }
     }
 }

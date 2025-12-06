@@ -1,5 +1,5 @@
 use super::{FieldInfo, MacroContext};
-use crate::postgres::field::{PostgreSQLType, PostgreSQLFlag};
+use crate::postgres::field::{PostgreSQLFlag, PostgreSQLType};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Error, Result};
@@ -27,7 +27,7 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #select_model_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
                 use ::sqlx::Row;
@@ -40,7 +40,7 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #select_model_partial_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
                 use ::sqlx::Row;
@@ -53,7 +53,7 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #update_model_ident {
-            type Error = drizzle_core::error::DrizzleError;
+            type Error = DrizzleError;
 
             fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
                 use ::sqlx::Row;
@@ -90,28 +90,30 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     } else {
         // Our enum mapping (text or integer storage)
         match info.column_type {
-            PostgreSQLType::Integer | PostgreSQLType::Bigint | PostgreSQLType::Smallint => Ok(quote! {
-                // sqlx Type/Encode/Decode for integer-stored enums
-                impl ::sqlx::Type<::sqlx::Postgres> for #value_type {
-                    fn type_info() -> ::sqlx::postgres::PgTypeInfo {
-                        <i64 as ::sqlx::Type<::sqlx::Postgres>>::type_info()
+            PostgreSQLType::Integer | PostgreSQLType::Bigint | PostgreSQLType::Smallint => {
+                Ok(quote! {
+                    // sqlx Type/Encode/Decode for integer-stored enums
+                    impl ::sqlx::Type<::sqlx::Postgres> for #value_type {
+                        fn type_info() -> ::sqlx::postgres::PgTypeInfo {
+                            <i64 as ::sqlx::Type<::sqlx::Postgres>>::type_info()
+                        }
                     }
-                }
 
-                impl<'q> ::sqlx::Encode<'q, ::sqlx::Postgres> for #value_type {
-                    fn encode_by_ref(&self, buf: &mut ::sqlx::postgres::PgArgumentBuffer) -> ::sqlx::encode::IsNull {
-                        let val: i64 = (*self).into();
-                        val.encode_by_ref(buf)
+                    impl<'q> ::sqlx::Encode<'q, ::sqlx::Postgres> for #value_type {
+                        fn encode_by_ref(&self, buf: &mut ::sqlx::postgres::PgArgumentBuffer) -> ::sqlx::encode::IsNull {
+                            let val: i64 = (*self).into();
+                            val.encode_by_ref(buf)
+                        }
                     }
-                }
 
-                impl<'r> ::sqlx::Decode<'r, ::sqlx::Postgres> for #value_type {
-                    fn decode(value: ::sqlx::postgres::PgValueRef<'r>) -> Result<Self, ::sqlx::error::BoxDynError> {
-                        let val = <i64 as ::sqlx::Decode<::sqlx::Postgres>>::decode(value)?;
-                        Self::try_from(val).map_err(|e| format!("Failed to convert {} to enum: {}", val, e).into())
+                    impl<'r> ::sqlx::Decode<'r, ::sqlx::Postgres> for #value_type {
+                        fn decode(value: ::sqlx::postgres::PgValueRef<'r>) -> Result<Self, ::sqlx::error::BoxDynError> {
+                            let val = <i64 as ::sqlx::Decode<::sqlx::Postgres>>::decode(value)?;
+                            Self::try_from(val).map_err(|e| format!("Failed to convert {} to enum: {}", val, e).into())
+                        }
                     }
-                }
-            }),
+                })
+            }
             PostgreSQLType::Text | PostgreSQLType::Varchar | PostgreSQLType::Char => Ok(quote! {
                 // sqlx Type/Encode/Decode for text-stored enums
                 impl ::sqlx::Type<::sqlx::Postgres> for #value_type {
@@ -144,10 +146,7 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
 
 /// Generate sqlx JSON implementations (Type/Encode/Decode)
 pub(crate) fn generate_json_impls(
-    json_type_storage: &std::collections::HashMap<
-        String,
-        (PostgreSQLType, &FieldInfo),
-    >,
+    json_type_storage: &std::collections::HashMap<String, (PostgreSQLType, &FieldInfo)>,
 ) -> Result<Vec<TokenStream>> {
     if json_type_storage.is_empty() {
         return Ok(vec![]);

@@ -19,15 +19,18 @@ pub trait PostgresColumnInfo: SQLColumnInfo + Any {
     fn foreign_key(&self) -> Option<&'static dyn PostgresColumnInfo> {
         None
     }
-}
 
-pub trait AsColumnInfo: SQLColumnInfo {
-    fn as_column(&self) -> &dyn PostgresColumnInfo;
-}
-
-impl<T: PostgresColumnInfo> AsColumnInfo for T {
-    fn as_column(&self) -> &dyn PostgresColumnInfo {
+    /// Erased access to the Postgres column info.
+    fn as_postgres_column(&self) -> &dyn PostgresColumnInfo
+    where
+        Self: Sized,
+    {
         self
+    }
+
+    /// Core-erased foreign key reference for call sites that only need generic info.
+    fn foreign_key_core(&self) -> Option<&'static dyn SQLColumnInfo> {
+        <Self as PostgresColumnInfo>::foreign_key(self).map(|fk| fk as &dyn SQLColumnInfo)
     }
 }
 

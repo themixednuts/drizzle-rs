@@ -50,7 +50,7 @@ pub(crate) fn generate_field_assignment(
                         let temp: Option<String> = row.get(#idx_or_name);
                         match temp {
                             Some(s) => {
-                                let converted = <#target_type>::from(s.as_str()).map_err(|_| drizzle_core::error::DrizzleError::ConversionError("ArrayString capacity exceeded".into()))?;
+                                let converted = <#target_type>::from(s.as_str()).map_err(|_| DrizzleError::ConversionError("ArrayString capacity exceeded".into()))?;
                                 Some(converted)
                             }
                             None => None,
@@ -61,7 +61,7 @@ pub(crate) fn generate_field_assignment(
                 quote! {
                     {
                         let temp: String = row.get(#idx_or_name);
-                        <#target_type>::from(temp.as_str()).map_err(|_| drizzle_core::error::DrizzleError::ConversionError("ArrayString capacity exceeded".into()))?
+                        <#target_type>::from(temp.as_str()).map_err(|_| DrizzleError::ConversionError("ArrayString capacity exceeded".into()))?
                     }
                 }
             }
@@ -74,7 +74,7 @@ pub(crate) fn generate_field_assignment(
                         match temp {
                             Some(v) => {
                                 let mut av: #target_type = ::arrayvec::ArrayVec::new();
-                                av.try_extend_from_slice(&v).map_err(|_| drizzle_core::error::DrizzleError::ConversionError("ArrayVec capacity exceeded".into()))?;
+                                av.try_extend_from_slice(&v).map_err(|_| DrizzleError::ConversionError("ArrayVec capacity exceeded".into()))?;
                                 Some(av)
                             }
                             None => None,
@@ -86,7 +86,7 @@ pub(crate) fn generate_field_assignment(
                     {
                         let temp: Vec<u8> = row.get(#idx_or_name);
                         let mut av: #target_type = ::arrayvec::ArrayVec::new();
-                        av.try_extend_from_slice(&temp).map_err(|_| drizzle_core::error::DrizzleError::ConversionError("ArrayVec capacity exceeded".into()))?;
+                        av.try_extend_from_slice(&temp).map_err(|_| DrizzleError::ConversionError("ArrayVec capacity exceeded".into()))?;
                         av
                     }
                 }

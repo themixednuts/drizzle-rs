@@ -4,7 +4,7 @@
 ))]
 
 use arrayvec::{ArrayString, ArrayVec};
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 // Test table with ArrayString as TEXT column
