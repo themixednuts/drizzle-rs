@@ -263,11 +263,15 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
 // Public API
 // =============================================================================
 
-/// Generate TryFrom implementations for all enabled PostgreSQL drivers.
+// =============================================================================
+// Public API
+// =============================================================================
+
+/// Generate TryFrom implementations for PostgreSQL drivers that use postgres::Row.
 ///
-/// Note: postgres::Row is a re-export of tokio_postgres::Row, so we must be careful
-/// not to generate duplicate implementations. When tokio-postgres is enabled, we use
-/// tokio_postgres::Row. When only postgres-sync is enabled, we use postgres::Row.
+/// This is used by postgres-sync and tokio-postgres drivers which share the same
+/// postgres::Row type. We use the 'postgres' feature of the macro crate to enable this.
+#[cfg(feature = "postgres")]
 pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let MacroContext {
         field_infos,
@@ -292,48 +296,10 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         .map(|info| generate_update_field_conversion(info))
         .collect();
 
-    // Generate the implementations
-    // Note: We use cfg attributes to ensure only one implementation is generated
-    // even when both postgres-sync and tokio-postgres are enabled (they share the same Row type)
+    // Generate the implementations for postgres::Row
+    // Note: postgres::Row and tokio_postgres::Row are the same type
 
     Ok(quote! {
-        // When tokio-postgres is enabled, use tokio_postgres::Row
-        // This covers both "tokio-postgres only" and "both features enabled" cases
-        #[cfg(feature = "tokio-postgres")]
-        impl ::std::convert::TryFrom<&::tokio_postgres::Row> for #select_model_ident {
-            type Error = DrizzleError;
-
-            fn try_from(row: &::tokio_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#select_field_inits)*
-                })
-            }
-        }
-
-        #[cfg(feature = "tokio-postgres")]
-        impl ::std::convert::TryFrom<&::tokio_postgres::Row> for #select_model_partial_ident {
-            type Error = DrizzleError;
-
-            fn try_from(row: &::tokio_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#partial_field_inits)*
-                })
-            }
-        }
-
-        #[cfg(feature = "tokio-postgres")]
-        impl ::std::convert::TryFrom<&::tokio_postgres::Row> for #update_model_ident {
-            type Error = DrizzleError;
-
-            fn try_from(row: &::tokio_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#update_field_inits)*
-                })
-            }
-        }
-
-        // When only postgres-sync is enabled (without tokio-postgres), use postgres::Row
-        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         impl ::std::convert::TryFrom<&::postgres::Row> for #select_model_ident {
             type Error = DrizzleError;
 
@@ -344,7 +310,6 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
             }
         }
 
-        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         impl ::std::convert::TryFrom<&::postgres::Row> for #select_model_partial_ident {
             type Error = DrizzleError;
 
@@ -355,7 +320,6 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
             }
         }
 
-        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         impl ::std::convert::TryFrom<&::postgres::Row> for #update_model_ident {
             type Error = DrizzleError;
 
@@ -366,4 +330,10 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
             }
         }
     })
+}
+
+/// Fallback when no postgres driver is enabled - returns empty TokenStream
+#[cfg(not(feature = "postgres"))]
+pub(crate) fn generate_all_driver_impls(_ctx: &MacroContext) -> Result<TokenStream> {
+    Ok(TokenStream::new())
 }
