@@ -106,6 +106,29 @@ fn generate_builder_chain(info: &FieldInfo) -> (TokenStream, TokenStream, TokenS
     (builder_type, builder_fn, methods)
 }
 
+/// Generate a const that references the original marker tokens from the attribute.
+///
+/// This creates a hidden const that uses the exact tokens from `#[column(primary, unique)]`,
+/// enabling rust-analyzer to resolve them and provide hover documentation.
+fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
+    if info.marker_exprs.is_empty() {
+        return TokenStream::new();
+    }
+
+    let field_name = info.ident.to_string().to_uppercase();
+    let marker_const_name = format_ident!("_ATTR_MARKERS_{}", field_name);
+    let marker_count = info.marker_exprs.len();
+    let markers = &info.marker_exprs;
+
+    quote! {
+        /// Hidden const that references the original attribute markers.
+        /// This enables IDE hover documentation for `#[column(...)]` attributes.
+        #[doc(hidden)]
+        #[allow(dead_code, non_upper_case_globals)]
+        const #marker_const_name: [ColumnMarker; #marker_count] = [#(#markers),*];
+    }
+}
+
 /// Generates the column ZSTs and their `SQLColumn` implementations.
 pub(crate) fn generate_column_definitions<'a>(
     ctx: &MacroContext<'a>,
@@ -270,12 +293,17 @@ pub(crate) fn generate_column_definitions<'a>(
         let sqlite_column_impl = generate_sqlite_column(&zst_ident, autoincrement_expr);
         let to_sql_impl = generate_to_sql(&zst_ident, to_sql_body);
 
+        // Generate marker const using original tokens for IDE documentation
+        let marker_const = generate_marker_const(info, &zst_ident);
+
         let column_code = quote! {
             #struct_def
             #impl_new
 
             impl #zst_ident {
                 #column_const_def
+
+                #marker_const
             }
 
             #sql_schema_field_impl

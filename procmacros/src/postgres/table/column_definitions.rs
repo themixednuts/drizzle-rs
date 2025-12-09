@@ -12,7 +12,7 @@ use syn::{Ident, Result};
 /// - builder_fn_call: The initial function call like `postgres::columns::text::<Type>()`
 /// - builder_methods: The chained method calls like `.primary().not_null()`
 fn generate_builder_chain(info: &FieldInfo) -> (TokenStream, TokenStream, TokenStream) {
-    let rust_type = &info.ty;
+    let rust_type = &info.field_type;
 
     // Generate the builder type and function call based on column type
     // Uses postgres::columns::* to avoid conflicts with sqlite builders
@@ -134,6 +134,29 @@ fn generate_builder_chain(info: &FieldInfo) -> (TokenStream, TokenStream, TokenS
     (builder_type, builder_fn, methods)
 }
 
+/// Generate a const that references the original marker tokens from the attribute.
+///
+/// This creates a hidden const that uses the exact tokens from `#[column(PRIMARY, UNIQUE)]`,
+/// enabling rust-analyzer to resolve them and provide hover documentation.
+fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
+    if info.marker_exprs.is_empty() {
+        return TokenStream::new();
+    }
+
+    let field_name = info.ident.to_string().to_uppercase();
+    let marker_const_name = format_ident!("_ATTR_MARKERS_{}", field_name);
+    let marker_count = info.marker_exprs.len();
+    let markers = &info.marker_exprs;
+
+    quote! {
+        /// Hidden const that references the original attribute markers.
+        /// This enables IDE hover documentation for `#[column(...)]` attributes.
+        #[doc(hidden)]
+        #[allow(dead_code, non_upper_case_globals)]
+        const #marker_const_name: [ColumnMarker; #marker_count] = [#(#markers),*];
+    }
+}
+
 /// Generate column type definitions and zero-sized types for each column
 pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, Vec<Ident>)> {
     let mut all_column_code = TokenStream::new();
@@ -150,7 +173,7 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         let zst_ident = format_ident!("{}{}", struct_ident, field_pascal_case);
         column_zst_idents.push(zst_ident.clone());
 
-        let rust_type = &field_info.ty;
+        let rust_type = &field_info.field_type;
         let (is_primary, is_not_null, is_unique, is_serial, is_bigserial, has_default) = (
             field_info.is_primary,
             !field_info.is_nullable,
@@ -251,7 +274,7 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 }
             };
 
-            let value_type = &field_info.ty;
+            let value_type = &field_info.field_type;
 
             quote! {
                 // Generate From implementations for enum values
@@ -376,6 +399,9 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             ),
         };
 
+        // Generate marker const using original tokens for IDE documentation
+        let marker_const = generate_marker_const(field_info, &zst_ident);
+
         let column_code = quote! {
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
@@ -390,6 +416,8 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 /// Hover over builder methods to see documentation.
                 #[allow(dead_code)]
                 pub const COLUMN: #builder_type = #builder_fn #builder_methods;
+
+                #marker_const
             }
 
             impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #zst_ident {

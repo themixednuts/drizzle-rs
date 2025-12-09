@@ -15,7 +15,7 @@ pub(crate) fn generate_convenience_method(
     ctx: &MacroContext,
 ) -> TokenStream {
     let field_name = &field.ident;
-    let base_type = field.base_type();
+    let base_type = &field.base_type;
     let method_name = format_ident!("with_{}", field_name);
 
     // Find the field index for pattern tracking
@@ -41,7 +41,7 @@ fn generate_insert_convenience_method(
     field_index: usize,
 ) -> TokenStream {
     let field_name = &field.ident;
-    let base_type = field.base_type();
+    let base_type = &field.base_type;
     let method_name = format_ident!("with_{}", field_name);
     let insert_model = &ctx.insert_model_ident;
 
@@ -119,13 +119,13 @@ fn generate_insert_convenience_method(
                 }
             }
         }
-        // ArrayString, ArrayVec, Uuid, Json, Enum, Primitive use base type directly
+        // ArrayString, ArrayVec, Uuid, Json, Enum, and primitives use base type directly
         TypeCategory::ArrayString
         | TypeCategory::ArrayVec
         | TypeCategory::Uuid
         | TypeCategory::Json
         | TypeCategory::Enum
-        | TypeCategory::Primitive => {
+        | _ => {
             quote! {
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
@@ -166,19 +166,6 @@ fn generate_update_convenience_method(
                 }
             }
         }
-        TypeCategory::ArrayString
-        | TypeCategory::ArrayVec
-        | TypeCategory::Primitive
-        | TypeCategory::Enum
-        | TypeCategory::Json => {
-            // These use the base type directly
-            quote! {
-                pub fn #method_name(mut self, value: #base_type) -> Self {
-                    #assignment
-                    self
-                }
-            }
-        }
         TypeCategory::String => {
             quote! {
                 pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
@@ -192,6 +179,15 @@ fn generate_update_convenience_method(
             quote! {
                 pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
                     let value = value.into();
+                    #assignment
+                    self
+                }
+            }
+        }
+        // All other types (primitives, ArrayString, ArrayVec, etc.) use base type directly
+        _ => {
+            quote! {
+                pub fn #method_name(mut self, value: #base_type) -> Self {
                     #assignment
                     self
                 }

@@ -21,14 +21,66 @@ pub(crate) enum TypeCategory {
     String,
     /// `Vec<u8>` - Heap-allocated byte array
     Blob,
-    /// `uuid::Uuid` - UUID type (handled specially)
+    /// `[u8; N]` - Fixed-size byte array
+    ByteArray,
+    /// `[char; N]` - Fixed-size char array
+    CharArray,
+    /// `uuid::Uuid` - UUID type
     Uuid,
-    /// Any type with `#[json]` flag
+    /// `serde_json::Value` - JSON type
     Json,
-    /// Any type with `#[enum]` flag  
+    /// Any type with enum flag
     Enum,
-    /// Primitive types: i32, i64, f32, f64, bool, etc.
-    Primitive,
+    /// `i16`
+    I16,
+    /// `i32`
+    I32,
+    /// `i64`
+    I64,
+    /// `f32`
+    F32,
+    /// `f64`
+    F64,
+    /// `bool`
+    Bool,
+    // ========== Chrono types (with-chrono-0_4) ==========
+    /// `chrono::NaiveDate` -> DATE
+    NaiveDate,
+    /// `chrono::NaiveTime` -> TIME
+    NaiveTime,
+    /// `chrono::NaiveDateTime` -> TIMESTAMP
+    NaiveDateTime,
+    /// `chrono::DateTime<Tz>` -> TIMESTAMPTZ
+    DateTimeTz,
+    // ========== Time crate types (with-time-0_3) ==========
+    /// `time::Date` -> DATE
+    TimeDate,
+    /// `time::Time` -> TIME
+    TimeTime,
+    /// `time::PrimitiveDateTime` -> TIMESTAMP
+    TimePrimitiveDateTime,
+    /// `time::OffsetDateTime` -> TIMESTAMPTZ
+    TimeOffsetDateTime,
+    // ========== Geo types (with-geo-types-0_7) ==========
+    /// `geo_types::Point<f64>` -> POINT
+    GeoPoint,
+    /// `geo_types::Rect<f64>` -> BOX
+    GeoRect,
+    /// `geo_types::LineString<f64>` -> PATH
+    GeoLineString,
+    // ========== Network types (with-cidr-0_3) ==========
+    /// `std::net::IpAddr` or `cidr::IpInet` -> INET
+    IpAddr,
+    /// `cidr::IpCidr` -> CIDR
+    Cidr,
+    // ========== MAC address (with-eui48-1) ==========
+    /// `eui48::MacAddress` -> MACADDR
+    MacAddr,
+    // ========== Bit types (with-bit-vec-0_8) ==========
+    /// `bit_vec::BitVec` -> BIT VARYING
+    BitVec,
+    /// Unknown type - will result in compile error
+    Unknown,
 }
 
 impl TypeCategory {
@@ -37,18 +89,213 @@ impl TypeCategory {
     /// Order matters: more specific types (ArrayString) must be checked
     /// before more general types (String).
     pub(crate) fn from_type_string(type_str: &str) -> Self {
+        // Remove whitespace for consistent matching
+        let type_str = type_str.replace(' ', "");
+
+        // Handle Option<T> wrapper - recurse into inner type
+        if type_str.starts_with("Option<") && type_str.ends_with('>') {
+            let inner = &type_str[7..type_str.len() - 1];
+            return Self::from_type_string(inner);
+        }
+
+        // Fixed-size arrays first
+        if type_str.starts_with("[u8;") || type_str.contains("[u8;") {
+            return TypeCategory::ByteArray;
+        }
+        if type_str.starts_with("[char;") || type_str.contains("[char;") {
+            return TypeCategory::CharArray;
+        }
+
+        // ArrayVec/ArrayString before generic checks
         if type_str.contains("ArrayString") {
-            TypeCategory::ArrayString
-        } else if type_str.contains("ArrayVec") {
-            TypeCategory::ArrayVec
-        } else if type_str.contains("Uuid") {
-            TypeCategory::Uuid
-        } else if type_str.contains("String") {
-            TypeCategory::String
-        } else if type_str.contains("Vec") && type_str.contains("u8") {
-            TypeCategory::Blob
-        } else {
-            TypeCategory::Primitive
+            return TypeCategory::ArrayString;
+        }
+        if type_str.contains("ArrayVec") && type_str.contains("u8") {
+            return TypeCategory::ArrayVec;
+        }
+
+        // UUID
+        if type_str.contains("Uuid") {
+            return TypeCategory::Uuid;
+        }
+
+        // JSON (serde_json::Value)
+        if type_str.contains("serde_json::Value") || type_str == "Value" {
+            return TypeCategory::Json;
+        }
+
+        // Chrono types (check specific types before generic DateTime)
+        if type_str.contains("NaiveDate") && !type_str.contains("NaiveDateTime") {
+            return TypeCategory::NaiveDate;
+        }
+        if type_str.contains("NaiveTime") {
+            return TypeCategory::NaiveTime;
+        }
+        if type_str.contains("NaiveDateTime") {
+            return TypeCategory::NaiveDateTime;
+        }
+        if type_str.contains("DateTime<") {
+            return TypeCategory::DateTimeTz;
+        }
+
+        // Time crate types
+        if type_str.contains("time::Date") || type_str == "Date" {
+            return TypeCategory::TimeDate;
+        }
+        if type_str.contains("time::Time") {
+            return TypeCategory::TimeTime;
+        }
+        if type_str.contains("PrimitiveDateTime") {
+            return TypeCategory::TimePrimitiveDateTime;
+        }
+        if type_str.contains("OffsetDateTime") {
+            return TypeCategory::TimeOffsetDateTime;
+        }
+
+        // Geo types
+        if type_str.contains("Point<") || type_str.contains("geo_types::Point") {
+            return TypeCategory::GeoPoint;
+        }
+        if type_str.contains("Rect<") || type_str.contains("geo_types::Rect") {
+            return TypeCategory::GeoRect;
+        }
+        if type_str.contains("LineString<") || type_str.contains("geo_types::LineString") {
+            return TypeCategory::GeoLineString;
+        }
+
+        // Network types (cidr crate)
+        // cidr::IpInet -> INET (host address with optional netmask)
+        // cidr::IpCidr -> CIDR (network specification)
+        // std::net::IpAddr also supported
+        if type_str.contains("IpInet") || type_str.contains("IpAddr") {
+            return TypeCategory::IpAddr;
+        }
+        if type_str.contains("IpCidr") {
+            return TypeCategory::Cidr;
+        }
+
+        // MAC address
+        if type_str.contains("MacAddress") || type_str.contains("eui48") {
+            return TypeCategory::MacAddr;
+        }
+
+        // Bit vector
+        if type_str.contains("BitVec") {
+            return TypeCategory::BitVec;
+        }
+
+        // String types
+        if type_str.contains("String") {
+            return TypeCategory::String;
+        }
+
+        // Vec<u8>
+        if type_str.contains("Vec<u8>") {
+            return TypeCategory::Blob;
+        }
+
+        // Primitives - check exact matches for simple types
+        match type_str.as_str() {
+            "i16" => TypeCategory::I16,
+            "i32" => TypeCategory::I32,
+            "i64" => TypeCategory::I64,
+            "f32" => TypeCategory::F32,
+            "f64" => TypeCategory::F64,
+            "bool" => TypeCategory::Bool,
+            _ => TypeCategory::Unknown,
+        }
+    }
+
+    /// Infer the PostgreSQL type from this category.
+    /// Returns None for Unknown types (should trigger compile error).
+    pub(crate) fn to_postgres_type(&self) -> Option<PostgreSQLType> {
+        match self {
+            // Numeric types
+            TypeCategory::I16 => Some(PostgreSQLType::Smallint),
+            TypeCategory::I32 => Some(PostgreSQLType::Integer),
+            TypeCategory::I64 => Some(PostgreSQLType::Bigint),
+            TypeCategory::F32 => Some(PostgreSQLType::Real),
+            TypeCategory::F64 => Some(PostgreSQLType::DoublePrecision),
+            TypeCategory::Bool => Some(PostgreSQLType::Boolean),
+
+            // String/text types
+            TypeCategory::String => Some(PostgreSQLType::Text),
+            TypeCategory::ArrayString => Some(PostgreSQLType::Varchar),
+            TypeCategory::CharArray => Some(PostgreSQLType::Char),
+
+            // Binary types
+            TypeCategory::Blob | TypeCategory::ByteArray | TypeCategory::ArrayVec => {
+                Some(PostgreSQLType::Bytea)
+            }
+
+            // UUID
+            #[cfg(feature = "uuid")]
+            TypeCategory::Uuid => Some(PostgreSQLType::Uuid),
+            #[cfg(not(feature = "uuid"))]
+            TypeCategory::Uuid => None,
+
+            // JSON
+            #[cfg(feature = "serde")]
+            TypeCategory::Json => Some(PostgreSQLType::Jsonb),
+            #[cfg(not(feature = "serde"))]
+            TypeCategory::Json => None,
+
+            // Chrono date/time types
+            TypeCategory::NaiveDate => Some(PostgreSQLType::Date),
+            TypeCategory::NaiveTime => Some(PostgreSQLType::Time),
+            TypeCategory::NaiveDateTime => Some(PostgreSQLType::Timestamp),
+            TypeCategory::DateTimeTz => Some(PostgreSQLType::Timestamptz),
+
+            // Time crate types
+            TypeCategory::TimeDate => Some(PostgreSQLType::Date),
+            TypeCategory::TimeTime => Some(PostgreSQLType::Time),
+            TypeCategory::TimePrimitiveDateTime => Some(PostgreSQLType::Timestamp),
+            TypeCategory::TimeOffsetDateTime => Some(PostgreSQLType::Timestamptz),
+
+            // Geo types
+            #[cfg(feature = "geo-types")]
+            TypeCategory::GeoPoint => Some(PostgreSQLType::Point),
+            #[cfg(feature = "geo-types")]
+            TypeCategory::GeoRect => Some(PostgreSQLType::Box),
+            #[cfg(feature = "geo-types")]
+            TypeCategory::GeoLineString => Some(PostgreSQLType::Path),
+            #[cfg(not(feature = "geo-types"))]
+            TypeCategory::GeoPoint | TypeCategory::GeoRect | TypeCategory::GeoLineString => None,
+
+            // Network types
+            #[cfg(feature = "cidr")]
+            TypeCategory::IpAddr => Some(PostgreSQLType::Inet),
+            #[cfg(feature = "cidr")]
+            TypeCategory::Cidr => Some(PostgreSQLType::Cidr),
+            #[cfg(not(feature = "cidr"))]
+            TypeCategory::IpAddr | TypeCategory::Cidr => None,
+
+            // MAC address
+            #[cfg(feature = "cidr")]
+            TypeCategory::MacAddr => Some(PostgreSQLType::MacAddr),
+            #[cfg(not(feature = "cidr"))]
+            TypeCategory::MacAddr => None,
+
+            // Bit types
+            #[cfg(feature = "bit-vec")]
+            TypeCategory::BitVec => Some(PostgreSQLType::Varbit),
+            #[cfg(not(feature = "bit-vec"))]
+            TypeCategory::BitVec => None,
+
+            // Enums handled separately
+            TypeCategory::Enum => None,
+            TypeCategory::Unknown => None,
+        }
+    }
+
+    /// Check if a constraint is valid for this type category.
+    pub(crate) fn is_valid_constraint(&self, constraint: &str) -> bool {
+        match constraint {
+            "serial" => matches!(self, TypeCategory::I32),
+            "bigserial" => matches!(self, TypeCategory::I64),
+            "primary" | "unique" | "not_null" | "check" | "references" | "default"
+            | "default_fn" => true,
+            _ => false,
         }
     }
 }
@@ -174,34 +421,28 @@ pub(crate) enum PostgreSQLType {
     #[cfg(feature = "chrono")]
     Interval,
 
-    /// PostgreSQL DECIMAL type - exact numeric with selectable precision (alias for NUMERIC)
-    ///
-    /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL>
-    #[cfg(feature = "rust_decimal")]
-    Decimal,
-
     /// PostgreSQL INET type - IPv4 or IPv6 host address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     Inet,
 
     /// PostgreSQL CIDR type - IPv4 or IPv6 network address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     Cidr,
 
     /// PostgreSQL MACADDR type - MAC address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     MacAddr,
 
     /// PostgreSQL MACADDR8 type - EUI-64 MAC address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     MacAddr8,
 
     /// PostgreSQL POINT type - geometric point
@@ -249,13 +490,13 @@ pub(crate) enum PostgreSQLType {
     /// PostgreSQL BIT type - fixed-length bit string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
-    #[cfg(feature = "bitvec")]
+    #[cfg(feature = "bit-vec")]
     Bit,
 
     /// PostgreSQL BIT VARYING type - variable-length bit string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
-    #[cfg(feature = "bitvec")]
+    #[cfg(feature = "bit-vec")]
     Varbit,
 
     /// PostgreSQL custom ENUM type - user-defined enumerated type
@@ -316,13 +557,13 @@ impl PostgreSQLType {
             "interval" => Some(Self::Interval),
 
             // Network address types
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             "inet" => Some(Self::Inet),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             "cidr" => Some(Self::Cidr),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             "macaddr" => Some(Self::MacAddr),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             "macaddr8" => Some(Self::MacAddr8),
 
             // Geometric types
@@ -342,9 +583,9 @@ impl PostgreSQLType {
             "circle" => Some(Self::Circle),
 
             // Bit string types
-            #[cfg(feature = "bitvec")]
+            #[cfg(feature = "bit-vec")]
             "bit" => Some(Self::Bit),
-            #[cfg(feature = "bitvec")]
+            #[cfg(feature = "bit-vec")]
             "varbit" | "bit_varying" => Some(Self::Varbit),
 
             "enum" => None, // enum() requires a parameter, handled separately
@@ -387,15 +628,13 @@ impl PostgreSQLType {
             Self::Timetz => "TIMETZ",
             #[cfg(feature = "chrono")]
             Self::Interval => "INTERVAL",
-            #[cfg(feature = "rust_decimal")]
-            Self::Decimal => "DECIMAL",
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             Self::Inet => "INET",
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             Self::Cidr => "CIDR",
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             Self::MacAddr => "MACADDR",
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             Self::MacAddr8 => "MACADDR8",
             #[cfg(feature = "geo-types")]
             Self::Point => "POINT",
@@ -411,9 +650,9 @@ impl PostgreSQLType {
             Self::Polygon => "POLYGON",
             #[cfg(feature = "geo-types")]
             Self::Circle => "CIRCLE",
-            #[cfg(feature = "bitvec")]
+            #[cfg(feature = "bit-vec")]
             Self::Bit => "BIT",
-            #[cfg(feature = "bitvec")]
+            #[cfg(feature = "bit-vec")]
             Self::Varbit => "VARBIT",
             Self::Enum(name) => name.as_str(), // Custom enum type name
         }
@@ -590,7 +829,14 @@ pub(crate) struct PostgreSQLReference {
 pub(crate) struct FieldInfo {
     pub ident: Ident,
     pub vis: syn::Visibility,
-    pub ty: Type,
+    /// The original field type (e.g., Option<String> or i32)
+    pub field_type: Type,
+    /// The base type with Option<> unwrapped (e.g., String from Option<String>)
+    pub base_type: Type,
+    /// The column name in the database (defaults to field ident, can be overridden)
+    pub column_name: String,
+    /// SQL column definition string (e.g., "name TEXT NOT NULL")
+    pub sql_definition: String,
     pub column_type: PostgreSQLType,
     pub flags: HashSet<PostgreSQLFlag>,
     pub is_primary: bool,
@@ -605,10 +851,28 @@ pub(crate) struct FieldInfo {
     pub check_constraint: Option<String>,
     pub foreign_key: Option<PostgreSQLReference>,
     pub has_default: bool,
+    pub marker_exprs: Vec<syn::ExprPath>,
 }
 
 impl FieldInfo {
-    /// Parse field information from a struct field
+    /// Create an ExprPath with an UPPERCASE ident but preserving the original span.
+    ///
+    /// This allows users to write `#[column(primary)]` (lowercase) but the generated
+    /// code references `PRIMARY` (uppercase, resolves to prelude). The preserved span
+    /// enables IDE hover documentation by linking back to the user's source.
+    fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> syn::ExprPath {
+        let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
+        syn::ExprPath {
+            attrs: vec![],
+            qself: None,
+            path: new_ident.into(),
+        }
+    }
+
+    /// Parse field information from a struct field.
+    ///
+    /// The PostgreSQL type is INFERRED from the Rust type, not from attributes.
+    /// Attributes are only used for constraints (primary, unique, etc.).
     pub(crate) fn from_field(field: &Field, is_composite_pk: bool) -> Result<Self> {
         let name = field.ident.as_ref().unwrap().clone();
         let vis = field.vis.clone();
@@ -617,55 +881,104 @@ impl FieldInfo {
         // Check if field is nullable (wrapped in Option<T>)
         let is_nullable = Self::is_option_type(&ty);
 
-        // Parse column attributes
-        let mut column_type = PostgreSQLType::default();
+        // Infer PostgreSQL type from Rust type
+        let type_str = ty.to_token_stream().to_string();
+        let type_category = TypeCategory::from_type_string(&type_str);
+
+        // Initialize constraint-related fields
         let mut flags = HashSet::new();
         let mut default = None;
         let mut default_fn = None;
         let mut check_constraint = None;
         let mut foreign_key = None;
+        let mut is_serial = false;
+        let mut is_bigserial = false;
+        let mut is_pgenum = false;
+        let mut enum_type_name: Option<String> = None;
+        let mut marker_exprs = Vec::new();
 
-        // Find the column type attribute
+        // Parse #[column(...)] attributes for constraints
         for attr in &field.attrs {
-            if let Some(column_info) = Self::parse_column_attribute(attr)? {
-                column_type = column_info.column_type;
+            if let Some(column_info) =
+                Self::parse_column_attribute(attr, &type_category, name.span())?
+            {
                 flags = column_info.flags;
                 default = column_info.default;
                 default_fn = column_info.default_fn;
                 check_constraint = column_info.check_constraint;
                 foreign_key = column_info.foreign_key;
+                is_serial = column_info.is_serial;
+                is_bigserial = column_info.is_bigserial;
+                is_pgenum = column_info.is_pgenum;
+                enum_type_name = column_info.enum_type_name;
+                marker_exprs = column_info.marker_exprs;
                 break;
             }
         }
 
-        // Validate flags against column type
-        for flag in &flags {
-            match flag {
-                PostgreSQLFlag::Primary => column_type.validate_flag("primary", name.span())?,
-                PostgreSQLFlag::Unique => column_type.validate_flag("unique", name.span())?,
-                PostgreSQLFlag::GeneratedIdentity => {
-                    column_type.validate_flag("generated_identity", name.span())?
-                }
-                PostgreSQLFlag::Enum => column_type.validate_flag("enum", name.span())?,
-                PostgreSQLFlag::Json => column_type.validate_flag("json", name.span())?,
-                _ => {} // Other flags don't need type validation
-            }
+        // Determine the PostgreSQL column type
+        let column_type = if is_serial {
+            PostgreSQLType::Serial
+        } else if is_bigserial {
+            PostgreSQLType::Bigserial
+        } else if is_pgenum {
+            // Get the enum type name from the field's base type
+            let base_type = Self::extract_option_inner(&ty);
+            let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
+            PostgreSQLType::from_enum_attribute(&base_type_str)
+        } else {
+            // Infer from Rust type
+            type_category.to_postgres_type().ok_or_else(|| {
+                Error::new(
+                    name.span(),
+                    format!(
+                        "Cannot infer PostgreSQL type for Rust type '{}'. \
+                        Use a supported type or add #[column(enum)] for enum types.",
+                        type_str
+                    ),
+                )
+            })?
+        };
+
+        // Apply flags from type category
+        if is_pgenum {
+            let base_type = Self::extract_option_inner(&ty);
+            let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
+            flags.insert(PostgreSQLFlag::NativeEnum(base_type_str));
         }
 
         let is_primary = flags.contains(&PostgreSQLFlag::Primary);
         let is_unique = flags.contains(&PostgreSQLFlag::Unique);
         let is_enum = flags.contains(&PostgreSQLFlag::Enum);
-        let is_pgenum = flags
-            .iter()
-            .any(|f| matches!(f, PostgreSQLFlag::NativeEnum(_)));
-        let is_json = flags.contains(&PostgreSQLFlag::Json);
-        let is_serial = column_type.is_serial();
-        let has_default = default.is_some() || default_fn.is_some() || is_serial;
+        let is_json = matches!(type_category, TypeCategory::Json);
+        let is_serial_type = is_serial || is_bigserial;
+        let has_default = default.is_some() || default_fn.is_some() || is_serial_type;
+
+        // Compute base_type once and store it
+        let base_type = Self::extract_option_inner(&ty).clone();
+
+        // Column name defaults to field ident (can be overridden in future with name attribute)
+        let column_name = name.to_string();
+
+        // Build SQL definition for this column
+        let sql_definition = build_sql_definition(
+            &column_name,
+            &column_type,
+            is_primary && !is_composite_pk,
+            !is_nullable,
+            is_unique,
+            is_serial || is_bigserial,
+            &default,
+            &check_constraint,
+        );
 
         Ok(FieldInfo {
             ident: name,
             vis,
-            ty,
+            field_type: ty,
+            base_type,
+            column_name,
+            sql_definition,
             column_type,
             flags,
             is_primary,
@@ -674,12 +987,13 @@ impl FieldInfo {
             is_enum,
             is_pgenum,
             is_json,
-            is_serial,
+            is_serial: is_serial_type,
             default,
             default_fn,
             check_constraint,
             foreign_key,
             has_default,
+            marker_exprs,
         })
     }
 
@@ -707,99 +1021,166 @@ impl FieldInfo {
         ty
     }
 
-    /// Get the base type (inner type for Option<T>, or the type itself for non-Option)
-    pub(crate) fn base_type(&self) -> &Type {
-        Self::extract_option_inner(&self.ty)
-    }
+    // base_type is now a field, not a method - see struct definition
 
-    /// Parse column attribute information
-    fn parse_column_attribute(attr: &Attribute) -> Result<Option<ColumnInfo>> {
-        // Only process attributes that match PostgreSQL column types
+    /// Parse #[column(...)] attribute for constraints.
+    ///
+    /// The PostgreSQL type is NOT determined by attributes anymore - it's inferred
+    /// from the Rust type. This method only parses constraints like primary, unique, etc.
+    fn parse_column_attribute(
+        attr: &Attribute,
+        type_category: &TypeCategory,
+        span: proc_macro2::Span,
+    ) -> Result<Option<ColumnInfo>> {
+        // Only process #[column(...)] attributes
         let attr_name = if let Some(ident) = attr.path().get_ident() {
             ident.to_string()
-        } else if attr.path().segments.len() == 1 {
-            // Handle keyword identifiers like `enum`
-            attr.path().segments.first().unwrap().ident.to_string()
         } else {
             return Ok(None);
         };
 
-        // Handle native enum attribute #[enum(MyEnum)] or #[r#enum(MyEnum)]
-        if attr_name == "enum" || attr_name == "r#enum" {
-            return Self::parse_native_enum_attribute(attr);
-        }
-
-        let Some(column_type) = PostgreSQLType::from_attribute_name(&attr_name) else {
+        if attr_name != "column" {
             return Ok(None);
-        };
+        }
 
         let mut flags = HashSet::new();
         let mut default = None;
         let mut default_fn = None;
         let mut check_constraint = None;
         let mut foreign_key = None;
+        let mut is_serial = false;
+        let mut is_bigserial = false;
+        let mut is_pgenum = false;
+        let mut enum_type_name: Option<String> = None;
+        let mut marker_exprs = Vec::new();
 
-        // Parse attribute arguments
+        // Parse attribute arguments: #[column(primary, unique, default = "foo")]
         if attr.meta.require_list().is_ok() {
             attr.parse_nested_meta(|meta| {
-                let path = meta.path.get_ident().unwrap().to_string();
+                let path_ident = meta
+                    .path
+                    .get_ident()
+                    .ok_or_else(|| syn::Error::new_spanned(&meta.path, "Expected identifier"))?;
+                // Convert to uppercase for case-insensitive matching
+                let path = path_ident.to_string().to_ascii_uppercase();
 
                 match path.as_str() {
-                    "primary" | "primary_key" => {
+                    "SERIAL" => {
+                        // Validate: serial only valid on i32
+                        if !type_category.is_valid_constraint("serial") {
+                            return Err(syn::Error::new(
+                                span,
+                                "serial constraint requires field type i32",
+                            ));
+                        }
+                        is_serial = true;
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "SERIAL"));
+                    }
+                    "BIGSERIAL" => {
+                        // Validate: bigserial only valid on i64
+                        if !type_category.is_valid_constraint("bigserial") {
+                            return Err(syn::Error::new(
+                                span,
+                                "bigserial constraint requires field type i64",
+                            ));
+                        }
+                        is_bigserial = true;
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "BIGSERIAL"));
+                    }
+                    "SMALLSERIAL" => {
+                        // Validate: smallserial only valid on i16
+                        if !type_category.is_valid_constraint("smallserial") {
+                            return Err(syn::Error::new(
+                                span,
+                                "smallserial constraint requires field type i16",
+                            ));
+                        }
+                        is_serial = true; // Treat as serial for now
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "SMALLSERIAL"));
+                    }
+                    "PRIMARY" | "PRIMARY_KEY" => {
                         flags.insert(PostgreSQLFlag::Primary);
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "PRIMARY"));
                     }
-                    "unique" => {
+                    "UNIQUE" => {
                         flags.insert(PostgreSQLFlag::Unique);
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "UNIQUE"));
                     }
-                    "not_null" => {
-                        flags.insert(PostgreSQLFlag::NotNull);
-                    }
-                    "generated_identity" => {
+                    "GENERATED_IDENTITY" => {
                         flags.insert(PostgreSQLFlag::GeneratedIdentity);
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "GENERATED_IDENTITY"));
                     }
-                    "enum" => {
-                        flags.insert(PostgreSQLFlag::Enum);
+                    "JSON" => {
+                        // Mark as JSON type
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "JSON"));
                     }
-                    "json" => {
-                        flags.insert(PostgreSQLFlag::Json);
+                    "JSONB" => {
+                        // Mark as JSONB type
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "JSONB"));
                     }
-                    "default" => {
+                    "ENUM" => {
+                        // Just mark as pgenum - the type is inferred from the field definition
+                        is_pgenum = true;
+                        marker_exprs.push(Self::make_uppercase_path(path_ident, "ENUM"));
+                    }
+                    "DEFAULT" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let lit: Lit = meta.input.parse()?;
-                            if let Lit::Str(s) = lit {
-                                default = Some(PostgreSQLDefault::Literal(s.value()));
+                            match lit {
+                                Lit::Str(s) => {
+                                    default = Some(PostgreSQLDefault::Literal(s.value()))
+                                }
+                                Lit::Int(i) => {
+                                    default = Some(PostgreSQLDefault::Literal(i.to_string()))
+                                }
+                                Lit::Float(f) => {
+                                    default = Some(PostgreSQLDefault::Literal(f.to_string()))
+                                }
+                                Lit::Bool(b) => {
+                                    default = Some(PostgreSQLDefault::Literal(b.value.to_string()))
+                                }
+                                _ => {
+                                    return Err(syn::Error::new_spanned(
+                                        lit,
+                                        "Unsupported default literal type",
+                                    ));
+                                }
                             }
+                            marker_exprs.push(Self::make_uppercase_path(path_ident, "DEFAULT"));
                         }
                     }
-                    "default_fn" => {
+                    "DEFAULT_FN" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let expr: Expr = meta.input.parse()?;
                             default_fn = Some(quote! { #expr });
+                            marker_exprs.push(Self::make_uppercase_path(path_ident, "DEFAULT_FN"));
                         }
                     }
-                    "check" => {
+                    "CHECK" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let lit: Lit = meta.input.parse()?;
                             if let Lit::Str(s) = lit {
                                 check_constraint = Some(s.value());
                                 flags.insert(PostgreSQLFlag::Check(s.value()));
+                                marker_exprs.push(Self::make_uppercase_path(path_ident, "CHECK"));
                             }
                         }
                     }
-                    "references" => {
+                    "REFERENCES" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let path: ExprPath = meta.input.parse()?;
                             foreign_key = Some(Self::parse_reference(&path)?);
+                            marker_exprs.push(Self::make_uppercase_path(path_ident, "REFERENCES"));
                         }
                     }
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &meta.path,
-                            format!("Unknown attribute: {}", path),
+                            format!("Unknown column constraint: '{}'. Supported: PRIMARY, UNIQUE, SERIAL, BIGSERIAL, SMALLSERIAL, GENERATED_IDENTITY, JSON, JSONB, ENUM, DEFAULT, DEFAULT_FN, CHECK, REFERENCES", path_ident),
                         ));
                     }
                 }
@@ -808,49 +1189,16 @@ impl FieldInfo {
         }
 
         Ok(Some(ColumnInfo {
-            column_type,
             flags,
             default,
             default_fn,
             check_constraint,
             foreign_key,
-        }))
-    }
-
-    /// Parse native PostgreSQL enum attribute #[enum(MyEnum)]
-    fn parse_native_enum_attribute(attr: &Attribute) -> Result<Option<ColumnInfo>> {
-        let mut enum_name = None;
-
-        // Parse the enum type name from #[enum(MyEnum)]
-        if let Meta::List(meta_list) = &attr.meta {
-            let tokens = &meta_list.tokens;
-            let enum_ident: syn::Ident = syn::parse2(tokens.clone())?;
-            enum_name = Some(enum_ident.to_string());
-        } else {
-            return Err(Error::new_spanned(
-                attr,
-                "enum attribute requires a type name: #[enum(MyEnum)]",
-            ));
-        }
-
-        let Some(enum_name) = enum_name else {
-            return Err(Error::new_spanned(
-                attr,
-                "enum attribute requires a type name: #[enum(MyEnum)]",
-            ));
-        };
-
-        let column_type = PostgreSQLType::from_enum_attribute(&enum_name);
-        let mut flags = HashSet::new();
-        flags.insert(PostgreSQLFlag::NativeEnum(enum_name));
-
-        Ok(Some(ColumnInfo {
-            column_type,
-            flags,
-            default: None,
-            default_fn: None,
-            check_constraint: None,
-            foreign_key: None,
+            is_serial,
+            is_bigserial,
+            is_pgenum,
+            enum_type_name,
+            marker_exprs,
         }))
     }
 
@@ -910,17 +1258,72 @@ impl FieldInfo {
         }
 
         // Detect from the base type string
-        let type_str = self.ty.to_token_stream().to_string();
+        let type_str = self.field_type.to_token_stream().to_string();
         TypeCategory::from_type_string(&type_str)
     }
 }
 
-/// Intermediate structure for parsing column information
+/// Build SQL column definition string for PostgreSQL
+fn build_sql_definition(
+    column_name: &str,
+    column_type: &PostgreSQLType,
+    is_primary_single: bool,
+    is_not_null: bool,
+    is_unique: bool,
+    is_serial: bool,
+    default: &Option<PostgreSQLDefault>,
+    check_constraint: &Option<String>,
+) -> String {
+    let mut sql = format!("{} {}", column_name, column_type.to_sql_type());
+
+    // Handle primary key
+    if is_primary_single {
+        sql.push_str(" PRIMARY KEY");
+    }
+
+    // Add NOT NULL constraint (serial types are implicitly NOT NULL)
+    if is_not_null && !is_serial {
+        sql.push_str(" NOT NULL");
+    }
+
+    // Add UNIQUE constraint
+    if is_unique && !is_primary_single {
+        sql.push_str(" UNIQUE");
+    }
+
+    // Add DEFAULT value if present
+    if let Some(default_value) = default {
+        match default_value {
+            PostgreSQLDefault::Literal(lit) => {
+                sql.push_str(&format!(" DEFAULT {}", lit));
+            }
+            PostgreSQLDefault::Function(func) => {
+                sql.push_str(&format!(" DEFAULT {}", func));
+            }
+            PostgreSQLDefault::Expression(_) => {
+                // Expression defaults are handled at runtime
+            }
+        }
+    }
+
+    // Add CHECK constraint
+    if let Some(check) = check_constraint {
+        sql.push_str(&format!(" CHECK ({})", check));
+    }
+
+    sql
+}
+
+/// Intermediate structure for parsing column constraint information
 struct ColumnInfo {
-    column_type: PostgreSQLType,
     flags: HashSet<PostgreSQLFlag>,
     default: Option<PostgreSQLDefault>,
     default_fn: Option<TokenStream>,
     check_constraint: Option<String>,
     foreign_key: Option<PostgreSQLReference>,
+    is_serial: bool,
+    is_bigserial: bool,
+    is_pgenum: bool,
+    enum_type_name: Option<String>,
+    marker_exprs: Vec<syn::ExprPath>,
 }

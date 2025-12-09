@@ -72,12 +72,12 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                 let struct_name = info.base_type;
                 let core_conversion = match storage_type {
                     SQLiteType::Text => quote! {
-                        let json = serde_json::to_string(&self)?;
-                        Ok(SQLiteValue::Text(::std::borrow::Cow::Owned(json)))
+                        let json_data = serde_json::to_string(&self)?;
+                        Ok(SQLiteValue::Text(::std::borrow::Cow::Owned(json_data)))
                     },
                     SQLiteType::Blob => quote! {
-                        let json = serde_json::to_vec(&self)?;
-                        Ok(SQLiteValue::Blob(::std::borrow::Cow::Owned(json)))
+                        let json_data = serde_json::to_vec(&self)?;
+                        Ok(SQLiteValue::Blob(::std::borrow::Cow::Owned(json_data)))
                     },
                     _ => {
                         return Err(syn::Error::new_spanned(
@@ -118,7 +118,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         .map(SQLiteValue::from)
                         .map(Cow::Owned)
                         .map(SQL::param)
-                        .map(|sql| json(sql))
+                        .map(|sql| expression::json(sql))
                         .unwrap_or_else(|_| SQL::empty())
                 },
             ),
@@ -130,7 +130,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         .map(SQLiteValue::from)
                         .map(Cow::Owned)
                         .map(SQL::param)
-                        .map(|sql| jsonb(sql))
+                        .map(|sql| expression::jsonb(sql))
                         .unwrap_or_else(|_| SQL::empty())
                 },
             ),

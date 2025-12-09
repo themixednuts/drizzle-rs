@@ -87,8 +87,10 @@ pub(crate) fn generate_field_assignment(
     let is_optional = is_option_type(&field.ty);
 
     // Determine if we need special handling via FromPostgresValue trait
-    let needs_from_postgres_value =
-        matches!(category, TypeCategory::ArrayString | TypeCategory::ArrayVec);
+    let needs_from_postgres_value = matches!(
+        category,
+        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
+    );
 
     let assignment = if needs_from_postgres_value {
         // Use DrizzleRow::get_column_by_name with FromPostgresValue trait

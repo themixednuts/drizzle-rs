@@ -82,9 +82,8 @@ pub(crate) fn generate_field_conversion<D: DriverConfig>(
         }
         TypeCategory::String => generate_string_conversion::<D>(&idx_tokens, info, is_optional)?,
         TypeCategory::Blob => generate_blob_conversion::<D>(&idx_tokens, info, is_optional)?,
-        TypeCategory::Primitive => {
-            generate_primitive_conversion::<D>(&idx_tokens, info, is_optional)?
-        }
+        // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use primitive conversion
+        _ => generate_primitive_conversion::<D>(&idx_tokens, info, is_optional)?,
     };
 
     // Wrap with appropriate optional/required handling

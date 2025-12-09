@@ -12,11 +12,8 @@ pub(crate) fn generate_table_impls(
     _required_fields_pattern: &[bool],
 ) -> Result<TokenStream> {
     let columns_len = column_zst_idents.len();
-    let MacroContext {
-        strict,
-        without_rowid,
-        ..
-    } = &ctx;
+    let strict = ctx.attrs.strict;
+    let without_rowid = ctx.attrs.without_rowid;
     let struct_ident = ctx.struct_ident;
     let table_name = &ctx.table_name;
     let (select_model, insert_model, update_model) = (

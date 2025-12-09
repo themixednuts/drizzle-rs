@@ -78,7 +78,7 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
         return Ok(quote! {});
     }
 
-    let value_type = &info.ty;
+    let value_type = &info.field_type;
 
     if info.is_pgenum {
         // Native PostgreSQL enum - sqlx should handle this automatically
@@ -153,7 +153,7 @@ pub(crate) fn generate_json_impls(
     }
 
     json_type_storage.iter().map(|(_, (storage_type, info))| {
-        let struct_name = &info.ty;
+        let struct_name = &info.field_type;
         let (type_info, encode_impl, decode_impl) = match storage_type {
             #[cfg(feature = "serde")]
             PostgreSQLType::Json => (

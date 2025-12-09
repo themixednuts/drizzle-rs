@@ -33,6 +33,8 @@ pub(super) struct MacroContext<'a> {
     pub update_model_ident: Ident,
     /// Whether any field has foreign keys
     pub has_foreign_keys: bool,
+    /// Whether the table has a composite primary key
+    pub is_composite_pk: bool,
     /// Table attributes
     pub attrs: &'a TableAttributes,
 }

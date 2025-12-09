@@ -1,4 +1,6 @@
 use super::context::MacroContext;
+use crate::generators::generate_sql_table_info;
+use crate::postgres::generators::*;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Ident, Result};
@@ -24,102 +26,88 @@ pub(super) fn generate_table_impls(
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
         (
-            quote! {
-                const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
-            },
-            quote! {
-                fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                    let runtime_sql = #create_table_sql;
-                    SQL::raw(runtime_sql)
-                }
-            },
+            quote! { SQL::empty() },
+            Some(quote! {
+                let runtime_sql = #create_table_sql;
+                SQL::raw(runtime_sql)
+            }),
         )
     } else {
         // Use static SQL for tables without foreign keys
         (
-            quote! {
-                const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
-            },
-            quote! {
-                fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                    SQL::raw(#create_table_sql)
-                }
-            },
+            quote! { SQL::empty() },
+            Some(quote! {
+                SQL::raw(#create_table_sql)
+            }),
         )
     };
 
-    Ok(quote! {
-        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
-            const NAME: &'a str = #table_name;
-            const TYPE: PostgresSchemaType = {
+    // Generate ToSQL body
+    let to_sql_body = quote! {
+        static INSTANCE: #struct_ident = #struct_ident::new();
+        SQL::table(&INSTANCE)
+    };
+
+    // Use generator functions for consistent pattern with SQLite
+    let sql_schema_impl = generate_sql_schema(
+        struct_ident,
+        quote! { #table_name },
+        quote! {
+            {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
                 PostgresSchemaType::Table(&TABLE_INSTANCE)
-            };
-            #sql_const
-            #sql_method
-        }
-
-        impl<'a> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
-            type Select = #select_model;
-            type Insert<T> = #insert_model<'a, T>;
-            type Update = #update_model;
-            type Aliased = #aliased_table_ident;
-
-            fn alias(name: &'static str) -> Self::Aliased {
-                #aliased_table_ident::new(name)
             }
-        }
+        },
+        sql_const,
+        sql_method,
+    );
 
-        impl SQLTableInfo for #struct_ident {
-            fn name(&self) -> &str {
-                <Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::NAME
-            }
-            fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-                #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-                #[allow(non_upper_case_globals)]
-                static COLUMNS: [&'static dyn SQLColumnInfo; #columns_len] =
-                    [#(&#column_zst_idents,)*];
-                &COLUMNS
-            }
+    let sql_table_impl = generate_sql_table(
+        struct_ident,
+        quote! { #select_model },
+        quote! { #insert_model<'a, T> },
+        quote! { #update_model },
+        quote! { #aliased_table_ident },
+    );
 
-            fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
-                SQLTableInfo::columns(self)
-                    .iter()
-                    .filter_map(|col| SQLColumnInfo::foreign_key(*col))
-                    .map(|fk_col| SQLColumnInfo::table(fk_col))
-                    .collect()
-            }
-        }
+    let sql_table_info_impl = generate_sql_table_info(
+        struct_ident,
+        quote! {
+            <Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::NAME
+        },
+        quote! {
+            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+            #[allow(non_upper_case_globals)]
+            static COLUMNS: [&'static dyn SQLColumnInfo; #columns_len] =
+                [#(&#column_zst_idents,)*];
+            &COLUMNS
+        },
+    );
 
-        impl PostgresTableInfo for #struct_ident {
-            fn r#type(&self) -> &PostgresSchemaType {
-                &<Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE
-            }
-            fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
-                #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-                #[allow(non_upper_case_globals)]
-                static POSTGRES_COLUMNS: [&'static dyn PostgresColumnInfo; #columns_len] =
-                    [#(&#column_zst_idents,)*];
-                &POSTGRES_COLUMNS
-            }
+    let postgres_table_info_impl = generate_postgres_table_info(
+        struct_ident,
+        quote! {
+            &<Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE
+        },
+        quote! {
+            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
+            #[allow(non_upper_case_globals)]
+            static POSTGRES_COLUMNS: [&'static dyn PostgresColumnInfo; #columns_len] =
+                [#(&#column_zst_idents,)*];
+            &POSTGRES_COLUMNS
+        },
+    );
 
-            fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
-                PostgresTableInfo::postgres_columns(self)
-                    .iter()
-                    .filter_map(|col| PostgresColumnInfo::foreign_key(*col))
-                    .map(|fk_col| PostgresColumnInfo::table(fk_col))
-                    .collect()
-            }
-        }
+    let postgres_table_impl = generate_postgres_table(struct_ident);
+    let to_sql_impl = generate_to_sql(struct_ident, to_sql_body);
 
-        impl<'a> PostgresTable<'a> for #struct_ident {}
-
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                static INSTANCE: #struct_ident = #struct_ident::new();
-                SQL::table(&INSTANCE)
-            }
-        }
+    Ok(quote! {
+        #sql_schema_impl
+        #sql_table_impl
+        #sql_table_info_impl
+        #postgres_table_info_impl
+        #postgres_table_impl
+        #to_sql_impl
     })
 }

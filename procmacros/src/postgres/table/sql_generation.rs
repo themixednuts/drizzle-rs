@@ -19,9 +19,6 @@ pub(super) fn generate_create_table_sql(
         sql.push_str("TEMPORARY ");
     }
     sql.push_str("TABLE ");
-    if attrs.if_not_exists {
-        sql.push_str("IF NOT EXISTS ");
-    }
     // Quote table name for PostgreSQL
     sql.push('"');
     sql.push_str(table_name);

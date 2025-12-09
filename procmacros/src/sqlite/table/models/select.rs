@@ -48,51 +48,12 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
                 // Convenience methods for setting fields
                 #(#partial_convenience_methods)*
             }
-
-            // Implement SQLPartial trait for SelectModel
-            impl<'a> SQLPartial<'a, SQLiteValue<'a>> for #select_model_ident {
-                type Partial = #select_model_partial_ident;
-            }
-
-            impl<'a> ToSQL<'a, SQLiteValue<'a>> for #select_model_partial_ident {
-                fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                    unimplemented!()
-                    // Only include columns that are Some() for selective querying
-                    // let mut selected_columns = Vec::new();
-                    // #(
-                    //     if self.#select_field_names.is_some() {
-                    //         selected_columns.push(#select_column_names);
-                    //     }
-                    // )*
-
-                    // if selected_columns.is_empty() {
-                    //         unimplemented!()
-                    //         // If no fields selected, default to all columns
-                    //         // const ALL_COLUMNS: &'static [&'static str] = &[#(#select_column_names,)*];
-                    //         // SQL::join(ALL_COLUMNS, ", ")
-                    // } else {
-                    //     SQL::join(&selected_columns, ", ")
-                    // }
-                }
-            }
-
     };
 
     Ok(quote! {
         // Select Model
         #[derive(Debug, Clone, PartialEq, Default)]
         #struct_vis struct #select_model_ident { #(#select_fields,)* }
-
-        // For libsql and turso: partial select models are disabled due to index-based access limitations
-        // Use full select model or specific column tuples instead
-        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #select_model_ident {
-            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                unimplemented!()
-                // Generate column list for SELECT
-                // const COLUMN_NAMES: &'static [&'static str] = &[#(#select_column_names,)*];
-                // SQL::join(COLUMN_NAMES, ", ")
-            }
-        }
 
         #partial_impl
     })

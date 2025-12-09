@@ -30,7 +30,7 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let name_str = name.to_string();
-    let base_type = info.base_type();
+    let base_type = &info.base_type;
     let base_type_str = base_type.to_token_stream().to_string();
     let type_category = TypeCategory::from_type_string(&base_type_str);
 
@@ -107,7 +107,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
         }
     } else {
         // Standard types: use native driver's get
-        let ty = &info.ty;
+        let ty = &info.field_type;
         quote! {
             #name: row.get::<_, #ty>(#name_str),
         }
@@ -124,7 +124,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
 fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let name_str = name.to_string();
-    let base_type = info.base_type();
+    let base_type = &info.base_type;
     let base_type_str = base_type.to_token_stream().to_string();
     let type_category = TypeCategory::from_type_string(&base_type_str);
 
@@ -198,7 +198,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
         }
     } else {
         // For standard types, try to get the original type (including Option wrapper if nullable)
-        let ty = &info.ty;
+        let ty = &info.field_type;
         quote! {
             #name: row.try_get::<_, #ty>(#name_str).ok(),
         }
@@ -212,7 +212,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
 fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let name_str = name.to_string();
-    let base_type = info.base_type();
+    let base_type = &info.base_type;
     let base_type_str = base_type.to_token_stream().to_string();
     let type_category = TypeCategory::from_type_string(&base_type_str);
 

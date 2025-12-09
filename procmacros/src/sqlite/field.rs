@@ -13,7 +13,8 @@ use syn::{
 /// Categorizes Rust types for consistent handling across the macro system.
 ///
 /// This enum provides a single source of truth for type detection, eliminating
-/// fragile string matching scattered across multiple files.
+/// fragile string matching scattered across multiple files. This is used for
+/// both type inference (Rust type → SQLite type) and code generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TypeCategory {
     /// `arrayvec::ArrayString<N>` - Fixed-capacity string on the stack
@@ -24,14 +25,24 @@ pub(crate) enum TypeCategory {
     String,
     /// `Vec<u8>` - Heap-allocated byte array
     Blob,
-    /// `uuid::Uuid` - UUID type (handled specially)
+    /// `[u8; N]` - Fixed-size byte array
+    ByteArray,
+    /// `uuid::Uuid` - UUID type (defaults to BLOB, can be overridden to TEXT)
     Uuid,
-    /// Any type with `#[json]` flag
+    /// Any type with `#[json]` flag or `serde_json::Value`
     Json,
-    /// Any type with `#[enum]` flag  
+    /// Any type with `#[enum]` flag (defaults to TEXT, can be INTEGER)
     Enum,
-    /// Primitive types: i32, i64, f32, f64, bool, etc.
-    Primitive,
+    /// `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` - Integer types
+    Integer,
+    /// `f32`, `f64` - Floating point types
+    Real,
+    /// `bool` - Boolean type (stored as INTEGER 0/1)
+    Bool,
+    /// Chrono date/time types - stored as TEXT
+    DateTime,
+    /// Unknown type - requires explicit type annotation
+    Unknown,
 }
 
 impl TypeCategory {
@@ -40,18 +51,103 @@ impl TypeCategory {
     /// Order matters: more specific types (ArrayString) must be checked
     /// before more general types (String).
     pub(crate) fn from_type_string(type_str: &str) -> Self {
+        // Remove whitespace for consistent matching
+        let type_str = type_str.replace(' ', "");
+
+        // Handle Option<T> wrapper - recurse into inner type
+        if type_str.starts_with("Option<") && type_str.ends_with('>') {
+            let inner = &type_str[7..type_str.len() - 1];
+            return Self::from_type_string(inner);
+        }
+
+        // Fixed-size byte arrays first
+        if type_str.starts_with("[u8;") || type_str.contains("[u8;") {
+            return TypeCategory::ByteArray;
+        }
+
+        // ArrayVec/ArrayString before generic checks
         if type_str.contains("ArrayString") {
-            TypeCategory::ArrayString
-        } else if type_str.contains("ArrayVec") {
-            TypeCategory::ArrayVec
-        } else if type_str.contains("Uuid") {
-            TypeCategory::Uuid
-        } else if type_str.contains("String") {
-            TypeCategory::String
-        } else if type_str.contains("Vec") && type_str.contains("u8") {
-            TypeCategory::Blob
-        } else {
-            TypeCategory::Primitive
+            return TypeCategory::ArrayString;
+        }
+        if type_str.contains("ArrayVec") && type_str.contains("u8") {
+            return TypeCategory::ArrayVec;
+        }
+
+        // UUID
+        if type_str.contains("Uuid") {
+            return TypeCategory::Uuid;
+        }
+
+        // JSON (serde_json::Value)
+        if type_str.contains("serde_json::Value") || type_str == "Value" {
+            return TypeCategory::Json;
+        }
+
+        // Chrono types - all stored as TEXT in SQLite
+        if type_str.contains("NaiveDate")
+            || type_str.contains("NaiveTime")
+            || type_str.contains("NaiveDateTime")
+            || type_str.contains("DateTime<")
+        {
+            return TypeCategory::DateTime;
+        }
+
+        // Time crate types
+        if type_str.contains("time::Date")
+            || type_str.contains("time::Time")
+            || type_str.contains("PrimitiveDateTime")
+            || type_str.contains("OffsetDateTime")
+        {
+            return TypeCategory::DateTime;
+        }
+
+        // String types
+        if type_str.contains("String") {
+            return TypeCategory::String;
+        }
+
+        // Vec<u8>
+        if type_str.contains("Vec<u8>") {
+            return TypeCategory::Blob;
+        }
+
+        // Primitives - check exact matches for simple types
+        match type_str.as_str() {
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "isize" | "usize" => {
+                TypeCategory::Integer
+            }
+            "f32" | "f64" => TypeCategory::Real,
+            "bool" => TypeCategory::Bool,
+            _ => TypeCategory::Unknown,
+        }
+    }
+
+    /// Infer the SQLite type from this category.
+    ///
+    /// Returns Some(SQLiteType) for types that can be automatically inferred,
+    /// or None for types that require explicit annotation (Unknown, Enum without context).
+    pub(crate) fn to_sqlite_type(&self) -> Option<SQLiteType> {
+        match self {
+            // Integer types → INTEGER
+            TypeCategory::Integer | TypeCategory::Bool => Some(SQLiteType::Integer),
+            // Floating point → REAL
+            TypeCategory::Real => Some(SQLiteType::Real),
+            // String types → TEXT
+            TypeCategory::String | TypeCategory::ArrayString | TypeCategory::DateTime => {
+                Some(SQLiteType::Text)
+            }
+            // Binary types → BLOB
+            TypeCategory::Blob | TypeCategory::ArrayVec | TypeCategory::ByteArray => {
+                Some(SQLiteType::Blob)
+            }
+            // UUID defaults to BLOB (more efficient), but can be overridden to TEXT
+            TypeCategory::Uuid => Some(SQLiteType::Blob),
+            // JSON defaults to TEXT (human-readable), but can be overridden to BLOB
+            TypeCategory::Json => Some(SQLiteType::Text),
+            // Enum defaults to TEXT (variant names), but can be overridden to INTEGER
+            TypeCategory::Enum => Some(SQLiteType::Text),
+            // Unknown types require explicit annotation
+            TypeCategory::Unknown => None,
         }
     }
 
@@ -226,7 +322,9 @@ pub(crate) struct ForeignKeyReference {
 pub(crate) struct FieldInfo<'a> {
     // Basic field identifiers and types
     pub(crate) ident: &'a Ident,
+    /// The original field type (e.g., Option<String> or i32)
     pub(crate) field_type: &'a Type,
+    /// The base type with Option<> unwrapped (e.g., String from Option<String>)
     pub(crate) base_type: &'a Type,
 
     // Database mapping
@@ -250,6 +348,10 @@ pub(crate) struct FieldInfo<'a> {
     // Attribute values
     pub(crate) default_value: Option<Expr>,
     pub(crate) default_fn: Option<Expr>,
+
+    // Original marker expressions for IDE hover documentation
+    // These preserve the original tokens so rust-analyzer can resolve them
+    pub(crate) marker_exprs: Vec<syn::ExprPath>,
 
     // Type representations for models
     pub(crate) select_type: Option<TokenStream>,
@@ -280,16 +382,25 @@ struct ParsedArgs {
     references: Option<Expr>,
     name: Option<Expr>,
     flags: HashSet<String>,
+    /// Original marker expressions for IDE hover documentation
+    /// These preserve the original tokens so rust-analyzer can resolve them
+    marker_exprs: Vec<syn::ExprPath>,
+    /// Explicit SQLite type override (e.g., from #[column(text)] or #[column(blob)])
+    explicit_type: Option<SQLiteType>,
 }
 
 #[derive(Default)]
 struct AttributeData {
     column_type: SQLiteType,
+    /// Whether the type was explicitly specified (vs inferred from Rust type)
+    has_explicit_type: bool,
     flags: HashSet<String>,
     default_value: Option<Expr>,
     default_fn: Option<Expr>,
     references_path: Option<ExprPath>,
     attr_name: Option<String>,
+    /// Original marker expressions for IDE hover documentation
+    marker_exprs: Vec<syn::ExprPath>,
 }
 
 struct FieldProperties {
@@ -317,7 +428,26 @@ impl FieldProperties {
 }
 
 impl<'a> FieldInfo<'a> {
-    /// Parse attribute arguments, extracting flags and named parameters
+    /// Create an ExprPath with an UPPERCASE ident but preserving the original span.
+    ///
+    /// This allows users to write `#[column(primary)]` (lowercase) but the generated
+    /// code references `PRIMARY` (uppercase, resolves to prelude). The preserved span
+    /// enables IDE hover documentation by linking back to the user's source.
+    fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> syn::ExprPath {
+        let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
+        syn::ExprPath {
+            attrs: vec![],
+            qself: None,
+            path: new_ident.into(),
+        }
+    }
+
+    /// Parse attribute arguments, extracting flags and named parameters.
+    ///
+    /// Supports:
+    /// - SQLite type overrides: `text`, `integer`, `blob`, `real`, `any`
+    /// - Constraint flags: `primary`, `unique`, `autoincrement`, `json`, `enum`
+    /// - Named parameters: `default = value`, `default_fn = func`, `references = Table::col`
     fn parse_args(input: ParseStream) -> Result<ParsedArgs> {
         if input.is_empty() {
             return Ok(ParsedArgs::default());
@@ -329,10 +459,55 @@ impl<'a> FieldInfo<'a> {
         items.into_iter().for_each(|expr| match expr {
             Expr::Path(path) => {
                 if let Some(ident) = path.path.get_ident() {
-                    match ident.to_string().as_str() {
-                        "default" => args.default_fn = Some(syn::parse_quote!(Default::default)),
-                        flag => {
-                            args.flags.insert(flag.to_string());
+                    let ident_str = ident.to_string();
+                    // Match case-insensitively - create UPPERCASE ident with original span for IDE hover
+                    // This allows users to write lowercase but resolves to UPPERCASE prelude exports
+                    let upper = ident_str.to_ascii_uppercase();
+                    match upper.as_str() {
+                        "JSON" => {
+                            // JSON = TEXT storage with JSON serialization
+                            args.explicit_type = Some(SQLiteType::Text);
+                            args.flags.insert("json".to_string());
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(ident, "JSON"));
+                        }
+                        "JSONB" => {
+                            // JSONB = BLOB storage with JSON serialization
+                            args.explicit_type = Some(SQLiteType::Blob);
+                            args.flags.insert("json".to_string());
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(ident, "JSONB"));
+                        }
+                        "DEFAULT" => {
+                            args.default_fn = Some(syn::parse_quote!(Default::default));
+                        }
+                        "ENUM" => {
+                            args.flags.insert("enum".to_string());
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(ident, "ENUM"));
+                        }
+                        "PRIMARY" | "PRIMARY_KEY" => {
+                            args.flags.insert("primary".to_string());
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(ident, "PRIMARY"));
+                        }
+                        "AUTOINCREMENT" => {
+                            args.flags.insert("autoincrement".to_string());
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(ident, "AUTOINCREMENT"));
+                        }
+                        "UNIQUE" => {
+                            args.flags.insert("unique".to_string());
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(ident, "UNIQUE"));
+                        }
+                        _ => {
+                            // Check if this is a SQLite type override (case-insensitive for types)
+                            if let Some(sqlite_type) = SQLiteType::from_attribute_name(&ident_str) {
+                                args.explicit_type = Some(sqlite_type);
+                            } else {
+                                args.flags.insert(ident_str.clone());
+                            }
                         }
                     }
                 }
@@ -341,11 +516,30 @@ impl<'a> FieldInfo<'a> {
                 if let Expr::Path(path) = &*assign.left
                     && let Some(param) = path.path.get_ident()
                 {
-                    match param.to_string().as_str() {
-                        "default" => args.default_value = Some(*assign.right),
-                        "default_fn" => args.default_fn = Some(*assign.right),
-                        "references" => args.references = Some(*assign.right),
-                        "name" => args.name = Some(*assign.right),
+                    let param_str = param.to_string();
+                    // Match case-insensitively - create UPPERCASE ident with original span for IDE hover
+                    let upper = param_str.to_ascii_uppercase();
+                    match upper.as_str() {
+                        "DEFAULT" => {
+                            args.default_value = Some(*assign.right);
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(param, "DEFAULT"));
+                        }
+                        "DEFAULT_FN" => {
+                            args.default_fn = Some(*assign.right);
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(param, "DEFAULT_FN"));
+                        }
+                        "REFERENCES" => {
+                            args.references = Some(*assign.right);
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(param, "REFERENCES"));
+                        }
+                        "NAME" => {
+                            args.name = Some(*assign.right);
+                            args.marker_exprs
+                                .push(Self::make_uppercase_path(param, "NAME"));
+                        }
                         _ => {}
                     }
                 }
@@ -370,50 +564,98 @@ impl<'a> FieldInfo<'a> {
         Self::build(field_name, &field.ty, attrs, is_part_of_composite_pk)
     }
 
-    /// Parse field attributes to extract column information
+    /// Parse field attributes to extract column information.
+    ///
+    /// Supports two syntaxes:
+    /// 1. Legacy: `#[text]`, `#[integer(primary)]`, etc. - type from attribute name
+    /// 2. New: `#[column(primary)]`, `#[column(text, primary)]` - type inferred or explicit
+    ///
+    /// For the new syntax, if no explicit type is provided, the SQLite type is
+    /// inferred from the Rust type using `TypeCategory::to_sqlite_type()`.
     fn parse_attributes(attrs: &[Attribute]) -> Result<AttributeData> {
-        attrs
-            .iter()
-            .filter_map(|attr| {
-                let ident = attr.path().get_ident()?;
-                let type_name = ident.to_string();
-                let column_type = SQLiteType::from_attribute_name(&type_name)?;
-                Some((attr, column_type))
-            })
-            .try_fold(AttributeData::default(), |mut data, (attr, column_type)| {
+        let mut data = AttributeData::default();
+
+        for attr in attrs {
+            let Some(ident) = attr.path().get_ident() else {
+                continue;
+            };
+            let attr_name = ident.to_string();
+
+            // Check for legacy type attribute (#[text], #[integer], etc.)
+            if let Some(column_type) = SQLiteType::from_attribute_name(&attr_name) {
                 data.column_type = column_type.clone();
+                data.has_explicit_type = true;
 
                 // Handle empty attributes like #[text]
                 if matches!(&attr.meta, Meta::Path(_)) {
-                    return Ok(data);
+                    continue;
                 }
 
-                let Ok(args) = attr.parse_args_with(Self::parse_args) else {
-                    return Ok(data); // Skip unparseable attributes
-                };
+                // Parse arguments for legacy syntax
+                if let Ok(args) = attr.parse_args_with(Self::parse_args) {
+                    // Validate flags against the explicit column type
+                    args.flags
+                        .iter()
+                        .try_for_each(|flag| column_type.validate_flag(flag, attr))?;
 
-                // Validate flags
-                args.flags
-                    .iter()
-                    .try_for_each(|flag| column_type.validate_flag(flag, attr))?;
+                    data.flags.extend(args.flags);
+                    data.default_value = data.default_value.or(args.default_value);
+                    data.default_fn = data.default_fn.or(args.default_fn);
+                    data.marker_exprs.extend(args.marker_exprs);
 
-                // Extract values
-                data.flags.extend(args.flags);
-                data.default_value = data.default_value.or(args.default_value);
-                data.default_fn = data.default_fn.or(args.default_fn);
+                    if let Some(Expr::Path(path)) = args.references {
+                        data.references_path = Some(path);
+                    }
 
-                if let Some(Expr::Path(path)) = args.references {
-                    data.references_path = Some(path);
+                    if let Some(Expr::Lit(expr_lit)) = args.name
+                        && let Lit::Str(lit_str) = expr_lit.lit
+                    {
+                        data.attr_name = Some(lit_str.value());
+                    }
+                }
+                continue;
+            }
+
+            // Check for new #[column(...)] syntax
+            if attr_name == "column" {
+                // Handle empty #[column] (just type inference, no constraints)
+                if matches!(&attr.meta, Meta::Path(_)) {
+                    continue;
                 }
 
-                if let Some(Expr::Lit(expr_lit)) = args.name
-                    && let Lit::Str(lit_str) = expr_lit.lit
-                {
-                    data.attr_name = Some(lit_str.value());
-                }
+                // Parse arguments for new syntax
+                if let Ok(args) = attr.parse_args_with(Self::parse_args) {
+                    // If explicit type was provided in args, use it
+                    if let Some(explicit_type) = args.explicit_type {
+                        data.column_type = explicit_type.clone();
+                        data.has_explicit_type = true;
 
-                Ok(data)
-            })
+                        // Validate flags against the explicit type
+                        args.flags
+                            .iter()
+                            .try_for_each(|flag| explicit_type.validate_flag(flag, attr))?;
+                    }
+                    // Otherwise, type will be inferred in build()
+
+                    data.flags.extend(args.flags);
+                    data.default_value = data.default_value.or(args.default_value);
+                    data.default_fn = data.default_fn.or(args.default_fn);
+                    data.marker_exprs.extend(args.marker_exprs);
+
+                    if let Some(Expr::Path(path)) = args.references {
+                        data.references_path = Some(path);
+                    }
+
+                    if let Some(Expr::Lit(expr_lit)) = args.name
+                        && let Lit::Str(lit_str) = expr_lit.lit
+                    {
+                        data.attr_name = Some(lit_str.value());
+                    }
+                }
+            }
+        }
+
+        Ok(data)
     }
 
     /// Build FieldInfo from parsed components
@@ -438,8 +680,32 @@ impl<'a> FieldInfo<'a> {
             FieldProperties::from_flags_and_types(&attrs.flags, field_type, base_type);
         properties.has_default = attrs.default_value.is_some() || attrs.default_fn.is_some();
 
+        // Determine the SQLite type:
+        // 1. Use explicit type from attribute if provided
+        // 2. Otherwise, infer from Rust type
+        let type_str = base_type.to_token_stream().to_string();
+        let type_category = if properties.is_json {
+            TypeCategory::Json
+        } else if properties.is_enum {
+            TypeCategory::Enum
+        } else {
+            TypeCategory::from_type_string(&type_str)
+        };
+
+        let column_type = if attrs.has_explicit_type {
+            // Use the explicit type from the attribute
+            attrs.column_type.clone()
+        } else {
+            // Infer from Rust type
+            type_category.to_sqlite_type().unwrap_or_else(|| {
+                // If we can't infer, default to ANY (flexible SQLite type)
+                // This allows unknown types to work but may cause runtime issues
+                SQLiteType::Any
+            })
+        };
+
         Self::validate_constraints(
-            &attrs.column_type,
+            &column_type,
             &properties,
             &attrs.default_value,
             &attrs.default_fn,
@@ -448,7 +714,7 @@ impl<'a> FieldInfo<'a> {
 
         let sql_definition = build_sql_definition(
             &column_name,
-            &attrs.column_type,
+            &column_type,
             properties.is_primary && !is_part_of_composite_pk,
             !is_nullable,
             properties.is_unique,
@@ -476,10 +742,11 @@ impl<'a> FieldInfo<'a> {
             is_json: properties.is_json,
             is_enum: properties.is_enum,
             is_uuid: properties.is_uuid,
-            column_type: attrs.column_type,
+            column_type,
             foreign_key,
             default_value: attrs.default_value,
             default_fn: attrs.default_fn,
+            marker_exprs: attrs.marker_exprs,
             select_type: Some(select_type(base_type, is_nullable, properties.has_default)),
             update_type: Some(update_type(base_type)),
         })

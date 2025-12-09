@@ -3,6 +3,7 @@ mod attributes;
 mod column_definitions;
 mod context;
 mod drivers;
+mod errors;
 mod models;
 mod sql_generation;
 mod traits;
@@ -23,6 +24,7 @@ use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use sql_generation::generate_create_table_sql;
+use syn::Ident;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Result};
 use traits::generate_table_impls;
@@ -80,6 +82,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
         has_foreign_keys,
+        is_composite_pk,
         attrs: &attrs,
     };
 
@@ -103,6 +106,9 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate TryFrom implementations for all enabled PostgreSQL drivers
     let driver_impls = drivers::generate_all_driver_impls(&ctx)?;
 
+    // Generate table marker const for IDE hover documentation
+    let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
+
     // Generate fields for new() method
     let new_method_fields = field_infos
         .iter()
@@ -124,8 +130,8 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // 3. Assembly Phase
     // -------------------
     let expanded = quote! {
-        // Compile-time validation for default literals
-        // #default_validations
+        // Table marker const for IDE hover documentation
+        #table_marker_const
 
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
@@ -145,4 +151,31 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     };
 
     Ok(expanded)
+}
+
+/// Generate a const that references the original table marker tokens from the attribute.
+///
+/// This creates hidden const bindings that use the exact tokens from `#[PostgresTable(UNLOGGED)]`,
+/// enabling rust-analyzer to resolve them and provide hover documentation.
+fn generate_table_marker_const(
+    struct_ident: &Ident,
+    marker_exprs: &[syn::ExprPath],
+) -> TokenStream {
+    if marker_exprs.is_empty() {
+        return TokenStream::new();
+    }
+
+    let marker_const_name = format_ident!("_TABLE_ATTR_MARKERS_{}", struct_ident);
+
+    // Generate individual let bindings for each marker since they may be different types
+    // (TableMarker for UNLOGGED/TEMPORARY, NameMarker for NAME)
+    quote! {
+        /// Hidden const that references the original table attribute markers.
+        /// This enables IDE hover documentation for `#[PostgresTable(...)]` attributes.
+        #[doc(hidden)]
+        #[allow(dead_code, non_upper_case_globals)]
+        const #marker_const_name: () = {
+            #( let _ = #marker_exprs; )*
+        };
+    }
 }

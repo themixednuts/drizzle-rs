@@ -147,34 +147,34 @@ pub(crate) fn generate_json_impls(
                 SQLiteType::Text => quote! {
                     impl ::turso::IntoValue for #struct_name {
                         fn into_value(self) -> ::turso::Result<::turso::Value> {
-                            let json = serde_json::to_string(&self)
+                            let json_data = serde_json::to_string(&self)
                                 .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Text(json))
+                            Ok(::turso::Value::Text(json_data))
                         }
                     }
 
                     impl ::turso::IntoValue for &#struct_name {
                         fn into_value(self) -> ::turso::Result<::turso::Value> {
-                            let json = serde_json::to_string(self)
+                            let json_data = serde_json::to_string(self)
                                 .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Text(json))
+                            Ok(::turso::Value::Text(json_data))
                         }
                     }
                 },
                 SQLiteType::Blob => quote! {
                     impl ::turso::IntoValue for #struct_name {
                         fn into_value(self) -> ::turso::Result<::turso::Value> {
-                            let json = serde_json::to_vec(&self)
+                            let json_data = serde_json::to_vec(&self)
                                 .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Blob(json))
+                            Ok(::turso::Value::Blob(json_data))
                         }
                     }
 
                     impl ::turso::IntoValue for &#struct_name {
                         fn into_value(self) -> ::turso::Result<::turso::Value> {
-                            let json = serde_json::to_vec(self)
+                            let json_data = serde_json::to_vec(self)
                                 .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Blob(json))
+                            Ok(::turso::Value::Blob(json_data))
                         }
                     }
                 },

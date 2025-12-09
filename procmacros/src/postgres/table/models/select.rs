@@ -14,7 +14,7 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     for field_info in ctx.field_infos {
         let field_name = &field_info.ident;
-        let field_type = &field_info.ty;
+        let field_type = &field_info.field_type;
 
         // For SELECT models, all fields are Option<T> to handle partial selects
         select_fields.push(quote! {

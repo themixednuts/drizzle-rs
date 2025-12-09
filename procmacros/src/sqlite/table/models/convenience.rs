@@ -115,10 +115,7 @@ fn generate_insert_convenience_method(
                 }
             }
         }
-        TypeCategory::ArrayString
-        | TypeCategory::ArrayVec
-        | TypeCategory::Primitive
-        | TypeCategory::Enum => {
+        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Enum => {
             // These use the base type directly
             quote! {
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
@@ -164,6 +161,22 @@ fn generate_insert_convenience_method(
                 }
             }
         }
+        // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use base type directly
+        _ => {
+            quote! {
+                impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
+                    pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
+                    where
+                        V: Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>>
+                    {
+                        #insert_model {
+                            #(#field_assignments,)*
+                            _pattern: ::std::marker::PhantomData,
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -185,7 +198,7 @@ fn generate_json_insert_method(
                     .unwrap_or_else(|_| "null".to_string());
                 SQLiteInsertValue::Value(
                     ValueWrapper {
-                        value: json(
+                        value: expression::json(
                             SQL::param(
                                 SQLiteValue::Text(
                                     ::std::borrow::Cow::Owned(json_str)
@@ -202,7 +215,7 @@ fn generate_json_insert_method(
                     .unwrap_or_else(|_| "null".as_bytes().to_vec());
                 SQLiteInsertValue::Value(
                     ValueWrapper {
-                        value: jsonb(
+                        value: expression::jsonb(
                             SQL::param(
                                 SQLiteValue::Blob(
                                     ::std::borrow::Cow::Owned(json_bytes)
@@ -269,7 +282,6 @@ fn generate_update_convenience_method(
         }
         TypeCategory::ArrayString
         | TypeCategory::ArrayVec
-        | TypeCategory::Primitive
         | TypeCategory::Enum
         | TypeCategory::Json => {
             // These use the base type directly
@@ -293,6 +305,15 @@ fn generate_update_convenience_method(
             quote! {
                 pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
                     let value = value.into();
+                    #assignment
+                    self
+                }
+            }
+        }
+        // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use base type directly
+        _ => {
+            quote! {
+                pub fn #method_name(mut self, value: #base_type) -> Self {
                     #assignment
                     self
                 }

@@ -333,7 +333,7 @@ pub(crate) fn generate_json_impls(
                     impl From<#struct_name> for ::libsql::Value {
                         fn from(value: #struct_name) -> Self {
                             match serde_json::to_string(&value) {
-                                Ok(json) => ::libsql::Value::Text(json),
+                                Ok(json_data) => ::libsql::Value::Text(json_data),
                                 Err(_) => ::libsql::Value::Null,
                             }
                         }
@@ -342,7 +342,7 @@ pub(crate) fn generate_json_impls(
                     impl From<&#struct_name> for ::libsql::Value {
                         fn from(value: &#struct_name) -> Self {
                             match serde_json::to_string(value) {
-                                Ok(json) => ::libsql::Value::Text(json),
+                                Ok(json_data) => ::libsql::Value::Text(json_data),
                                 Err(_) => ::libsql::Value::Null,
                             }
                         }
@@ -352,7 +352,7 @@ pub(crate) fn generate_json_impls(
                     impl From<#struct_name> for ::libsql::Value {
                         fn from(value: #struct_name) -> Self {
                             match serde_json::to_vec(&value) {
-                                Ok(json) => ::libsql::Value::Blob(json),
+                                Ok(json_data) => ::libsql::Value::Blob(json_data),
                                 Err(_) => ::libsql::Value::Null,
                             }
                         }
@@ -361,7 +361,7 @@ pub(crate) fn generate_json_impls(
                     impl From<&#struct_name> for ::libsql::Value {
                         fn from(value: &#struct_name) -> Self {
                             match serde_json::to_vec(value) {
-                                Ok(json) => ::libsql::Value::Blob(json),
+                                Ok(json_data) => ::libsql::Value::Blob(json_data),
                                 Err(_) => ::libsql::Value::Null,
                             }
                         }

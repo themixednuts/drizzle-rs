@@ -208,7 +208,7 @@ fn generate_constructor_param(
                             .unwrap_or_else(|_| "null".to_string());
                         SQLiteInsertValue::Value(
                             ValueWrapper {
-                                value: json(
+                                value: expression::json(
                                     SQL::param(
                                         SQLiteValue::Text(
                                             ::std::borrow::Cow::Owned(json_str)
@@ -225,7 +225,7 @@ fn generate_constructor_param(
                             .unwrap_or_else(|_| "null".as_bytes().to_vec());
                         SQLiteInsertValue::Value(
                             ValueWrapper {
-                                value: jsonb(
+                                value: expression::jsonb(
                                     SQL::param(
                                         SQLiteValue::Blob(
                                             ::std::borrow::Cow::Owned(json_bytes)
@@ -255,11 +255,13 @@ fn generate_constructor_param(
             quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
             quote! { #field_name: #field_name.into() },
         ),
-        // ArrayString, ArrayVec, Enum, Primitive use base type directly
-        TypeCategory::ArrayString
-        | TypeCategory::ArrayVec
-        | TypeCategory::Enum
-        | TypeCategory::Primitive => (
+        // ArrayString, ArrayVec, Enum use base type directly
+        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Enum => (
+            quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>> },
+            quote! { #field_name: #field_name.into() },
+        ),
+        // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use base type directly
+        _ => (
             quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),

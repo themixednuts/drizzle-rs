@@ -193,7 +193,7 @@ fn generate_marker_types(ctx: &MacroContext) -> Vec<TokenStream> {
 
 /// Determine the appropriate field type for INSERT operations
 fn get_field_type_for_model(field_info: &FieldInfo, model_type: ModelType) -> TokenStream {
-    let base_type = field_info.base_type();
+    let base_type = &field_info.base_type;
     match model_type {
         ModelType::Insert => {
             // For insert fields, use the base type (inner type for Option<T>)
@@ -225,7 +225,7 @@ fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
 /// Generate constructor parameter and assignment based on field type category.
 fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
     let field_name = &info.ident;
-    let base_type = info.base_type();
+    let base_type = &info.base_type;
     let category = info.type_category();
 
     match category {
@@ -237,13 +237,13 @@ fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
             quote! { #field_name: impl Into<PostgresInsertValue<'a, PostgresValue<'a>, ::std::vec::Vec<u8>>> },
             quote! { #field_name: #field_name.into() },
         ),
-        // ArrayString, ArrayVec, Uuid, Json, Enum, Primitive use base type directly
+        // ArrayString, ArrayVec, Uuid, Json, Enum, and primitives use base type directly
         TypeCategory::ArrayString
         | TypeCategory::ArrayVec
         | TypeCategory::Uuid
         | TypeCategory::Json
         | TypeCategory::Enum
-        | TypeCategory::Primitive => (
+        | _ => (
             quote! { #field_name: impl Into<PostgresInsertValue<'a, PostgresValue<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),

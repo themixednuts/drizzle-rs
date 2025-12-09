@@ -5,7 +5,7 @@ use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, 
 
 /// Attributes for the SQLiteIndex attribute macro
 /// Syntax: #[SQLiteIndex] or #[SQLiteIndex(unique)]
-pub(crate) struct IndexAttributes {
+pub struct IndexAttributes {
     pub unique: bool,
 }
 
@@ -38,10 +38,7 @@ impl Parse for IndexAttributes {
 }
 
 /// Generates the SQLiteIndex implementation
-pub(crate) fn sqlite_index_attr_macro(
-    attr: IndexAttributes,
-    input: DeriveInput,
-) -> Result<TokenStream> {
+pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Result<TokenStream> {
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
     let is_unique = attr.unique;

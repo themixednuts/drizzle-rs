@@ -56,7 +56,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
 
 /// Determine the appropriate field type for UPDATE operations
 fn get_update_field_type(field_info: &FieldInfo) -> TokenStream {
-    let base_type = field_info.base_type();
+    let base_type = &field_info.base_type;
 
     // For UPDATE operations, all fields are optional since you might only want to update some
     // Use the base type (inner type for Option<T>) to avoid Option<Option<T>>

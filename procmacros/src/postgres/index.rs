@@ -7,7 +7,6 @@ use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, 
 pub struct IndexAttributes {
     pub unique: bool,
     pub concurrent: bool,
-    pub if_not_exists: bool,
     pub method: Option<String>, // btree, hash, gin, gist, spgist, brin
     pub tablespace: Option<String>,
     pub where_clause: Option<String>,
@@ -18,7 +17,6 @@ impl Default for IndexAttributes {
         Self {
             unique: false,
             concurrent: false,
-            if_not_exists: false,
             method: Some("btree".to_string()), // Default to btree
             tablespace: None,
             where_clause: None,
@@ -43,9 +41,6 @@ impl Parse for IndexAttributes {
                 }
                 Meta::Path(path) if path.is_ident("concurrent") => {
                     attrs.concurrent = true;
-                }
-                Meta::Path(path) if path.is_ident("if_not_exists") => {
-                    attrs.if_not_exists = true;
                 }
                 Meta::NameValue(nv) if nv.path.is_ident("method") => {
                     if let syn::Expr::Lit(ref lit) = nv.value
@@ -102,7 +97,6 @@ impl Parse for IndexAttributes {
                          Supported attributes:\n\
                          - unique: Create unique index\n\
                          - concurrent: Create index concurrently\n\
-                         - if_not_exists: Add IF NOT EXISTS clause\n\
                          - method: Index method (btree, hash, gin, gist, spgist, brin)\n\
                          - tablespace: Specify tablespace\n\
                          - where: Partial index condition\n\
@@ -323,9 +317,6 @@ fn generate_create_index_sql(
     sql.push_str("INDEX ");
     if attr.concurrent {
         sql.push_str("CONCURRENTLY ");
-    }
-    if attr.if_not_exists {
-        sql.push_str("IF NOT EXISTS ");
     }
     // Quote index name
     sql.push_str(&format!("\"{}\"", index_name));

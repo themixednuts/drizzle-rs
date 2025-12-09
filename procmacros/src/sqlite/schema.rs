@@ -2,8 +2,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Result};
 
-/// Generates the Schema derive implementation
-pub fn generate_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
+/// Generates the SQLite Schema derive implementation
+pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let struct_name = &input.ident;
 
     // Extract fields from the struct

@@ -212,9 +212,9 @@ pub(crate) fn generate_json_impls(
                         }
                     },
                     quote! {
-                        let json = serde_json::to_string(self)
+                        let json_data = serde_json::to_string(self)
                             .map_err(|e| ::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Text(json)))
+                        Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Text(json_data)))
                     },
                 ),
                 SQLiteType::Blob => (
@@ -226,9 +226,9 @@ pub(crate) fn generate_json_impls(
                         }
                     },
                     quote! {
-                        let json = serde_json::to_vec(self)
+                        let json_data = serde_json::to_vec(self)
                             .map_err(|e| ::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Blob(json)))
+                        Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Blob(json_data)))
                     },
                 ),
                 _ => {

@@ -795,7 +795,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::sqlite::schema::generate_schema_derive_impl(input) {
+    match crate::sqlite::schema::generate_sqlite_schema_derive_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

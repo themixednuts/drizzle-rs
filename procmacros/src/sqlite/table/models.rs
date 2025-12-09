@@ -68,6 +68,12 @@ fn generate_model_trait_impls(
                 SQL::empty()
             }
         }
+
+        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #select_model_partial {
+            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+                SQLModel::values(self)
+            }
+        }
     };
 
     Ok(quote! {
@@ -84,6 +90,16 @@ fn generate_model_trait_impls(
             fn values(&self) -> SQL<'a, SQLiteValue<'a>> {
                 SQL::empty()
             }
+        }
+
+        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #select_model {
+            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+                SQLModel::values(self)
+            }
+        }
+
+        impl<'a> SQLPartial<'a, SQLiteValue<'a>> for #select_model {
+            type Partial = #select_model_partial;
         }
 
         impl<'a> SQLModel<'a, SQLiteValue<'a>> for #update_model {
@@ -106,6 +122,9 @@ fn generate_model_trait_impls(
                 SQL::param_list(values)
             }
         }
+
+        // ToSQL impl for Update model is generated in update.rs using SQL::assignments()
+
         #partial_impl
 
     })

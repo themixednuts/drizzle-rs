@@ -34,7 +34,7 @@ use sql_generation::{generate_create_table_sql, generate_create_table_sql_runtim
 use traits::generate_table_impls;
 use validation::generate_default_validations;
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Result};
@@ -43,7 +43,7 @@ use syn::{Data, DeriveInput, Result};
 // Main Macro Entry Point
 // ============================================================================
 
-pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<TokenStream> {
+pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<TokenStream> {
     // -------------------
     // 1. Setup Phase
     // -------------------
@@ -51,6 +51,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     let struct_vis = &input.vis;
     let table_name = attrs
         .name
+        .clone()
         .unwrap_or_else(|| struct_ident.to_string().to_snake_case());
 
     let fields = if let Data::Struct(data) = &input.data {
@@ -120,6 +121,9 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     // Generate table metadata JSON for drizzle-kit compatible migrations
     let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
 
+    // Generate table marker const for IDE hover documentation
+    let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
+
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
@@ -131,8 +135,7 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
-        without_rowid: attrs.without_rowid,
-        strict: attrs.strict,
+        attrs: &attrs,
         has_foreign_keys,
         is_composite_pk,
     };
@@ -174,6 +177,9 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
         // Compile-time validation for default literals
         #default_validations
 
+        // Table marker const for IDE hover documentation
+        #table_marker_const
+
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
@@ -199,4 +205,31 @@ pub(crate) fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Re
     };
 
     Ok(expanded)
+}
+
+/// Generate a const that references the original table marker tokens from the attribute.
+///
+/// This creates hidden const bindings that use the exact tokens from `#[SQLiteTable(STRICT)]`,
+/// enabling rust-analyzer to resolve them and provide hover documentation.
+fn generate_table_marker_const(
+    struct_ident: &Ident,
+    marker_exprs: &[syn::ExprPath],
+) -> TokenStream {
+    if marker_exprs.is_empty() {
+        return TokenStream::new();
+    }
+
+    let marker_const_name = format_ident!("_TABLE_ATTR_MARKERS_{}", struct_ident);
+
+    // Generate individual let bindings for each marker since they may be different types
+    // (TableMarker for STRICT/WITHOUT_ROWID, NameMarker for NAME)
+    quote! {
+        /// Hidden const that references the original table attribute markers.
+        /// This enables IDE hover documentation for `#[SQLiteTable(...)]` attributes.
+        #[doc(hidden)]
+        #[allow(dead_code, non_upper_case_globals)]
+        const #marker_const_name: () = {
+            #( let _ = #marker_exprs; )*
+        };
+    }
 }
