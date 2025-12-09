@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 

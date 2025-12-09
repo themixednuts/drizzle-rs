@@ -360,16 +360,9 @@ pub mod prelude {
     // in the main prelude. Users should use drizzle::postgres::prelude::* directly
     // for PostgreSQL-specific items when using both databases.
 
-    #[cfg(feature = "sqlite")]
-    pub use crate::sqlite::prelude::*;
-
     /// Re-export the sqlite module so generated code can use `sqlite::columns::*`
     #[cfg(feature = "sqlite")]
     pub use crate::sqlite;
-
-    // Only glob-export postgres prelude if sqlite is NOT enabled (to avoid conflicts)
-    #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-    pub use crate::postgres::prelude::*;
 
     /// Re-export the postgres module so generated code can use `postgres::columns::*`
     #[cfg(feature = "postgres")]

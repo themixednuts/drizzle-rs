@@ -1,7 +1,7 @@
 #![allow(clippy::redundant_closure)]
 
 use divan::{AllocProfiler, Bencher, black_box};
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 
 #[global_allocator]
 static ALLOC: AllocProfiler = AllocProfiler::system();
