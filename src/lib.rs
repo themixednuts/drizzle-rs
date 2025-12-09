@@ -171,13 +171,28 @@ pub mod sqlite {
         };
         pub use drizzle_sqlite::builder::QueryBuilder;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
-        pub use drizzle_sqlite::expression::{json, jsonb};
+        // Note: json/jsonb expression functions are NOT exported here to avoid conflict
+        // with column attribute markers. Import from drizzle::sqlite::expression if needed.
         pub use drizzle_sqlite::traits::{
             DrizzleRow, FromSQLiteValue, SQLiteColumn, SQLiteColumnInfo, SQLiteTable,
             SQLiteTableInfo,
         };
         pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue, ValueWrapper};
         pub use drizzle_sqlite::{SQLiteTransactionType, conditions, expression, params, pragma};
+
+        // Column attribute markers for IDE documentation
+        // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.
+        pub use drizzle_sqlite::attrs::{
+            AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, PRIMARY,
+            PRIMARY_KEY, REFERENCES, UNIQUE,
+        };
+
+        // Table attribute markers for IDE documentation
+        // These provide hover docs when using #[SQLiteTable(STRICT)], etc.
+        pub use drizzle_sqlite::attrs::{STRICT, TableMarker, WITHOUT_ROWID};
+
+        // Shared markers (used by both column and table attributes)
+        pub use drizzle_sqlite::attrs::{NAME, NameMarker};
 
         /// Re-export the sqlite module so generated code can use `sqlite::columns::*`
         pub use crate::sqlite;
@@ -300,6 +315,20 @@ pub mod postgres {
         };
         pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue};
 
+        // Column attribute markers for IDE documentation
+        // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.
+        pub use drizzle_postgres::attrs::{
+            BIGSERIAL, CHECK, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, GENERATED_IDENTITY, JSON,
+            JSONB, PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL, UNIQUE,
+        };
+
+        // Table attribute markers for IDE documentation
+        // These provide hover docs when using #[PostgresTable(UNLOGGED)], etc.
+        pub use drizzle_postgres::attrs::{INHERITS, TABLESPACE, TEMPORARY, TableMarker, UNLOGGED};
+
+        // Shared markers (used by both column and table attributes)
+        pub use drizzle_postgres::attrs::{NAME, NameMarker};
+
         /// Re-export the postgres module so generated code can use `postgres::columns::*`
         pub use crate::postgres;
     }
@@ -357,29 +386,25 @@ mod sqlite_tests {
     #[cfg(feature = "rusqlite")]
     use rusqlite;
 
-    #[SQLiteTable(name = "Users")]
+    #[SQLiteTable(NAME = "Users")]
     pub struct User {
-        #[integer(primary)]
+        #[column(PRIMARY)]
         id: i32,
-        #[text]
         name: String,
-        #[text]
         email: Option<String>,
     }
 
-    #[SQLiteTable(name = "Posts")]
+    #[SQLiteTable(NAME = "Posts")]
     pub struct Post {
-        #[integer(primary)]
+        #[column(PRIMARY)]
         id: i32,
-        #[text]
         title: String,
     }
 
-    #[SQLiteTable(name = "Comments")]
+    #[SQLiteTable(NAME = "Comments")]
     pub struct Comment {
-        #[integer(primary)]
+        #[column(PRIMARY)]
         id: i32,
-        #[text]
         content: String,
     }
 
@@ -494,25 +519,21 @@ mod postgres_tests {
 
     #[PostgresTable(name = "users")]
     pub struct User {
-        #[serial(primary)]
+        #[column(primary, serial)]
         id: i32,
-        #[text]
         name: String,
-        #[text]
         email: Option<String>,
-        #[text(enum)]
+        #[column(enum)]
         status: Status,
-        #[r#enum(Priority)]
+        #[column(enum)]
         priority: Priority,
     }
 
     #[PostgresTable(name = "posts")]
     pub struct Post {
-        #[serial(primary)]
+        #[column(primary, serial)]
         id: i32,
-        #[text]
         title: String,
-        #[boolean]
         published: bool,
     }
 

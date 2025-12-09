@@ -10,12 +10,33 @@
 pub use drizzle_core::{OrderBy, SQL, ToSQL};
 
 // Re-export PostgreSQL-specific modules
+pub mod attrs;
 pub mod builder;
 pub mod columns;
 pub mod common;
 pub mod helpers;
 pub mod traits;
 pub mod values;
+
+/// Prelude for PostgreSQL - import commonly used traits and attribute markers.
+pub mod prelude {
+    pub use super::PostgresTransactionType;
+    pub use super::traits::{DrizzleRow, FromPostgresValue, PostgresColumn, PostgresEnum};
+
+    // Column attribute markers for IDE documentation
+    // These are used in #[column(...)] attributes
+    pub use super::attrs::{
+        BIGSERIAL, CHECK, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, GENERATED_IDENTITY, JSON, JSONB,
+        PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL, UNIQUE,
+    };
+
+    // Table attribute markers for IDE documentation
+    // These are used in #[PostgresTable(...)] attributes
+    pub use super::attrs::{INHERITS, TABLESPACE, TEMPORARY, TableMarker, UNLOGGED};
+
+    // Shared markers (used by both column and table attributes)
+    pub use super::attrs::{NAME, NameMarker};
+}
 
 // Re-export key types for easier access
 pub use builder::{BuilderInit, BuilderState, CTEInit, ExecutableState, QueryBuilder};

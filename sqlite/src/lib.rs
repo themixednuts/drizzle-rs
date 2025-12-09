@@ -6,6 +6,7 @@
 // Module Declarations
 //------------------------------------------------------------------------------
 
+pub mod attrs;
 pub mod builder;
 pub mod columns;
 pub mod common;
@@ -27,6 +28,20 @@ pub mod prelude {
     pub use crate::traits::SQLiteColumn;
     pub use crate::traits::{DrizzleRow, FromSQLiteValue};
     pub use crate::values::SQLiteValue;
+
+    // Column attribute markers for IDE documentation
+    // These are used in #[column(...)] attributes
+    pub use crate::attrs::{
+        AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, PRIMARY, PRIMARY_KEY,
+        REFERENCES, UNIQUE,
+    };
+
+    // Table attribute markers for IDE documentation
+    // These are used in #[SQLiteTable(...)] attributes
+    pub use crate::attrs::{STRICT, TableMarker, WITHOUT_ROWID};
+
+    // Shared markers (used by both column and table attributes)
+    pub use crate::attrs::{NAME, NameMarker};
 
     // Re-export rusqlite trait implementations when the feature is enabled
     #[cfg(feature = "rusqlite")]
@@ -136,6 +151,7 @@ impl From<libsql::TransactionBehavior> for SQLiteTransactionType {
         }
     }
 }
+
 // Convert to turso::TransactionBehavior
 #[cfg(feature = "turso")]
 impl From<SQLiteTransactionType> for turso::transaction::TransactionBehavior {
