@@ -8,39 +8,33 @@ use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 // Test table with ArrayString as TEXT column
-#[SQLiteTable(name = "arraystring_test")]
+#[SQLiteTable(NAME = "arraystring_test")]
 struct ArrayStringTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text] // ArrayString<16> stored as TEXT
+    // ArrayString<16> stored as TEXT (auto-inferred)
     name: ArrayString<16>,
-    #[text]
     description: String,
 }
 
 // Test table with ArrayVec<u8, N> as BLOB column
-#[SQLiteTable(name = "arrayvec_blob_test")]
+#[SQLiteTable(NAME = "arrayvec_blob_test")]
 struct ArrayVecBlobTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[blob] // ArrayVec<u8, 32> stored as BLOB
+    // ArrayVec<u8, 32> stored as BLOB (auto-inferred)
     data: ArrayVec<u8, 32>,
-    #[text]
     label: String,
 }
 
 // Test table with mixed arrayvec types
-#[SQLiteTable(name = "mixed_arrayvec_test")]
+#[SQLiteTable(NAME = "mixed_arrayvec_test")]
 struct MixedArrayVecTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     short_name: ArrayString<8>,
-    #[text]
     long_name: ArrayString<64>,
-    #[blob]
     small_data: ArrayVec<u8, 16>,
-    #[blob]
     large_data: ArrayVec<u8, 128>,
 }
 

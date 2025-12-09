@@ -1,7 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use crate::common::{Category, InsertCategory, InsertPost, InsertPostCategory, Post, Role};
+use crate::common::schema::sqlite::{
+    Category, InsertCategory, InsertPost, InsertPostCategory, Post, Role,
+};
 #[cfg(feature = "uuid")]
-use crate::common::{Complex, InsertComplex};
+use crate::common::schema::sqlite::{Complex, InsertComplex};
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
@@ -10,9 +12,9 @@ use std::array;
 use uuid::Uuid;
 
 #[cfg(not(feature = "uuid"))]
-use crate::common::FullBlogSchema;
+use crate::common::schema::sqlite::FullBlogSchema;
 #[cfg(feature = "uuid")]
-use crate::common::{ComplexPostSchema, FullBlogSchema};
+use crate::common::schema::sqlite::{ComplexPostSchema, FullBlogSchema};
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow, Default)]

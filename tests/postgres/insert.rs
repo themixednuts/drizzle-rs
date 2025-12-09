@@ -2,7 +2,7 @@
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::pg::*;
+use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -22,10 +22,10 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(insert_single_row, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(insert_single_row, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values([InsertPgSimple::new("Alice")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
@@ -36,13 +36,13 @@ postgres_test!(insert_single_row, PgSimpleSchema, {
     assert!(results[0].id > 0, "ID should be auto-generated");
 });
 
-postgres_test!(insert_multiple_rows, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(insert_multiple_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -57,12 +57,12 @@ postgres_test!(insert_multiple_rows, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(insert_with_optional_fields, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(insert_with_optional_fields, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("Alice", true, PgRole::Admin)
+        .values([InsertComplex::new("Alice", true, Role::Admin)
             .with_email("alice@example.com")
             .with_age(30)]);
     drizzle_exec!(stmt.execute());
@@ -78,12 +78,12 @@ postgres_test!(insert_with_optional_fields, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(insert_with_null_fields, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(insert_with_null_fields, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("Bob", false, PgRole::User)]);
+        .values([InsertComplex::new("Bob", false, Role::User)]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select(()).from(complex);
@@ -96,15 +96,15 @@ postgres_test!(insert_with_null_fields, PgComplexSchema, {
     assert!(!results[0].active);
 });
 
-postgres_test!(insert_special_characters, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(insert_special_characters, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("O'Brien"),
-        InsertPgSimple::new("Hello \"World\""),
-        InsertPgSimple::new("Line1\nLine2"),
-        InsertPgSimple::new("Tab\there"),
-        InsertPgSimple::new("Emoji 🎉"),
+        InsertSimple::new("O'Brien"),
+        InsertSimple::new("Hello \"World\""),
+        InsertSimple::new("Line1\nLine2"),
+        InsertSimple::new("Tab\there"),
+        InsertSimple::new("Emoji 🎉"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -120,13 +120,13 @@ postgres_test!(insert_special_characters, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(insert_with_custom_uuid, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(insert_with_custom_uuid, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let custom_id = uuid::Uuid::new_v4();
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("CustomID", true, PgRole::User).with_id(custom_id)]);
+        .values([InsertComplex::new("CustomID", true, Role::User).with_id(custom_id)]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
@@ -140,14 +140,14 @@ postgres_test!(insert_with_custom_uuid, PgComplexSchema, {
     assert_eq!(results[0].name, "CustomID");
 });
 
-postgres_test!(insert_large_batch, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(insert_large_batch, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Create a batch of 100 rows
     let names: Vec<String> = (0..100).map(|i| format!("User_{}", i)).collect();
     let rows: Vec<_> = names
         .iter()
-        .map(|n| InsertPgSimple::new(n.as_str()))
+        .map(|n| InsertSimple::new(n.as_str()))
         .collect();
 
     let stmt = db.insert(simple).values(rows);

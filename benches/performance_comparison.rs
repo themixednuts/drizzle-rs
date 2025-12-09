@@ -7,13 +7,11 @@ use drizzle::prelude::*;
 static ALLOC: AllocProfiler = AllocProfiler::system();
 
 // Schema structures for drizzle
-#[SQLiteTable(name = "users")]
+#[SQLiteTable(NAME = "users")]
 struct User {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     name: String,
-    #[text]
     email: String,
 }
 

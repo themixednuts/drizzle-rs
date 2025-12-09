@@ -5,19 +5,16 @@ use drizzle_macros::sqlite_test;
 
 #[SQLiteTable]
 struct TestTable {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     name: String,
-    #[text]
     email: Option<String>,
 }
 
-#[SQLiteTable(strict)]
+#[SQLiteTable(STRICT)]
 struct StrictTable {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     content: String,
 }
 
@@ -62,13 +59,11 @@ fn column_types() {
 }
 
 // Schema derive tests
-#[SQLiteTable(name = "users")]
+#[SQLiteTable(NAME = "users")]
 struct User {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     email: String,
-    #[text]
     name: String,
 }
 
@@ -169,33 +164,30 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
 });
 
 // Multi-table schema with foreign key dependencies for deterministic ordering tests
-#[SQLiteTable(name = "departments")]
+#[SQLiteTable(NAME = "departments")]
 struct Department {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     name: String,
 }
 
-#[SQLiteTable(name = "employees")]
+#[SQLiteTable(NAME = "employees")]
 struct Employee {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     name: String,
-    #[integer(references = Department::id)]
+    #[column(REFERENCES = Department::id)]
     department_id: i32,
-    #[integer(references = Employee::id)]
+    #[column(REFERENCES = Employee::id)]
     manager_id: Option<i32>, // Self-reference
 }
 
-#[SQLiteTable(name = "projects")]
+#[SQLiteTable(NAME = "projects")]
 struct Project {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     title: String,
-    #[integer(references = Employee::id)]
+    #[column(REFERENCES = Employee::id)]
     lead_id: i32,
 }
 

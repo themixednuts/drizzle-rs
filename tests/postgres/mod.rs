@@ -12,4 +12,5 @@ pub mod insert;
 pub mod joins;
 pub mod schema;
 pub mod select;
+pub mod type_inference;
 pub mod update;

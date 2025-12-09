@@ -8,77 +8,68 @@ use serde::{Deserialize, Serialize};
 // Test all SQLite column types
 #[SQLiteTable]
 struct AllTypes {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     text_field: String,
-    #[integer]
     int_field: i32,
-    #[real]
     real_field: f64,
-    #[blob]
     blob_field: Vec<u8>,
-    #[integer]
     bool_field: bool,
 }
 
 // Test primary key variations
-#[SQLiteTable(name = "pk_variations")]
+#[SQLiteTable(NAME = "pk_variations")]
 struct PrimaryKeyVariations {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     auto_id: i32,
-    #[text]
     name: String,
 }
 
-#[SQLiteTable(name = "manual_pk")]
+#[SQLiteTable(NAME = "manual_pk")]
 struct ManualPrimaryKey {
-    #[text(primary)]
+    #[column(PRIMARY)]
     manual_id: String,
-    #[text]
     description: String,
 }
 
 // Test unique constraints
 #[SQLiteTable]
 struct UniqueFields {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
-    #[text(unique)]
+    #[column(UNIQUE)]
     email: String,
-    #[text(unique)]
+    #[column(UNIQUE)]
     username: String,
-    #[text]
     display_name: Option<String>,
 }
 
 // Test default values - compile time literals
-#[SQLiteTable(name = "compile_defaults")]
+#[SQLiteTable(NAME = "compile_defaults")]
 struct CompileTimeDefaults {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
-    #[text(default = "default_name")]
+    #[column(DEFAULT = "default_name")]
     name: String,
-    #[integer(default = 42)]
+    #[column(DEFAULT = 42)]
     answer: i32,
-    #[real(default = 3.14)]
+    #[column(DEFAULT = 3.14)]
     pi: f64,
-    #[boolean(default = true)]
+    #[column(DEFAULT = true)]
     active: bool,
-    #[text(default = "pending")]
+    #[column(DEFAULT = "pending")]
     status: String,
 }
 
 // Test default values - runtime functions
 #[SQLiteTable]
 struct RuntimeDefaults {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
-    #[text(default_fn = String::new)]
+    #[column(DEFAULT_FN = String::new)]
     empty_text: String,
-    #[integer(default_fn = || 100)]
+    #[column(DEFAULT_FN = || 100)]
     computed_int: i32,
-    #[text]
     name: String,
 }
 
@@ -101,22 +92,20 @@ enum TaskStatus {
 
 #[SQLiteTable]
 struct EnumFields {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
-    #[integer(enum)]
+    #[column(INTEGER, ENUM)]
     priority: Priority,
-    #[text(enum)]
+    #[column(ENUM)]
     status: TaskStatus,
-    #[text]
     description: String,
 }
 
 // Test table with tuple/struct enum fields
 #[SQLiteTable]
 struct ComplexEnumFields {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
-    #[text]
     notes: String,
 }
 
@@ -131,11 +120,10 @@ struct JsonData {
 #[cfg(feature = "serde")]
 #[SQLiteTable]
 struct JsonFields {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
-    #[text(json)]
+    #[column(JSON)]
     text_json: Option<JsonData>,
-    #[text]
     regular_text: String,
 }
 
@@ -143,37 +131,27 @@ struct JsonFields {
 #[cfg(feature = "uuid")]
 #[SQLiteTable]
 struct UuidFields {
-    #[blob(primary, default_fn = uuid::Uuid::new_v4)]
+    #[column(PRIMARY, DEFAULT_FN = uuid::Uuid::new_v4)]
     id: uuid::Uuid,
-    #[text]
     name: String,
-    #[blob]
     other_uuid: Option<uuid::Uuid>,
 }
 
 // Test nullable vs non-nullable fields
 #[SQLiteTable]
 struct NullableTest {
-    #[integer(primary, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
     // Required fields (non-nullable)
-    #[text]
     required_text: String,
-    #[integer]
     required_int: i32,
-    #[boolean]
     required_bool: bool,
 
     // Optional fields (nullable)
-    #[text]
     optional_text: Option<String>,
-    #[integer]
     optional_int: Option<i32>,
-    #[real]
     optional_real: Option<f64>,
-    #[blob]
     optional_blob: Option<Vec<u8>>,
-    #[boolean]
     optional_bool: Option<bool>,
 }
 

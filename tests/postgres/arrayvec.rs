@@ -11,21 +11,17 @@ use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable, postgres_te
 
 #[PostgresTable(name = "pg_arraystring_test")]
 struct PgArrayStringTest {
-    #[serial(primary)]
+    #[column(primary, serial)]
     id: i32,
-    #[text]
     name: ArrayString<16>,
-    #[text]
     description: String,
 }
 
 #[PostgresTable(name = "pg_arrayvec_blob_test")]
 struct PgArrayVecBlobTest {
-    #[serial(primary)]
+    #[column(primary, serial)]
     id: i32,
-    #[bytea]
     data: ArrayVec<u8, 32>,
-    #[text]
     label: String,
 }
 
@@ -191,11 +187,9 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
 
 #[PostgresTable(name = "pg_array_nullable_test")]
 struct PgArrayNullableTest {
-    #[serial(primary)]
+    #[column(primary, serial)]
     id: i32,
-    #[text]
     name: Option<ArrayString<16>>,
-    #[bytea]
     data: Option<ArrayVec<u8, 32>>,
 }
 

@@ -23,13 +23,12 @@ pub enum AccountStatus {
 // Table with enum fields using different column types
 #[SQLiteTable]
 struct UserAccount {
-    #[integer(primary_key, autoincrement)]
+    #[column(PRIMARY, AUTOINCREMENT)]
     id: i64,
-    #[text] // This should store UserRole as TEXT
     name: String,
-    #[text(enum)] // This should store UserRole as TEXT
+    #[column(ENUM)]
     role: UserRole,
-    #[integer(enum)] // This should store AccountStatus as INTEGER
+    #[column(integer, ENUM)]
     status: AccountStatus,
 }
 

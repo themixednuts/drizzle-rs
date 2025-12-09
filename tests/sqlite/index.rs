@@ -5,11 +5,9 @@ use drizzle::sqlite::prelude::*;
 // Define a simple table for testing indexes
 #[SQLiteTable]
 struct User {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     email: String,
-    #[text]
     username: String,
 }
 

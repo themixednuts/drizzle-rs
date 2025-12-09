@@ -5,7 +5,7 @@
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::pg::*;
+use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -22,10 +22,10 @@ struct PgComplexResult {
     name: String,
 }
 
-postgres_test!(schema_simple_works, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(schema_simple_works, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values([InsertPgSimple::new("test")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("test")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
@@ -36,12 +36,12 @@ postgres_test!(schema_simple_works, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(schema_complex_works, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(schema_complex_works, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("test", true, PgRole::User)]);
+        .values([InsertComplex::new("test", true, Role::User)]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select(()).from(complex);
@@ -52,14 +52,14 @@ postgres_test!(schema_complex_works, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(schema_with_enum_works, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(schema_with_enum_works, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Insert with different enum values to verify enum type was created
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Admin User", true, PgRole::Admin),
-        InsertPgComplex::new("Regular User", true, PgRole::User),
-        InsertPgComplex::new("Mod User", true, PgRole::Moderator),
+        InsertComplex::new("Admin User", true, Role::Admin),
+        InsertComplex::new("Regular User", true, Role::User),
+        InsertComplex::new("Mod User", true, Role::Moderator),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -69,17 +69,17 @@ postgres_test!(schema_with_enum_works, PgComplexSchema, {
     assert_eq!(results.len(), 3);
 });
 
-postgres_test!(schema_multiple_inserts, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(schema_multiple_inserts, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Multiple separate inserts should work
-    let stmt = db.insert(simple).values([InsertPgSimple::new("First")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("First")]);
     drizzle_exec!(stmt.execute());
 
-    let stmt = db.insert(simple).values([InsertPgSimple::new("Second")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("Second")]);
     drizzle_exec!(stmt.execute());
 
-    let stmt = db.insert(simple).values([InsertPgSimple::new("Third")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("Third")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select((simple.id, simple.name)).from(simple);

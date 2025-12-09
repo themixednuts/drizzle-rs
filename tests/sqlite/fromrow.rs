@@ -33,41 +33,31 @@ struct FloatTypes {
 // Test table for comprehensive type testing
 #[SQLiteTable]
 struct TypeTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text]
     name: String,
-    #[integer]
     age: i64,
-    #[real]
     score: f64,
-    #[boolean]
     active: bool,
-    #[blob]
     data: Vec<u8>,
 }
 
 // Table for integer size testing
 #[SQLiteTable]
 struct IntegerTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[integer]
     big_num: i64,
-    #[integer]
     small_num: i16,
-    #[integer]
     tiny_num: i8,
 }
 
 // Table for float testing
 #[SQLiteTable]
 struct FloatTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[real]
     precise: f64,
-    #[real]
     compact: f32,
 }
 

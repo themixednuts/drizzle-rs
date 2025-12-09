@@ -2,7 +2,7 @@
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::pg::*;
+use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -22,12 +22,12 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(condition_eq, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(condition_eq, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db
         .insert(simple)
-        .values([InsertPgSimple::new("Alice"), InsertPgSimple::new("Bob")]);
+        .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
@@ -40,12 +40,12 @@ postgres_test!(condition_eq, PgSimpleSchema, {
     assert_eq!(results[0].name, "Alice");
 });
 
-postgres_test!(condition_neq, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(condition_neq, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db
         .insert(simple)
-        .values([InsertPgSimple::new("Alice"), InsertPgSimple::new("Bob")]);
+        .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
@@ -59,13 +59,13 @@ postgres_test!(condition_neq, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_gt_lt, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_gt_lt, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Young", true, PgRole::User).with_age(20),
-        InsertPgComplex::new("Middle", true, PgRole::User).with_age(40),
-        InsertPgComplex::new("Senior", true, PgRole::User).with_age(60),
+        InsertComplex::new("Young", true, Role::User).with_age(20),
+        InsertComplex::new("Middle", true, Role::User).with_age(40),
+        InsertComplex::new("Senior", true, Role::User).with_age(60),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -90,14 +90,14 @@ postgres_test!(condition_gt_lt, PgComplexSchema, {
     assert_eq!(results.len(), 2);
 });
 
-postgres_test!(condition_in_array, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(condition_in_array, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
-        InsertPgSimple::new("David"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
+        InsertSimple::new("David"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -113,13 +113,13 @@ postgres_test!(condition_in_array, PgSimpleSchema, {
     assert!(names.contains(&"Charlie"));
 });
 
-postgres_test!(condition_not_in_array, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(condition_not_in_array, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -136,19 +136,18 @@ postgres_test!(condition_not_in_array, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_is_null, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_is_null, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Separate inserts due to type state differences
-    let stmt =
-        db.insert(complex)
-            .values([InsertPgComplex::new("With Email", true, PgRole::User)
-                .with_email("test@example.com")]);
+    let stmt = db.insert(complex).values([
+        InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
+    ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+        .values([InsertComplex::new("No Email", true, Role::User)]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select(()).from(complex).r#where(is_null(complex.email));
@@ -159,19 +158,18 @@ postgres_test!(condition_is_null, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_is_not_null, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_is_not_null, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Separate inserts due to type state differences
-    let stmt =
-        db.insert(complex)
-            .values([InsertPgComplex::new("With Email", true, PgRole::User)
-                .with_email("test@example.com")]);
+    let stmt = db.insert(complex).values([
+        InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
+    ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+        .values([InsertComplex::new("No Email", true, Role::User)]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
@@ -184,13 +182,13 @@ postgres_test!(condition_is_not_null, PgComplexSchema, {
     assert_eq!(results[0].name, "With Email");
 });
 
-postgres_test!(condition_like, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(condition_like, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("test_one"),
-        InsertPgSimple::new("test_two"),
-        InsertPgSimple::new("other"),
+        InsertSimple::new("test_one"),
+        InsertSimple::new("test_two"),
+        InsertSimple::new("other"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -212,14 +210,14 @@ postgres_test!(condition_like, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_between, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_between, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Teen", true, PgRole::User).with_age(15),
-        InsertPgComplex::new("Young", true, PgRole::User).with_age(25),
-        InsertPgComplex::new("Adult", true, PgRole::User).with_age(45),
-        InsertPgComplex::new("Senior", true, PgRole::User).with_age(75),
+        InsertComplex::new("Teen", true, Role::User).with_age(15),
+        InsertComplex::new("Young", true, Role::User).with_age(25),
+        InsertComplex::new("Adult", true, Role::User).with_age(45),
+        InsertComplex::new("Senior", true, Role::User).with_age(75),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -236,13 +234,13 @@ postgres_test!(condition_between, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_and, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_and, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Active Young", true, PgRole::User).with_age(25),
-        InsertPgComplex::new("Inactive Young", false, PgRole::User).with_age(25),
-        InsertPgComplex::new("Active Old", true, PgRole::User).with_age(60),
+        InsertComplex::new("Active Young", true, Role::User).with_age(25),
+        InsertComplex::new("Inactive Young", false, Role::User).with_age(25),
+        InsertComplex::new("Active Old", true, Role::User).with_age(60),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -257,19 +255,19 @@ postgres_test!(condition_and, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_or, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_or, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Admin", true, PgRole::Admin),
-        InsertPgComplex::new("Moderator", true, PgRole::Moderator),
-        InsertPgComplex::new("User", true, PgRole::User),
+        InsertComplex::new("Admin", true, Role::Admin),
+        InsertComplex::new("Moderator", true, Role::Moderator),
+        InsertComplex::new("User", true, Role::User),
     ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db.select(()).from(complex).r#where(or([
-        eq(complex.role, PgRole::Admin),
-        eq(complex.role, PgRole::Moderator),
+        eq(complex.role, Role::Admin),
+        eq(complex.role, Role::Moderator),
     ]));
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
 
@@ -280,22 +278,22 @@ postgres_test!(condition_or, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_nested_and_or, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_nested_and_or, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Active Admin", true, PgRole::Admin).with_age(30),
-        InsertPgComplex::new("Inactive Admin", false, PgRole::Admin).with_age(30),
-        InsertPgComplex::new("Active User Young", true, PgRole::User).with_age(20),
-        InsertPgComplex::new("Active User Old", true, PgRole::User).with_age(50),
+        InsertComplex::new("Active Admin", true, Role::Admin).with_age(30),
+        InsertComplex::new("Inactive Admin", false, Role::Admin).with_age(30),
+        InsertComplex::new("Active User Young", true, Role::User).with_age(20),
+        InsertComplex::new("Active User Old", true, Role::User).with_age(50),
     ]);
     drizzle_exec!(stmt.execute());
 
     // (Admin OR Moderator) AND active AND age > 25
     let stmt = db.select(()).from(complex).r#where(and([
         or([
-            eq(complex.role, PgRole::Admin),
-            eq(complex.role, PgRole::Moderator),
+            eq(complex.role, Role::Admin),
+            eq(complex.role, Role::Moderator),
         ]),
         eq(complex.active, true),
         gt(complex.age, 25),
@@ -307,12 +305,12 @@ postgres_test!(condition_nested_and_or, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_not, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(condition_not, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Active", true, PgRole::User),
-        InsertPgComplex::new("Inactive", false, PgRole::User),
+        InsertComplex::new("Active", true, Role::User),
+        InsertComplex::new("Inactive", false, Role::User),
     ]);
     drizzle_exec!(stmt.execute());
 

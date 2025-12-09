@@ -24,13 +24,11 @@ pub struct UserResult {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[SQLiteTable(name = "json_users", strict)]
+#[SQLiteTable(NAME = "json_users", STRICT)]
 struct JsonUser {
-    #[blob]
     id: Uuid,
-    #[text]
     email: String,
-    #[text(json)]
+    #[column(JSON)]
     profile: Profile,
 }
 #[cfg(all(feature = "serde", feature = "uuid"))]

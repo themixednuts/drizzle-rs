@@ -1,13 +1,13 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use crate::common::{Complex, InsertComplex, InsertPost, Post};
-use crate::common::{InsertSimple, Simple};
+use crate::common::schema::sqlite::{Complex, InsertComplex, InsertPost, Post};
+use crate::common::schema::sqlite::{InsertSimple, Role, Simple};
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
-use crate::common::SimpleSchema;
+use crate::common::schema::sqlite::SimpleSchema;
 #[cfg(feature = "uuid")]
-use crate::common::{ComplexPostSchema, ComplexSchema};
+use crate::common::schema::sqlite::{ComplexPostSchema, ComplexSchema};
 
 #[allow(dead_code)]
 #[derive(SQLiteFromRow, Debug)]
@@ -82,13 +82,13 @@ sqlite_test!(self_join_with_aliases, ComplexSchema, {
 
     // Insert test data with same email domain
     let test_data = vec![
-        InsertComplex::new("user1", true, crate::common::Role::User)
+        InsertComplex::new("user1", true, Role::User)
             .with_id(uuid::Uuid::new_v4())
             .with_email("test@example.com"),
-        InsertComplex::new("user2", true, crate::common::Role::User)
+        InsertComplex::new("user2", true, Role::User)
             .with_id(uuid::Uuid::new_v4())
             .with_email("test@example.com"),
-        InsertComplex::new("user3", true, crate::common::Role::User)
+        InsertComplex::new("user3", true, Role::User)
             .with_id(uuid::Uuid::new_v4())
             .with_email("other@domain.com"),
     ];
@@ -128,8 +128,8 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
     let user_id2 = uuid::Uuid::new_v4();
 
     let users = vec![
-        InsertComplex::new("author1", true, crate::common::Role::User).with_id(user_id1),
-        InsertComplex::new("author2", true, crate::common::Role::User).with_id(user_id2),
+        InsertComplex::new("author1", true, Role::User).with_id(user_id1),
+        InsertComplex::new("author2", true, Role::User).with_id(user_id2),
     ];
 
     drizzle_exec!(db.insert(complex).values(users).execute());
@@ -180,7 +180,7 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
     );
 
     // Query using table alias
-    let s_alias = crate::common::Simple::alias("s_alias");
+    let s_alias = Simple::alias("s_alias");
     let alias_stmt = db
         .select((s_alias.id, s_alias.name))
         .from(s_alias)

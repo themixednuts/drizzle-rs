@@ -10,44 +10,40 @@ use uuid::Uuid;
 // Test table with UUID as TEXT column
 #[SQLiteTable]
 struct UuidTextTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text] // UUID stored as TEXT
+    #[column(text)] // UUID stored as TEXT (override from default BLOB)
     uuid_field: Uuid,
-    #[text]
     name: String,
 }
 
 // Test table with UUID as BLOB column
 #[SQLiteTable]
 struct UuidBlobTest {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[blob] // UUID stored as BLOB
+    // UUID stored as BLOB (this is the default inference)
     uuid_field: Uuid,
-    #[text]
     name: String,
 }
 
 // Test table with UUID TEXT column using default_fn
 #[SQLiteTable]
 struct UuidTextDefault {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[text(default_fn = Uuid::new_v4)] // UUID stored as TEXT with auto-generation
+    #[column(text, DEFAULT_FN = Uuid::new_v4)] // UUID stored as TEXT with auto-generation
     uuid_field: Uuid,
-    #[text]
     name: String,
 }
 
 // Test table with UUID BLOB column using default_fn
 #[SQLiteTable]
 struct UuidBlobDefault {
-    #[integer(primary)]
+    #[column(PRIMARY)]
     id: i32,
-    #[blob(default_fn = Uuid::new_v4)] // UUID stored as BLOB with auto-generation
+    #[column(DEFAULT_FN = Uuid::new_v4)] // UUID stored as BLOB with auto-generation
     uuid_field: Uuid,
-    #[text]
     name: String,
 }
 

@@ -3,7 +3,7 @@ use drizzle::sqlite::prelude::*;
 use drizzle_core::{SQL, SQLChunk, ToSQL, prepared::prepare_render};
 use drizzle_macros::sqlite_test;
 
-use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle_sqlite::{SQLiteSQL, SQLiteValue};
 
 sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {

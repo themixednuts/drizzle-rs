@@ -1,9 +1,6 @@
 #![cfg(feature = "rusqlite")]
 
-#[cfg(feature = "uuid")]
-use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
-#[cfg(not(feature = "uuid"))]
-use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
+use crate::common::schema::sqlite::{Category, Complex, Post, PostCategory, Role, Simple};
 use ::rusqlite::Connection;
 use rand::seq::IndexedRandom;
 #[cfg(feature = "uuid")]

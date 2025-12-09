@@ -2,7 +2,7 @@
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::pg::*;
+use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -22,13 +22,13 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(delete_single_row, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(delete_single_row, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert data
     let stmt = db
         .insert(simple)
-        .values([InsertPgSimple::new("Alice"), InsertPgSimple::new("Bob")]);
+        .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")]);
     drizzle_exec!(stmt.execute());
 
     // Delete one row
@@ -43,14 +43,14 @@ postgres_test!(delete_single_row, PgSimpleSchema, {
     assert_eq!(results[0].name, "Bob");
 });
 
-postgres_test!(delete_multiple_rows, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(delete_multiple_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert data
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("test_one"),
-        InsertPgSimple::new("test_two"),
-        InsertPgSimple::new("other"),
+        InsertSimple::new("test_one"),
+        InsertSimple::new("test_two"),
+        InsertSimple::new("other"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -66,15 +66,15 @@ postgres_test!(delete_multiple_rows, PgSimpleSchema, {
     assert_eq!(results[0].name, "other");
 });
 
-postgres_test!(delete_with_in_condition, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(delete_with_in_condition, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert data
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
-        InsertPgSimple::new("David"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
+        InsertSimple::new("David"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -95,22 +95,22 @@ postgres_test!(delete_with_in_condition, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_complex_where, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(delete_with_complex_where, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Insert data
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Active User", true, PgRole::User),
-        InsertPgComplex::new("Inactive User", false, PgRole::User),
-        InsertPgComplex::new("Active Admin", true, PgRole::Admin),
-        InsertPgComplex::new("Inactive Admin", false, PgRole::Admin),
+        InsertComplex::new("Active User", true, Role::User),
+        InsertComplex::new("Inactive User", false, Role::User),
+        InsertComplex::new("Active Admin", true, Role::Admin),
+        InsertComplex::new("Inactive Admin", false, Role::Admin),
     ]);
     drizzle_exec!(stmt.execute());
 
     // Delete inactive users (not admins)
     let stmt = db.delete(complex).r#where(and([
         eq(complex.active, false),
-        eq(complex.role, PgRole::User),
+        eq(complex.role, Role::User),
     ]));
     drizzle_exec!(stmt.execute());
 
@@ -127,20 +127,19 @@ postgres_test!(delete_with_complex_where, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_null_check, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(delete_with_null_check, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Insert data with email
-    let stmt =
-        db.insert(complex)
-            .values([InsertPgComplex::new("With Email", true, PgRole::User)
-                .with_email("test@example.com")]);
+    let stmt = db.insert(complex).values([
+        InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
+    ]);
     drizzle_exec!(stmt.execute());
 
     // Insert data without email (separate insert due to type state)
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+        .values([InsertComplex::new("No Email", true, Role::User)]);
     drizzle_exec!(stmt.execute());
 
     // Delete rows with NULL email
@@ -157,14 +156,14 @@ postgres_test!(delete_with_null_check, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_comparison, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(delete_with_comparison, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Insert data with ages
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Young", true, PgRole::User).with_age(20),
-        InsertPgComplex::new("Middle", true, PgRole::User).with_age(40),
-        InsertPgComplex::new("Senior", true, PgRole::User).with_age(70),
+        InsertComplex::new("Young", true, Role::User).with_age(20),
+        InsertComplex::new("Middle", true, Role::User).with_age(40),
+        InsertComplex::new("Senior", true, Role::User).with_age(70),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -183,15 +182,15 @@ postgres_test!(delete_with_comparison, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_between, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(delete_with_between, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Insert data
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Teen", true, PgRole::User).with_age(15),
-        InsertPgComplex::new("Young Adult", true, PgRole::User).with_age(25),
-        InsertPgComplex::new("Adult", true, PgRole::User).with_age(45),
-        InsertPgComplex::new("Senior", true, PgRole::User).with_age(75),
+        InsertComplex::new("Teen", true, Role::User).with_age(15),
+        InsertComplex::new("Young Adult", true, Role::User).with_age(25),
+        InsertComplex::new("Adult", true, Role::User).with_age(45),
+        InsertComplex::new("Senior", true, Role::User).with_age(75),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -209,11 +208,11 @@ postgres_test!(delete_with_between, PgComplexSchema, {
     assert!(names.contains(&"Senior"));
 });
 
-postgres_test!(delete_no_matching_rows, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(delete_no_matching_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert data
-    let stmt = db.insert(simple).values([InsertPgSimple::new("Alice")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
     drizzle_exec!(stmt.execute());
 
     // Delete non-existent row
@@ -228,14 +227,14 @@ postgres_test!(delete_no_matching_rows, PgSimpleSchema, {
     assert_eq!(results[0].name, "Alice");
 });
 
-postgres_test!(delete_all_rows, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(delete_all_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert data
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
     ]);
     drizzle_exec!(stmt.execute());
 

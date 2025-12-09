@@ -1,13 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-#[cfg(feature = "uuid")]
-use crate::common::Simple;
 use drizzle::{sql, sqlite::prelude::*};
 use drizzle_macros::sqlite_test;
 use drizzle_sqlite::values::SQLiteValue;
 
 #[cfg(feature = "uuid")]
-use crate::common::ComplexSchema;
-use crate::common::{InsertSimple, SelectSimple, SimpleSchema};
+use crate::common::schema::sqlite::ComplexSchema;
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 
 sqlite_test!(test_simple_select_all_sql_generation, SimpleSchema, {
     let SimpleSchema { simple } = schema;

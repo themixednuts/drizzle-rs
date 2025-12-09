@@ -2,7 +2,7 @@
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::pg::*;
+use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -22,15 +22,15 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(update_single_row, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(update_single_row, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values([InsertPgSimple::new("Original")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("Original")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .update(simple)
-        .set(UpdatePgSimple::default().with_name("Updated"))
+        .set(UpdateSimple::default().with_name("Updated"))
         .r#where(eq(simple.name, "Original"));
     drizzle_exec!(stmt.execute());
 
@@ -41,19 +41,19 @@ postgres_test!(update_single_row, PgSimpleSchema, {
     assert_eq!(results[0].name, "Updated");
 });
 
-postgres_test!(update_multiple_rows, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(update_multiple_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("test_one"),
-        InsertPgSimple::new("test_two"),
-        InsertPgSimple::new("other"),
+        InsertSimple::new("test_one"),
+        InsertSimple::new("test_two"),
+        InsertSimple::new("other"),
     ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .update(simple)
-        .set(UpdatePgSimple::default().with_name("updated"))
+        .set(UpdateSimple::default().with_name("updated"))
         .r#where(like(simple.name, "test%"));
     drizzle_exec!(stmt.execute());
 
@@ -73,12 +73,12 @@ postgres_test!(update_multiple_rows, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(update_multiple_columns, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(update_multiple_columns, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("Alice", true, PgRole::User)
+        .values([InsertComplex::new("Alice", true, Role::User)
             .with_email("old@example.com")
             .with_age(25)]);
     drizzle_exec!(stmt.execute());
@@ -86,7 +86,7 @@ postgres_test!(update_multiple_columns, PgComplexSchema, {
     let stmt = db
         .update(complex)
         .set(
-            UpdatePgComplex::default()
+            UpdateComplex::default()
                 .with_email("new@example.com")
                 .with_age(30)
                 .with_active(false),
@@ -105,19 +105,19 @@ postgres_test!(update_multiple_columns, PgComplexSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(update_with_complex_where, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(update_with_complex_where, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
-        InsertPgComplex::new("Young", true, PgRole::User).with_age(16),
-        InsertPgComplex::new("Adult", true, PgRole::User).with_age(25),
-        InsertPgComplex::new("Senior", true, PgRole::User).with_age(70),
+        InsertComplex::new("Young", true, Role::User).with_age(16),
+        InsertComplex::new("Adult", true, Role::User).with_age(25),
+        InsertComplex::new("Senior", true, Role::User).with_age(70),
     ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .update(complex)
-        .set(UpdatePgComplex::default().with_active(false))
+        .set(UpdateComplex::default().with_active(false))
         .r#where(and([gte(complex.age, 18), lte(complex.age, 65)]));
     drizzle_exec!(stmt.execute());
 
@@ -131,20 +131,20 @@ postgres_test!(update_with_complex_where, PgComplexSchema, {
     assert_eq!(results[0].name, "Adult");
 });
 
-postgres_test!(update_with_in_condition, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(update_with_in_condition, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
-        InsertPgSimple::new("David"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
+        InsertSimple::new("David"),
     ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .update(simple)
-        .set(UpdatePgSimple::default().with_name("Updated"))
+        .set(UpdateSimple::default().with_name("Updated"))
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
     drizzle_exec!(stmt.execute());
 
@@ -163,15 +163,15 @@ postgres_test!(update_with_in_condition, PgSimpleSchema, {
     assert_eq!(results.len(), 2);
 });
 
-postgres_test!(update_no_matching_rows, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(update_no_matching_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values([InsertPgSimple::new("Alice")]);
+    let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .update(simple)
-        .set(UpdatePgSimple::default().with_name("Updated"))
+        .set(UpdateSimple::default().with_name("Updated"))
         .r#where(eq(simple.name, "NonExistent"));
     drizzle_exec!(stmt.execute());
 

@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use crate::common::{
+use crate::common::schema::sqlite::{
     ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
 };
 use drizzle::sqlite::prelude::*;
@@ -385,7 +385,7 @@ sqlite_test!(test_string_operations, SimpleSchema, {
 
 #[cfg(all(feature = "sqlite", feature = "serde"))]
 sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
-    use crate::common::{ComplexSchema, UserMetadata};
+    use crate::common::schema::sqlite::{ComplexSchema, UserMetadata};
     use drizzle::sqlite::conditions::*;
 
     let ComplexSchema { complex } = schema;

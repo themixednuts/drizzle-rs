@@ -1,9 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use crate::common::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
 use drizzle::error::DrizzleError;
-use drizzle::sqlite::prelude::*;
 use drizzle::sqlite::SQLiteTransactionType;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 sqlite_test!(test_transaction_commit, SimpleSchema, {

@@ -1,16 +1,16 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use crate::common::{Complex, InsertComplex};
-use crate::common::{InsertSimple, Role, UserConfig, UserMetadata};
-use drizzle::sqlite::prelude::*;
+use crate::common::schema::sqlite::{Complex, InsertComplex};
+use crate::common::schema::sqlite::{InsertSimple, Role, UserConfig, UserMetadata};
 use drizzle::sqlite::builder::Conflict;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
 #[cfg(feature = "uuid")]
-use crate::common::ComplexSchema;
-use crate::common::SimpleSchema;
+use crate::common::schema::sqlite::ComplexSchema;
+use crate::common::schema::sqlite::SimpleSchema;
 
 #[derive(SQLiteFromRow, Debug)]
 struct SimpleResult {
@@ -65,7 +65,7 @@ sqlite_test!(complex_insert, ComplexSchema, {
 
     // Insert Complex record with various field types
     #[cfg(not(feature = "uuid"))]
-    let data = InsertComplex::new("complex_user", true, common::Role::User)
+    let data = InsertComplex::new("complex_user", true, Role::User)
         .with_email("test@example.com".to_string())
         .with_age(25)
         .with_score(95.5)

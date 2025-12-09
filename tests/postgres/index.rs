@@ -5,7 +5,7 @@
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::pg::*;
+use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -16,13 +16,13 @@ struct PgSimpleResult {
 }
 
 // Test queries that would benefit from indexes
-postgres_test!(query_by_name_column, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(query_by_name_column, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
-        InsertPgSimple::new("Alice"),
-        InsertPgSimple::new("Bob"),
-        InsertPgSimple::new("Charlie"),
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
     ]);
     drizzle_exec!(stmt.execute());
 
@@ -38,19 +38,18 @@ postgres_test!(query_by_name_column, PgSimpleSchema, {
 });
 
 #[cfg(feature = "uuid")]
-postgres_test!(query_by_nullable_column, PgComplexSchema, {
-    let PgComplexSchema { complex, .. } = schema;
+postgres_test!(query_by_nullable_column, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
 
     // Insert rows with and without email
-    let stmt =
-        db.insert(complex)
-            .values([InsertPgComplex::new("With Email", true, PgRole::User)
-                .with_email("test@example.com")]);
+    let stmt = db.insert(complex).values([
+        InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
+    ]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .insert(complex)
-        .values([InsertPgComplex::new("No Email", true, PgRole::User)]);
+        .values([InsertComplex::new("No Email", true, Role::User)]);
     drizzle_exec!(stmt.execute());
 
     #[derive(Debug, PostgresFromRow)]
@@ -69,14 +68,14 @@ postgres_test!(query_by_nullable_column, PgComplexSchema, {
     assert_eq!(results[0].name, "With Email");
 });
 
-postgres_test!(query_large_dataset, PgSimpleSchema, {
-    let PgSimpleSchema { simple } = schema;
+postgres_test!(query_large_dataset, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
 
     // Insert many rows
     let names: Vec<String> = (0..50).map(|i| format!("User_{:03}", i)).collect();
     let rows: Vec<_> = names
         .iter()
-        .map(|n| InsertPgSimple::new(n.as_str()))
+        .map(|n| InsertSimple::new(n.as_str()))
         .collect();
     let stmt = db.insert(simple).values(rows);
     drizzle_exec!(stmt.execute());

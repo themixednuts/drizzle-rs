@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use crate::common::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
-use crate::common::{
+use crate::common::schema::sqlite::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
+use crate::common::schema::sqlite::{
     InsertSimple, Role, Simple, SimpleSchema, UpdateSimple, UserConfig, UserMetadata,
 };
 use drizzle::sqlite::prelude::*;
@@ -77,7 +77,7 @@ sqlite_test!(complex_update, ComplexSchema, {
 
     // Insert initial Complex record
     #[cfg(not(feature = "uuid"))]
-    let insert_data = InsertComplex::new("user", true, common::Role::User)
+    let insert_data = InsertComplex::new("user", true, Role::User)
         .with_email("old@example.com".to_string())
         .with_age(25)
         .with_description("Original description".to_string());

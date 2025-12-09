@@ -1,6 +1,6 @@
 #![cfg(feature = "libsql")]
 
-use crate::common::{Category, Complex, Post, PostCategory, Role, Simple};
+use crate::common::schema::sqlite::{Category, Complex, Post, PostCategory, Role, Simple};
 #[cfg(feature = "libsql")]
 use libsql::{Builder, Connection};
 use rand::seq::IndexedRandom;

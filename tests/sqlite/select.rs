@@ -1,15 +1,16 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
-use crate::common::InsertComplex;
-use crate::common::{InsertSimple, Role, SimpleSchema, UserConfig, UserMetadata};
-#[cfg(not(feature = "uuid"))]
-use common::Simple;
+use crate::common::schema::sqlite::InsertComplex;
+use crate::common::schema::sqlite::{
+    InsertSimple, Role, Simple, SimpleSchema, UserConfig, UserMetadata,
+};
+
 use drizzle::sqlite::prelude::*;
 use drizzle_core::OrderBy;
 use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
-use crate::common::ComplexSchema;
+use crate::common::schema::sqlite::ComplexSchema;
 
 #[derive(Debug, SQLiteFromRow)]
 struct SimpleResult {
@@ -102,13 +103,13 @@ sqlite_test!(complex_select_with_conditions, ComplexSchema, {
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
     let test_data = [
-        InsertComplex::new("young", true, common::Role::User)
+        InsertComplex::new("young", true, Role::User)
             .with_email("young@test.com".to_string())
             .with_age(20),
-        InsertComplex::new("middle", true, common::Role::User)
+        InsertComplex::new("middle", true, Role::User)
             .with_email("middle@test.com".to_string())
             .with_age(35),
-        InsertComplex::new("old", true, common::Role::User)
+        InsertComplex::new("old", true, Role::User)
             .with_email("old@test.com".to_string())
             .with_age(50),
     ];

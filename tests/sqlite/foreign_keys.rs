@@ -1,5 +1,5 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use crate::common::Role;
+use crate::common::schema::sqlite::Role;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
@@ -7,9 +7,9 @@ use drizzle_macros::sqlite_test;
 use uuid::Uuid;
 
 #[cfg(feature = "uuid")]
-use crate::common::{Complex, InsertComplex, InsertPost, Post, SelectPost};
+use crate::common::schema::sqlite::{Complex, InsertComplex, InsertPost, Post, SelectPost};
 #[cfg(not(feature = "uuid"))]
-use crate::common::{FullBlogSchema, InsertPost, Post, SelectPost};
+use crate::common::schema::sqlite::{FullBlogSchema, InsertPost, Post, SelectPost};
 
 #[test]
 fn test_foreign_key_generation() {
