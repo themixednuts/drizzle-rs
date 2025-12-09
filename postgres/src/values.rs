@@ -11,17 +11,14 @@ use uuid::Uuid;
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
-#[cfg(feature = "rust_decimal")]
-use rust_decimal::Decimal;
-
-#[cfg(feature = "ipnet")]
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+#[cfg(feature = "cidr")]
+use cidr::{IpCidr, IpInet};
 
 #[cfg(feature = "geo-types")]
-use geo_types::{LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
+use geo_types::{LineString, Point, Rect};
 
-#[cfg(feature = "bitvec")]
-use bitvec::prelude::*;
+#[cfg(feature = "bit-vec")]
+use bit_vec::BitVec;
 
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -224,48 +221,34 @@ pub enum PostgresValue<'a> {
     #[cfg(feature = "chrono")]
     Interval(Duration),
 
-    // Numeric types
-    /// NUMERIC, DECIMAL values (arbitrary precision)
-    #[cfg(feature = "rust_decimal")]
-    Decimal(Decimal),
-
     // Network address types
-    /// INET values (IPv4 or IPv6 networks)
-    #[cfg(feature = "ipnet")]
-    Inet(IpNet),
-    /// CIDR values (IPv4 or IPv6 networks)
-    #[cfg(feature = "ipnet")]
-    Cidr(IpNet),
+    /// INET values (host address with optional netmask)
+    #[cfg(feature = "cidr")]
+    Inet(IpInet),
+    /// CIDR values (network specification)
+    #[cfg(feature = "cidr")]
+    Cidr(IpCidr),
     /// MACADDR values (MAC addresses)
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     MacAddr([u8; 6]),
     /// MACADDR8 values (EUI-64 MAC addresses)
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     MacAddr8([u8; 8]),
 
-    // Geometric types
+    // Geometric types (native PostgreSQL support via postgres-rs)
     /// POINT values
     #[cfg(feature = "geo-types")]
     Point(Point<f64>),
-    /// LINESTRING values
+    /// PATH values (open path from LineString)
     #[cfg(feature = "geo-types")]
     LineString(LineString<f64>),
-    /// POLYGON values
+    /// BOX values (bounding rectangle)
     #[cfg(feature = "geo-types")]
-    Polygon(Polygon<f64>),
-    /// MULTIPOINT values
-    #[cfg(feature = "geo-types")]
-    MultiPoint(MultiPoint<f64>),
-    /// MULTILINESTRING values
-    #[cfg(feature = "geo-types")]
-    MultiLineString(MultiLineString<f64>),
-    /// MULTIPOLYGON values
-    #[cfg(feature = "geo-types")]
-    MultiPolygon(MultiPolygon<f64>),
+    Rect(Rect<f64>),
 
     // Bit string types
     /// BIT, BIT VARYING values
-    #[cfg(feature = "bitvec")]
+    #[cfg(feature = "bit-vec")]
     BitVec(BitVec),
 
     // Array types (using Vec for simplicity)
@@ -311,21 +294,17 @@ impl<'a> std::fmt::Display for PostgresValue<'a> {
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
 
-            // Numeric types
-            #[cfg(feature = "rust_decimal")]
-            PostgresValue::Decimal(dec) => dec.to_string(),
-
             // Network address types
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::Inet(net) => net.to_string(),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::Cidr(net) => net.to_string(),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::MacAddr(mac) => format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
             ),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::MacAddr8(mac) => format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
@@ -343,57 +322,21 @@ impl<'a> std::fmt::Display for PostgresValue<'a> {
                 format!("[{}]", coords.join(","))
             }
             #[cfg(feature = "geo-types")]
-            PostgresValue::Polygon(poly) => format!(
-                "POLYGON({})",
-                poly.exterior()
-                    .coords()
-                    .map(|c| format!("({},{})", c.x, c.y))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            #[cfg(feature = "geo-types")]
-            PostgresValue::MultiPoint(mp) => format!(
-                "MULTIPOINT({})",
-                mp.iter()
-                    .map(|p| format!("({},{})", p.x(), p.y()))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            #[cfg(feature = "geo-types")]
-            PostgresValue::MultiLineString(mls) => format!(
-                "MULTILINESTRING({})",
-                mls.iter()
-                    .map(|ls| format!(
-                        "[{}]",
-                        ls.coords()
-                            .map(|c| format!("({},{})", c.x, c.y))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            #[cfg(feature = "geo-types")]
-            PostgresValue::MultiPolygon(mp) => format!(
-                "MULTIPOLYGON({})",
-                mp.iter()
-                    .map(|p| format!(
-                        "POLYGON({})",
-                        p.exterior()
-                            .coords()
-                            .map(|c| format!("({},{})", c.x, c.y))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
+            PostgresValue::Rect(rect) => {
+                format!(
+                    "(({},{}),({},{}))",
+                    rect.min().x,
+                    rect.min().y,
+                    rect.max().x,
+                    rect.max().y
+                )
+            }
 
             // Bit string types
-            #[cfg(feature = "bitvec")]
+            #[cfg(feature = "bit-vec")]
             PostgresValue::BitVec(bv) => bv
                 .iter()
-                .map(|b| if *b { '1' } else { '0' })
+                .map(|b| if b { '1' } else { '0' })
                 .collect::<String>(),
 
             // Array types
@@ -787,74 +730,58 @@ impl<'a> From<&'a Duration> for PostgresValue<'a> {
     }
 }
 
-// --- Numeric Types ---
-
-#[cfg(feature = "rust_decimal")]
-impl<'a> From<Decimal> for PostgresValue<'a> {
-    fn from(value: Decimal) -> Self {
-        PostgresValue::Decimal(value)
-    }
-}
-
-#[cfg(feature = "rust_decimal")]
-impl<'a> From<&'a Decimal> for PostgresValue<'a> {
-    fn from(value: &'a Decimal) -> Self {
-        PostgresValue::Decimal(*value)
-    }
-}
-
 // --- Network Address Types ---
 
-#[cfg(feature = "ipnet")]
-impl<'a> From<IpNet> for PostgresValue<'a> {
-    fn from(value: IpNet) -> Self {
+#[cfg(feature = "cidr")]
+impl<'a> From<IpInet> for PostgresValue<'a> {
+    fn from(value: IpInet) -> Self {
         PostgresValue::Inet(value)
     }
 }
 
-#[cfg(feature = "ipnet")]
-impl<'a> From<&'a IpNet> for PostgresValue<'a> {
-    fn from(value: &'a IpNet) -> Self {
-        PostgresValue::Inet(*value)
+#[cfg(feature = "cidr")]
+impl<'a> From<&'a IpInet> for PostgresValue<'a> {
+    fn from(value: &'a IpInet) -> Self {
+        PostgresValue::Inet(value.clone())
     }
 }
 
-#[cfg(feature = "ipnet")]
-impl<'a> From<Ipv4Net> for PostgresValue<'a> {
-    fn from(value: Ipv4Net) -> Self {
-        PostgresValue::Inet(value.into())
+#[cfg(feature = "cidr")]
+impl<'a> From<IpCidr> for PostgresValue<'a> {
+    fn from(value: IpCidr) -> Self {
+        PostgresValue::Cidr(value)
     }
 }
 
-#[cfg(feature = "ipnet")]
-impl<'a> From<Ipv6Net> for PostgresValue<'a> {
-    fn from(value: Ipv6Net) -> Self {
-        PostgresValue::Inet(value.into())
+#[cfg(feature = "cidr")]
+impl<'a> From<&'a IpCidr> for PostgresValue<'a> {
+    fn from(value: &'a IpCidr) -> Self {
+        PostgresValue::Cidr(value.clone())
     }
 }
 
-#[cfg(feature = "ipnet")]
+#[cfg(feature = "cidr")]
 impl<'a> From<[u8; 6]> for PostgresValue<'a> {
     fn from(value: [u8; 6]) -> Self {
         PostgresValue::MacAddr(value)
     }
 }
 
-#[cfg(feature = "ipnet")]
+#[cfg(feature = "cidr")]
 impl<'a> From<&'a [u8; 6]> for PostgresValue<'a> {
     fn from(value: &'a [u8; 6]) -> Self {
         PostgresValue::MacAddr(*value)
     }
 }
 
-#[cfg(feature = "ipnet")]
+#[cfg(feature = "cidr")]
 impl<'a> From<[u8; 8]> for PostgresValue<'a> {
     fn from(value: [u8; 8]) -> Self {
         PostgresValue::MacAddr8(value)
     }
 }
 
-#[cfg(feature = "ipnet")]
+#[cfg(feature = "cidr")]
 impl<'a> From<&'a [u8; 8]> for PostgresValue<'a> {
     fn from(value: &'a [u8; 8]) -> Self {
         PostgresValue::MacAddr8(*value)
@@ -892,71 +819,29 @@ impl<'a> From<&'a LineString<f64>> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "geo-types")]
-impl<'a> From<Polygon<f64>> for PostgresValue<'a> {
-    fn from(value: Polygon<f64>) -> Self {
-        PostgresValue::Polygon(value)
+impl<'a> From<Rect<f64>> for PostgresValue<'a> {
+    fn from(value: Rect<f64>) -> Self {
+        PostgresValue::Rect(value)
     }
 }
 
 #[cfg(feature = "geo-types")]
-impl<'a> From<&'a Polygon<f64>> for PostgresValue<'a> {
-    fn from(value: &'a Polygon<f64>) -> Self {
-        PostgresValue::Polygon(value.clone())
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> From<MultiPoint<f64>> for PostgresValue<'a> {
-    fn from(value: MultiPoint<f64>) -> Self {
-        PostgresValue::MultiPoint(value)
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> From<&'a MultiPoint<f64>> for PostgresValue<'a> {
-    fn from(value: &'a MultiPoint<f64>) -> Self {
-        PostgresValue::MultiPoint(value.clone())
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> From<MultiLineString<f64>> for PostgresValue<'a> {
-    fn from(value: MultiLineString<f64>) -> Self {
-        PostgresValue::MultiLineString(value)
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> From<&'a MultiLineString<f64>> for PostgresValue<'a> {
-    fn from(value: &'a MultiLineString<f64>) -> Self {
-        PostgresValue::MultiLineString(value.clone())
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> From<MultiPolygon<f64>> for PostgresValue<'a> {
-    fn from(value: MultiPolygon<f64>) -> Self {
-        PostgresValue::MultiPolygon(value)
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> From<&'a MultiPolygon<f64>> for PostgresValue<'a> {
-    fn from(value: &'a MultiPolygon<f64>) -> Self {
-        PostgresValue::MultiPolygon(value.clone())
+impl<'a> From<&'a Rect<f64>> for PostgresValue<'a> {
+    fn from(value: &'a Rect<f64>) -> Self {
+        PostgresValue::Rect(*value)
     }
 }
 
 // --- Bit String Types ---
 
-#[cfg(feature = "bitvec")]
+#[cfg(feature = "bit-vec")]
 impl<'a> From<BitVec> for PostgresValue<'a> {
     fn from(value: BitVec) -> Self {
         PostgresValue::BitVec(value)
     }
 }
 
-#[cfg(feature = "bitvec")]
+#[cfg(feature = "bit-vec")]
 impl<'a> From<&'a BitVec> for PostgresValue<'a> {
     fn from(value: &'a BitVec) -> Self {
         PostgresValue::BitVec(value.clone())
@@ -1144,7 +1029,9 @@ impl<'a> TryFrom<PostgresValue<'a>> for Uuid {
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
             PostgresValue::Uuid(uuid) => Ok(uuid),
-            PostgresValue::Text(cow) => Ok(Uuid::parse_str(cow.as_ref())?),
+            PostgresValue::Text(cow) => Uuid::parse_str(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse UUID: {}", e).into())
+            }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to UUID", value).into(),
             )),
@@ -1265,51 +1152,37 @@ impl<'a> TryFrom<PostgresValue<'a>> for Duration {
 
 // --- Numeric TryFrom implementations ---
 
-#[cfg(feature = "rust_decimal")]
-impl<'a> TryFrom<PostgresValue<'a>> for Decimal {
-    type Error = DrizzleError;
-
-    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::Decimal(dec) => Ok(dec),
-            PostgresValue::Smallint(i) => Ok(Decimal::from(i)),
-            PostgresValue::Integer(i) => Ok(Decimal::from(i)),
-            PostgresValue::Bigint(i) => Ok(Decimal::from(i)),
-            PostgresValue::Real(f) => Decimal::try_from(f).map_err(|e| {
-                DrizzleError::ConversionError(
-                    format!("Failed to convert float to decimal: {}", e).into(),
-                )
-            }),
-            PostgresValue::DoublePrecision(f) => Decimal::try_from(f).map_err(|e| {
-                DrizzleError::ConversionError(
-                    format!("Failed to convert float to decimal: {}", e).into(),
-                )
-            }),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Decimal", value).into(),
-            )),
-        }
-    }
-}
-
 // --- Network Address TryFrom implementations ---
 
-#[cfg(feature = "ipnet")]
-impl<'a> TryFrom<PostgresValue<'a>> for IpNet {
+#[cfg(feature = "cidr")]
+impl<'a> TryFrom<PostgresValue<'a>> for IpInet {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
             PostgresValue::Inet(net) => Ok(net),
-            PostgresValue::Cidr(net) => Ok(net),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to IpNet", value).into(),
+                format!("Cannot convert {:?} to IpInet", value).into(),
             )),
         }
     }
 }
 
-#[cfg(feature = "ipnet")]
+#[cfg(feature = "cidr")]
+impl<'a> TryFrom<PostgresValue<'a>> for IpCidr {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Cidr(net) => Ok(net),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to IpCidr", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "cidr")]
 impl<'a> TryFrom<PostgresValue<'a>> for [u8; 6] {
     type Error = DrizzleError;
 
@@ -1323,7 +1196,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for [u8; 6] {
     }
 }
 
-#[cfg(feature = "ipnet")]
+#[cfg(feature = "cidr")]
 impl<'a> TryFrom<PostgresValue<'a>> for [u8; 8] {
     type Error = DrizzleError;
 
@@ -1368,56 +1241,14 @@ impl<'a> TryFrom<PostgresValue<'a>> for LineString<f64> {
 }
 
 #[cfg(feature = "geo-types")]
-impl<'a> TryFrom<PostgresValue<'a>> for Polygon<f64> {
+impl<'a> TryFrom<PostgresValue<'a>> for Rect<f64> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Polygon(poly) => Ok(poly),
+            PostgresValue::Rect(rect) => Ok(rect),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Polygon", value).into(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> TryFrom<PostgresValue<'a>> for MultiPoint<f64> {
-    type Error = DrizzleError;
-
-    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::MultiPoint(mp) => Ok(mp),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to MultiPoint", value).into(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> TryFrom<PostgresValue<'a>> for MultiLineString<f64> {
-    type Error = DrizzleError;
-
-    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::MultiLineString(mls) => Ok(mls),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to MultiLineString", value).into(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "geo-types")]
-impl<'a> TryFrom<PostgresValue<'a>> for MultiPolygon<f64> {
-    type Error = DrizzleError;
-
-    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::MultiPolygon(mp) => Ok(mp),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to MultiPolygon", value).into(),
+                format!("Cannot convert {:?} to Rect", value).into(),
             )),
         }
     }
@@ -1425,7 +1256,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for MultiPolygon<f64> {
 
 // --- Bit String TryFrom implementations ---
 
-#[cfg(feature = "bitvec")]
+#[cfg(feature = "bit-vec")]
 impl<'a> TryFrom<PostgresValue<'a>> for BitVec {
     type Error = DrizzleError;
 
@@ -1594,46 +1425,34 @@ mod postgres_tosql_impl {
                 PostgresValue::TimestampTz(ts) => ts.to_sql(ty, out),
                 #[cfg(feature = "chrono")]
                 PostgresValue::Interval(dur) => dur.to_string().to_sql(ty, out),
-                // These types don't implement postgres::types::ToSql directly
-                // We convert them to string representations for serialization
-                #[cfg(feature = "rust_decimal")]
-                PostgresValue::Decimal(num) => num.to_string().to_sql(ty, out),
-                #[cfg(feature = "ipnet")]
-                PostgresValue::Inet(ip) => ip.to_string().to_sql(ty, out),
-                #[cfg(feature = "ipnet")]
-                PostgresValue::Cidr(ip) => ip.to_string().to_sql(ty, out),
-                #[cfg(feature = "ipnet")]
+                #[cfg(feature = "cidr")]
+                PostgresValue::Inet(ip) => ip.to_sql(ty, out),
+                #[cfg(feature = "cidr")]
+                PostgresValue::Cidr(ip) => ip.to_sql(ty, out),
+                // MAC addresses don't have native ToSql in postgres-rs, use eui48 crate or string format
+                #[cfg(feature = "cidr")]
                 PostgresValue::MacAddr(mac) => format!(
                     "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
                 )
                 .to_sql(ty, out),
-                #[cfg(feature = "ipnet")]
+                #[cfg(feature = "cidr")]
                 PostgresValue::MacAddr8(mac) => format!(
                     "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
                 )
                 .to_sql(ty, out),
+                // Point has native ToSql in postgres-rs with geo-types feature
                 #[cfg(feature = "geo-types")]
-                PostgresValue::Point(p) => format!("({},{})", p.x(), p.y()).to_sql(ty, out),
+                PostgresValue::Point(p) => p.to_sql(ty, out),
+                // LineString maps to PATH in postgres, which has native support
                 #[cfg(feature = "geo-types")]
-                PostgresValue::LineString(ls) => {
-                    let points: Vec<String> = ls
-                        .points()
-                        .map(|p| format!("({},{})", p.x(), p.y()))
-                        .collect();
-                    format!("({})", points.join(",")).to_sql(ty, out)
-                }
+                PostgresValue::LineString(ls) => ls.to_sql(ty, out),
+                // Rect maps to BOX in postgres, which has native support
                 #[cfg(feature = "geo-types")]
-                PostgresValue::Polygon(poly) => format!("{:?}", poly).to_sql(ty, out),
-                #[cfg(feature = "geo-types")]
-                PostgresValue::MultiPoint(mp) => format!("{:?}", mp).to_sql(ty, out),
-                #[cfg(feature = "geo-types")]
-                PostgresValue::MultiLineString(mls) => format!("{:?}", mls).to_sql(ty, out),
-                #[cfg(feature = "geo-types")]
-                PostgresValue::MultiPolygon(mpoly) => format!("{:?}", mpoly).to_sql(ty, out),
-                #[cfg(feature = "bitvec")]
-                PostgresValue::BitVec(bits) => format!("{:?}", bits).to_sql(ty, out),
+                PostgresValue::Rect(rect) => rect.to_sql(ty, out),
+                #[cfg(feature = "bit-vec")]
+                PostgresValue::BitVec(bits) => bits.to_sql(ty, out),
                 PostgresValue::Enum(enum_val) => enum_val.variant_name().to_sql(ty, out),
                 PostgresValue::Array(arr) => {
                     // For arrays, we need to serialize each element

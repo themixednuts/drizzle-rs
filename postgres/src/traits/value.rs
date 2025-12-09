@@ -54,6 +54,14 @@ pub trait FromPostgresValue: Sized {
             "unexpected NULL value".into(),
         ))
     }
+
+    /// Convert from a UUID value
+    #[cfg(feature = "uuid")]
+    fn from_postgres_uuid(value: uuid::Uuid) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert UUID {} to target type", value).into(),
+        ))
+    }
 }
 
 /// Trait for database rows that can extract values using `FromPostgresValue`.
@@ -527,6 +535,12 @@ mod postgres_row_impl {
             return T::from_postgres_bytes(v);
         }
 
+        // Try UUID
+        #[cfg(feature = "uuid")]
+        if let Ok(Some(v)) = row.try_get_uuid(&column) {
+            return T::from_postgres_uuid(v);
+        }
+
         // Check for NULL - if all type probes returned None/error, assume NULL
         T::from_postgres_null()
     }
@@ -565,6 +579,8 @@ mod postgres_row_impl {
         fn try_get_f64(&self, column: &impl ColumnRef) -> Result<Option<f64>, ()>;
         fn try_get_string(&self, column: &impl ColumnRef) -> Result<Option<String>, ()>;
         fn try_get_bytes(&self, column: &impl ColumnRef) -> Result<Option<Vec<u8>>, ()>;
+        #[cfg(feature = "uuid")]
+        fn try_get_uuid(&self, column: &impl ColumnRef) -> Result<Option<uuid::Uuid>, ()>;
     }
 
     // Use tokio_postgres when available, postgres when not
@@ -645,6 +661,17 @@ mod postgres_row_impl {
                 self.try_get::<_, Option<Vec<u8>>>(idx).map_err(|_| ())
             } else if let Some(name) = column.to_name() {
                 self.try_get::<_, Option<Vec<u8>>>(name).map_err(|_| ())
+            } else {
+                Err(())
+            }
+        }
+
+        #[cfg(feature = "uuid")]
+        fn try_get_uuid(&self, column: &impl ColumnRef) -> Result<Option<uuid::Uuid>, ()> {
+            if let Some(idx) = column.to_index() {
+                self.try_get::<_, Option<uuid::Uuid>>(idx).map_err(|_| ())
+            } else if let Some(name) = column.to_name() {
+                self.try_get::<_, Option<uuid::Uuid>>(name).map_err(|_| ())
             } else {
                 Err(())
             }
@@ -746,6 +773,17 @@ mod postgres_row_impl {
                 Err(())
             }
         }
+
+        #[cfg(feature = "uuid")]
+        fn try_get_uuid(&self, column: &impl ColumnRef) -> Result<Option<uuid::Uuid>, ()> {
+            if let Some(idx) = column.to_index() {
+                self.try_get::<_, Option<uuid::Uuid>>(idx).map_err(|_| ())
+            } else if let Some(name) = column.to_name() {
+                self.try_get::<_, Option<uuid::Uuid>>(name).map_err(|_| ())
+            } else {
+                Err(())
+            }
+        }
     }
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
@@ -811,6 +849,10 @@ impl FromPostgresValue for uuid::Uuid {
     fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
         uuid::Uuid::from_slice(value)
             .map_err(|e| DrizzleError::ConversionError(format!("invalid UUID bytes: {}", e).into()))
+    }
+
+    fn from_postgres_uuid(value: uuid::Uuid) -> Result<Self, DrizzleError> {
+        Ok(value)
     }
 }
 

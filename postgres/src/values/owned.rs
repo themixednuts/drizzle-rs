@@ -9,17 +9,14 @@ use uuid::Uuid;
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 
-#[cfg(feature = "rust_decimal")]
-use rust_decimal::Decimal;
-
-#[cfg(feature = "ipnet")]
-use ipnet::IpNet;
+#[cfg(feature = "cidr")]
+use cidr::{IpCidr, IpInet};
 
 #[cfg(feature = "geo-types")]
-use geo_types::{LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
+use geo_types::{LineString, Point, Rect};
 
-#[cfg(feature = "bitvec")]
-use bitvec::prelude::*;
+#[cfg(feature = "bit-vec")]
+use bit_vec::BitVec;
 
 /// Owned version of PostgresValue that doesn't borrow data
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -67,48 +64,34 @@ pub enum OwnedPostgresValue {
     #[cfg(feature = "chrono")]
     Interval(Duration),
 
-    // Numeric types
-    /// NUMERIC, DECIMAL values (arbitrary precision)
-    #[cfg(feature = "rust_decimal")]
-    Decimal(Decimal),
-
     // Network address types
-    /// INET values (IPv4 or IPv6 networks)
-    #[cfg(feature = "ipnet")]
-    Inet(IpNet),
-    /// CIDR values (IPv4 or IPv6 networks)
-    #[cfg(feature = "ipnet")]
-    Cidr(IpNet),
+    /// INET values (host address with optional netmask)
+    #[cfg(feature = "cidr")]
+    Inet(IpInet),
+    /// CIDR values (network specification)
+    #[cfg(feature = "cidr")]
+    Cidr(IpCidr),
     /// MACADDR values (MAC addresses)
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     MacAddr([u8; 6]),
     /// MACADDR8 values (EUI-64 MAC addresses)
-    #[cfg(feature = "ipnet")]
+    #[cfg(feature = "cidr")]
     MacAddr8([u8; 8]),
 
-    // Geometric types
+    // Geometric types (native PostgreSQL support via postgres-rs)
     /// POINT values
     #[cfg(feature = "geo-types")]
     Point(Point<f64>),
-    /// LINESTRING values
+    /// PATH values (open path from LineString)
     #[cfg(feature = "geo-types")]
     LineString(LineString<f64>),
-    /// POLYGON values
+    /// BOX values (bounding rectangle)
     #[cfg(feature = "geo-types")]
-    Polygon(Polygon<f64>),
-    /// MULTIPOINT values
-    #[cfg(feature = "geo-types")]
-    MultiPoint(MultiPoint<f64>),
-    /// MULTILINESTRING values
-    #[cfg(feature = "geo-types")]
-    MultiLineString(MultiLineString<f64>),
-    /// MULTIPOLYGON values
-    #[cfg(feature = "geo-types")]
-    MultiPolygon(MultiPolygon<f64>),
+    Rect(Rect<f64>),
 
     // Bit string types
     /// BIT, BIT VARYING values
-    #[cfg(feature = "bitvec")]
+    #[cfg(feature = "bit-vec")]
     BitVec(BitVec),
 
     // Array types (using Vec for simplicity)
@@ -159,21 +142,17 @@ impl std::fmt::Display for OwnedPostgresValue {
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
 
-            // Numeric types
-            #[cfg(feature = "rust_decimal")]
-            OwnedPostgresValue::Decimal(dec) => dec.to_string(),
-
             // Network address types
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(net) => net.to_string(),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::Cidr(net) => net.to_string(),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::MacAddr(mac) => format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
             ),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::MacAddr8(mac) => format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
@@ -191,57 +170,21 @@ impl std::fmt::Display for OwnedPostgresValue {
                 format!("[{}]", coords.join(","))
             }
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Polygon(poly) => format!(
-                "POLYGON({})",
-                poly.exterior()
-                    .coords()
-                    .map(|c| format!("({},{})", c.x, c.y))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiPoint(mp) => format!(
-                "MULTIPOINT({})",
-                mp.iter()
-                    .map(|p| format!("({},{})", p.x(), p.y()))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiLineString(mls) => format!(
-                "MULTILINESTRING({})",
-                mls.iter()
-                    .map(|ls| format!(
-                        "[{}]",
-                        ls.coords()
-                            .map(|c| format!("({},{})", c.x, c.y))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiPolygon(mp) => format!(
-                "MULTIPOLYGON({})",
-                mp.iter()
-                    .map(|p| format!(
-                        "POLYGON({})",
-                        p.exterior()
-                            .coords()
-                            .map(|c| format!("({},{})", c.x, c.y))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
+            OwnedPostgresValue::Rect(rect) => {
+                format!(
+                    "(({},{}),({},{}))",
+                    rect.min().x,
+                    rect.min().y,
+                    rect.max().x,
+                    rect.max().y
+                )
+            }
 
             // Bit string types
-            #[cfg(feature = "bitvec")]
+            #[cfg(feature = "bit-vec")]
             OwnedPostgresValue::BitVec(bv) => bv
                 .iter()
-                .map(|b| if *b { '1' } else { '0' })
+                .map(|b| if b { '1' } else { '0' })
                 .collect::<String>(),
 
             // Array types
@@ -288,29 +231,21 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::TimestampTz(ts) => OwnedPostgresValue::TimestampTz(ts),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(dur) => OwnedPostgresValue::Interval(dur),
-            #[cfg(feature = "rust_decimal")]
-            PostgresValue::Decimal(dec) => OwnedPostgresValue::Decimal(dec),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::Inet(net) => OwnedPostgresValue::Inet(net),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::Cidr(net) => OwnedPostgresValue::Cidr(net),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::MacAddr(mac) => OwnedPostgresValue::MacAddr(mac),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             PostgresValue::MacAddr8(mac) => OwnedPostgresValue::MacAddr8(mac),
             #[cfg(feature = "geo-types")]
             PostgresValue::Point(point) => OwnedPostgresValue::Point(point),
             #[cfg(feature = "geo-types")]
             PostgresValue::LineString(line) => OwnedPostgresValue::LineString(line),
             #[cfg(feature = "geo-types")]
-            PostgresValue::Polygon(poly) => OwnedPostgresValue::Polygon(poly),
-            #[cfg(feature = "geo-types")]
-            PostgresValue::MultiPoint(mp) => OwnedPostgresValue::MultiPoint(mp),
-            #[cfg(feature = "geo-types")]
-            PostgresValue::MultiLineString(mls) => OwnedPostgresValue::MultiLineString(mls),
-            #[cfg(feature = "geo-types")]
-            PostgresValue::MultiPolygon(mp) => OwnedPostgresValue::MultiPolygon(mp),
-            #[cfg(feature = "bitvec")]
+            PostgresValue::Rect(rect) => OwnedPostgresValue::Rect(rect),
+            #[cfg(feature = "bit-vec")]
             PostgresValue::BitVec(bv) => OwnedPostgresValue::BitVec(bv),
             PostgresValue::Array(arr) => {
                 let owned_arr = arr.into_iter().map(OwnedPostgresValue::from).collect();
@@ -350,29 +285,21 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::TimestampTz(ts) => PostgresValue::TimestampTz(ts),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(dur) => PostgresValue::Interval(dur),
-            #[cfg(feature = "rust_decimal")]
-            OwnedPostgresValue::Decimal(dec) => PostgresValue::Decimal(dec),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(net) => PostgresValue::Inet(net),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::Cidr(net) => PostgresValue::Cidr(net),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::MacAddr(mac) => PostgresValue::MacAddr(mac),
-            #[cfg(feature = "ipnet")]
+            #[cfg(feature = "cidr")]
             OwnedPostgresValue::MacAddr8(mac) => PostgresValue::MacAddr8(mac),
             #[cfg(feature = "geo-types")]
             OwnedPostgresValue::Point(point) => PostgresValue::Point(point),
             #[cfg(feature = "geo-types")]
             OwnedPostgresValue::LineString(line) => PostgresValue::LineString(line),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Polygon(poly) => PostgresValue::Polygon(poly),
-            #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiPoint(mp) => PostgresValue::MultiPoint(mp),
-            #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiLineString(mls) => PostgresValue::MultiLineString(mls),
-            #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::MultiPolygon(mp) => PostgresValue::MultiPolygon(mp),
-            #[cfg(feature = "bitvec")]
+            OwnedPostgresValue::Rect(rect) => PostgresValue::Rect(rect),
+            #[cfg(feature = "bit-vec")]
             OwnedPostgresValue::BitVec(bv) => PostgresValue::BitVec(bv),
             OwnedPostgresValue::Array(arr) => {
                 let postgres_arr = arr.into_iter().map(PostgresValue::from).collect();
@@ -587,7 +514,9 @@ impl TryFrom<OwnedPostgresValue> for Uuid {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Uuid(uuid) => Ok(uuid),
-            OwnedPostgresValue::Text(s) => Ok(Uuid::parse_str(&s)?),
+            OwnedPostgresValue::Text(s) => Uuid::parse_str(&s).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse UUID: {}", e).into())
+            }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to UUID", value).into(),
             )),
