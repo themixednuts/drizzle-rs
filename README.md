@@ -7,18 +7,15 @@ SQL ORM inspired by Drizzle ORM.
 ### SQLite Example
 
 ```rust
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 use drizzle::rusqlite::Drizzle;
 
 #[SQLiteTable]
 pub struct Users {
-    #[integer(primary, autoincrement)]
+    #[column(primary, autoincrement)]
     pub id: i32,
-    #[text]
     pub name: String,
-    #[text]
     pub email: Option<String>,
-    #[integer]
     pub age: i32,
 }
 
@@ -57,18 +54,15 @@ fn main() -> drizzle::Result<()> {
 ### PostgreSQL Example
 
 ```rust
-use drizzle::prelude::*;
+use drizzle::postgres::prelude::*;
 use drizzle::postgres_sync::Drizzle;
 
 #[PostgresTable]
 pub struct Users {
-    #[serial(primary)]
+    #[column(serial, primary)]
     pub id: i32,
-    #[text]
     pub name: String,
-    #[text]
     pub email: Option<String>,
-    #[integer]
     pub age: i32,
 }
 
@@ -84,6 +78,7 @@ fn main() -> drizzle::Result<()> {
     )?;
     let (db, Schema { users }) = Drizzle::new(&mut conn, Schema::new());
 
+    // Create tables, only use on new database.
     db.create()?;
 
     db.insert(users)
@@ -111,73 +106,63 @@ SQLite table definition.
 #[SQLiteTable(name = "custom_name")]        // Custom table name
 #[SQLiteTable(strict)]                      // SQLite STRICT mode
 #[SQLiteTable(without_rowid)]               // WITHOUT ROWID table
-#[SQLiteTable(name = "users", strict)]      // Combined options
 ```
 
-### Column Types
-
-| Attribute    | SQLite Type | Rust Types                                                   |
-| ------------ | ----------- | ------------------------------------------------------------ |
-| `#[integer]` | INTEGER     | `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool` |
-| `#[text]`    | TEXT        | `String`, `&str`, enums (with `enum` flag)                   |
-| `#[real]`    | REAL        | `f32`, `f64`                                                 |
-| `#[blob]`    | BLOB        | `Vec<u8>`, `Uuid` (with `uuid` feature)                      |
-| `#[boolean]` | INTEGER     | `bool` (stored as 0/1)                                       |
-
-### Column Constraints
-
+                               
 ```rust
 #[SQLiteTable]
 pub struct Users {
     // Primary key with auto-increment
-    #[integer(primary, autoincrement)]
+    #[column(primary, autoincrement)]
     pub id: i32,
 
     // Unique constraint
-    #[text(unique)]
+    #[column(unique)]
     pub email: String,
 
     // Compile-time default value
-    #[text(default = "active")]
+    #[column(default = "active")]
     pub status: String,
 
     // Runtime default function
-    #[blob(primary, default_fn = uuid::Uuid::new_v4)]
+    #[column(primary, default_fn = uuid::Uuid::new_v4)]
     pub uuid_id: Uuid,
 
     // Foreign key reference
-    #[integer(references = Posts::id)]
+    #[column(references = Posts::id)]
     pub post_id: i32,
 
     // Enum stored as TEXT (variant name)
-    #[text(enum)]
+    #[column(enum)]
     pub role: UserRole,
 
-    // Enum stored as INTEGER (discriminant)
-    #[integer(enum)]
+    // Enum stored as INTEGER (discriminant) - requires explicit type override
+    #[column(integer, enum)]
     pub priority: Priority,
 
     // JSON serialization (requires `serde` feature)
-    #[text(json)]
+    #[column(json)]
     pub metadata: Option<UserMetadata>,
 
-    #[blob(json)]
+    #[column(jsonb)]  // Stored as BLOB
     pub config: Option<UserConfig>,
 }
 ```
 
 #### Constraint Reference
 
-| Constraint      | Description                                  | Example                                  |
-| --------------- | -------------------------------------------- | ---------------------------------------- |
-| `primary`       | Primary key constraint                       | `#[integer(primary)]`                    |
-| `autoincrement` | Auto-incrementing (INTEGER PRIMARY KEY only) | `#[integer(primary, autoincrement)]`     |
-| `unique`        | Unique constraint                            | `#[text(unique)]`                        |
-| `default`       | Compile-time default value                   | `#[text(default = "value")]`             |
-| `default_fn`    | Runtime default function                     | `#[blob(default_fn = Uuid::new_v4)]`     |
-| `references`    | Foreign key reference                        | `#[integer(references = Table::column)]` |
-| `enum`          | Store enum as TEXT or INTEGER                | `#[text(enum)]` or `#[integer(enum)]`    |
-| `json`          | JSON serialization (requires `serde`)        | `#[text(json)]` or `#[blob(json)]`       |
+#### Constraint Reference
+
+| Constraint            | Description                                  | Example                                    |
+| --------------------- | -------------------------------------------- | ------------------------------------------ |
+| `primary`             | Primary key constraint                       | `#[column(primary)]`                       |
+| `autoincrement`       | Auto-incrementing (INTEGER PRIMARY KEY only) | `#[column(primary, autoincrement)]`        |
+| `unique`              | Unique constraint                            | `#[column(unique)]`                        |
+| `default`             | Compile-time default value                   | `#[column(default = "value")]`             |
+| `default_fn`          | Runtime default function                     | `#[column(default_fn = Uuid::new_v4)]`     |
+| `references`          | Foreign key reference                        | `#[column(references = Table::col)]`       |
+| `enum`                | Store enum as TEXT or INTEGER                | `#[column(enum)]`                          |
+| `json` / `jsonb`      | JSON serialization                           | `#[column(json)]` (TEXT) or `#[column(jsonb)]` (BLOB) |
 
 ### Enum Definition
 
@@ -185,14 +170,14 @@ pub struct Users {
 #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 pub enum UserRole {
     #[default]
-    User,       // Stored as "User" with #[text(enum)]
+    User,       // Stored as "User" with #[column(enum)]
     Admin,      // Stored as "Admin"
     Moderator,  // Stored as "Moderator"
 }
 
 #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 pub enum Priority {
-    Low = 1,    // Stored as 1 with #[integer(enum)]
+    Low = 1,    // Stored as 1 with #[column(integer, enum)]
     #[default]
     Medium = 5, // Stored as 5
     High = 10,  // Stored as 10
@@ -244,33 +229,8 @@ PostgreSQL table definition.
 #[PostgresTable(name = "custom_name")]        // Custom table name
 #[PostgresTable(unlogged)]                    // UNLOGGED table
 #[PostgresTable(temporary)]                   // TEMPORARY table
-#[PostgresTable(if_not_exists)]               // IF NOT EXISTS clause
 ```
 
-### Column Types
-
-| Attribute             | PostgreSQL Type  | Rust Types                      |
-| --------------------- | ---------------- | ------------------------------- |
-| `#[serial]`           | SERIAL           | `i32`                           |
-| `#[bigserial]`        | BIGSERIAL        | `i64`                           |
-| `#[smallint]`         | SMALLINT         | `i16`                           |
-| `#[integer]`          | INTEGER          | `i32`                           |
-| `#[bigint]`           | BIGINT           | `i64`                           |
-| `#[real]`             | REAL             | `f32`                           |
-| `#[double_precision]` | DOUBLE PRECISION | `f64`                           |
-| `#[numeric]`          | NUMERIC          | `Decimal` (with `rust_decimal`) |
-| `#[text]`             | TEXT             | `String`                        |
-| `#[varchar]`          | VARCHAR          | `String`                        |
-| `#[boolean]`          | BOOLEAN          | `bool`                          |
-| `#[bytea]`            | BYTEA            | `Vec<u8>`                       |
-| `#[uuid]`             | UUID             | `Uuid` (with `uuid` feature)    |
-| `#[json]`             | JSON             | serde types (with `serde`)      |
-| `#[jsonb]`            | JSONB            | serde types (with `serde`)      |
-| `#[timestamp]`        | TIMESTAMP        | datetime types                  |
-| `#[timestamptz]`      | TIMESTAMPTZ      | datetime types with timezone    |
-| `#[date]`             | DATE             | date types                      |
-| `#[time]`             | TIME             | time types                      |
-| `#[r#enum(EnumType)]` | Custom ENUM      | Custom enum type                |
 
 ### Column Constraints
 
@@ -278,46 +238,48 @@ PostgreSQL table definition.
 #[PostgresTable]
 pub struct Users {
     // Auto-incrementing primary key
-    #[serial(primary)]
+    #[column(serial, primary)]
     pub id: i32,
 
     // UUID primary key with default
-    #[uuid(primary, default_fn = uuid::Uuid::new_v4)]
+    #[column(primary, default_fn = uuid::Uuid::new_v4)]
     pub uuid_id: Uuid,
 
     // Unique constraint
-    #[text(unique)]
+    #[column(unique)]
     pub email: String,
 
     // Foreign key reference
-    #[integer(references = Posts::id)]
+    #[column(references = Posts::id)]
     pub post_id: i32,
 
     // Enum stored as TEXT
-    #[text(enum)]
+    #[column(enum)]
     pub role: UserRole,
 
     // Native PostgreSQL ENUM type
-    #[r#enum(Priority)]
+    #[column(enum)]
     pub priority: Priority,
 
     // JSON/JSONB (requires `serde` feature)
-    #[jsonb]
+    #[column(jsonb)]
     pub metadata: Option<serde_json::Value>,
 }
 ```
 
 #### Constraint Reference
 
-| Constraint   | Description                   | Example                                  |
-| ------------ | ----------------------------- | ---------------------------------------- |
-| `primary`    | Primary key constraint        | `#[serial(primary)]`                     |
-| `unique`     | Unique constraint             | `#[text(unique)]`                        |
-| `default`    | Compile-time default value    | `#[text(default = "value")]`             |
-| `default_fn` | Runtime default function      | `#[uuid(default_fn = Uuid::new_v4)]`     |
-| `references` | Foreign key reference         | `#[integer(references = Table::column)]` |
-| `enum`       | Store enum as TEXT or INTEGER | `#[text(enum)]` or `#[integer(enum)]`    |
-| `json`       | JSON serialization            | `#[text(json)]`                          |
+#### Constraint Reference
+
+| Constraint            | Description                   | Example                                    |
+| --------------------- | ----------------------------- | ------------------------------------------ |
+| `primary`             | Primary key constraint        | `#[column(serial, primary)]`               |
+| `unique`              | Unique constraint             | `#[column(unique)]`                        |
+| `default`             | Compile-time default value    | `#[column(default = "value")]`             |
+| `default_fn`          | Runtime default function      | `#[column(default_fn = Uuid::new_v4)]`     |
+| `references`          | Foreign key reference         | `#[column(references = Table::col)]`       |
+| `enum`                | Custom or Text Enum           | `#[column(enum)]`                          |
+| `json` / `jsonb`      | JSON serialization            | `#[column(jsonb)]`                         |
 
 ### Enum Definition
 
@@ -342,15 +304,15 @@ pub enum Priority {
 
 #[PostgresTable]
 pub struct Tasks {
-    #[serial(primary)]
+    #[column(serial, primary)]
     pub id: i32,
 
     // Store as TEXT: "User", "Admin", etc.
-    #[text(enum)]
+    #[column(enum)]
     pub role: UserRole,
 
     // Native PostgreSQL ENUM type
-    #[r#enum(Priority)]
+    #[column(enum)]
     pub priority: Priority,
 }
 ```
@@ -395,7 +357,7 @@ By default, table and column names are converted to `snake_case`:
 ```rust
 #[SQLiteTable]           // Table name: "my_users"
 pub struct MyUsers {
-    #[integer(primary)]
+    #[column(primary)]
     pub userId: i32,     // Column name: "userId" (field name as-is)
 }
 ```
@@ -405,7 +367,7 @@ Use the `name` attribute to customize:
 ```rust
 #[SQLiteTable(name = "users")]
 pub struct MyUsers {
-    #[integer(primary)]
+    #[column(primary)]
     pub id: i32,
 }
 ```
@@ -419,13 +381,11 @@ Nullability is controlled by Rust's type system:
 ```rust
 #[SQLiteTable(name = "example")]
 pub struct Example {
-    #[integer(primary)]
+    #[column(primary)]
     pub id: i32,           // NOT NULL - required
 
-    #[text]
     pub name: String,      // NOT NULL - required in InsertExample::new()
 
-    #[text]
     pub email: Option<String>, // NULL allowed - set via .with_email()
 }
 ```
@@ -499,7 +459,7 @@ let user: SelectUsers = db.select(()).from(users).get()?;
 ### WHERE Conditions
 
 ```rust
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 
 // Equality
 db.select(()).from(users).r#where(eq(users.id, 1)).all()?;
@@ -738,7 +698,7 @@ use uuid::Uuid;
 
 #[SQLiteTable(name = "users")]
 pub struct Users {
-    #[blob(primary, default_fn = Uuid::new_v4)]
+    #[column(primary, default_fn = Uuid::new_v4)]
     pub id: Uuid,  // 16 bytes binary storage
 }
 ```
@@ -748,7 +708,7 @@ pub struct Users {
 ```rust
 #[SQLiteTable(name = "users")]
 pub struct Users {
-    #[text(primary, default_fn = || Uuid::new_v4())]
+    #[column(text, primary, default_fn = Uuid::new_v4)]
     pub id: Uuid,  // 36 character string storage
 }
 ```
@@ -758,7 +718,7 @@ pub struct Users {
 ```rust
 #[PostgresTable(name = "users")]
 pub struct Users {
-    #[uuid(primary, default_fn = Uuid::new_v4)]
+    #[column(primary, default_fn = Uuid::new_v4)]
     pub id: Uuid,
 }
 ```
@@ -787,13 +747,13 @@ struct UserMetadata {
 
 #[SQLiteTable(name = "users")]
 pub struct Users {
-    #[integer(primary)]
+    #[column(primary)]
     pub id: i32,
 
-    #[text(json)]  // JSON stored as TEXT
+    #[column(json)]  // JSON stored as TEXT
     pub metadata: Option<UserMetadata>,
 
-    #[blob(json)]  // JSON stored as BLOB
+    #[column(jsonb)]  // JSON stored as BLOB
     pub config: Option<UserMetadata>,
 }
 ```
@@ -803,13 +763,13 @@ pub struct Users {
 ```rust
 #[PostgresTable(name = "users")]
 pub struct Users {
-    #[serial(primary)]
+    #[column(serial, primary)]
     pub id: i32,
 
-    #[json]   // Standard JSON
+    #[column(json)]   // Standard JSON
     pub metadata: Option<serde_json::Value>,
 
-    #[jsonb]  // Binary JSON (faster queries)
+    #[column(jsonb)]  // Binary JSON (faster queries)
     pub config: Option<serde_json::Value>,
 }
 ```
@@ -821,7 +781,7 @@ pub struct Users {
 Embed migrations at compile time for runtime execution:
 
 ```rust
-use drizzle::prelude::*;
+use drizzle::sqlite::prelude::*;
 
 const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
 
