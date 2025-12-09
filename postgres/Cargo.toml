@@ -15,10 +15,9 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 chrono = { version = "0.4", optional = true, features = ["serde"] }
-rust_decimal = { version = "1.36", optional = true, features = ["serde"] }
-ipnet = { version = "2.10", optional = true, features = ["serde"] }
+cidr = { version = "0.3", optional = true, features = ["serde"] }
 geo-types = { version = "0.7", optional = true, features = ["serde"] }
-bitvec = { version = "1.0", optional = true, features = ["serde"] }
+bit-vec = { version = "0.8", optional = true }
 arrayvec = { workspace = true, optional = true }
 # sqlx = { workspace = true, optional = true, default-features = false }
 paste = { workspace = true }
@@ -27,7 +26,9 @@ tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 bytes = { version = "1.11", optional = true }
 
+
 [features]
+
 serde = [
     "dep:serde_json",
     "dep:serde",
@@ -40,12 +41,25 @@ chrono = [
     "postgres?/with-chrono-0_4",
     "tokio-postgres?/with-chrono-0_4",
 ]
-rust_decimal = ["dep:rust_decimal"]
-ipnet = ["dep:ipnet"]
-geo-types = ["dep:geo-types"]
-bitvec = ["dep:bitvec"]
+
+cidr = ["dep:cidr", "postgres?/with-cidr-0_3", "tokio-postgres?/with-cidr-0_3"]
+
+geo-types = [
+    "dep:geo-types",
+    "postgres?/with-geo-types-0_7",
+    "tokio-postgres?/with-geo-types-0_7",
+]
+
+bit-vec = [
+    "dep:bit-vec",
+    "postgres?/with-bit-vec-0_8",
+    "tokio-postgres?/with-bit-vec-0_8",
+]
+
 arrayvec = ["dep:arrayvec"]
+
 # sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/uuid"]
+
 postgres-sync = ["dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
 tokio-postgres = [
     "dep:tokio-postgres",

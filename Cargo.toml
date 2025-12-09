@@ -100,6 +100,11 @@ drizzle = { workspace = true, features = [
   "postgres-sync",
   "tokio-postgres",
   "arrayvec",
+  # PostgreSQL type features for type_inference tests
+  "chrono",
+  "geo-types",
+  "cidr",
+  "bit-vec",
   # "sqlx-postgres",
 ] }
 drizzle-macros = { workspace = true, features = [
@@ -110,6 +115,10 @@ drizzle-macros = { workspace = true, features = [
   "serde",
   "postgres",
   "sqlite",
+  "chrono",
+  "geo-types",
+  "cidr",
+  "bit-vec",
   # "sqlx-postgres",
 ] }
 
@@ -122,6 +131,12 @@ rusqlite = { workspace = true, features = ["bundled"] }
 tokio-postgres = { workspace = true }
 puffin_egui = { version = "0.29" }
 eframe = { version = "0.33" }
+
+# External crates for type inference tests
+chrono = { version = "0.4", features = ["serde"] }
+geo-types = { version = "0.7", features = ["serde"] }
+cidr = { version = "0.3", features = ["serde"] }
+bit-vec = { version = "0.8" }
 
 [[bench]]
 name = "performance_comparison"
@@ -181,10 +196,9 @@ uuid = [
 
 # PostgreSQL feature flags for optional types
 chrono = ["drizzle-postgres?/chrono", "drizzle-macros/chrono"]
-rust_decimal = ["drizzle-postgres?/rust_decimal", "drizzle-macros/rust_decimal"]
-ipnet = ["drizzle-postgres?/ipnet", "drizzle-macros/ipnet"]
+cidr = ["drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
-bitvec = ["drizzle-postgres?/bitvec", "drizzle-macros/bitvec"]
+bit-vec = ["drizzle-postgres?/bit-vec", "drizzle-macros/bit-vec"]
 arrayvec = [
   "dep:arrayvec",
   "drizzle-postgres?/arrayvec",
