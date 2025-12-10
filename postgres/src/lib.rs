@@ -23,6 +23,12 @@ pub mod prelude {
     pub use super::PostgresTransactionType;
     pub use super::traits::{DrizzleRow, FromPostgresValue, PostgresColumn, PostgresEnum};
 
+    // Value types for model operations (needed for JSON serialization in macros)
+    pub use super::values::{PostgresInsertValue, PostgresValue, ValueWrapper};
+
+    // Core types for building SQL
+    pub use drizzle_core::SQL;
+
     // Column attribute markers for IDE documentation
     // These are used in #[column(...)] attributes
     pub use super::attrs::{

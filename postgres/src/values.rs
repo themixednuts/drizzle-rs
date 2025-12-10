@@ -97,6 +97,8 @@ impl<'a, T> PostgresInsertValue<'a, PostgresValue<'a>, T> {
 // Conversion implementations for PostgresValue-based InsertValue
 
 // Generic conversion from any type T to InsertValue (for same type T)
+// This works for types that implement TryInto<PostgresValue>, like enums,
+// ArrayString, ArrayVec, etc.
 impl<'a, T> From<T> for PostgresInsertValue<'a, PostgresValue<'a>, T>
 where
     T: TryInto<PostgresValue<'a>>,
