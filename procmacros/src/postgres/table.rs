@@ -4,6 +4,7 @@ mod column_definitions;
 mod context;
 mod drivers;
 mod errors;
+mod json;
 mod models;
 mod sql_generation;
 mod traits;
@@ -106,6 +107,9 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate TryFrom implementations for all enabled PostgreSQL drivers
     let driver_impls = drivers::generate_all_driver_impls(&ctx)?;
 
+    // Generate TryInto<PostgresValue> implementations for custom JSON types
+    let json_impls = json::generate_json_impls(&ctx)?;
+
     // Generate table marker const for IDE hover documentation
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
 
@@ -144,7 +148,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #model_definitions
         #alias_definitions
         #driver_impls
-        // #json_impls
+        #json_impls
 
         // Database-specific implementations
         // #sqlx_impls

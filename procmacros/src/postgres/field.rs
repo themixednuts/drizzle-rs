@@ -1,3 +1,4 @@
+use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::{collections::HashSet, fmt::Display};
@@ -845,6 +846,7 @@ pub(crate) struct FieldInfo {
     pub is_enum: bool,
     pub is_pgenum: bool,
     pub is_json: bool,
+    pub is_jsonb: bool,
     pub is_serial: bool,
     pub is_generated_identity: bool,
     pub default: Option<PostgreSQLDefault>,
@@ -900,6 +902,8 @@ impl FieldInfo {
         let mut marker_exprs = Vec::new();
 
         // Parse #[column(...)] attributes for constraints
+        let mut is_explicit_json = false;
+        let mut is_explicit_jsonb = false;
         for attr in &field.attrs {
             if let Some(column_info) =
                 Self::parse_column_attribute(attr, &type_category, name.span())?
@@ -913,6 +917,8 @@ impl FieldInfo {
                 is_bigserial = column_info.is_bigserial;
                 is_generated_identity = column_info.is_generated_identity;
                 is_pgenum = column_info.is_pgenum;
+                is_explicit_json = column_info.is_json;
+                is_explicit_jsonb = column_info.is_jsonb;
                 enum_type_name = column_info.enum_type_name;
                 marker_exprs = column_info.marker_exprs;
                 break;
@@ -920,6 +926,37 @@ impl FieldInfo {
         }
 
         // Determine the PostgreSQL column type
+        #[cfg(feature = "serde")]
+        let column_type = if is_serial {
+            PostgreSQLType::Serial
+        } else if is_bigserial {
+            PostgreSQLType::Bigserial
+        } else if is_pgenum {
+            // Get the enum type name from the field's base type
+            let base_type = Self::extract_option_inner(&ty);
+            let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
+            PostgreSQLType::from_enum_attribute(&base_type_str)
+        } else if is_explicit_json {
+            // Explicit #[column(json)] - use JSON type for any Serialize/Deserialize type
+            PostgreSQLType::Json
+        } else if is_explicit_jsonb {
+            // Explicit #[column(jsonb)] - use JSONB type for any Serialize/Deserialize type
+            PostgreSQLType::Jsonb
+        } else {
+            // Infer from Rust type
+            type_category.to_postgres_type().ok_or_else(|| {
+                Error::new(
+                    name.span(),
+                    format!(
+                        "Cannot infer PostgreSQL type for Rust type '{}'. \
+                        Use a supported type or add #[column(enum)] for enum types.",
+                        type_str
+                    ),
+                )
+            })?
+        };
+
+        #[cfg(not(feature = "serde"))]
         let column_type = if is_serial {
             PostgreSQLType::Serial
         } else if is_bigserial {
@@ -953,15 +990,17 @@ impl FieldInfo {
         let is_primary = flags.contains(&PostgreSQLFlag::Primary);
         let is_unique = flags.contains(&PostgreSQLFlag::Unique);
         let is_enum = flags.contains(&PostgreSQLFlag::Enum);
-        let is_json = matches!(type_category, TypeCategory::Json);
+        // is_json is true for both inferred serde_json::Value and explicit #[column(json/jsonb)]
+        let is_json =
+            matches!(type_category, TypeCategory::Json) || is_explicit_json || is_explicit_jsonb;
         let is_serial_type = is_serial || is_bigserial;
         let has_default = default.is_some() || default_fn.is_some() || is_serial_type;
 
         // Compute base_type once and store it
         let base_type = Self::extract_option_inner(&ty).clone();
 
-        // Column name defaults to field ident (can be overridden in future with name attribute)
-        let column_name = name.to_string();
+        // Column name defaults to field ident converted to snake_case (can be overridden with NAME attribute)
+        let column_name = name.to_string().to_snake_case();
 
         // Build SQL definition for this column
         let sql_definition = build_sql_definition(
@@ -990,6 +1029,7 @@ impl FieldInfo {
             is_enum,
             is_pgenum,
             is_json,
+            is_jsonb: is_explicit_jsonb,
             is_serial: is_serial_type,
             is_generated_identity,
             default,
@@ -1056,6 +1096,8 @@ impl FieldInfo {
         let mut is_bigserial = false;
         let mut is_generated_identity = false;
         let mut is_pgenum = false;
+        let mut is_json = false;
+        let mut is_jsonb = false;
         let mut enum_type_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
 
@@ -1117,11 +1159,13 @@ impl FieldInfo {
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "GENERATED_IDENTITY"));
                     }
                     "JSON" => {
-                        // Mark as JSON type
+                        // Mark as JSON type - allows any Serialize/Deserialize type
+                        is_json = true;
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "JSON"));
                     }
                     "JSONB" => {
-                        // Mark as JSONB type
+                        // Mark as JSONB type - allows any Serialize/Deserialize type
+                        is_jsonb = true;
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "JSONB"));
                     }
                     "ENUM" => {
@@ -1241,6 +1285,8 @@ impl FieldInfo {
             is_bigserial,
             is_generated_identity,
             is_pgenum,
+            is_json,
+            is_jsonb,
             enum_type_name,
             marker_exprs,
         }))
@@ -1388,6 +1434,8 @@ struct ColumnInfo {
     is_bigserial: bool,
     is_generated_identity: bool,
     is_pgenum: bool,
+    is_json: bool,
+    is_jsonb: bool,
     enum_type_name: Option<String>,
     marker_exprs: Vec<syn::ExprPath>,
 }
