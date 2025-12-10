@@ -15,6 +15,9 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 toml = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+drizzle = { workspace = true }
+
 [features]
 default = ["std"]
 std = []

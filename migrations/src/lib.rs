@@ -12,7 +12,7 @@
 //! Use the `include_migrations!` macro to embed migrations at compile time:
 //!
 //! ```ignore
-//! use drizzle::prelude::*;
+//! use drizzle::sqlite::prelude::*;
 //!
 //! // Embed migrations at compile time
 //! const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
@@ -45,9 +45,9 @@ pub use embedded::{EmbeddedMigration, EmbeddedMigrations};
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{Migration, Migrator, MigratorError};
 pub use version::{
-    is_latest_version, is_supported_version, needs_upgrade, snapshot_version, JOURNAL_VERSION,
-    MYSQL_SNAPSHOT_VERSION, ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION, SINGLESTORE_SNAPSHOT_VERSION,
-    SQLITE_SNAPSHOT_VERSION,
+    JOURNAL_VERSION, MYSQL_SNAPSHOT_VERSION, ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION,
+    SINGLESTORE_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION, is_latest_version, is_supported_version,
+    needs_upgrade, snapshot_version,
 };
 
 // Re-export serde_json for generated code to use
