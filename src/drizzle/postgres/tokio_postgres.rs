@@ -76,6 +76,12 @@ impl<Schema> Drizzle<Schema> {
         &self.client
     }
 
+    /// Gets a mutable reference to the underlying client
+    #[inline]
+    pub fn client_mut(&mut self) -> &mut Client {
+        &mut self.client
+    }
+
     /// Creates a SELECT query builder.
     pub fn select<'a, 'b, T>(
         &'a self,
