@@ -41,6 +41,41 @@ pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     }
 }
 
+// Blanket implementation for static references
+impl<T: SQLColumnInfo> SQLColumnInfo for &'static T {
+    fn is_not_null(&self) -> bool {
+        (*self).is_not_null()
+    }
+
+    fn is_primary_key(&self) -> bool {
+        (*self).is_primary_key()
+    }
+
+    fn is_unique(&self) -> bool {
+        (*self).is_unique()
+    }
+
+    fn name(&self) -> &str {
+        (*self).name()
+    }
+
+    fn r#type(&self) -> &str {
+        (*self).r#type()
+    }
+
+    fn has_default(&self) -> bool {
+        (*self).has_default()
+    }
+
+    fn table(&self) -> &dyn SQLTableInfo {
+        (*self).table()
+    }
+
+    fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
+        (*self).foreign_key()
+    }
+}
+
 impl core::fmt::Debug for dyn SQLColumnInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLColumnInfo")

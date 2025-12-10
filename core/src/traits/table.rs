@@ -50,6 +50,21 @@ pub trait SQLTableInfo: Any + Send + Sync {
     fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]>;
 }
 
+// Blanket implementation for static references
+impl<T: SQLTableInfo> SQLTableInfo for &'static T {
+    fn name(&self) -> &str {
+        (*self).name()
+    }
+
+    fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
+        (*self).columns()
+    }
+
+    fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
+        (*self).dependencies()
+    }
+}
+
 impl core::fmt::Debug for dyn SQLTableInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLTableInfo")
