@@ -846,6 +846,7 @@ pub(crate) struct FieldInfo {
     pub is_pgenum: bool,
     pub is_json: bool,
     pub is_serial: bool,
+    pub is_generated_identity: bool,
     pub default: Option<PostgreSQLDefault>,
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
@@ -893,6 +894,7 @@ impl FieldInfo {
         let mut foreign_key = None;
         let mut is_serial = false;
         let mut is_bigserial = false;
+        let mut is_generated_identity = false;
         let mut is_pgenum = false;
         let mut enum_type_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
@@ -909,6 +911,7 @@ impl FieldInfo {
                 foreign_key = column_info.foreign_key;
                 is_serial = column_info.is_serial;
                 is_bigserial = column_info.is_bigserial;
+                is_generated_identity = column_info.is_generated_identity;
                 is_pgenum = column_info.is_pgenum;
                 enum_type_name = column_info.enum_type_name;
                 marker_exprs = column_info.marker_exprs;
@@ -988,6 +991,7 @@ impl FieldInfo {
             is_pgenum,
             is_json,
             is_serial: is_serial_type,
+            is_generated_identity,
             default,
             default_fn,
             check_constraint,
@@ -1050,6 +1054,7 @@ impl FieldInfo {
         let mut foreign_key = None;
         let mut is_serial = false;
         let mut is_bigserial = false;
+        let mut is_generated_identity = false;
         let mut is_pgenum = false;
         let mut enum_type_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
@@ -1107,6 +1112,7 @@ impl FieldInfo {
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "UNIQUE"));
                     }
                     "GENERATED_IDENTITY" => {
+                        is_generated_identity = true;
                         flags.insert(PostgreSQLFlag::GeneratedIdentity);
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "GENERATED_IDENTITY"));
                     }
@@ -1173,14 +1179,51 @@ impl FieldInfo {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let path: ExprPath = meta.input.parse()?;
-                            foreign_key = Some(Self::parse_reference(&path)?);
-                            marker_exprs.push(Self::make_uppercase_path(path_ident, "REFERENCES"));
+                            foreign_key = Some(Self::parse_reference(&path)?);                            marker_exprs.push(Self::make_uppercase_path(path_ident, "REFERENCES"));
+                        }
+                    }
+                    "ON_DELETE" => {
+                        if meta.input.peek(Token![=]) {
+                            meta.input.parse::<Token![=]>()?;
+                            let action_ident: Ident = meta.input.parse()?;
+                            let action_upper = action_ident.to_string().to_ascii_uppercase();
+                            let action = Self::validate_referential_action(&action_ident)?;
+                            if let Some(ref mut fk) = foreign_key {
+                                fk.on_delete = Some(action);
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    &action_ident,
+                                    "on_delete must follow references = Table::column",
+                                ));
+                            }
+                            marker_exprs.push(Self::make_uppercase_path(path_ident, "ON_DELETE"));
+                            // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                            marker_exprs.push(Self::make_uppercase_path(&action_ident, &action_upper));
+                        }
+                    }
+                    "ON_UPDATE" => {
+                        if meta.input.peek(Token![=]) {
+                            meta.input.parse::<Token![=]>()?;
+                            let action_ident: Ident = meta.input.parse()?;
+                            let action_upper = action_ident.to_string().to_ascii_uppercase();
+                            let action = Self::validate_referential_action(&action_ident)?;
+                            if let Some(ref mut fk) = foreign_key {
+                                fk.on_update = Some(action);
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    &action_ident,
+                                    "on_update must follow references = Table::column",
+                                ));
+                            }
+                            marker_exprs.push(Self::make_uppercase_path(path_ident, "ON_UPDATE"));
+                            // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                            marker_exprs.push(Self::make_uppercase_path(&action_ident, &action_upper));
                         }
                     }
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &meta.path,
-                            format!("Unknown column constraint: '{}'. Supported: PRIMARY, UNIQUE, SERIAL, BIGSERIAL, SMALLSERIAL, GENERATED_IDENTITY, JSON, JSONB, ENUM, DEFAULT, DEFAULT_FN, CHECK, REFERENCES", path_ident),
+                            format!("Unknown column constraint: '{}'. Supported: PRIMARY, UNIQUE, SERIAL, BIGSERIAL, SMALLSERIAL, GENERATED_IDENTITY, JSON, JSONB, ENUM, DEFAULT, DEFAULT_FN, CHECK, REFERENCES, ON_DELETE, ON_UPDATE", path_ident),
                         ));
                     }
                 }
@@ -1196,10 +1239,30 @@ impl FieldInfo {
             foreign_key,
             is_serial,
             is_bigserial,
+            is_generated_identity,
             is_pgenum,
             enum_type_name,
             marker_exprs,
         }))
+    }
+
+    /// Validate a referential action (ON DELETE/ON UPDATE)
+    fn validate_referential_action(action: &Ident) -> Result<String> {
+        let action_str = action.to_string().to_ascii_uppercase();
+        match action_str.as_str() {
+            "CASCADE" => Ok("CASCADE".to_string()),
+            "SET_NULL" => Ok("SET NULL".to_string()),
+            "SET_DEFAULT" => Ok("SET DEFAULT".to_string()),
+            "RESTRICT" => Ok("RESTRICT".to_string()),
+            "NO_ACTION" => Ok("NO ACTION".to_string()),
+            _ => Err(Error::new_spanned(
+                action,
+                format!(
+                    "Invalid referential action '{}'. Supported: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
+                    action_str
+                ),
+            )),
+        }
     }
 
     /// Parse foreign key reference from path expression
@@ -1237,8 +1300,8 @@ impl FieldInfo {
         Ok(PostgreSQLReference {
             table,
             column,
-            on_delete: None, // TODO: Add support for ON DELETE/UPDATE actions
-            on_update: None,
+            on_delete: None, // Set via on_delete = ... attribute
+            on_update: None, // Set via on_update = ... attribute
         })
     }
 }
@@ -1323,6 +1386,7 @@ struct ColumnInfo {
     foreign_key: Option<PostgreSQLReference>,
     is_serial: bool,
     is_bigserial: bool,
+    is_generated_identity: bool,
     is_pgenum: bool,
     enum_type_name: Option<String>,
     marker_exprs: Vec<syn::ExprPath>,

@@ -174,12 +174,21 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         column_zst_idents.push(zst_ident.clone());
 
         let rust_type = &field_info.field_type;
-        let (is_primary, is_not_null, is_unique, is_serial, is_bigserial, has_default) = (
+        let (
+            is_primary,
+            is_not_null,
+            is_unique,
+            is_serial,
+            is_bigserial,
+            is_generated_identity,
+            has_default,
+        ) = (
             field_info.is_primary,
             !field_info.is_nullable,
             field_info.is_unique,
             matches!(field_info.column_type, PostgreSQLType::Serial),
             matches!(field_info.column_type, PostgreSQLType::Bigserial),
+            field_info.is_generated_identity,
             field_info.has_default || field_info.default_fn.is_some(),
         );
 
@@ -496,7 +505,7 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             impl PostgresColumn<'_> for #zst_ident {
                 const SERIAL: bool = #is_serial_expr;
                 const BIGSERIAL: bool = #is_bigserial_expr;
-                const GENERATED_IDENTITY: bool = false; // TODO: Add generated identity support
+                const GENERATED_IDENTITY: bool = #is_generated_identity;
             }
 
 

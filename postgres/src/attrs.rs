@@ -203,6 +203,105 @@ pub const DEFAULT: ColumnMarker = ColumnMarker;
 /// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
 pub const REFERENCES: ColumnMarker = ColumnMarker;
 
+/// Specifies the ON DELETE action for foreign key references.
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_DELETE = CASCADE)]
+/// user_id: i32,
+/// ```
+///
+/// ## Supported Actions
+/// - `CASCADE`: Delete rows that reference the deleted row
+/// - `SET_NULL`: Set the column to NULL when referenced row is deleted
+/// - `SET_DEFAULT`: Set the column to its default value
+/// - `RESTRICT`: Prevent deletion if referenced
+/// - `NO_ACTION`: Similar to RESTRICT (default)
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const ON_DELETE: ColumnMarker = ColumnMarker;
+
+/// Specifies the ON UPDATE action for foreign key references.
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_UPDATE = CASCADE)]
+/// user_id: i32,
+/// ```
+///
+/// ## Supported Actions
+/// - `CASCADE`: Update referencing rows when referenced row is updated
+/// - `SET_NULL`: Set the column to NULL when referenced row is updated
+/// - `SET_DEFAULT`: Set the column to its default value
+/// - `RESTRICT`: Prevent update if referenced
+/// - `NO_ACTION`: Similar to RESTRICT (default)
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const ON_UPDATE: ColumnMarker = ColumnMarker;
+
+//------------------------------------------------------------------------------
+// Referential Action Values
+//------------------------------------------------------------------------------
+
+/// Marker struct for referential action values used with ON_DELETE/ON_UPDATE.
+#[derive(Debug, Clone, Copy)]
+pub struct ReferentialAction;
+
+/// CASCADE action: Propagate the delete/update to referencing rows.
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_DELETE = CASCADE)]
+/// user_id: i32,
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const CASCADE: ReferentialAction = ReferentialAction;
+
+/// SET NULL action: Set referencing columns to NULL.
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_DELETE = SET_NULL)]
+/// user_id: Option<i32>,
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const SET_NULL: ReferentialAction = ReferentialAction;
+
+/// SET DEFAULT action: Set referencing columns to their default values.
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_DELETE = SET_DEFAULT, DEFAULT = 0)]
+/// user_id: i32,
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const SET_DEFAULT: ReferentialAction = ReferentialAction;
+
+/// RESTRICT action: Prevent delete/update if referenced.
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_DELETE = RESTRICT)]
+/// user_id: i32,
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const RESTRICT: ReferentialAction = ReferentialAction;
+
+/// NO ACTION action: Similar to RESTRICT (default behavior).
+///
+/// ## Example
+/// ```ignore
+/// #[column(REFERENCES = User::id, ON_DELETE = NO_ACTION)]
+/// user_id: i32,
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const NO_ACTION: ReferentialAction = ReferentialAction;
+
 /// Adds a CHECK constraint to this column.
 ///
 /// ## Example

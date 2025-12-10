@@ -27,7 +27,12 @@ pub mod prelude {
     // These are used in #[column(...)] attributes
     pub use super::attrs::{
         BIGSERIAL, CHECK, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, GENERATED_IDENTITY, JSON, JSONB,
-        PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL, UNIQUE,
+        ON_DELETE, ON_UPDATE, PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL, UNIQUE,
+    };
+
+    // Referential action markers for ON_DELETE/ON_UPDATE
+    pub use super::attrs::{
+        CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
     };
 
     // Table attribute markers for IDE documentation
