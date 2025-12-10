@@ -167,11 +167,11 @@ pub struct Post {
 #[cfg(feature = "uuid")]
 #[SQLiteTable(name = "posts")]
 pub struct Post {
-    #[column(primary, DEFAULT_FN = Uuid::new_v4)]
+    #[column(primary, default_fn = Uuid::new_v4)]
     pub id: Uuid,
     pub title: String,
     pub content: Option<String>,
-    #[column(REFERENCES = Complex::id)]
+    #[column(references = Complex::id)]
     pub author_id: Option<Uuid>,
     pub published: bool,
     pub tags: Option<String>,
