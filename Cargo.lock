@@ -1450,6 +1450,7 @@ dependencies = [
 name = "drizzle-migrations"
 version = "0.1.3"
 dependencies = [
+ "drizzle",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
