@@ -29,6 +29,21 @@ pub trait SQLiteColumnInfo: SQLColumnInfo {
     }
 }
 
+// Blanket implementation for static references
+impl<T: SQLiteColumnInfo> SQLiteColumnInfo for &'static T {
+    fn is_autoincrement(&self) -> bool {
+        <T as SQLiteColumnInfo>::is_autoincrement(*self)
+    }
+
+    fn table(&self) -> &dyn SQLiteTableInfo {
+        <T as SQLiteColumnInfo>::table(*self)
+    }
+
+    fn foreign_key(&self) -> Option<&'static dyn SQLiteColumnInfo> {
+        <T as SQLiteColumnInfo>::foreign_key(*self)
+    }
+}
+
 impl std::fmt::Debug for dyn SQLiteColumnInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SQLiteColumnInfo")

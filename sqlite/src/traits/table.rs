@@ -26,6 +26,29 @@ pub trait SQLiteTableInfo: SQLTableInfo {
     }
 }
 
+// Blanket implementation for static references
+impl<T: SQLiteTableInfo> SQLiteTableInfo for &'static T {
+    fn r#type(&self) -> &SQLiteSchemaType {
+        (*self).r#type()
+    }
+
+    fn without_rowid(&self) -> bool {
+        (*self).without_rowid()
+    }
+
+    fn strict(&self) -> bool {
+        (*self).strict()
+    }
+
+    fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
+        (*self).sqlite_columns()
+    }
+
+    fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+        (*self).sqlite_dependencies()
+    }
+}
+
 impl std::fmt::Debug for dyn SQLiteTableInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SQLiteTableInfo")
