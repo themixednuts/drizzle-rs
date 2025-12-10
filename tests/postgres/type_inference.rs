@@ -4,8 +4,8 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::schema::postgres::*;
+use drizzle::core::OrderBy;
 use drizzle::postgres::prelude::*;
-use drizzle_core::OrderBy;
 use drizzle_macros::postgres_test;
 
 // ============================================================================
@@ -514,41 +514,170 @@ mod arrayvec_tests {
 #[cfg(feature = "serde")]
 mod json_tests {
     use super::*;
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
 
+    // Custom struct for JSON storage
+    #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+    struct Metadata {
+        theme: String,
+        notifications: bool,
+        settings: Vec<String>,
+    }
+
+    // Another custom struct for testing nested types
+    #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+    struct UserProfile {
+        name: String,
+        age: u32,
+        preferences: Metadata,
+    }
+
+    // Test explicit JSON column type with custom struct
     #[PostgresTable(name = "pg_json_types")]
     struct PgJsonTypes {
         #[column(serial, primary)]
         id: i32,
-        json_data: serde_json::Value,        // -> JSONB
-        opt_json: Option<serde_json::Value>, // -> JSONB (nullable)
+        #[column(json)]
+        metadata: Metadata, // -> JSON with custom struct
+        #[column(json)]
+        opt_metadata: Option<Metadata>, // -> JSON (nullable) with custom struct
+        #[column(json)]
+        raw_json: serde_json::Value, // -> JSON with raw Value
+    }
+
+    // Test explicit JSONB column type with custom struct
+    #[PostgresTable(name = "pg_jsonb_types")]
+    struct PgJsonbTypes {
+        #[column(serial, primary)]
+        id: i32,
+        #[column(jsonb)]
+        profile: UserProfile, // -> JSONB with nested custom struct
+        #[column(jsonb)]
+        opt_profile: Option<UserProfile>, // -> JSONB (nullable) with custom struct
+        #[column(jsonb)]
+        raw_jsonb: serde_json::Value, // -> JSONB with raw Value
     }
 
     #[derive(PostgresSchema)]
     struct PgJsonTypesSchema {
         json_table: PgJsonTypes,
+        jsonb_table: PgJsonbTypes,
     }
 
-    postgres_test!(json_roundtrip, PgJsonTypesSchema, {
+    postgres_test!(json_custom_struct_roundtrip, PgJsonTypesSchema, {
         let PgJsonTypesSchema { json_table, .. } = schema;
 
-        let json_data = json!({
-            "name": "test",
-            "values": [1, 2, 3],
-            "nested": {
-                "key": "value"
-            }
-        });
+        let metadata = Metadata {
+            theme: "dark".to_string(),
+            notifications: true,
+            settings: vec!["setting1".to_string(), "setting2".to_string()],
+        };
+        let raw_json = json!({"extra": "data"});
 
         let stmt = db
             .insert(json_table)
-            .values([InsertPgJsonTypes::new(json_data.clone())]);
+            .values([InsertPgJsonTypes::new(metadata.clone(), raw_json.clone())]);
         drizzle_exec!(stmt.execute());
 
         let stmt = db.select(()).from(json_table);
         let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt.all());
 
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].json_data, json_data);
+        assert_eq!(results[0].metadata, metadata);
+        assert_eq!(results[0].raw_json, raw_json);
+        assert_eq!(results[0].opt_metadata, None);
+    });
+
+    postgres_test!(jsonb_nested_struct_roundtrip, PgJsonTypesSchema, {
+        let PgJsonTypesSchema { jsonb_table, .. } = schema;
+
+        let profile = UserProfile {
+            name: "Alice".to_string(),
+            age: 30,
+            preferences: Metadata {
+                theme: "light".to_string(),
+                notifications: false,
+                settings: vec!["compact".to_string()],
+            },
+        };
+        let raw_jsonb = json!({"key": "value"});
+
+        let stmt = db
+            .insert(jsonb_table)
+            .values([InsertPgJsonbTypes::new(profile.clone(), raw_jsonb.clone())]);
+        drizzle_exec!(stmt.execute());
+
+        let stmt = db.select(()).from(jsonb_table);
+        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt.all());
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].profile, profile);
+        assert_eq!(results[0].raw_jsonb, raw_jsonb);
+        assert_eq!(results[0].opt_profile, None);
+    });
+
+    postgres_test!(json_with_optional_struct, PgJsonTypesSchema, {
+        let PgJsonTypesSchema { json_table, .. } = schema;
+
+        let metadata = Metadata {
+            theme: "system".to_string(),
+            notifications: true,
+            settings: vec![],
+        };
+        let opt_metadata = Metadata {
+            theme: "custom".to_string(),
+            notifications: false,
+            settings: vec!["advanced".to_string()],
+        };
+        let raw_json = json!({});
+
+        let stmt = db.insert(json_table).values([InsertPgJsonTypes::new(
+            metadata.clone(),
+            raw_json.clone(),
+        )
+        .with_opt_metadata(opt_metadata.clone())]);
+        drizzle_exec!(stmt.execute());
+
+        let stmt = db.select(()).from(json_table);
+        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt.all());
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].metadata, metadata);
+        assert_eq!(results[0].opt_metadata, Some(opt_metadata));
+    });
+
+    postgres_test!(jsonb_with_optional_struct, PgJsonTypesSchema, {
+        let PgJsonTypesSchema { jsonb_table, .. } = schema;
+
+        let profile = UserProfile {
+            name: "Bob".to_string(),
+            age: 25,
+            preferences: Metadata::default(),
+        };
+        let opt_profile = UserProfile {
+            name: "Alice".to_string(),
+            age: 28,
+            preferences: Metadata {
+                theme: "dark".to_string(),
+                notifications: true,
+                settings: vec!["beta".to_string()],
+            },
+        };
+        let raw_jsonb = json!(null);
+
+        let stmt = db.insert(jsonb_table).values([InsertPgJsonbTypes::new(
+            profile.clone(),
+            raw_jsonb.clone(),
+        )
+        .with_opt_profile(opt_profile.clone())]);
+        drizzle_exec!(stmt.execute());
+
+        let stmt = db.select(()).from(jsonb_table);
+        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt.all());
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].profile, profile);
+        assert_eq!(results[0].opt_profile, Some(opt_profile));
     });
 }

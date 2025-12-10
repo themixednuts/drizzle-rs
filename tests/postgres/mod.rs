@@ -7,6 +7,7 @@ pub mod arrayvec;
 pub mod conditions;
 pub mod delete;
 pub mod r#enum;
+pub mod foreign_keys;
 pub mod index;
 pub mod insert;
 pub mod joins;
