@@ -112,9 +112,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 }
 
                 fn table(&self) -> &dyn PostgresTableInfo {
-                    // This is tricky - we need a static reference to our aliased table info
-                    // For now, we'll use a workaround
-                    todo!("Need to implement aliased PostgresTableInfo reference")
+                    // This is tricky - we need a static reference but each alias instance
+                    // has a different alias string. For now, return the original table info.
+                    static ORIGINAL_TABLE: #table_name = #table_name::new();
+                    &ORIGINAL_TABLE
                 }
 
                 fn foreign_key(&self) -> Option<&'static dyn PostgresColumnInfo> {

@@ -97,8 +97,15 @@ pub(super) fn generate_create_table_sql(
         }
 
         // Foreign key constraints (with quoted identifiers)
+        // Use snake_case for table name (same conversion as the referenced table)
         if let Some(fk) = &field_info.foreign_key {
-            column_def.push_str(&format!(" REFERENCES \"{}\"(\"{}\")", fk.table, fk.column));
+            use heck::ToSnakeCase;
+            let fk_table_name = fk.table.to_string().to_snake_case();
+            let fk_column_name = fk.column.to_string().to_snake_case();
+            column_def.push_str(&format!(
+                " REFERENCES \"{}\"(\"{}\")",
+                fk_table_name, fk_column_name
+            ));
             if let Some(on_delete) = &fk.on_delete {
                 column_def.push_str(&format!(" ON DELETE {}", on_delete));
             }

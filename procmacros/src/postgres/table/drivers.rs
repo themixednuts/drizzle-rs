@@ -105,6 +105,27 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
                 },
             }
         }
+    } else if info.is_json && type_category != TypeCategory::Json {
+        // JSON/JSONB with custom struct (not serde_json::Value)
+        // Read as serde_json::Value and deserialize to target type
+        if info.is_nullable {
+            quote! {
+                #name: {
+                    let json_val: Option<::serde_json::Value> = row.get::<_, Option<::serde_json::Value>>(#name_str);
+                    match json_val {
+                        Some(v) => Some(::serde_json::from_value(v).map_err(|e| DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?),
+                        None => None,
+                    }
+                },
+            }
+        } else {
+            quote! {
+                #name: {
+                    let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#name_str);
+                    ::serde_json::from_value(json_val).map_err(|e| DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?
+                },
+            }
+        }
     } else {
         // Standard types: use native driver's get
         let ty = &info.field_type;
@@ -196,6 +217,26 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
                 },
             }
         }
+    } else if info.is_json && type_category != TypeCategory::Json {
+        // JSON/JSONB with custom struct (not serde_json::Value)
+        // Read as serde_json::Value and deserialize to target type
+        if info.is_nullable {
+            // Original is Option<T>, partial is Option<Option<T>>
+            quote! {
+                #name: {
+                    let json_val: Option<Option<::serde_json::Value>> = row.try_get::<_, Option<::serde_json::Value>>(#name_str).ok();
+                    json_val.map(|opt| opt.and_then(|v| ::serde_json::from_value(v).ok()))
+                },
+            }
+        } else {
+            // Original is T, partial is Option<T>
+            quote! {
+                #name: {
+                    let json_val: Option<::serde_json::Value> = row.try_get::<_, ::serde_json::Value>(#name_str).ok();
+                    json_val.and_then(|v| ::serde_json::from_value(v).ok())
+                },
+            }
+        }
     } else {
         // For standard types, try to get the original type (including Option wrapper if nullable)
         let ty = &info.field_type;
@@ -249,6 +290,15 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
             #name: {
                 use ::drizzle_postgres::DrizzleRow;
                 Some(DrizzleRow::get_column_by_name::<#base_type>(row, #name_str)?)
+            },
+        }
+    } else if info.is_json && type_category != TypeCategory::Json {
+        // JSON/JSONB with custom struct (not serde_json::Value)
+        // Read as serde_json::Value and deserialize to target type
+        quote! {
+            #name: {
+                let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#name_str);
+                Some(::serde_json::from_value(json_val).map_err(|e| DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?)
             },
         }
     } else {
