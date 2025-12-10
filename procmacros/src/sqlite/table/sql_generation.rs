@@ -19,13 +19,17 @@ pub(crate) fn generate_create_table_sql_runtime(
                 // Generate runtime code to build foreign key constraint
                 let table_ident = &fk.table_ident;
                 let column_ident = &fk.column_ident;
+                
+                // Generate ON DELETE/ON UPDATE clauses if specified
+                let on_delete_clause = fk.on_delete.as_ref().map(|action| format!(" ON DELETE {}", action)).unwrap_or_default();
+                let on_update_clause = fk.on_update.as_ref().map(|action| format!(" ON UPDATE {}", action)).unwrap_or_default();
 
                 quote! {
                     {
                         let base_def = #base_def;
                         let table_name = #table_ident::NAME.to_string();
                         let column_name = <_ as SQLColumnInfo>::name(&#table_ident::#column_ident).to_string();
-                        format!("{} REFERENCES {}({})", base_def, table_name, column_name)
+                        format!("{} REFERENCES {}({}){}{}", base_def, table_name, column_name, #on_delete_clause, #on_update_clause)
                     }
                 }
             } else {

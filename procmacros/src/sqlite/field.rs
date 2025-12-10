@@ -1,3 +1,4 @@
+use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::{collections::HashSet, fmt::Display};
@@ -754,7 +755,7 @@ impl<'a> FieldInfo<'a> {
         let column_name = attrs
             .attr_name
             .clone()
-            .unwrap_or_else(|| field_name.to_string());
+            .unwrap_or_else(|| field_name.to_string().to_snake_case());
         let is_nullable = is_option_type(field_type);
         let base_type = if is_nullable {
             extract_option_inner(field_type).unwrap_or(field_type)

@@ -31,8 +31,8 @@
 //!
 //! ## Example Usage
 //!
-//! ```ignore
-//! use drizzle::prelude::*;
+//! ```no_run
+//! use drizzle::sqlite::prelude::*;
 //! use drizzle::rusqlite::Drizzle;
 //!
 //! // Define your table
@@ -107,7 +107,7 @@ use syn::parse_macro_input;
 /// ## Text Storage (Variant Names)
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum UserRole {
@@ -132,7 +132,7 @@ use syn::parse_macro_input;
 /// ## Integer Storage (Discriminants)
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
@@ -238,7 +238,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Table
 ///
 /// ```no_run
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 /// use drizzle::rusqlite::Drizzle;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -278,7 +278,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Table with Defaults
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "posts", strict)]
 /// struct Posts {
@@ -296,8 +296,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Enums and JSON
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::sqlite::prelude::*;
 /// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
@@ -326,7 +326,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Foreign Key References
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
@@ -359,7 +359,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// Use `Option<T>` for nullable fields. Non-optional fields get a NOT NULL constraint:
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable]
 /// struct Example {
@@ -402,7 +402,7 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Unique Index
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
@@ -427,7 +427,7 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Index on multiple columns:
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "posts")]
 /// struct Posts {
@@ -446,7 +446,7 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Standard (Non-Unique) Index
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "logs")]
 /// struct Logs {
@@ -516,7 +516,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Basic Usage
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[derive(SQLiteFromRow, Debug, Default)]
 /// struct User {
@@ -533,7 +533,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// specify which table's column to use:
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
@@ -571,7 +571,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// For simple single-column or multi-column results:
 ///
 /// ```
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 ///
 /// // Single column result
 /// #[derive(SQLiteFromRow, Default)]
@@ -584,11 +584,11 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ## With UUID (requires `uuid` feature)
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::sqlite::prelude::*;
 /// use uuid::Uuid;
 ///
-/// #[derive(SQLiteFromRow, Debug)]
+/// #[derive(SQLiteFromRow, Debug, Default)]
 /// struct UserWithId {
 ///     id: Uuid,        // Stored as BLOB (16 bytes)
 ///     name: String,
@@ -597,17 +597,17 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ## With JSON (requires `serde` feature, libsql/turso)
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::sqlite::prelude::*;
 /// use serde::{Serialize, Deserialize};
 ///
-/// #[derive(Serialize, Deserialize, Debug)]
+/// #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 /// struct Profile {
 ///     bio: String,
 ///     website: Option<String>,
 /// }
 ///
-/// #[derive(SQLiteFromRow, Debug)]
+/// #[derive(SQLiteFromRow, Debug, Default)]
 /// struct UserWithProfile {
 ///     id: i32,
 ///     name: String,
@@ -618,13 +618,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ## Tuple Structs
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[derive(SQLiteFromRow, Default)]
 /// struct NameOnly(String);
 ///
-/// let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
+/// // Usage: let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
 /// ```
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteFromRow, attributes(column))]
@@ -650,8 +650,8 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresFromRow, Debug, Default)]
 /// struct User {
@@ -686,7 +686,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Schema
 ///
 /// ```no_run
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
 /// use drizzle::rusqlite::Drizzle;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -720,8 +720,8 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Schema with Indexes
 ///
-/// ```no_run
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::sqlite::prelude::*;
 /// use drizzle::rusqlite::Drizzle;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -755,15 +755,14 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Async Drivers (libsql, turso)
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
-/// use drizzle::libsql::Drizzle;  // or drizzle::turso::Drizzle
+/// ```no_run
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::libsql::Drizzle;
 ///
 /// #[SQLiteTable]
 /// struct Users {
-///     #[integer(primary)]
+///     #[column(PRIMARY)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
 /// }
 ///
@@ -877,41 +876,40 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Usage
 ///
 /// ```
-/// use drizzle::{sql, prelude::*};
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// pub struct Users {
-///     #[integer(primary)]
+///     #[column(PRIMARY)]
 ///     pub id: i32,
 /// }
 ///
-/// let users = Users::new();
-/// let query = sql!("SELECT * FROM {users}");
+/// let users = Users::default();
+/// let query = drizzle::sql!("SELECT * FROM {users}");
 /// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
 /// ```
 ///
 /// ## Multiple Expressions
 ///
 /// ```
-/// use drizzle::{sql, prelude::*};
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// pub struct Users {
-///     #[integer(primary)]
+///     #[column(PRIMARY)]
 ///     pub id: i32,
 /// }
 ///
 /// #[SQLiteTable(name = "posts")]
 /// pub struct Posts {
-///     #[integer(primary)]
+///     #[column(PRIMARY)]
 ///     pub id: i32,
-///     #[integer]
 ///     pub author_id: i32,
 /// }
 ///
-/// let users = Users::new();
-/// let posts = Posts::new();
-/// let query = sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author_id}");
+/// let users = Users::default();
+/// let posts = Posts::default();
+/// let query = drizzle::sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author_id}");
 /// ```
 ///
 /// ## Escaped Braces
@@ -919,16 +917,16 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// Use `{{` and `}}` for literal braces in the SQL:
 ///
 /// ```
-/// use drizzle::{sql, prelude::*};
+/// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// pub struct Users {
-///     #[integer(primary)]
+///     #[column(PRIMARY)]
 ///     pub id: i32,
 /// }
 ///
-/// let users = Users::new();
-/// let query = sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
+/// let users = Users::default();
+/// let query = drizzle::sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
 /// // Generates: SQL::text("SELECT JSON_OBJECT('key', {literal}) FROM ").append(users.to_sql())
 /// ```
 ///
@@ -982,15 +980,14 @@ pub fn sql(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```no_run
+/// use drizzle::sqlite::prelude::*;
 /// use drizzle_macros::sqlite_test;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
-///     #[integer(primary, autoincrement)]
+///     #[column(PRIMARY, AUTOINCREMENT)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
 /// }
 ///
@@ -1056,15 +1053,14 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 /// use drizzle_macros::postgres_test;
 ///
 /// #[PostgresTable(name = "users")]
 /// struct Users {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
 /// }
 ///
@@ -1112,8 +1108,9 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// ## Text Storage (Variant Names)
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```compile_fail
+/// // This example requires the `postgres` feature to be enabled
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
 /// enum UserRole {
@@ -1125,17 +1122,17 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// #[PostgresTable(name = "users")]
 /// struct Users {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[text(enum)]  // Stores variant names as TEXT
+///     #[column(enum)]  // Stores variant names as TEXT
 ///     role: UserRole,
 /// }
 /// ```
 ///
 /// ## Integer Storage (Discriminants)
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
 /// enum Priority {
@@ -1147,9 +1144,9 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// #[PostgresTable(name = "tasks")]
 /// struct Tasks {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[integer(enum)]  // Stores discriminants as INTEGER
+///     #[column(enum)]  // Stores discriminants as INTEGER
 ///     priority: Priority,
 /// }
 /// ```
@@ -1158,8 +1155,8 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// PostgreSQL supports native ENUM types which are more efficient and type-safe:
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
 /// enum Color {
@@ -1171,9 +1168,9 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// #[PostgresTable(name = "items")]
 /// struct Items {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[r#enum(Color)]  // Uses PostgreSQL native ENUM type
+///     #[column(enum)]  // Uses PostgreSQL native ENUM type
 ///     color: Color,
 /// }
 /// ```
@@ -1270,18 +1267,16 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Basic Table
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(name = "users")]
 /// struct Users {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
-///     #[text(unique)]
+///     #[column(unique)]
 ///     email: String,
-///     #[integer]
 ///     age: Option<i32>,  // Nullable field
 /// }
 ///
@@ -1293,8 +1288,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// ## Enums (Text, Integer, and Native)
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
 /// enum Status {
@@ -1314,21 +1309,20 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// #[PostgresTable(name = "posts")]
 /// struct Posts {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[text]
 ///     title: String,
-///     #[text(enum)]       // Store as TEXT: "Draft", "Published", etc.
+///     #[column(enum)]  // Store as TEXT: "Draft", "Published", etc.
 ///     status: Status,
-///     #[r#enum(Priority)] // Native PostgreSQL ENUM type
+///     #[column(enum)]  // Native PostgreSQL ENUM type
 ///     priority: Priority,
 /// }
 /// ```
 ///
 /// ## JSON and JSONB
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```no_run
+/// use drizzle::postgres::prelude::*;
 /// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -1339,11 +1333,11 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// #[PostgresTable(name = "settings")]
 /// struct Settings {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[jsonb]  // Binary JSON for faster queries
+///     #[column(JSONB)]  // Binary JSON for faster queries
 ///     config: Metadata,
-///     #[json]   // Standard JSON
+///     #[column(JSON)]   // Standard JSON
 ///     raw_data: Option<serde_json::Value>,
 /// }
 /// ```
@@ -1385,14 +1379,13 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ## Unique Index
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(name = "users")]
 /// struct Users {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[text]
 ///     email: String,
 /// }
 ///
@@ -1408,16 +1401,14 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ## Composite Index
 ///
-/// ```ignore
-/// use drizzle::prelude::*;
+/// ```
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(name = "users")]
 /// struct Users {
-///     #[serial(primary)]
+///     #[column(serial, primary)]
 ///     id: i32,
-///     #[text]
 ///     email: String,
-///     #[integer]
 ///     organization_id: i32,
 /// }
 ///
@@ -1448,7 +1439,8 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Usage
 ///
 /// ```ignore
-/// use drizzle::prelude::*;
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::rusqlite::Drizzle;
 ///
 /// // Embed migrations from ./drizzle directory
 /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
