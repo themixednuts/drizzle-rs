@@ -51,17 +51,16 @@ impl ExecutableState for DeleteReturningSet {}
 /// ## Basic Usage
 ///
 /// ```rust
+/// use drizzle_core::prelude::*;
+/// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::{ToSQL, expressions::conditions::{eq, lt}};
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
-///     #[text]
 ///     email: Option<String>,
 /// }
 ///
@@ -90,10 +89,11 @@ impl ExecutableState for DeleteReturningSet {}
 ///
 /// ### DELETE with RETURNING
 /// ```rust
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, expressions::conditions::eq};
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -109,10 +109,11 @@ impl ExecutableState for DeleteReturningSet {}
 ///
 /// ### DELETE all rows (use with caution!)
 /// ```rust
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::ToSQL;
-/// # #[SQLiteTable(name = "logs")] struct Log { #[integer(primary)] id: i32, #[text] message: String }
+/// # #[SQLiteTable(name = "logs")] struct Log { #[column(primary)] id: i32, message: String }
 /// # #[derive(SQLiteSchema)] struct Schema { log: Log }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { log } = Schema::new();
@@ -134,11 +135,12 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::{ToSQL, expressions::conditions::{eq, gt, and, or}};
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[integer] age: Option<i32> }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();

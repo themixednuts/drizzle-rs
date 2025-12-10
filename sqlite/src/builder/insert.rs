@@ -134,17 +134,16 @@ impl ExecutableState for InsertOnConflictSet {}
 /// ## Basic Usage
 ///
 /// ```rust
+/// use drizzle_core::prelude::*;
+/// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::ToSQL;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
-///     #[text]
 ///     email: Option<String>,
 /// }
 ///
@@ -176,10 +175,11 @@ impl ExecutableState for InsertOnConflictSet {}
 /// SQLite supports various conflict resolution strategies:
 ///
 /// ```rust
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::ToSQL;
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -208,10 +208,11 @@ where
     /// # Examples
     ///
     /// ```rust
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::ToSQL;
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[text] email: Option<String> }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
@@ -263,10 +264,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # Examples
     ///
     /// ```rust
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::ToSQL;
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[text] email: Option<String> }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();

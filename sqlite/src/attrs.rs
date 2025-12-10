@@ -190,9 +190,8 @@ pub const ON_UPDATE: ColumnMarker = ColumnMarker;
 // Referential Action Values
 //------------------------------------------------------------------------------
 
-/// Marker struct for referential action values used with on_delete/on_update.
-#[derive(Debug, Clone, Copy)]
-pub struct ReferentialAction;
+/// Type alias for referential action markers (uses ColumnMarker for macro compatibility).
+pub type ReferentialAction = ColumnMarker;
 
 /// CASCADE action: Propagate the delete/update to referencing rows.
 ///
@@ -203,7 +202,7 @@ pub struct ReferentialAction;
 /// ```
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
-pub const CASCADE: ReferentialAction = ReferentialAction;
+pub const CASCADE: ColumnMarker = ColumnMarker;
 
 /// SET NULL action: Set referencing columns to NULL.
 ///
@@ -214,7 +213,7 @@ pub const CASCADE: ReferentialAction = ReferentialAction;
 /// ```
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
-pub const SET_NULL: ReferentialAction = ReferentialAction;
+pub const SET_NULL: ColumnMarker = ColumnMarker;
 
 /// SET DEFAULT action: Set referencing columns to their default values.
 ///
@@ -225,7 +224,7 @@ pub const SET_NULL: ReferentialAction = ReferentialAction;
 /// ```
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
-pub const SET_DEFAULT: ReferentialAction = ReferentialAction;
+pub const SET_DEFAULT: ColumnMarker = ColumnMarker;
 
 /// RESTRICT action: Prevent delete/update if referenced.
 ///
@@ -236,7 +235,7 @@ pub const SET_DEFAULT: ReferentialAction = ReferentialAction;
 /// ```
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
-pub const RESTRICT: ReferentialAction = ReferentialAction;
+pub const RESTRICT: ColumnMarker = ColumnMarker;
 
 /// NO ACTION action: Similar to RESTRICT (default behavior).
 ///
@@ -247,7 +246,7 @@ pub const RESTRICT: ReferentialAction = ReferentialAction;
 /// ```
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
-pub const NO_ACTION: ReferentialAction = ReferentialAction;
+pub const NO_ACTION: ColumnMarker = ColumnMarker;
 
 //------------------------------------------------------------------------------
 // Name Marker (shared by column and table attributes)
@@ -259,16 +258,27 @@ pub struct NameMarker;
 
 /// Specifies a custom name in the database.
 ///
+/// By default, table and column names are automatically converted to snake_case
+/// from the Rust struct/field name. Use NAME to override this behavior.
+///
 /// ## Column Example
 /// ```ignore
-/// #[column(name = "created_at")]
-/// created: DateTime<Utc>,
+/// // Field `createdAt` becomes `created_at` by default
+/// created_at: DateTime<Utc>,
+///
+/// // Override with custom name:
+/// #[column(name = "creation_timestamp")]
+/// created_at: DateTime<Utc>,
 /// ```
 ///
 /// ## Table Example
 /// ```ignore
+/// // Struct `UserAccount` becomes table `user_account` by default
+/// struct UserAccount { ... }
+///
+/// // Override with custom name:
 /// #[SQLiteTable(name = "user_accounts")]
-/// struct User { ... }
+/// struct UserAccount { ... }
 /// ```
 pub const NAME: NameMarker = NameMarker;
 

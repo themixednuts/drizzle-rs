@@ -81,16 +81,16 @@ impl ExecutableState for CTEInit {}
 ///
 /// ## Basic Usage
 ///
-/// ```rust
+/// ```
+/// use drizzle_core::prelude::*;
+/// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::ToSQL;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
 /// }
 ///
@@ -115,11 +115,12 @@ impl ExecutableState for CTEInit {}
 /// The builder supports all major SQL operations:
 ///
 /// ### SELECT Queries
-/// ```rust
+/// ```
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, expressions::conditions::gt};
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -128,11 +129,12 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### INSERT Queries
-/// ```rust
+/// ```
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::ToSQL;
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -142,11 +144,12 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### UPDATE Queries
-/// ```rust
+/// ```
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, expressions::conditions::eq};
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -157,11 +160,12 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### DELETE Queries  
-/// ```rust
+/// ```
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, expressions::conditions::lt};
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -174,11 +178,12 @@ impl ExecutableState for CTEInit {}
 ///
 /// The builder supports WITH clauses for complex queries with typed field access:
 ///
-/// ```rust
+/// ```
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::ToSQL;
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -227,14 +232,15 @@ impl<'a> QueryBuilder<'a> {
     /// # Examples
     ///
     /// ```rust
+    /// use drizzle_core::prelude::*;
+    /// use drizzle_sqlite::prelude::*;
     /// use drizzle_sqlite::builder::QueryBuilder;
     /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
     ///
     /// #[SQLiteTable(name = "users")]
     /// struct User {
-    ///     #[integer(primary)]
+    ///     #[column(primary)]
     ///     id: i32,
-    ///     #[text]
     ///     name: String,
     /// }
     ///
@@ -266,11 +272,12 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::ToSQL;
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
@@ -339,11 +346,12 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::ToSQL;
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
@@ -376,11 +384,12 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
@@ -414,11 +423,12 @@ where
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::{ToSQL, expressions::conditions::lt};
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();

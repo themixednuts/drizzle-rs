@@ -29,6 +29,15 @@ pub mod prelude {
     pub use crate::traits::{DrizzleRow, FromSQLiteValue};
     pub use crate::values::SQLiteValue;
 
+    // Re-export core traits and types needed by macro-generated code
+    pub use crate::common::SQLiteSchemaType;
+    pub use crate::traits::{SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo};
+    pub use drizzle_core::error::DrizzleError;
+    pub use drizzle_core::{
+        SQL, SQLColumn, SQLColumnInfo, SQLIndexInfo, SQLModel, SQLParam, SQLPartial, SQLSchema,
+        SQLSchemaImpl, SQLTable, SQLTableInfo, ToSQL, Token,
+    };
+
     // Column attribute markers for IDE documentation
     // These are used in #[column(...)] attributes
     pub use crate::attrs::{

@@ -167,17 +167,16 @@ impl ExecutableState for SelectJoinSet {}
 /// ## Basic Usage
 ///
 /// ```rust
+/// use drizzle_core::prelude::*;
+/// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::ToSQL;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
-///     #[text]
 ///     email: Option<String>,
 /// }
 ///
@@ -207,13 +206,13 @@ impl ExecutableState for SelectJoinSet {}
 ///
 /// ## Advanced Queries
 ///
-/// ### JOIN Operations
 /// ```rust
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, expressions::conditions::eq};
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
-/// # #[SQLiteTable(name = "posts")] struct Post { #[integer(primary)] id: i32, #[integer] user_id: i32, #[text] title: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+/// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User, post: Post }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user, post } = Schema::new();
@@ -223,12 +222,12 @@ impl ExecutableState for SelectJoinSet {}
 ///     .join(post, eq(user.id, post.user_id));
 /// ```
 ///
-/// ### Ordering and Limiting
 /// ```rust
+/// # use drizzle_core::prelude::*;
+/// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// # use drizzle_core::{ToSQL, OrderBy};
-/// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
@@ -254,10 +253,11 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// # Examples
     ///
     /// ```rust
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::ToSQL;
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
@@ -294,14 +294,13 @@ where
     /// The joined table must be part of the schema and the condition should
     /// relate columns from both tables.
     ///
-    /// # Examples
-    ///
     /// ```rust
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::{ToSQL, expressions::conditions::eq};
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
-    /// # #[SQLiteTable(name = "posts")] struct Post { #[integer(primary)] id: i32, #[integer] user_id: i32, #[text] title: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User, post: Post }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user, post } = Schema::new();
@@ -335,13 +334,12 @@ where
     /// This method applies conditions to filter the rows returned by the query.
     /// You can use various condition functions from `drizzle_core::expressions::conditions`.
     ///
-    /// # Examples
-    ///
     /// ```rust
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::{ToSQL, expressions::conditions::{eq, gt, and}};
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String, #[integer] age: Option<i32> }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
@@ -439,10 +437,11 @@ where
     /// # Examples
     ///
     /// ```rust
+    /// # use drizzle_core::prelude::*;
+    /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// # use drizzle_core::ToSQL;
-    /// # #[SQLiteTable(name = "users")] struct User { #[integer(primary)] id: i32, #[text] name: String }
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
     /// # let Schema { user } = Schema::new();
