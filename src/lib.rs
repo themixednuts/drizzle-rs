@@ -183,8 +183,13 @@ pub mod sqlite {
         // Column attribute markers for IDE documentation
         // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.
         pub use drizzle_sqlite::attrs::{
-            AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, PRIMARY,
-            PRIMARY_KEY, REFERENCES, UNIQUE,
+            AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, ON_DELETE,
+            ON_UPDATE, PRIMARY, PRIMARY_KEY, REFERENCES, UNIQUE,
+        };
+
+        // Referential action markers for on_delete/on_update
+        pub use drizzle_sqlite::attrs::{
+            CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
         };
 
         // Table attribute markers for IDE documentation
@@ -319,7 +324,13 @@ pub mod postgres {
         // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.
         pub use drizzle_postgres::attrs::{
             BIGSERIAL, CHECK, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, GENERATED_IDENTITY, JSON,
-            JSONB, PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL, UNIQUE,
+            JSONB, ON_DELETE, ON_UPDATE, PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL,
+            UNIQUE,
+        };
+
+        // Referential action markers for ON_DELETE/ON_UPDATE
+        pub use drizzle_postgres::attrs::{
+            CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
         };
 
         // Table attribute markers for IDE documentation
