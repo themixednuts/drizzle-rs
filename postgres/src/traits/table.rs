@@ -14,6 +14,21 @@ pub trait PostgresTableInfo: SQLTableInfo {
     fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]>;
 }
 
+// Blanket implementation for static references
+impl<T: PostgresTableInfo> PostgresTableInfo for &'static T {
+    fn r#type(&self) -> &PostgresSchemaType {
+        (*self).r#type()
+    }
+
+    fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
+        (*self).postgres_columns()
+    }
+
+    fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
+        (*self).postgres_dependencies()
+    }
+}
+
 impl std::fmt::Debug for dyn PostgresTableInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PostgresTableInfo")

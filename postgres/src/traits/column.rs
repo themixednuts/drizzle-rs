@@ -34,6 +34,33 @@ pub trait PostgresColumnInfo: SQLColumnInfo + Any {
     }
 }
 
+// Blanket implementation for static references
+impl<T: PostgresColumnInfo> PostgresColumnInfo for &'static T {
+    fn table(&self) -> &dyn PostgresTableInfo {
+        <T as PostgresColumnInfo>::table(*self)
+    }
+
+    fn is_serial(&self) -> bool {
+        <T as PostgresColumnInfo>::is_serial(*self)
+    }
+
+    fn is_bigserial(&self) -> bool {
+        <T as PostgresColumnInfo>::is_bigserial(*self)
+    }
+
+    fn is_generated_identity(&self) -> bool {
+        <T as PostgresColumnInfo>::is_generated_identity(*self)
+    }
+
+    fn postgres_type(&self) -> &'static str {
+        <T as PostgresColumnInfo>::postgres_type(*self)
+    }
+
+    fn foreign_key(&self) -> Option<&'static dyn PostgresColumnInfo> {
+        <T as PostgresColumnInfo>::foreign_key(*self)
+    }
+}
+
 impl std::fmt::Debug for dyn PostgresColumnInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PostgresColumnInfo")
