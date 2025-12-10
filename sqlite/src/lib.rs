@@ -32,8 +32,13 @@ pub mod prelude {
     // Column attribute markers for IDE documentation
     // These are used in #[column(...)] attributes
     pub use crate::attrs::{
-        AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, PRIMARY, PRIMARY_KEY,
-        REFERENCES, UNIQUE,
+        AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, ON_DELETE, ON_UPDATE,
+        PRIMARY, PRIMARY_KEY, REFERENCES, UNIQUE,
+    };
+
+    // Referential action markers for on_delete/on_update
+    pub use crate::attrs::{
+        CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
     };
 
     // Table attribute markers for IDE documentation

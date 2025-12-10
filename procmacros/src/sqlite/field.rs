@@ -315,6 +315,10 @@ pub(crate) struct ForeignKeyReference {
     pub(crate) table_ident: Ident,
     /// The referenced column identifier (e.g., "id" from User::id)
     pub(crate) column_ident: Ident,
+    /// ON DELETE action (e.g., "CASCADE", "SET NULL")
+    pub(crate) on_delete: Option<String>,
+    /// ON UPDATE action (e.g., "CASCADE", "SET NULL")
+    pub(crate) on_update: Option<String>,
 }
 
 /// Comprehensive field information for code generation
@@ -380,6 +384,8 @@ struct ParsedArgs {
     default_value: Option<Expr>,
     default_fn: Option<Expr>,
     references: Option<Expr>,
+    on_delete: Option<String>,
+    on_update: Option<String>,
     name: Option<Expr>,
     flags: HashSet<String>,
     /// Original marker expressions for IDE hover documentation
@@ -398,6 +404,8 @@ struct AttributeData {
     default_value: Option<Expr>,
     default_fn: Option<Expr>,
     references_path: Option<ExprPath>,
+    on_delete: Option<String>,
+    on_update: Option<String>,
     attr_name: Option<String>,
     /// Original marker expressions for IDE hover documentation
     marker_exprs: Vec<syn::ExprPath>,
@@ -439,6 +447,25 @@ impl<'a> FieldInfo<'a> {
             attrs: vec![],
             qself: None,
             path: new_ident.into(),
+        }
+    }
+
+    /// Validate a referential action (ON DELETE/ON UPDATE)
+    fn validate_referential_action(action: &syn::Ident) -> Result<String> {
+        let action_str = action.to_string().to_ascii_uppercase();
+        match action_str.as_str() {
+            "CASCADE" => Ok("CASCADE".to_string()),
+            "SET_NULL" => Ok("SET NULL".to_string()),
+            "SET_DEFAULT" => Ok("SET DEFAULT".to_string()),
+            "RESTRICT" => Ok("RESTRICT".to_string()),
+            "NO_ACTION" => Ok("NO ACTION".to_string()),
+            _ => Err(Error::new_spanned(
+                action,
+                format!(
+                    "Invalid referential action '{}'. Supported: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
+                    action_str
+                ),
+            )),
         }
     }
 
@@ -531,12 +558,46 @@ impl<'a> FieldInfo<'a> {
                                 .push(Self::make_uppercase_path(param, "DEFAULT_FN"));
                         }
                         "REFERENCES" => {
-                            args.references = Some(*assign.right);
+                            args.references = Some(*assign.right.clone());
                             args.marker_exprs
                                 .push(Self::make_uppercase_path(param, "REFERENCES"));
                         }
+                        "ON_DELETE" => {
+                            if let Expr::Path(action_path) = &*assign.right {
+                                if let Some(action_ident) = action_path.path.get_ident() {
+                                    let action_upper =
+                                        action_ident.to_string().to_ascii_uppercase();
+                                    args.on_delete =
+                                        Self::validate_referential_action(action_ident).ok();
+                                    args.marker_exprs
+                                        .push(Self::make_uppercase_path(param, "ON_DELETE"));
+                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                    args.marker_exprs.push(Self::make_uppercase_path(
+                                        action_ident,
+                                        &action_upper,
+                                    ));
+                                }
+                            }
+                        }
+                        "ON_UPDATE" => {
+                            if let Expr::Path(action_path) = &*assign.right {
+                                if let Some(action_ident) = action_path.path.get_ident() {
+                                    let action_upper =
+                                        action_ident.to_string().to_ascii_uppercase();
+                                    args.on_update =
+                                        Self::validate_referential_action(action_ident).ok();
+                                    args.marker_exprs
+                                        .push(Self::make_uppercase_path(param, "ON_UPDATE"));
+                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                    args.marker_exprs.push(Self::make_uppercase_path(
+                                        action_ident,
+                                        &action_upper,
+                                    ));
+                                }
+                            }
+                        }
                         "NAME" => {
-                            args.name = Some(*assign.right);
+                            args.name = Some(*assign.right.clone());
                             args.marker_exprs
                                 .push(Self::make_uppercase_path(param, "NAME"));
                         }
@@ -602,6 +663,8 @@ impl<'a> FieldInfo<'a> {
                     data.default_value = data.default_value.or(args.default_value);
                     data.default_fn = data.default_fn.or(args.default_fn);
                     data.marker_exprs.extend(args.marker_exprs);
+                    data.on_delete = data.on_delete.or(args.on_delete);
+                    data.on_update = data.on_update.or(args.on_update);
 
                     if let Some(Expr::Path(path)) = args.references {
                         data.references_path = Some(path);
@@ -641,6 +704,8 @@ impl<'a> FieldInfo<'a> {
                     data.default_value = data.default_value.or(args.default_value);
                     data.default_fn = data.default_fn.or(args.default_fn);
                     data.marker_exprs.extend(args.marker_exprs);
+                    data.on_delete = data.on_delete.or(args.on_delete);
+                    data.on_update = data.on_update.or(args.on_update);
 
                     if let Some(Expr::Path(path)) = args.references {
                         data.references_path = Some(path);
@@ -652,6 +717,27 @@ impl<'a> FieldInfo<'a> {
                         data.attr_name = Some(lit_str.value());
                     }
                 }
+            }
+        }
+
+        // Validate: on_delete and on_update require references
+        if (data.on_delete.is_some() || data.on_update.is_some()) && data.references_path.is_none()
+        {
+            let msg = if data.on_delete.is_some() && data.on_update.is_some() {
+                "on_delete and on_update require a references attribute.\n\
+                 Example: #[column(references = Table::column, on_delete = CASCADE, on_update = CASCADE)]"
+            } else if data.on_delete.is_some() {
+                "on_delete requires a references attribute.\n\
+                 Example: #[column(references = Table::column, on_delete = CASCADE)]"
+            } else {
+                "on_update requires a references attribute.\n\
+                 Example: #[column(references = Table::column, on_update = CASCADE)]"
+            };
+            // Use the first marker as span source for the error
+            if let Some(marker) = data.marker_exprs.first() {
+                return Err(Error::new_spanned(marker, msg));
+            } else {
+                return Err(Error::new(proc_macro2::Span::call_site(), msg));
             }
         }
 
@@ -723,10 +809,15 @@ impl<'a> FieldInfo<'a> {
         );
 
         // Detect foreign key reference from the attributes (references = Table::column)
-        let foreign_key = attrs
-            .references_path
-            .as_ref()
-            .and_then(detect_foreign_key_reference_from_path);
+        let foreign_key = if let Some(ref path) = attrs.references_path {
+            detect_foreign_key_reference_from_path(
+                path,
+                attrs.on_delete.clone(),
+                attrs.on_update.clone(),
+            )
+        } else {
+            None
+        };
 
         Ok(FieldInfo {
             ident: field_name,
@@ -1002,8 +1093,8 @@ impl<'a> FieldInfo<'a> {
             columns_from: vec![self.column_name.clone()],
             table_to,
             columns_to: vec![column_to],
-            on_update: Some("no action".to_string()),
-            on_delete: Some("no action".to_string()),
+            on_update: fk_ref.on_update.clone(),
+            on_delete: fk_ref.on_delete.clone(),
         })
     }
 }
@@ -1080,9 +1171,11 @@ pub(crate) fn extract_option_inner(ty: &Type) -> Option<&Type> {
 }
 
 /// Detect if an ExprPath is a foreign key reference (Table::column syntax)
-/// Returns (table_ident, column_ident) if the path matches the pattern
+/// Returns ForeignKeyReference with on_delete/on_update if the path matches the pattern
 pub(crate) fn detect_foreign_key_reference_from_path(
     path: &ExprPath,
+    on_delete: Option<String>,
+    on_update: Option<String>,
 ) -> Option<ForeignKeyReference> {
     // Check if this is a path with exactly 2 segments (Table::column)
     if path.path.segments.len() == 2 {
@@ -1094,6 +1187,8 @@ pub(crate) fn detect_foreign_key_reference_from_path(
             return Some(ForeignKeyReference {
                 table_ident,
                 column_ident,
+                on_delete,
+                on_update,
             });
         }
     } else {
