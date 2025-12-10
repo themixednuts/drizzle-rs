@@ -20,16 +20,14 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use drizzle::prelude::*;
+//! use drizzle::sqlite::prelude::*;
 //! use drizzle::rusqlite::Drizzle;
 //!
 //! #[SQLiteTable(name = "Users")]
 //! struct User {
-//!     #[integer(primary)]
+//!     #[column(primary)]
 //!     id: i32,
-//!     #[text]
 //!     name: String,
-//!     #[text]
 //!     email: Option<String>,
 //! }
 //!
@@ -318,7 +316,7 @@ pub mod postgres {
         pub use drizzle_postgres::traits::{
             PostgresColumn, PostgresColumnInfo, PostgresEnum, PostgresTable, PostgresTableInfo,
         };
-        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue};
+        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue, ValueWrapper};
 
         // Column attribute markers for IDE documentation
         // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.

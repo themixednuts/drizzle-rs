@@ -310,8 +310,9 @@ impl<Schema> Drizzle<Schema> {
     /// # Example
     ///
     /// ```ignore
-    /// use drizzle::prelude::*;
+    /// use drizzle::sqlite::prelude::*;
     /// use drizzle::libsql::Drizzle;
+    /// use drizzle::{include_migrations, EmbeddedMigrations};
     ///
     /// // Embed migrations at compile time
     /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
