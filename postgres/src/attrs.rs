@@ -5,7 +5,7 @@
 //!
 //! # Example
 //! ```ignore
-//! use drizzle::postgres::prelude::*;
+//! # use drizzle::postgres::prelude::*;
 //!
 //! #[PostgresTable(NAME = "users")]
 //! struct User {
@@ -13,8 +13,7 @@
 //!     id: i32,
 //!     #[column(UNIQUE)]
 //!     email: String,
-//!     #[column(JSON)]
-//!     metadata: Option<Metadata>,
+//!     metadata: String,
 //! }
 //! ```
 
@@ -358,6 +357,8 @@ pub struct TableMarker;
 ///
 /// ## Example
 /// ```ignore
+/// # use drizzle::postgres::prelude::*;
+///
 /// #[PostgresTable(UNLOGGED)]
 /// struct SessionCache {
 ///     #[column(PRIMARY)]
@@ -375,6 +376,8 @@ pub const UNLOGGED: TableMarker = TableMarker;
 ///
 /// ## Example
 /// ```ignore
+/// # use drizzle::postgres::prelude::*;
+///
 /// #[PostgresTable(TEMPORARY)]
 /// struct TempData {
 ///     id: i32,
@@ -391,6 +394,8 @@ pub const TEMPORARY: TableMarker = TableMarker;
 ///
 /// ## Example
 /// ```ignore
+/// # use drizzle::postgres::prelude::*;
+///
 /// #[PostgresTable(INHERITS = "base_table")]
 /// struct ChildTable {
 ///     extra_field: String,
@@ -404,6 +409,8 @@ pub const INHERITS: TableMarker = TableMarker;
 ///
 /// ## Example
 /// ```ignore
+/// # use drizzle::postgres::prelude::*;
+///
 /// #[PostgresTable(TABLESPACE = "fast_storage")]
 /// struct HighPerfTable {
 ///     #[column(PRIMARY)]
@@ -413,3 +420,312 @@ pub const INHERITS: TableMarker = TableMarker;
 ///
 /// See: <https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-TABLESPACE>
 pub const TABLESPACE: TableMarker = TableMarker;
+
+//------------------------------------------------------------------------------
+// Column Type Markers
+//------------------------------------------------------------------------------
+
+/// Marker struct for column type attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct TypeMarker;
+
+//--- Character Types ---
+
+/// Specifies a TEXT column type.
+///
+/// TEXT stores variable-length character strings with no length limit.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-character.html>
+pub const TEXT: TypeMarker = TypeMarker;
+
+/// Specifies a VARCHAR column type.
+///
+/// VARCHAR stores variable-length character strings.
+/// In PostgreSQL, VARCHAR without length limit is equivalent to TEXT.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-character.html>
+pub const VARCHAR: TypeMarker = TypeMarker;
+
+/// Alias for VARCHAR.
+pub const CHARACTER_VARYING: TypeMarker = TypeMarker;
+
+/// Specifies a CHAR column type.
+///
+/// CHAR stores fixed-length character strings.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-character.html>
+pub const CHAR: TypeMarker = TypeMarker;
+
+/// Alias for CHAR.
+pub const CHARACTER: TypeMarker = TypeMarker;
+
+//--- Integer Types ---
+
+/// Specifies an INTEGER column type (32-bit).
+///
+/// INTEGER (or INT4) stores 32-bit signed integers.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
+pub const INTEGER: TypeMarker = TypeMarker;
+
+/// Alias for INTEGER.
+pub const INT: TypeMarker = TypeMarker;
+
+/// Alias for INTEGER.
+pub const INT4: TypeMarker = TypeMarker;
+
+/// Specifies a BIGINT column type (64-bit).
+///
+/// BIGINT (or INT8) stores 64-bit signed integers.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
+pub const BIGINT: TypeMarker = TypeMarker;
+
+/// Alias for BIGINT.
+pub const INT8: TypeMarker = TypeMarker;
+
+/// Specifies a SMALLINT column type (16-bit).
+///
+/// SMALLINT (or INT2) stores 16-bit signed integers.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
+pub const SMALLINT: TypeMarker = TypeMarker;
+
+/// Alias for SMALLINT.
+pub const INT2: TypeMarker = TypeMarker;
+
+//--- Floating Point Types ---
+
+/// Specifies a REAL column type (32-bit float).
+///
+/// REAL (or FLOAT4) stores 32-bit floating point numbers.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-FLOAT>
+pub const REAL: TypeMarker = TypeMarker;
+
+/// Alias for REAL.
+pub const FLOAT4: TypeMarker = TypeMarker;
+
+/// Specifies a DOUBLE PRECISION column type (64-bit float).
+///
+/// DOUBLE PRECISION (or FLOAT8) stores 64-bit floating point numbers.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-FLOAT>
+pub const DOUBLE_PRECISION: TypeMarker = TypeMarker;
+
+/// Alias for DOUBLE PRECISION.
+pub const FLOAT8: TypeMarker = TypeMarker;
+
+/// Alias for DOUBLE PRECISION.
+pub const DOUBLE: TypeMarker = TypeMarker;
+
+/// Specifies a NUMERIC column type (arbitrary precision).
+///
+/// NUMERIC stores exact numbers with arbitrary precision.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL>
+pub const NUMERIC: TypeMarker = TypeMarker;
+
+/// Alias for NUMERIC.
+pub const DECIMAL: TypeMarker = TypeMarker;
+
+//--- Boolean Type ---
+
+/// Specifies a BOOLEAN column type.
+///
+/// BOOLEAN stores true/false values.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-boolean.html>
+pub const BOOLEAN: TypeMarker = TypeMarker;
+
+/// Alias for BOOLEAN.
+pub const BOOL: TypeMarker = TypeMarker;
+
+//--- Binary Type ---
+
+/// Specifies a BYTEA column type (binary data).
+///
+/// BYTEA stores variable-length binary strings.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-binary.html>
+pub const BYTEA: TypeMarker = TypeMarker;
+
+//--- UUID Type ---
+
+/// Specifies a UUID column type.
+///
+/// UUID stores universally unique identifiers.
+/// Requires the `uuid` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-uuid.html>
+pub const UUID: TypeMarker = TypeMarker;
+
+//--- Date/Time Types ---
+
+/// Specifies a TIMESTAMP column type (without timezone).
+///
+/// TIMESTAMP stores date and time without timezone.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
+pub const TIMESTAMP: TypeMarker = TypeMarker;
+
+/// Alias for TIMESTAMP.
+pub const TIMESTAMP_WITHOUT_TIME_ZONE: TypeMarker = TypeMarker;
+
+/// Specifies a TIMESTAMPTZ column type (with timezone).
+///
+/// TIMESTAMPTZ stores date and time with timezone.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
+pub const TIMESTAMPTZ: TypeMarker = TypeMarker;
+
+/// Alias for TIMESTAMPTZ.
+pub const TIMESTAMP_WITH_TIME_ZONE: TypeMarker = TypeMarker;
+
+/// Specifies a DATE column type.
+///
+/// DATE stores calendar dates without time.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
+pub const DATE: TypeMarker = TypeMarker;
+
+/// Specifies a TIME column type (without timezone).
+///
+/// TIME stores time of day without date or timezone.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
+pub const TIME: TypeMarker = TypeMarker;
+
+/// Alias for TIME.
+pub const TIME_WITHOUT_TIME_ZONE: TypeMarker = TypeMarker;
+
+/// Specifies a TIMETZ column type (with timezone).
+///
+/// TIMETZ stores time of day with timezone.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
+pub const TIMETZ: TypeMarker = TypeMarker;
+
+/// Alias for TIMETZ.
+pub const TIME_WITH_TIME_ZONE: TypeMarker = TypeMarker;
+
+/// Specifies an INTERVAL column type.
+///
+/// INTERVAL stores time intervals.
+/// Requires the `chrono` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
+pub const INTERVAL: TypeMarker = TypeMarker;
+
+//--- Network Address Types ---
+
+/// Specifies an INET column type.
+///
+/// INET stores IPv4 or IPv6 host addresses.
+/// Requires the `cidr` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
+pub const INET: TypeMarker = TypeMarker;
+
+/// Specifies a CIDR column type.
+///
+/// CIDR stores IPv4 or IPv6 network addresses.
+/// Requires the `cidr` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
+pub const CIDR: TypeMarker = TypeMarker;
+
+/// Specifies a MACADDR column type.
+///
+/// MACADDR stores MAC addresses.
+/// Requires the `cidr` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
+pub const MACADDR: TypeMarker = TypeMarker;
+
+/// Specifies a MACADDR8 column type.
+///
+/// MACADDR8 stores EUI-64 MAC addresses.
+/// Requires the `cidr` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
+pub const MACADDR8: TypeMarker = TypeMarker;
+
+//--- Geometric Types ---
+
+/// Specifies a POINT column type.
+///
+/// POINT stores geometric points.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const POINT: TypeMarker = TypeMarker;
+
+/// Specifies a LINE column type.
+///
+/// LINE stores infinite geometric lines.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const LINE: TypeMarker = TypeMarker;
+
+/// Specifies a LSEG column type.
+///
+/// LSEG stores geometric line segments.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const LSEG: TypeMarker = TypeMarker;
+
+/// Specifies a BOX column type.
+///
+/// BOX stores geometric boxes.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const BOX: TypeMarker = TypeMarker;
+
+/// Specifies a PATH column type.
+///
+/// PATH stores geometric paths.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const PATH: TypeMarker = TypeMarker;
+
+/// Specifies a POLYGON column type.
+///
+/// POLYGON stores geometric polygons.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const POLYGON: TypeMarker = TypeMarker;
+
+/// Specifies a CIRCLE column type.
+///
+/// CIRCLE stores geometric circles.
+/// Requires the `geo-types` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
+pub const CIRCLE: TypeMarker = TypeMarker;
+
+//--- Bit String Types ---
+
+/// Specifies a BIT column type.
+///
+/// BIT stores fixed-length bit strings.
+/// Requires the `bit-vec` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
+pub const BIT: TypeMarker = TypeMarker;
+
+/// Specifies a VARBIT column type.
+///
+/// VARBIT (BIT VARYING) stores variable-length bit strings.
+/// Requires the `bit-vec` feature.
+///
+/// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
+pub const VARBIT: TypeMarker = TypeMarker;
+
+/// Alias for VARBIT.
+pub const BIT_VARYING: TypeMarker = TypeMarker;

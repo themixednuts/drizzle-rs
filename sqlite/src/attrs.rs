@@ -5,7 +5,7 @@
 //!
 //! # Example
 //! ```ignore
-//! use drizzle::sqlite::prelude::*;
+//! # use drizzle::sqlite::prelude::*;
 //!
 //! #[SQLiteTable(name = "users", strict)]
 //! struct User {
@@ -13,8 +13,7 @@
 //!     id: i32,
 //!     #[column(unique)]
 //!     email: String,
-//!     #[column(json)]
-//!     metadata: Option<Metadata>,
+//!     metadata: String,
 //! }
 //! ```
 
@@ -329,3 +328,106 @@ pub const STRICT: TableMarker = TableMarker;
 ///
 /// See: <https://sqlite.org/withoutrowid.html>
 pub const WITHOUT_ROWID: TableMarker = TableMarker;
+
+//------------------------------------------------------------------------------
+// Column Type Markers
+//------------------------------------------------------------------------------
+
+/// Marker struct for column type attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct TypeMarker;
+
+/// Specifies an INTEGER column type.
+///
+/// ## Example
+/// ```ignore
+/// #[column(integer, primary)]
+/// id: i32,
+/// ```
+///
+/// INTEGER columns store signed integers up to 8 bytes (64-bit).
+/// SQLite uses a variable-length encoding, so small values use less space.
+///
+/// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
+pub const INTEGER: TypeMarker = TypeMarker;
+
+/// Specifies a TEXT column type.
+///
+/// ## Example
+/// ```ignore
+/// #[column(text)]
+/// name: String,
+/// ```
+///
+/// TEXT columns store variable-length UTF-8 character strings with no size limit.
+///
+/// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
+pub const TEXT: TypeMarker = TypeMarker;
+
+/// Specifies a BLOB column type.
+///
+/// ## Example
+/// ```ignore
+/// #[column(blob)]
+/// data: Vec<u8>,
+/// ```
+///
+/// BLOB columns store binary data exactly as input.
+///
+/// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
+pub const BLOB: TypeMarker = TypeMarker;
+
+/// Specifies a REAL column type.
+///
+/// ## Example
+/// ```ignore
+/// #[column(real)]
+/// price: f64,
+/// ```
+///
+/// REAL columns store 8-byte IEEE floating point numbers.
+///
+/// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
+pub const REAL: TypeMarker = TypeMarker;
+
+/// Specifies a NUMERIC column type.
+///
+/// ## Example
+/// ```ignore
+/// #[column(numeric)]
+/// amount: f64,
+/// ```
+///
+/// NUMERIC columns store values as INTEGER, REAL, or TEXT depending on the value.
+///
+/// See: <https://sqlite.org/datatype3.html#type_affinity>
+pub const NUMERIC: TypeMarker = TypeMarker;
+
+/// Specifies an ANY column type (STRICT tables only).
+///
+/// ## Example
+/// ```ignore
+/// #[SQLiteTable(strict)]
+/// struct Data {
+///     #[column(any)]
+///     value: serde_json::Value,
+/// }
+/// ```
+///
+/// ANY allows any type of data. Only valid in STRICT tables.
+///
+/// See: <https://sqlite.org/stricttables.html>
+pub const ANY: TypeMarker = TypeMarker;
+
+/// Specifies a BOOLEAN column (stored as INTEGER 0/1).
+///
+/// ## Example
+/// ```ignore
+/// #[column(boolean)]
+/// active: bool,
+/// ```
+///
+/// SQLite has no native BOOLEAN. Values are stored as INTEGER (0 for false, 1 for true).
+///
+/// See: <https://sqlite.org/datatype3.html#boolean_datatype>
+pub const BOOLEAN: TypeMarker = TypeMarker;
