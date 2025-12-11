@@ -1,138 +1,9 @@
 use super::context::MacroContext;
-use crate::postgres::field::{FieldInfo, PostgreSQLFlag, PostgreSQLType};
+use crate::postgres::field::{FieldInfo, PostgreSQLType};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Ident, Result};
-
-/// Generate the builder function name and method chain for a column type.
-///
-/// Returns (builder_type, builder_fn_call, builder_methods) where:
-/// - builder_type: The concrete builder type like `postgres::columns::TextBuilder<Type>`
-/// - builder_fn_call: The initial function call like `postgres::columns::text::<Type>()`
-/// - builder_methods: The chained method calls like `.primary().not_null()`
-fn generate_builder_chain(info: &FieldInfo) -> (TokenStream, TokenStream, TokenStream) {
-    let rust_type = &info.field_type;
-
-    // Generate the builder type and function call based on column type
-    // Uses postgres::columns::* to avoid conflicts with sqlite builders
-    let (builder_type, builder_fn) = match &info.column_type {
-        PostgreSQLType::Text => (
-            quote! { postgres::columns::TextBuilder<#rust_type> },
-            quote! { postgres::columns::text::<#rust_type>() },
-        ),
-        PostgreSQLType::Varchar => (
-            quote! { postgres::columns::VarcharBuilder<#rust_type> },
-            quote! { postgres::columns::varchar::<#rust_type>() },
-        ),
-        PostgreSQLType::Char => (
-            quote! { postgres::columns::CharBuilder<#rust_type> },
-            quote! { postgres::columns::char::<#rust_type>() },
-        ),
-        PostgreSQLType::Integer => (
-            quote! { postgres::columns::IntegerBuilder<#rust_type> },
-            quote! { postgres::columns::integer::<#rust_type>() },
-        ),
-        PostgreSQLType::Bigint => (
-            quote! { postgres::columns::BigintBuilder<#rust_type> },
-            quote! { postgres::columns::bigint::<#rust_type>() },
-        ),
-        PostgreSQLType::Smallint => (
-            quote! { postgres::columns::SmallintBuilder<#rust_type> },
-            quote! { postgres::columns::smallint::<#rust_type>() },
-        ),
-        PostgreSQLType::Serial => (
-            quote! { postgres::columns::SerialBuilder<#rust_type> },
-            quote! { postgres::columns::serial::<#rust_type>() },
-        ),
-        PostgreSQLType::Bigserial => (
-            quote! { postgres::columns::BigserialBuilder<#rust_type> },
-            quote! { postgres::columns::bigserial::<#rust_type>() },
-        ),
-        PostgreSQLType::Real => (
-            quote! { postgres::columns::RealBuilder<#rust_type> },
-            quote! { postgres::columns::real::<#rust_type>() },
-        ),
-        PostgreSQLType::DoublePrecision => (
-            quote! { postgres::columns::DoublePrecisionBuilder<#rust_type> },
-            quote! { postgres::columns::double_precision::<#rust_type>() },
-        ),
-        PostgreSQLType::Numeric => (
-            quote! { postgres::columns::NumericBuilder<#rust_type> },
-            quote! { postgres::columns::numeric::<#rust_type>() },
-        ),
-        PostgreSQLType::Boolean => (
-            quote! { postgres::columns::BooleanBuilder<#rust_type> },
-            quote! { postgres::columns::boolean::<#rust_type>() },
-        ),
-        PostgreSQLType::Bytea => (
-            quote! { postgres::columns::ByteaBuilder<#rust_type> },
-            quote! { postgres::columns::bytea::<#rust_type>() },
-        ),
-        #[cfg(feature = "uuid")]
-        PostgreSQLType::Uuid => (
-            quote! { postgres::columns::UuidBuilder<#rust_type> },
-            quote! { postgres::columns::uuid::<#rust_type>() },
-        ),
-        #[cfg(feature = "serde")]
-        PostgreSQLType::Json => (
-            quote! { postgres::columns::JsonbBuilder<#rust_type> },
-            quote! { postgres::columns::json::<#rust_type>() },
-        ),
-        #[cfg(feature = "serde")]
-        PostgreSQLType::Jsonb => (
-            quote! { postgres::columns::JsonbBuilder<#rust_type> },
-            quote! { postgres::columns::jsonb::<#rust_type>() },
-        ),
-        PostgreSQLType::Timestamp => (
-            quote! { postgres::columns::TimestampBuilder<#rust_type> },
-            quote! { postgres::columns::timestamp::<#rust_type>() },
-        ),
-        PostgreSQLType::Timestamptz => (
-            quote! { postgres::columns::TimestampBuilder<#rust_type> },
-            quote! { postgres::columns::timestamptz::<#rust_type>() },
-        ),
-        PostgreSQLType::Date => (
-            quote! { postgres::columns::DateBuilder<#rust_type> },
-            quote! { postgres::columns::date::<#rust_type>() },
-        ),
-        PostgreSQLType::Time => (
-            quote! { postgres::columns::TimeBuilder<#rust_type> },
-            quote! { postgres::columns::time::<#rust_type>() },
-        ),
-        PostgreSQLType::Timetz => (
-            quote! { postgres::columns::TimeBuilder<#rust_type> },
-            quote! { postgres::columns::timetz::<#rust_type>() },
-        ),
-        // Fallback for feature-gated and other types - use text as default
-        _ => (
-            quote! { postgres::columns::TextBuilder<#rust_type> },
-            quote! { postgres::columns::text::<#rust_type>() },
-        ),
-    };
-
-    // Generate method chain based on field flags
-    let mut methods = TokenStream::new();
-
-    if info.is_primary {
-        methods.extend(quote! { .primary() });
-    }
-    if info.is_unique {
-        methods.extend(quote! { .unique() });
-    }
-    if !info.is_nullable && !info.is_primary {
-        // primary() already sets not_null
-        methods.extend(quote! { .not_null() });
-    }
-    if info.is_enum {
-        methods.extend(quote! { .r#enum() });
-    }
-    if info.default_fn.is_some() {
-        methods.extend(quote! { .has_default_fn() });
-    }
-
-    (builder_type, builder_fn, methods)
-}
 
 /// Generate a const that references the original marker tokens from the attribute.
 ///
@@ -325,72 +196,10 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             quote! { None }
         };
 
-        // Generate the builder chain for this column
-        let (builder_type, builder_fn, builder_methods) = generate_builder_chain(field_info);
-
-        // Context-aware field expressions based on which builders have which fields
-        // Builders WITH is_primary/is_unique: Text, Varchar, Char, Integer, Bigint, Smallint, Serial, Bigserial, Bytea, Uuid
-        // Builders WITHOUT is_primary/is_unique: Boolean, Date, DoublePrecision, Jsonb, Numeric, Real, Time, Timestamp
-        let (is_primary_expr, is_unique_expr, is_not_null_expr) = match &field_info.column_type {
-            // Types that have is_primary and is_unique fields
-            PostgreSQLType::Text
-            | PostgreSQLType::Varchar
-            | PostgreSQLType::Char
-            | PostgreSQLType::Integer
-            | PostgreSQLType::Bigint
-            | PostgreSQLType::Smallint
-            | PostgreSQLType::Serial
-            | PostgreSQLType::Bigserial
-            | PostgreSQLType::Bytea => (
-                quote! { Self::COLUMN.is_primary },
-                quote! { Self::COLUMN.is_unique },
-                quote! { Self::COLUMN.is_not_null },
-            ),
-            #[cfg(feature = "uuid")]
-            PostgreSQLType::Uuid => (
-                quote! { Self::COLUMN.is_primary },
-                quote! { Self::COLUMN.is_unique },
-                quote! { Self::COLUMN.is_not_null },
-            ),
-            // Types without is_primary/is_unique - use hardcoded values based on field flags
-            PostgreSQLType::Boolean
-            | PostgreSQLType::Date
-            | PostgreSQLType::DoublePrecision
-            | PostgreSQLType::Numeric
-            | PostgreSQLType::Real
-            | PostgreSQLType::Time
-            | PostgreSQLType::Timetz
-            | PostgreSQLType::Timestamp
-            | PostgreSQLType::Timestamptz => {
-                let is_primary = field_info.is_primary;
-                let is_unique = field_info.is_unique;
-                (
-                    quote! { #is_primary },
-                    quote! { #is_unique },
-                    quote! { Self::COLUMN.is_not_null },
-                )
-            }
-            #[cfg(feature = "serde")]
-            PostgreSQLType::Json | PostgreSQLType::Jsonb => {
-                let is_primary = field_info.is_primary;
-                let is_unique = field_info.is_unique;
-                (
-                    quote! { #is_primary },
-                    quote! { #is_unique },
-                    quote! { Self::COLUMN.is_not_null },
-                )
-            }
-            // Fallback for any other types (enums, etc.) - use field flags
-            _ => {
-                let is_primary = field_info.is_primary;
-                let is_unique = field_info.is_unique;
-                (
-                    quote! { #is_primary },
-                    quote! { #is_unique },
-                    quote! { Self::COLUMN.is_not_null },
-                )
-            }
-        };
+        // Direct const expressions - no runtime builder types needed
+        let is_primary = field_info.is_primary;
+        let is_not_null = !field_info.is_nullable;
+        let is_unique = field_info.is_unique;
 
         // Only Serial/Bigserial columns have is_serial/is_bigserial fields - others are always false
         let (is_serial_expr, is_bigserial_expr) = match &field_info.column_type {
@@ -420,11 +229,6 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 pub const fn new() -> #zst_ident {
                     #zst_ident
                 }
-
-                /// Column configuration created by builder pattern.
-                /// Hover over builder methods to see documentation.
-                #[allow(dead_code)]
-                pub const COLUMN: #builder_type = #builder_fn #builder_methods;
 
                 #marker_const
             }
@@ -492,9 +296,9 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 type TableType = PostgresSchemaType;
                 type Type = #rust_type;
 
-                const PRIMARY_KEY: bool = #is_primary_expr;
-                const NOT_NULL: bool = #is_not_null_expr || #is_primary_expr;
-                const UNIQUE: bool = #is_unique_expr;
+                const PRIMARY_KEY: bool = #is_primary;
+                const NOT_NULL: bool = #is_not_null || #is_primary;
+                const UNIQUE: bool = #is_unique;
                 const DEFAULT: Option<Self::Type> = #default_const;
 
                 fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {

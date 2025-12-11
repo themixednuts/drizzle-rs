@@ -1,110 +1,11 @@
 use super::context::MacroContext;
 use crate::generators::{generate_impl, generate_sql_column_info};
-use crate::sqlite::field::{FieldInfo, SQLiteType};
+use crate::sqlite::field::FieldInfo;
 use crate::sqlite::generators::*;
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::Result;
-
-/// Generate the builder function name and method chain for a column type.
-///
-/// Returns (builder_type, builder_fn_call, builder_methods) where:
-/// - builder_type: The concrete builder type like `sqlite::columns::IntegerBuilder<Type>`
-/// - builder_fn_call: The initial function call like `sqlite::columns::integer::<Type>()`
-/// - builder_methods: The chained method calls like `.primary().not_null()`
-#[allow(dead_code)]
-fn generate_builder_chain(info: &FieldInfo) -> (TokenStream, TokenStream, TokenStream) {
-    let rust_type = info.field_type;
-
-    // Generate the builder type and function call based on column type
-    // Uses sqlite::columns::* which is available via drizzle::prelude
-    let (builder_type, builder_fn) = match &info.column_type {
-        SQLiteType::Integer => (
-            quote! { sqlite::columns::IntegerBuilder<#rust_type> },
-            quote! { sqlite::columns::integer::<#rust_type>() },
-        ),
-        SQLiteType::Text => (
-            quote! { sqlite::columns::TextBuilder<#rust_type> },
-            quote! { sqlite::columns::text::<#rust_type>() },
-        ),
-        SQLiteType::Blob => (
-            quote! { sqlite::columns::BlobBuilder<#rust_type> },
-            quote! { sqlite::columns::blob::<#rust_type>() },
-        ),
-        SQLiteType::Real => (
-            quote! { sqlite::columns::RealBuilder<#rust_type> },
-            quote! { sqlite::columns::real::<#rust_type>() },
-        ),
-        SQLiteType::Numeric | SQLiteType::Any => (
-            quote! { sqlite::columns::TextBuilder<#rust_type> },
-            quote! { sqlite::columns::text::<#rust_type>() },
-        ),
-    };
-
-    // Generate method chain based on field flags
-    // Only call methods that exist on each builder type
-    let mut methods = TokenStream::new();
-
-    // primary() exists on: Integer, Text, Blob, Real (not Boolean)
-    if info.is_primary {
-        match &info.column_type {
-            SQLiteType::Integer | SQLiteType::Text | SQLiteType::Blob | SQLiteType::Real => {
-                methods.extend(quote! { .primary() });
-            }
-            _ => {} // Boolean and others don't have primary()
-        }
-    }
-
-    // autoincrement() only exists on Integer
-    if info.is_autoincrement {
-        if matches!(info.column_type, SQLiteType::Integer) {
-            methods.extend(quote! { .autoincrement() });
-        }
-    }
-
-    // unique() exists on: Integer, Text, Blob, Real (not Boolean)
-    if info.is_unique {
-        match &info.column_type {
-            SQLiteType::Integer | SQLiteType::Text | SQLiteType::Blob | SQLiteType::Real => {
-                methods.extend(quote! { .unique() });
-            }
-            _ => {}
-        }
-    }
-
-    // not_null() exists on all builders
-    if !info.is_nullable && !info.is_primary {
-        methods.extend(quote! { .not_null() });
-    }
-
-    // enum() only exists on Text and Integer
-    if info.is_enum {
-        match &info.column_type {
-            SQLiteType::Text | SQLiteType::Integer => {
-                methods.extend(quote! { .r#enum() });
-            }
-            _ => {}
-        }
-    }
-
-    // json() exists on Text and Blob
-    if info.is_json {
-        match &info.column_type {
-            SQLiteType::Text | SQLiteType::Blob => {
-                methods.extend(quote! { .json() });
-            }
-            _ => {}
-        }
-    }
-
-    // has_default_fn() exists on all builders
-    if info.default_fn.is_some() {
-        methods.extend(quote! { .has_default_fn() });
-    }
-
-    (builder_type, builder_fn, methods)
-}
 
 /// Generate a const that references the original marker tokens from the attribute.
 ///
@@ -262,35 +163,25 @@ pub(crate) fn generate_column_definitions<'a>(
             },
         );
 
-        // Generate the builder chain for this column
-        let (builder_type, builder_fn, builder_methods) = generate_builder_chain(info);
-
-        // Generate const COLUMN using the builder - this provides hover documentation
-        let column_const_def = quote! {
-            /// Column configuration created by builder pattern.
-            /// Hover over builder methods to see documentation.
-            #[allow(dead_code)]
-            pub const COLUMN: #builder_type = #builder_fn #builder_methods;
-        };
+        // Direct const expressions - no runtime builder types needed
+        let is_primary = info.is_primary;
+        let is_not_null = !info.is_nullable;
+        let is_unique = info.is_unique;
+        let is_autoincrement = info.is_autoincrement;
 
         let sql_column_impl = generate_sql_column(
             &zst_ident,
             quote! {#struct_ident},
             quote! {SQLiteSchemaType},
             quote! {#rust_type},
-            quote! { Self::COLUMN.is_primary },
-            quote! { Self::COLUMN.is_not_null || Self::COLUMN.is_primary },
-            quote! { Self::COLUMN.is_unique },
+            quote! { #is_primary },
+            quote! { #is_not_null || #is_primary },
+            quote! { #is_unique },
             quote! {#default_const},
             quote! {#default_fn_body},
         );
 
-        // Only Integer columns can have AUTOINCREMENT - others are always false
-        let autoincrement_expr = match info.column_type {
-            SQLiteType::Integer => quote! { Self::COLUMN.is_autoincrement },
-            _ => quote! { false },
-        };
-        let sqlite_column_impl = generate_sqlite_column(&zst_ident, autoincrement_expr);
+        let sqlite_column_impl = generate_sqlite_column(&zst_ident, quote! { #is_autoincrement });
         let to_sql_impl = generate_to_sql(&zst_ident, to_sql_body);
 
         // Generate marker const using original tokens for IDE documentation
@@ -301,8 +192,6 @@ pub(crate) fn generate_column_definitions<'a>(
             #impl_new
 
             impl #zst_ident {
-                #column_const_def
-
                 #marker_const
             }
 
