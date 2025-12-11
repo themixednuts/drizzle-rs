@@ -8,7 +8,6 @@
 
 pub mod attrs;
 pub mod builder;
-pub mod columns;
 pub mod common;
 pub mod conditions;
 pub mod expression;
@@ -38,21 +37,21 @@ pub mod prelude {
         SQLSchemaImpl, SQLTable, SQLTableInfo, ToSQL, Token,
     };
 
-    // Column attribute markers for IDE documentation
-    // These are used in #[column(...)] attributes
-    pub use crate::attrs::{
-        AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, ON_DELETE, ON_UPDATE,
-        PRIMARY, PRIMARY_KEY, REFERENCES, UNIQUE,
-    };
+    // Builder for query construction
+    pub use crate::builder::QueryBuilder;
 
-    // Referential action markers for on_delete/on_update
-    pub use crate::attrs::{
-        CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
-    };
+    // Values and insert types needed by macro-generated code
+    pub use crate::values::{SQLiteInsertValue, ValueWrapper};
 
-    // Table attribute markers for IDE documentation
-    // These are used in #[SQLiteTable(...)] attributes
-    pub use crate::attrs::{STRICT, TableMarker, WITHOUT_ROWID};
+    // Re-export modules directly so macro-generated code can use `traits::*`, etc.
+    pub use crate::attrs::*;
+    pub use crate::common;
+    pub use crate::traits;
+    pub use crate::values;
+
+    // Re-export conditions and expression modules
+    pub use crate::conditions;
+    pub use crate::expression;
 
     // Shared markers (used by both column and table attributes)
     pub use crate::attrs::{NAME, NameMarker};

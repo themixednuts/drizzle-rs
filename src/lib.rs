@@ -156,7 +156,6 @@ pub mod sqlite {
 
     // SQLite types and traits
     pub use drizzle_sqlite::builder;
-    pub use drizzle_sqlite::columns;
     pub use drizzle_sqlite::common;
     pub use drizzle_sqlite::traits;
     pub use drizzle_sqlite::values;
@@ -178,27 +177,14 @@ pub mod sqlite {
         pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue, ValueWrapper};
         pub use drizzle_sqlite::{SQLiteTransactionType, conditions, expression, params, pragma};
 
-        // Column attribute markers for IDE documentation
-        // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.
-        pub use drizzle_sqlite::attrs::{
-            AUTOINCREMENT, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, JSON, JSONB, ON_DELETE,
-            ON_UPDATE, PRIMARY, PRIMARY_KEY, REFERENCES, UNIQUE,
-        };
+        // Re-export modules directly so macro-generated code can use `traits::*`, etc.
+        pub use drizzle_sqlite::common;
+        pub use drizzle_sqlite::traits;
+        pub use drizzle_sqlite::values;
 
-        // Referential action markers for on_delete/on_update
-        pub use drizzle_sqlite::attrs::{
-            CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
-        };
-
-        // Table attribute markers for IDE documentation
-        // These provide hover docs when using #[SQLiteTable(STRICT)], etc.
-        pub use drizzle_sqlite::attrs::{STRICT, TableMarker, WITHOUT_ROWID};
-
-        // Shared markers (used by both column and table attributes)
-        pub use drizzle_sqlite::attrs::{NAME, NameMarker};
-
-        /// Re-export the sqlite module so generated code can use `sqlite::columns::*`
-        pub use crate::sqlite;
+        // Attribute markers for IDE documentation
+        // These provide hover docs when using #[column(PRIMARY)], #[SQLiteTable(STRICT)], etc.
+        pub use drizzle_sqlite::attrs::*;
     }
 }
 
@@ -299,7 +285,6 @@ pub mod postgres {
 
     // PostgreSQL types and traits
     pub use drizzle_postgres::builder;
-    pub use drizzle_postgres::columns;
     pub use drizzle_postgres::common;
     pub use drizzle_postgres::traits;
     pub use drizzle_postgres::values;
@@ -318,28 +303,14 @@ pub mod postgres {
         };
         pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue, ValueWrapper};
 
-        // Column attribute markers for IDE documentation
-        // These provide hover docs when using #[column(PRIMARY)], #[column(JSON)], etc.
-        pub use drizzle_postgres::attrs::{
-            BIGSERIAL, CHECK, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, GENERATED_IDENTITY, JSON,
-            JSONB, ON_DELETE, ON_UPDATE, PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL,
-            UNIQUE,
-        };
+        // Re-export modules directly so macro-generated code can use `traits::*`, etc.
+        pub use drizzle_postgres::common;
+        pub use drizzle_postgres::traits;
+        pub use drizzle_postgres::values;
 
-        // Referential action markers for ON_DELETE/ON_UPDATE
-        pub use drizzle_postgres::attrs::{
-            CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
-        };
-
-        // Table attribute markers for IDE documentation
-        // These provide hover docs when using #[PostgresTable(UNLOGGED)], etc.
-        pub use drizzle_postgres::attrs::{INHERITS, TABLESPACE, TEMPORARY, TableMarker, UNLOGGED};
-
-        // Shared markers (used by both column and table attributes)
-        pub use drizzle_postgres::attrs::{NAME, NameMarker};
-
-        /// Re-export the postgres module so generated code can use `postgres::columns::*`
-        pub use crate::postgres;
+        // Attribute markers for IDE documentation
+        // These provide hover docs when using #[column(PRIMARY)], #[PostgresTable(UNLOGGED)], etc.
+        pub use drizzle_postgres::attrs::*;
     }
 }
 
@@ -363,19 +334,6 @@ pub mod mysql {
 /// ```
 pub mod prelude {
     pub use crate::core::prelude::*;
-
-    // Note: We only glob-export one dialect's prelude to avoid name conflicts.
-    // When both sqlite and postgres features are enabled, sqlite takes precedence
-    // in the main prelude. Users should use drizzle::postgres::prelude::* directly
-    // for PostgreSQL-specific items when using both databases.
-
-    /// Re-export the sqlite module so generated code can use `sqlite::columns::*`
-    #[cfg(feature = "sqlite")]
-    pub use crate::sqlite;
-
-    /// Re-export the postgres module so generated code can use `postgres::columns::*`
-    #[cfg(feature = "postgres")]
-    pub use crate::postgres;
 }
 
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]

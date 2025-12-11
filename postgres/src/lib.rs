@@ -12,7 +12,6 @@ pub use drizzle_core::{OrderBy, SQL, ToSQL};
 // Re-export PostgreSQL-specific modules
 pub mod attrs;
 pub mod builder;
-pub mod columns;
 pub mod common;
 pub mod helpers;
 pub mod traits;
@@ -29,21 +28,23 @@ pub mod prelude {
     // Core types for building SQL
     pub use drizzle_core::SQL;
 
-    // Column attribute markers for IDE documentation
-    // These are used in #[column(...)] attributes
-    pub use super::attrs::{
-        BIGSERIAL, CHECK, ColumnMarker, DEFAULT, DEFAULT_FN, ENUM, GENERATED_IDENTITY, JSON, JSONB,
-        ON_DELETE, ON_UPDATE, PRIMARY, PRIMARY_KEY, REFERENCES, SERIAL, SMALLSERIAL, UNIQUE,
+    // Re-export core traits and types needed by macro-generated code
+    pub use super::common::PostgresSchemaType;
+    pub use super::traits::{PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+    pub use drizzle_core::error::DrizzleError;
+    pub use drizzle_core::{
+        SQLColumn, SQLColumnInfo, SQLIndexInfo, SQLModel, SQLParam, SQLPartial, SQLSchema,
+        SQLSchemaImpl, SQLTable, SQLTableInfo, ToSQL, Token,
     };
 
-    // Referential action markers for ON_DELETE/ON_UPDATE
-    pub use super::attrs::{
-        CASCADE, NO_ACTION, RESTRICT, ReferentialAction, SET_DEFAULT, SET_NULL,
-    };
+    // Builder for query construction
+    pub use super::builder::QueryBuilder;
 
-    // Table attribute markers for IDE documentation
-    // These are used in #[PostgresTable(...)] attributes
-    pub use super::attrs::{INHERITS, TABLESPACE, TEMPORARY, TableMarker, UNLOGGED};
+    // Re-export modules directly so macro-generated code can use `traits::*`, etc.
+    pub use crate::attrs::*;
+    pub use crate::common;
+    pub use crate::traits;
+    pub use crate::values;
 
     // Shared markers (used by both column and table attributes)
     pub use super::attrs::{NAME, NameMarker};
