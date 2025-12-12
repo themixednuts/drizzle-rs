@@ -134,7 +134,6 @@ impl ExecutableState for InsertOnConflictSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_core::prelude::*;
 /// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -175,7 +174,6 @@ impl ExecutableState for InsertOnConflictSet {}
 /// SQLite supports various conflict resolution strategies:
 ///
 /// ```rust
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -208,7 +206,6 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -264,7 +261,6 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};

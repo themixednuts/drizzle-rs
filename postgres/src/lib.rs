@@ -90,3 +90,43 @@ pub trait ToPostgresSQL<'a>: ToSQL<'a, PostgresValue<'a>> {
     }
 }
 impl<'a, T: ToSQL<'a, PostgresValue<'a>>> ToPostgresSQL<'a> for T {}
+
+// Re-export ParamBind for use in macros
+pub use drizzle_core::ParamBind;
+
+/// Creates an array of SQL parameters for binding values to placeholders.
+///
+/// # Syntax
+/// - `{ name: value }` - Named parameter (creates :name placeholder)
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_postgres::params;
+///
+/// let params = params![{ name: "alice" }, { active: true }];
+/// ```
+#[macro_export]
+macro_rules! params {
+    // Multiple parameters - creates a fixed-size array of ParamBind structs
+    [$($param:tt),+ $(,)?] => {
+        [
+            $(
+                $crate::params_internal!($param)
+            ),+
+        ]
+    };
+}
+
+/// Internal helper macro for params! - converts individual items to ParamBind structs
+#[macro_export]
+macro_rules! params_internal {
+    // Named parameter
+    ({ $key:ident: $value:expr }) => {
+        $crate::ParamBind::new(stringify!($key), $crate::PostgresValue::from($value))
+    };
+    // Positional parameter
+    ($value:expr) => {
+        $crate::ParamBind::new("", $crate::PostgresValue::from($value))
+    };
+}

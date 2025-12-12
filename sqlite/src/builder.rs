@@ -82,7 +82,6 @@ impl ExecutableState for CTEInit {}
 /// ## Basic Usage
 ///
 /// ```
-/// use drizzle_core::prelude::*;
 /// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -116,8 +115,8 @@ impl ExecutableState for CTEInit {}
 ///
 /// ### SELECT Queries
 /// ```
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::gt;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -130,7 +129,6 @@ impl ExecutableState for CTEInit {}
 ///
 /// ### INSERT Queries
 /// ```
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -145,8 +143,8 @@ impl ExecutableState for CTEInit {}
 ///
 /// ### UPDATE Queries
 /// ```
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::eq;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -161,8 +159,8 @@ impl ExecutableState for CTEInit {}
 ///
 /// ### DELETE Queries  
 /// ```
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::lt;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -179,7 +177,6 @@ impl ExecutableState for CTEInit {}
 /// The builder supports WITH clauses for complex queries with typed field access:
 ///
 /// ```
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -232,7 +229,6 @@ impl<'a> QueryBuilder<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use drizzle_core::prelude::*;
     /// use drizzle_sqlite::prelude::*;
     /// use drizzle_sqlite::builder::QueryBuilder;
     /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -273,7 +269,6 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -347,7 +342,6 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -385,8 +379,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
+    /// # use drizzle_core::expressions::conditions::eq;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -424,8 +418,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
+    /// # use drizzle_core::expressions::conditions::lt;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
