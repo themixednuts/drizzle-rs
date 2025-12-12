@@ -247,18 +247,23 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         profile_sql!("sql");
         let capacity = self.estimate_capacity();
         let mut buf = String::with_capacity(capacity);
-        if V::DIALECT.uses_numbered_placeholders() {
-            self.write_to_numbered(&mut buf);
-        } else {
-            self.write_to(&mut buf);
-        }
+        self.write_to_dialect(&mut buf);
         buf
     }
 
-    /// Write SQL to a buffer with positional `?` placeholders
+    /// Write SQL to a buffer with positional `?` placeholders (legacy, for compatibility)
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
         for (i, chunk) in self.chunks.iter().enumerate() {
-            self.write_chunk_to(buf, chunk, i);
+            match chunk {
+                SQLChunk::Token(Token::SELECT) => {
+                    chunk.write(buf);
+                    self.write_select_columns(buf, i);
+                }
+                SQLChunk::Param(_) => {
+                    let _ = buf.write_char('?');
+                }
+                _ => chunk.write(buf),
+            }
 
             if self.needs_space(i) {
                 let _ = buf.write_char(' ');
@@ -266,11 +271,21 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Write SQL to a buffer with numbered placeholders ($1, $2, ...)
-    fn write_to_numbered(&self, buf: &mut impl core::fmt::Write) {
+    /// Write SQL to a buffer with dialect-appropriate placeholders
+    fn write_to_dialect(&self, buf: &mut impl core::fmt::Write) {
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
-            self.write_chunk_to_numbered(buf, chunk, i, &mut param_index);
+            match chunk {
+                SQLChunk::Token(Token::SELECT) => {
+                    chunk.write(buf);
+                    self.write_select_columns(buf, i);
+                }
+                SQLChunk::Param(_) => {
+                    let _ = buf.write_str(&V::DIALECT.render_placeholder(param_index));
+                    param_index += 1;
+                }
+                _ => chunk.write(buf),
+            }
 
             if self.needs_space(i) {
                 let _ = buf.write_char(' ');
@@ -289,27 +304,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             SQLChunk::Token(Token::SELECT) => {
                 chunk.write(buf);
                 self.write_select_columns(buf, index);
-            }
-            _ => chunk.write(buf),
-        }
-    }
-
-    /// Write a single chunk with numbered placeholders for PostgreSQL
-    fn write_chunk_to_numbered(
-        &self,
-        buf: &mut impl core::fmt::Write,
-        chunk: &SQLChunk<'a, V>,
-        index: usize,
-        param_index: &mut usize,
-    ) {
-        match chunk {
-            SQLChunk::Token(Token::SELECT) => {
-                chunk.write(buf);
-                self.write_select_columns(buf, index);
-            }
-            SQLChunk::Param(_) => {
-                let _ = write!(buf, "${}", param_index);
-                *param_index += 1;
             }
             _ => chunk.write(buf),
         }
