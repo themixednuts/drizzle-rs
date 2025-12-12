@@ -83,7 +83,7 @@ sqlite_test!(test_select_all_with_where_clause, SimpleSchema, {
     assert!(sql_string.contains("WHERE"));
 
     // Parameters should include the where condition value
-    let params = sql.params();
+    let params: Vec<_> = sql.params().collect();
     assert!(
         !params.is_empty(),
         "Should have parameters for WHERE clause"
@@ -126,7 +126,7 @@ sqlite_test!(test_sql_macro, SimpleSchema, {
 
     let query = sql!("SELECT * FROM {simple} where {simple.id} = {id}");
     let sql = query.sql();
-    let params = query.params();
+    let params: Vec<_> = query.params().collect();
 
     assert_eq!(sql, r#"SELECT * FROM "simple" where "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);
@@ -152,7 +152,7 @@ sqlite_test!(test_sql_printf_style, SimpleSchema, {
     // Test printf-style syntax: sql!("template", arg1, arg2, ...)
     let query = sql!("SELECT * FROM {} WHERE {} = {}", simple, simple.id, id);
     let sql = query.sql();
-    let params = query.params();
+    let params: Vec<_> = query.params().collect();
 
     assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);
@@ -173,7 +173,7 @@ sqlite_test!(test_sql_mixed_named_positional, SimpleSchema, {
     // Test mixing positional {} and named {simple.id} expressions
     let query = sql!("SELECT * FROM {} WHERE {simple.id} = {}", simple, id);
     let sql = query.sql();
-    let params = query.params();
+    let params: Vec<_> = query.params().collect();
 
     assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);

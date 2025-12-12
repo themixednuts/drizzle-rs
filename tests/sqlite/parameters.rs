@@ -96,7 +96,7 @@ sqlite_test!(test_insert_with_placeholders, SimpleSchema, {
 
     // Test that parameters are correctly preserved
     let sql = insert_result.to_sql();
-    let params = sql.params();
+    let params: Vec<_> = sql.params().collect();
     assert!(
         params.is_empty(),
         "Should have no bound parameters since we used a placeholder"
