@@ -1,3 +1,5 @@
+use crate::prelude::*;
+
 /// SQL dialect for database-specific behavior
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Dialect {
@@ -16,6 +18,17 @@ impl Dialect {
     pub const fn uses_numbered_placeholders(&self) -> bool {
         matches!(self, Dialect::PostgreSQL)
     }
+
+    /// Renders a placeholder for this dialect with the given 1-based index.
+    ///
+    /// # Examples
+    /// - PostgreSQL: `$1`, `$2`, `$3`
+    /// - SQLite/MySQL: `?`
+    #[inline]
+    pub fn render_placeholder(&self, index: usize) -> String {
+        match self {
+            Dialect::PostgreSQL => format!("${}", index),
+            Dialect::SQLite | Dialect::MySQL => "?".to_string(),
+        }
+    }
 }
-
-
