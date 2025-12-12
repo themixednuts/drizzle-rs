@@ -72,11 +72,11 @@ pub struct Schema {
 }
 
 fn main() -> drizzle::Result<()> {
-    let mut conn = postgres::Client::connect(
+    let client = postgres::Client::connect(
         "host=localhost user=postgres password=postgres dbname=test",
         postgres::NoTls
     )?;
-    let (db, Schema { users }) = Drizzle::new(&mut conn, Schema::new());
+    let (mut db, Schema { users }) = Drizzle::new(client, Schema::new());
 
     // Create tables, only use on new database.
     db.create()?;
