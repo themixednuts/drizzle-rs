@@ -55,7 +55,9 @@ pub fn run(opts: DropOptions) -> anyhow::Result<()> {
     let idx = if input == "last" {
         journal.entries.len() - 1
     } else {
-        input.parse::<usize>().map_err(|_| anyhow::anyhow!("Invalid input"))?
+        input
+            .parse::<usize>()
+            .map_err(|_| anyhow::anyhow!("Invalid input"))?
     };
 
     if idx >= journal.entries.len() {
@@ -115,4 +117,3 @@ pub fn run(opts: DropOptions) -> anyhow::Result<()> {
 
     Ok(())
 }
-

@@ -4,8 +4,8 @@
 //! using schema.to_snapshot_json()
 
 use crate::error::CliError;
-use drizzle_migrations::sqlite::SQLiteSnapshot;
 use drizzle_migrations::Dialect;
+use drizzle_migrations::sqlite::SQLiteSnapshot;
 use std::path::Path;
 
 /// Dialect-agnostic schema holder

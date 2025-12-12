@@ -4,8 +4,8 @@
 //! at a particular migration. They follow the drizzle-kit format.
 
 use crate::error::CliError;
-use drizzle_migrations::sqlite::SQLiteSnapshot;
 use drizzle_migrations::Dialect;
+use drizzle_migrations::sqlite::SQLiteSnapshot;
 use std::path::Path;
 
 /// Load the latest snapshot from the migrations meta directory
@@ -38,7 +38,9 @@ pub fn load_latest_snapshot(
     let snapshot_path = meta_dir.join(&snapshot_name);
 
     if !snapshot_path.exists() {
-        return Err(CliError::SnapshotNotFound(snapshot_path.display().to_string()));
+        return Err(CliError::SnapshotNotFound(
+            snapshot_path.display().to_string(),
+        ));
     }
 
     let snapshot_content = std::fs::read_to_string(&snapshot_path)?;

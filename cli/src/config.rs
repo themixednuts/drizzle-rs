@@ -30,4 +30,3 @@ pub fn load_config(path: Option<&str>) -> anyhow::Result<Option<DrizzleConfig>> 
     // No config found is OK - we'll use defaults/CLI args
     Ok(None)
 }
-

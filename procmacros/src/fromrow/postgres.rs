@@ -144,4 +144,3 @@ pub(crate) fn generate_field_assignment(
     };
     Ok(name)
 }
-

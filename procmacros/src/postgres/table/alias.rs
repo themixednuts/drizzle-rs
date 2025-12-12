@@ -153,7 +153,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 const TYPE: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::TYPE;
                 const SQL: &'static str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::SQL;
             }
-            
             // ToSQL implementation that uses the alias
             impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for #aliased_field_type {
                 fn to_sql(&self) -> SQL<'a, V> {
