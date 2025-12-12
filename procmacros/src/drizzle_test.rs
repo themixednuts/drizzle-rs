@@ -279,6 +279,10 @@ fn generate_postgres_sync_test(
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
                     };
                 }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_client {
+                    () => { db.mut_client() };
+                }
 
 
                 #test_body
@@ -333,6 +337,10 @@ fn generate_tokio_postgres_test(
                             std::panic::AssertUnwindSafe($operation)
                         ).await
                     };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_client {
+                    () => { db.client() };
                 }
 
 
