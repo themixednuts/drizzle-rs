@@ -44,7 +44,7 @@ pub(crate) fn bind_parameters_internal<'a, V, T, P>(
     param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
     param_name_fn: impl Fn(&P) -> Option<&str>,
     param_value_fn: impl Fn(&P) -> Option<&V>,
-    placeholder_fn: impl Fn(&P, usize) -> String,
+    placeholder_fn: impl Fn(&P, usize) -> Cow<'static, str>,
 ) -> (String, impl Iterator<Item = V>)
 where
     V: SQLParam + Clone,

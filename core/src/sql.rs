@@ -59,19 +59,37 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== constructors ====================
 
-    /// Creates SQL with a single token
+    /// Creates SQL with a single token (const-compatible)
     #[inline]
-    pub fn token(t: Token) -> Self {
+    pub const fn token(t: Token) -> Self {
         Self {
-            chunks: smallvec::smallvec![SQLChunk::Token(t)],
+            chunks: SmallVec::from_const([
+                SQLChunk::Token(t),
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+            ]),
         }
     }
 
-    /// Creates SQL with a quoted identifier
+    /// Creates SQL with a quoted identifier (const-compatible)
     #[inline]
-    pub fn ident(name: impl Into<Cow<'a, str>>) -> Self {
+    pub const fn ident(name: &'static str) -> Self {
         Self {
-            chunks: smallvec::smallvec![SQLChunk::Ident(name.into())],
+            chunks: SmallVec::from_const([
+                SQLChunk::Ident(Cow::Borrowed(name)),
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+                SQLChunk::Empty,
+            ]),
         }
     }
 
@@ -124,13 +142,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Creates SQL for a function call: NAME(args)
     /// Subqueries are automatically wrapped in parentheses: NAME((SELECT ...))
     #[inline]
-    pub fn func(name: impl Into<Cow<'a, str>>, args: SQL<'a, V>) -> Self {
+    pub fn func(name: &'static str, args: SQL<'a, V>) -> Self {
         let args = if args.is_subquery() {
             args.parens()
         } else {
             args
         };
-        SQL::raw(name)
+        SQL::raw_const(name)
             .push(Token::LPAREN)
             .append(args)
             .push(Token::RPAREN)
@@ -236,8 +254,9 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== output methods ====================
 
-    pub fn into_owned(&self) -> OwnedSQL<V> {
-        OwnedSQL::from(self.clone())
+    /// Converts to owned version (consuming self to avoid clone)
+    pub fn into_owned(self) -> OwnedSQL<V> {
+        OwnedSQL::from(self)
     }
 
     /// Returns the SQL string with dialect-appropriate placeholders
@@ -247,32 +266,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         profile_sql!("sql");
         let capacity = self.estimate_capacity();
         let mut buf = String::with_capacity(capacity);
-        self.write_to_dialect(&mut buf);
+        self.write_to(&mut buf);
         buf
     }
 
-    /// Write SQL to a buffer with positional `?` placeholders (legacy, for compatibility)
-    pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
-        for (i, chunk) in self.chunks.iter().enumerate() {
-            match chunk {
-                SQLChunk::Token(Token::SELECT) => {
-                    chunk.write(buf);
-                    self.write_select_columns(buf, i);
-                }
-                SQLChunk::Param(_) => {
-                    let _ = buf.write_char('?');
-                }
-                _ => chunk.write(buf),
-            }
-
-            if self.needs_space(i) {
-                let _ = buf.write_char(' ');
-            }
-        }
-    }
-
     /// Write SQL to a buffer with dialect-appropriate placeholders
-    fn write_to_dialect(&self, buf: &mut impl core::fmt::Write) {
+    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL
+    pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
@@ -389,18 +389,19 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         chunk_needs_space(current, next)
     }
 
-    /// Returns references to parameter values
-    pub fn params(&self) -> Vec<&V> {
-        let mut params_vec = Vec::with_capacity(self.chunks.len().min(8));
-        for chunk in &self.chunks {
+    /// Returns an iterator over references to parameter values
+    /// (avoids allocating a Vec - callers can collect if needed)
+    pub fn params(&self) -> impl Iterator<Item = &V> {
+        self.chunks.iter().filter_map(|chunk| {
             if let SQLChunk::Param(Param {
                 value: Some(value), ..
             }) = chunk
             {
-                params_vec.push(value.as_ref());
+                Some(value.as_ref())
+            } else {
+                None
             }
-        }
-        params_vec
+        })
     }
 
     /// Bind named parameters
@@ -502,7 +503,8 @@ impl<'a, V: SQLParam + 'a> AsRef<SQL<'a, V>> for SQL<'a, V> {
 
 impl<'a, V: SQLParam + core::fmt::Display> Display for SQL<'a, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let params = self.params();
+        // Collect params for Debug formatting (iterator can't be used with :?)
+        let params: Vec<_> = self.params().collect();
         write!(f, r#"sql: "{}", params: {:?}"#, self.sql(), params)
     }
 }

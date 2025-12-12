@@ -172,7 +172,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
 
     /// Check if this chunk is "word-like" (needs space separation from other word-like chunks)
     #[inline]
-    pub(crate) fn is_word_like(&self) -> bool {
+    pub(crate) const fn is_word_like(&self) -> bool {
         match self {
             SQLChunk::Empty => false,
             SQLChunk::Token(t) => !matches!(

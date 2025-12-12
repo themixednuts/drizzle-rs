@@ -1,4 +1,5 @@
 use crate::Dialect;
+use crate::prelude::*;
 use core::fmt;
 
 /// A SQL parameter placeholder.
@@ -39,7 +40,7 @@ impl Placeholder {
 
     /// Renders this placeholder for the given dialect and 1-based index.
     #[inline]
-    pub fn render(&self, dialect: Dialect, index: usize) -> String {
+    pub fn render(&self, dialect: Dialect, index: usize) -> Cow<'static, str> {
         dialect.render_placeholder(index)
     }
 

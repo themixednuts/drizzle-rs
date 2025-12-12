@@ -21,14 +21,17 @@ impl Dialect {
 
     /// Renders a placeholder for this dialect with the given 1-based index.
     ///
+    /// Returns `Cow::Borrowed("?")` for SQLite/MySQL (zero allocation),
+    /// `Cow::Owned` for PostgreSQL numbered placeholders.
+    ///
     /// # Examples
     /// - PostgreSQL: `$1`, `$2`, `$3`
     /// - SQLite/MySQL: `?`
     #[inline]
-    pub fn render_placeholder(&self, index: usize) -> String {
+    pub fn render_placeholder(&self, index: usize) -> Cow<'static, str> {
         match self {
-            Dialect::PostgreSQL => format!("${}", index),
-            Dialect::SQLite | Dialect::MySQL => "?".to_string(),
+            Dialect::PostgreSQL => Cow::Owned(format!("${}", index)),
+            Dialect::SQLite | Dialect::MySQL => Cow::Borrowed("?"),
         }
     }
 }
