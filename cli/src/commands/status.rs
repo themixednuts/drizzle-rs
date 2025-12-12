@@ -79,7 +79,7 @@ fn format_timestamp(ms: u64) -> String {
     }
 
     let secs = ms / 1000;
-    let datetime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
+    let datetime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
 
     // Format as ISO date
     format!("{:?}", datetime)

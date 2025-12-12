@@ -49,9 +49,7 @@ pub fn run(opts: GenerateOptions) -> anyhow::Result<()> {
     let current_schema = Schema::load(Path::new(&schema_path), opts.dialect)?;
 
     // Get the current snapshot from schema
-    let current_snapshot = match current_schema {
-        Schema::Sqlite(s) => s,
-    };
+    let Schema::Sqlite(current_snapshot) = current_schema;
 
     // Load the previous snapshot (or create empty)
     let prev_snapshot = snapshot::load_latest_snapshot(&migrations_dir, opts.dialect)?

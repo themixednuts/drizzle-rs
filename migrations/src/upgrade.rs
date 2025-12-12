@@ -63,58 +63,57 @@ pub fn upgrade_postgres_v5_to_v6(mut json: Value) -> Value {
     };
 
     // Transform tables: key becomes "schema.name"
-    if let Some(tables) = obj.remove("tables") {
-        if let Some(tables_obj) = tables.as_object() {
-            let mut new_tables = Map::new();
-            for (_key, table) in tables_obj {
-                if let Some(table_obj) = table.as_object() {
-                    let schema = table_obj
-                        .get("schema")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or("public");
-                    let name = table_obj
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("unknown");
-                    let new_key = format!("{}.{}", schema, name);
-                    new_tables.insert(new_key, table.clone());
-                }
+    if let Some(tables) = obj.remove("tables")
+        && let Some(tables_obj) = tables.as_object()
+    {
+        let mut new_tables = Map::new();
+        for (_key, table) in tables_obj {
+            if let Some(table_obj) = table.as_object() {
+                let schema = table_obj
+                    .get("schema")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("public");
+                let name = table_obj
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                let new_key = format!("{}.{}", schema, name);
+                new_tables.insert(new_key, table.clone());
             }
-            obj.insert("tables".to_string(), Value::Object(new_tables));
         }
+        obj.insert("tables".to_string(), Value::Object(new_tables));
     }
 
     // Transform enums: add schema, convert values to array
-    if let Some(enums) = obj.remove("enums") {
-        if let Some(enums_obj) = enums.as_object() {
-            let mut new_enums = Map::new();
-            for (_key, enum_val) in enums_obj {
-                if let Some(enum_obj) = enum_val.as_object() {
-                    let name = enum_obj
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("unknown");
-                    let new_key = format!("public.{}", name);
+    if let Some(enums) = obj.remove("enums")
+        && let Some(enums_obj) = enums.as_object()
+    {
+        let mut new_enums = Map::new();
+        for (_key, enum_val) in enums_obj {
+            if let Some(enum_obj) = enum_val.as_object() {
+                let name = enum_obj
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
+                let new_key = format!("public.{}", name);
 
-                    // Convert values from object to array
-                    let values = if let Some(values_obj) =
-                        enum_obj.get("values").and_then(|v| v.as_object())
-                    {
+                // Convert values from object to array
+                let values =
+                    if let Some(values_obj) = enum_obj.get("values").and_then(|v| v.as_object()) {
                         Value::Array(values_obj.values().cloned().collect())
                     } else {
                         Value::Array(vec![])
                     };
 
-                    let mut new_enum = Map::new();
-                    new_enum.insert("name".to_string(), Value::String(name.to_string()));
-                    new_enum.insert("schema".to_string(), Value::String("public".to_string()));
-                    new_enum.insert("values".to_string(), values);
+                let mut new_enum = Map::new();
+                new_enum.insert("name".to_string(), Value::String(name.to_string()));
+                new_enum.insert("schema".to_string(), Value::String("public".to_string()));
+                new_enum.insert("values".to_string(), values);
 
-                    new_enums.insert(new_key, Value::Object(new_enum));
-                }
+                new_enums.insert(new_key, Value::Object(new_enum));
             }
-            obj.insert("enums".to_string(), Value::Object(new_enums));
         }
+        obj.insert("enums".to_string(), Value::Object(new_enums));
     }
 
     // Update dialect and version
@@ -148,33 +147,30 @@ pub fn upgrade_postgres_v6_to_v7(mut json: Value) -> Value {
                     for (_idx_key, index) in indexes.iter_mut() {
                         if let Some(index_obj) = index.as_object_mut() {
                             // Transform columns from string array to object array
-                            if let Some(columns) = index_obj.remove("columns") {
-                                if let Some(cols_arr) = columns.as_array() {
-                                    let new_columns: Vec<Value> = cols_arr
-                                        .iter()
-                                        .map(|col| {
-                                            let col_str = col.as_str().unwrap_or("");
-                                            let mut col_obj = Map::new();
-                                            col_obj.insert(
-                                                "expression".to_string(),
-                                                Value::String(col_str.to_string()),
-                                            );
-                                            col_obj.insert(
-                                                "isExpression".to_string(),
-                                                Value::Bool(false),
-                                            );
-                                            col_obj.insert("asc".to_string(), Value::Bool(true));
-                                            col_obj.insert(
-                                                "nulls".to_string(),
-                                                Value::String("last".to_string()),
-                                            );
-                                            col_obj.insert("opClass".to_string(), Value::Null);
-                                            Value::Object(col_obj)
-                                        })
-                                        .collect();
-                                    index_obj
-                                        .insert("columns".to_string(), Value::Array(new_columns));
-                                }
+                            if let Some(columns) = index_obj.remove("columns")
+                                && let Some(cols_arr) = columns.as_array()
+                            {
+                                let new_columns: Vec<Value> = cols_arr
+                                    .iter()
+                                    .map(|col| {
+                                        let col_str = col.as_str().unwrap_or("");
+                                        let mut col_obj = Map::new();
+                                        col_obj.insert(
+                                            "expression".to_string(),
+                                            Value::String(col_str.to_string()),
+                                        );
+                                        col_obj
+                                            .insert("isExpression".to_string(), Value::Bool(false));
+                                        col_obj.insert("asc".to_string(), Value::Bool(true));
+                                        col_obj.insert(
+                                            "nulls".to_string(),
+                                            Value::String("last".to_string()),
+                                        );
+                                        col_obj.insert("opClass".to_string(), Value::Null);
+                                        Value::Object(col_obj)
+                                    })
+                                    .collect();
+                                index_obj.insert("columns".to_string(), Value::Array(new_columns));
                             }
                             // Add `with` field if missing
                             if !index_obj.contains_key("with") {

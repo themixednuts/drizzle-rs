@@ -25,13 +25,21 @@ impl std::fmt::Display for Dialect {
 
 impl Dialect {
     /// Parse a dialect from a string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "sqlite" | "turso" | "libsql" => Some(Dialect::Sqlite),
             "postgresql" | "postgres" | "pg" => Some(Dialect::Postgresql),
             "mysql" => Some(Dialect::Mysql),
             _ => None,
         }
+    }
+}
+
+impl std::str::FromStr for Dialect {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Dialect::parse(s).ok_or_else(|| format!("Unknown dialect: {}", s))
     }
 }
 
