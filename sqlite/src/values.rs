@@ -262,8 +262,8 @@ impl<'a> From<SQLiteValue<'a>> for turso::Value {
         match value {
             SQLiteValue::Integer(i) => turso::Value::Integer(i),
             SQLiteValue::Real(r) => turso::Value::Real(r),
-            SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
-            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
+            SQLiteValue::Text(cow) => turso::Value::Text(cow.into_owned()),
+            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.into_owned()),
             SQLiteValue::Null => turso::Value::Null,
         }
     }
@@ -288,8 +288,8 @@ impl<'a> From<SQLiteValue<'a>> for libsql::Value {
         match value {
             SQLiteValue::Integer(i) => libsql::Value::Integer(i),
             SQLiteValue::Real(r) => libsql::Value::Real(r),
-            SQLiteValue::Text(cow) => libsql::Value::Text(cow.to_string()),
-            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.to_vec()),
+            SQLiteValue::Text(cow) => libsql::Value::Text(cow.into_owned()),
+            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.into_owned()),
             SQLiteValue::Null => libsql::Value::Null,
         }
     }
