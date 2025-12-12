@@ -1,8 +1,6 @@
-use crate::{
-    PostgresSQL, ToPostgresSQL, common::Join, traits::PostgresTable, values::PostgresValue,
-};
+use crate::{PostgresSQL, ToPostgresSQL, traits::PostgresTable, values::PostgresValue};
 use drizzle_core::{
-    SQL, ToSQL, Token, helpers,
+    Join, SQL, ToSQL, Token, helpers,
     traits::{SQLColumnInfo, SQLModel},
 };
 
@@ -22,19 +20,16 @@ fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> PostgresSQ
     SQL::raw(joined_names)
 }
 
-fn join_internal<'a, Table>(
-    table: Table,
-    join: Join,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join.to_sql()
-        .append(table.to_sql())
-        .push(Token::ON)
-        .append(condition.to_sql())
-}
+// Generate all join helper functions using the shared macro
+drizzle_core::impl_join_helpers!(
+    table_trait: PostgresTable<'a>,
+    condition_trait: ToPostgresSQL<'a>,
+    sql_type: PostgresSQL<'a>,
+);
+
+//------------------------------------------------------------------------------
+// USING clause internal helper (PostgreSQL-specific)
+//------------------------------------------------------------------------------
 
 fn join_using_internal<'a, Table>(
     table: Table,
@@ -50,162 +45,6 @@ where
         .push(Token::LPAREN)
         .append(columns.to_sql())
         .push(Token::RPAREN)
-}
-
-/// Helper function to create a JOIN clause using table generic
-pub fn natural_join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::default().natural(), condition)
-}
-
-/// Helper function to create a JOIN clause using table generic
-pub fn join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::default(), condition)
-}
-
-pub fn natural_left_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().left(), condition)
-}
-
-/// Helper function to create a LEFT JOIN clause using table generic
-pub fn left_join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().left(), condition)
-}
-
-pub fn left_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().left().outer(), condition)
-}
-
-pub fn natural_left_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().left().outer(), condition)
-}
-
-pub fn natural_right_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().right(), condition)
-}
-
-/// Helper function to create a RIGHT JOIN clause using table generic
-pub fn right_join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().right(), condition)
-}
-
-pub fn right_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().right().outer(), condition)
-}
-
-pub fn natural_right_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().right().outer(), condition)
-}
-
-pub fn natural_full_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().full(), condition)
-}
-
-/// Helper function to create a FULL JOIN clause using table generic
-pub fn full_join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().full(), condition)
-}
-
-pub fn full_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().full().outer(), condition)
-}
-
-pub fn natural_full_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().full().outer(), condition)
-}
-
-pub fn natural_inner_join<'a, Table>(
-    table: Table,
-    condition: impl ToPostgresSQL<'a>,
-) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().natural().inner(), condition)
-}
-
-/// Helper function to create an INNER JOIN clause using table generic
-pub fn inner_join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().inner(), condition)
-}
-
-/// Helper function to create a CROSS JOIN clause using table generic
-pub fn cross_join<'a, Table>(table: Table, condition: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
-where
-    Table: PostgresTable<'a>,
-{
-    join_internal(table, Join::new().cross(), condition)
 }
 
 //------------------------------------------------------------------------------

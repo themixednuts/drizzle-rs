@@ -1,9 +1,6 @@
-use crate::{
-    common::Join,
-    traits::{SQLiteSQL, SQLiteTable, ToSQLiteSQL},
-};
+use crate::traits::{SQLiteSQL, SQLiteTable, ToSQLiteSQL};
 use drizzle_core::{
-    SQL, ToSQL, Token, helpers as core_helpers,
+    SQL, Token, helpers as core_helpers,
     traits::{SQLColumnInfo, SQLModel},
 };
 
@@ -11,6 +8,9 @@ use drizzle_core::{
 pub(crate) use core_helpers::{
     delete, from, group_by, having, insert, limit, offset, order_by, select, set, update, r#where,
 };
+
+// Re-export Join from core
+pub use drizzle_core::Join;
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQLiteSQL<'a> {
@@ -23,154 +23,12 @@ fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQLiteSQL<
     SQL::raw(joined_names)
 }
 
-fn join_internal<'a, Table>(
-    table: Table,
-    join: Join,
-    condition: impl ToSQLiteSQL<'a>,
-) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join.to_sql()
-        .append(&table)
-        .push(Token::ON)
-        .append(&condition)
-}
-
-/// Helper function to create a JOIN clause using table generic
-pub fn natural_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::default().natural(), condition)
-}
-
-/// Helper function to create a JOIN clause using table generic
-pub fn join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::default(), condition)
-}
-
-pub fn natural_left_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().left(), condition)
-}
-
-/// Helper function to create a LEFT JOIN clause using table generic
-pub fn left_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().left(), condition)
-}
-
-pub fn left_outer_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().left().outer(), condition)
-}
-
-pub fn natural_left_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToSQLiteSQL<'a>,
-) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().left().outer(), condition)
-}
-
-pub fn natural_right_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().right(), condition)
-}
-
-/// Helper function to create a RIGHT JOIN clause using table generic
-pub fn right_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().right(), condition)
-}
-
-pub fn right_outer_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().right().outer(), condition)
-}
-
-pub fn natural_right_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToSQLiteSQL<'a>,
-) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().right().outer(), condition)
-}
-
-pub fn natural_full_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().full(), condition)
-}
-
-/// Helper function to create a FULL JOIN clause using table generic
-pub fn full_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().full(), condition)
-}
-
-pub fn full_outer_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().full().outer(), condition)
-}
-
-pub fn natural_full_outer_join<'a, Table>(
-    table: Table,
-    condition: impl ToSQLiteSQL<'a>,
-) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().full().outer(), condition)
-}
-
-pub fn natural_inner_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().natural().inner(), condition)
-}
-
-/// Helper function to create an INNER JOIN clause using table generic
-pub fn inner_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().inner(), condition)
-}
-
-/// Helper function to create a CROSS JOIN clause using table generic
-pub fn cross_join<'a, Table>(table: Table, condition: impl ToSQLiteSQL<'a>) -> SQLiteSQL<'a>
-where
-    Table: SQLiteTable<'a>,
-{
-    join_internal(table, Join::new().cross(), condition)
-}
+// Generate all join helper functions using the shared macro
+drizzle_core::impl_join_helpers!(
+    table_trait: SQLiteTable<'a>,
+    condition_trait: ToSQLiteSQL<'a>,
+    sql_type: SQLiteSQL<'a>,
+);
 
 /// Helper function to create VALUES clause for INSERT with pattern validation
 /// All rows must have the same column pattern (enforced by type parameter)
