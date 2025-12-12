@@ -182,7 +182,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
@@ -205,7 +204,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
@@ -238,7 +236,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
@@ -346,7 +343,6 @@ where
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
@@ -371,7 +367,6 @@ where
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
@@ -402,7 +397,6 @@ where
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 

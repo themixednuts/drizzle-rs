@@ -22,24 +22,18 @@ pub(super) fn generate_table_impls(
         &ctx.update_model_ident,
     );
 
-    // Generate SQL implementation - always use SQL::empty() for const and provide via fn sql()
+    // Generate SQL implementation - always use empty string for const and provide via fn sql()
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
         (
-            quote! { SQL::empty() },
-            Some(quote! {
-                let runtime_sql = #create_table_sql;
-                SQL::raw(runtime_sql)
-            }),
-        )
-    } else {
-        // Use static SQL for tables without foreign keys
-        (
-            quote! { SQL::empty() },
+            quote! { "" },
             Some(quote! {
                 SQL::raw(#create_table_sql)
             }),
         )
+    } else {
+        // Use static SQL for tables without foreign keys
+        (quote! { #create_table_sql }, None)
     };
 
     // Generate ToSQL body

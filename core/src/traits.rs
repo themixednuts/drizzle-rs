@@ -20,11 +20,13 @@ use crate::{SQL, ToSQL};
 pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     const NAME: &'a str;
     const TYPE: T;
-    const SQL: SQL<'a, V>;
+    /// Static SQL string for schema creation (e.g., CREATE TABLE ...)
+    const SQL: &'static str;
 
-    // Optional runtime SQL generation for tables with dynamic constraints
+    /// Generate SQL for this schema element.
+    /// Default implementation wraps the static SQL string.
     fn sql(&self) -> SQL<'a, V> {
-        Self::SQL
+        SQL::raw(Self::SQL)
     }
 }
 

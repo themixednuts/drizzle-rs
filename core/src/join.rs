@@ -114,7 +114,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
             (false, JoinType::Full, true) => "FULL OUTER JOIN",
             (false, JoinType::Cross, _) => "CROSS JOIN",
         };
-        SQL::raw_const(join_str)
+        SQL::raw(join_str)
     }
 }
 

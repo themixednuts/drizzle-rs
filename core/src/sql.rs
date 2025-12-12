@@ -40,56 +40,21 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL with raw text at const time.
-    #[inline]
-    pub const fn raw_const(text: &'static str) -> Self {
-        Self {
-            chunks: SmallVec::from_const([
-                SQLChunk::Raw(Cow::Borrowed(text)),
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-            ]),
-        }
-    }
-
     // ==================== constructors ====================
 
-    /// Creates SQL with a single token (const-compatible)
+    /// Creates SQL with a single token
     #[inline]
-    pub const fn token(t: Token) -> Self {
+    pub fn token(t: Token) -> Self {
         Self {
-            chunks: SmallVec::from_const([
-                SQLChunk::Token(t),
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-            ]),
+            chunks: smallvec::smallvec![SQLChunk::Token(t)],
         }
     }
 
-    /// Creates SQL with a quoted identifier (const-compatible)
+    /// Creates SQL with a quoted identifier
     #[inline]
-    pub const fn ident(name: &'static str) -> Self {
+    pub fn ident(name: &'static str) -> Self {
         Self {
-            chunks: SmallVec::from_const([
-                SQLChunk::Ident(Cow::Borrowed(name)),
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-                SQLChunk::Empty,
-            ]),
+            chunks: smallvec::smallvec![SQLChunk::Ident(Cow::Borrowed(name))],
         }
     }
 
@@ -148,7 +113,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         } else {
             args
         };
-        SQL::raw_const(name)
+        SQL::raw(name)
             .push(Token::LPAREN)
             .append(args)
             .push(Token::RPAREN)
@@ -358,7 +323,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         self.chunks
             .iter()
             .map(|chunk| match chunk {
-                SQLChunk::Empty => 0,
                 SQLChunk::Token(t) => t.as_str().len(),
                 SQLChunk::Ident(s) => s.len() + IDENT_OVERHEAD,
                 SQLChunk::Raw(s) => s.len(),

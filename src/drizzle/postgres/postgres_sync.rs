@@ -66,14 +66,14 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
 use crate::transaction::postgres::postgres_sync::Transaction;
 
 // Generic prepare method for postgres DrizzleBuilder
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a: 'b, 'b, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
     /// Creates a prepared statement that can be executed multiple times
     #[inline]
-    pub fn prepare(self) -> prepared::PreparedStatement<'a> {
+    pub fn prepare(self) -> prepared::PreparedStatement<'b> {
         let inner = prepare_render(self.to_sql().clone()).into();
         prepared::PreparedStatement { inner }
     }
@@ -141,12 +141,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates an INSERT query builder.
-    pub fn insert<'a, Table>(
+    pub fn insert<'a, 'b, Table>(
         &'a mut self,
         table: Table,
-    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
+    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
     where
-        Table: PostgresTable<'a>,
+        Table: PostgresTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
@@ -157,12 +157,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates an UPDATE query builder.
-    pub fn update<'a, Table>(
+    pub fn update<'a, 'b, Table>(
         &'a mut self,
         table: Table,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
+    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
     where
-        Table: PostgresTable<'a>,
+        Table: PostgresTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -173,12 +173,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a DELETE query builder.
-    pub fn delete<'a, T>(
+    pub fn delete<'a, 'b, T>(
         &'a mut self,
         table: T,
-    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
+    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: PostgresTable<'a>,
+        T: PostgresTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
@@ -189,12 +189,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a query with CTE (Common Table Expression).
-    pub fn with<'a, C>(
+    pub fn with<'a, 'b, C>(
         &'a mut self,
         cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        C: builder::CTEDefinition<'a>,
+        C: builder::CTEDefinition<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         DrizzleBuilder {
@@ -214,7 +214,6 @@ impl<Schema> Drizzle<Schema> {
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
@@ -235,7 +234,6 @@ impl<Schema> Drizzle<Schema> {
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
@@ -262,7 +260,6 @@ impl<Schema> Drizzle<Schema> {
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
@@ -367,8 +364,8 @@ impl<'a, Schema>
 }
 
 // Postgres-specific execution methods for all ExecutableState QueryBuilders
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, 'b, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
@@ -379,7 +376,6 @@ where
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
@@ -398,7 +394,6 @@ where
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
@@ -423,7 +418,6 @@ where
 
         // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .iter()
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 

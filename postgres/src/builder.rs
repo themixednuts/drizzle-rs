@@ -233,7 +233,7 @@ mod tests {
         let qb = QueryBuilder::new::<()>();
         let sql = qb.to_sql();
         assert_eq!(sql.sql(), "");
-        assert_eq!(sql.params().len(), 0);
+        assert_eq!(sql.params().count(), 0);
     }
 
     #[test]

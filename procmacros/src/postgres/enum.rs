@@ -405,7 +405,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                 static ENUM_INSTANCE: #name = #name::#first_variant;
                 PostgresSchemaType::Enum(&ENUM_INSTANCE)
             };
-            const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
+            const SQL: &'static str = "";
 
             fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 SQL::raw(#create_type_sql_literal)

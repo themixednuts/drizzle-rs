@@ -9,15 +9,15 @@ use drizzle_postgres::{
 
 use crate::drizzle::postgres::postgres_sync::DrizzleBuilder;
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, Table>, DeleteInitial>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteInitial, Table>, DeleteInitial>
 where
-    Table: PostgresTable<'a>,
+    Table: PostgresTable<'b>,
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, PostgresValue<'a>>,
-    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
+        condition: drizzle_core::SQL<'b, PostgresValue<'b>>,
+    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
     {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {
@@ -29,11 +29,11 @@ where
 
     pub fn returning(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        DeleteBuilder<'a, Schema, DeleteReturningSet, Table>,
+        DeleteBuilder<'b, Schema, DeleteReturningSet, Table>,
         DeleteReturningSet,
     > {
         let builder = self.builder.returning(columns);
@@ -45,16 +45,16 @@ where
     }
 }
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
 {
     pub fn returning(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        DeleteBuilder<'a, Schema, DeleteReturningSet, Table>,
+        DeleteBuilder<'b, Schema, DeleteReturningSet, Table>,
         DeleteReturningSet,
     > {
         let builder = self.builder.returning(columns);

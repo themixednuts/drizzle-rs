@@ -180,7 +180,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
                 SQLiteSchemaType::Index(&INDEX_INSTANCE)
             };
-            const SQL: SQL<'a, SQLiteValue<'a>> = SQL::empty();
+            const SQL: &'static str = "";
 
             fn sql(&self) -> SQL<'a, SQLiteValue<'a>> {
                 self.to_sql()

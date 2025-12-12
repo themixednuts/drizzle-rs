@@ -139,7 +139,7 @@ cidr = { version = "0.3", features = ["serde"] }
 bit-vec = { version = "0.8" }
 
 [[bench]]
-name = "performance_comparison"
+name = "sqlite"
 harness = false
 
 [features]

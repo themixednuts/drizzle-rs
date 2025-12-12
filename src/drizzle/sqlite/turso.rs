@@ -70,14 +70,14 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
 }
 
 // Generic prepare method for turso DrizzleBuilder
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a: 'b, 'b, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
     /// Creates a prepared statement that can be executed multiple times
     #[inline]
-    pub fn prepare(self) -> prepared::PreparedStatement<'a> {
+    pub fn prepare(self) -> prepared::PreparedStatement<'b> {
         let inner = prepare_render(self.to_sql());
         prepared::PreparedStatement { inner }
     }
@@ -129,12 +129,12 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates a SELECT query builder.
     #[cfg(feature = "sqlite")]
-    pub fn select<'a, T>(
+    pub fn select<'a, 'b, T>(
         &'a self,
         query: T,
-    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
+    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'b, SQLiteValue<'b>>,
     {
         use drizzle_sqlite::builder::QueryBuilder;
 
@@ -149,12 +149,12 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates an INSERT query builder.
     #[cfg(feature = "sqlite")]
-    pub fn insert<'a, T>(
+    pub fn insert<'a, 'b, T>(
         &'a self,
         table: T,
-    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, T>, InsertInitial>
+    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertInitial, T>, InsertInitial>
     where
-        T: SQLiteTable<'a> + 'a,
+        T: SQLiteTable<'b> + 'b,
     {
         use drizzle_sqlite::builder::QueryBuilder;
 
@@ -168,12 +168,12 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates an UPDATE query builder.
     #[cfg(feature = "sqlite")]
-    pub fn update<'a, T>(
+    pub fn update<'a, 'b, T>(
         &'a self,
         table: T,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, T>, UpdateInitial>
+    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, T>, UpdateInitial>
     where
-        T: SQLiteTable<'a>,
+        T: SQLiteTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -185,12 +185,12 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates a DELETE query builder.
     #[cfg(feature = "sqlite")]
-    pub fn delete<'a, T>(
+    pub fn delete<'a, 'b, T>(
         &'a self,
         table: T,
-    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
+    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: SQLiteTable<'a>,
+        T: SQLiteTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
@@ -202,12 +202,12 @@ impl<Schema> Drizzle<Schema> {
 
     /// Creates a query with CTE (Common Table Expression).
     #[cfg(feature = "sqlite")]
-    pub fn with<'a, C>(
+    pub fn with<'a, 'b, C>(
         &'a self,
         cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        C: builder::CTEDefinition<'a>,
+        C: builder::CTEDefinition<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         DrizzleBuilder {
@@ -423,7 +423,6 @@ impl<Schema> Drizzle<Schema> {
 }
 
 // CTE (WITH) Builder Implementation for Turso
-#[cfg(feature = "turso")]
 impl<'a, Schema>
     DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
@@ -461,9 +460,8 @@ impl<'a, Schema>
 }
 
 // Generic execution methods for all ExecutableState QueryBuilders (Turso)
-#[cfg(feature = "turso")]
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, 'b, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {

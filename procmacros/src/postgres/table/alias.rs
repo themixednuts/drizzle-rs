@@ -151,9 +151,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #aliased_field_type {
                 const NAME: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::NAME;
                 const TYPE: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::TYPE;
-
-                const SQL: SQL<'a, PostgresValue<'a>> = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::SQL;
+                const SQL: &'static str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::SQL;
             }
+            
             // ToSQL implementation that uses the alias
             impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for #aliased_field_type {
                 fn to_sql(&self) -> SQL<'a, V> {
@@ -270,7 +270,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #aliased_table_name {
             const NAME: &'a str = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::NAME;
             const TYPE: PostgresSchemaType = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::TYPE;
-            const SQL: SQL<'a, PostgresValue<'a>> = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::SQL;
+            const SQL: &'static str = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::SQL;
         }
 
         // ToSQL implementation for aliased table

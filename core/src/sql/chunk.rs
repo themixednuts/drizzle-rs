@@ -3,8 +3,7 @@ use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::toke
 
 /// A SQL chunk represents a part of an SQL statement.
 ///
-/// This enum has 8 variants, each with a clear semantic purpose:
-/// - `Empty` - Placeholder for const array padding (renders as nothing, skipped)
+/// This enum has 7 variants, each with a clear semantic purpose:
 /// - `Token` - SQL keywords and operators (SELECT, FROM, =, etc.)
 /// - `Ident` - Quoted identifiers ("table_name", "column_name")
 /// - `Raw` - Unquoted raw SQL text (function names, expressions)
@@ -12,13 +11,8 @@ use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::toke
 /// - `Table` - Table reference with metadata access
 /// - `Column` - Column reference with metadata access
 /// - `Alias` - Alias wrapper (expr AS "name")
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub enum SQLChunk<'a, V: SQLParam> {
-    /// Empty placeholder - used for const array padding
-    /// Renders as: nothing (skipped entirely)
-    #[default]
-    Empty,
-
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
     /// Renders as: keyword with automatic spacing rules
     Token(Token),
@@ -134,7 +128,6 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
     /// Write chunk content to buffer
     pub(crate) fn write(&self, buf: &mut impl core::fmt::Write) {
         match self {
-            SQLChunk::Empty => {} // Skip empty chunks
             SQLChunk::Token(token) => {
                 let _ = buf.write_str(token.as_str());
             }
@@ -174,7 +167,6 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
     #[inline]
     pub(crate) const fn is_word_like(&self) -> bool {
         match self {
-            SQLChunk::Empty => false,
             SQLChunk::Token(t) => !matches!(
                 t,
                 Token::LPAREN
@@ -202,7 +194,6 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
 impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SQLChunk::Empty => f.write_str("Empty"),
             SQLChunk::Token(token) => f.debug_tuple("Token").field(token).finish(),
             SQLChunk::Ident(name) => f.debug_tuple("Ident").field(name).finish(),
             SQLChunk::Raw(text) => f.debug_tuple("Raw").field(text).finish(),

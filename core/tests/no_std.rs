@@ -21,14 +21,14 @@ fn test_sql_empty_no_std() {
 }
 
 #[test]
-fn test_sql_raw_const_no_std() {
-    let sql: SQL<'_, TestValue> = SQL::raw_const("SELECT * FROM users");
+fn test_sql_raw_no_std() {
+    let sql: SQL<'_, TestValue> = SQL::raw("SELECT * FROM users");
     let result = sql.sql();
     assert_eq!(result, "SELECT * FROM users");
 }
 
 #[test]
-fn test_sql_raw_no_std() {
+fn test_sql_raw_cow_no_std() {
     let sql: SQL<'_, TestValue> = SQL::raw("SELECT 1");
     let result = sql.sql();
     assert_eq!(result, "SELECT 1");
@@ -63,7 +63,7 @@ fn test_sql_append_no_std() {
 
 #[test]
 fn test_sql_clone_no_std() {
-    let sql: SQL<'_, TestValue> = SQL::raw_const("test");
+    let sql: SQL<'_, TestValue> = SQL::raw("test");
     let cloned = sql.clone();
     assert_eq!(sql.sql(), cloned.sql());
 }

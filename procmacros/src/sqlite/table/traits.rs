@@ -29,19 +29,18 @@ pub(crate) fn generate_table_impls(
         // Use runtime SQL generation for tables with foreign keys
         if let Some(ref runtime_sql) = ctx.create_table_sql_runtime {
             (
-                quote! { SQL::empty() }, // Empty const, use runtime method
+                quote! { "" }, // Empty const, use runtime method
                 Some(quote! {
-                    let runtime_sql = #runtime_sql;
-                    SQL::raw(runtime_sql)
+                    SQL::raw(#runtime_sql)
                 }),
             )
         } else {
             // Use static SQL
-            (quote! { SQL::raw_const(#create_table_sql) }, None)
+            (quote! { #create_table_sql }, None)
         }
     } else {
         // Use static SQL for tables without foreign keys
-        (quote! { SQL::raw_const(#create_table_sql) }, None)
+        (quote! { #create_table_sql }, None)
     };
 
     let to_sql_body = quote! {

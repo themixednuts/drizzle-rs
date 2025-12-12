@@ -158,7 +158,7 @@ pub fn generate_sql_schema(
         impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
             const NAME: &'a str = #name;
             const TYPE: PostgresSchemaType = #r#type;
-            const SQL: SQL<'a, PostgresValue<'a>> = #const_sql;
+            const SQL: &'static str = #const_sql;
             #fn_method
         }
     }
@@ -175,7 +175,7 @@ pub fn generate_sql_schema_field(
         impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #struct_ident {
             const NAME: &'a str = #name;
             const TYPE: &'a str = #r#type;
-            const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
+            const SQL: &'static str = "";
 
             fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 #sql

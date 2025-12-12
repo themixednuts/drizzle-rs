@@ -66,14 +66,14 @@ pub struct DrizzleBuilder<'a, Schema, Builder, State> {
 use crate::transaction::sqlite::rusqlite::Transaction;
 
 // Generic prepare method for rusqlite DrizzleBuilder
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a: 'b, 'b, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {
     /// Creates a prepared statement that can be executed multiple times
     #[inline]
-    pub fn prepare(self) -> prepared::PreparedStatement<'a> {
+    pub fn prepare(self) -> prepared::PreparedStatement<'b> {
         let inner = prepare_render(self.to_sql().clone());
         prepared::PreparedStatement { inner }
     }
@@ -142,12 +142,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates an INSERT query builder.
-    pub fn insert<'a, Table>(
+    pub fn insert<'a, 'b, Table>(
         &'a self,
         table: Table,
-    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
+    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
     where
-        Table: SQLiteTable<'a>,
+        Table: SQLiteTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         DrizzleBuilder {
@@ -158,12 +158,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates an UPDATE query builder.
-    pub fn update<'a, Table>(
+    pub fn update<'a, 'b, Table>(
         &'a self,
         table: Table,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
+    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
     where
-        Table: SQLiteTable<'a>,
+        Table: SQLiteTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         DrizzleBuilder {
@@ -174,12 +174,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a DELETE query builder.
-    pub fn delete<'a, T>(
+    pub fn delete<'a, 'b, T>(
         &'a self,
         table: T,
-    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
+    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: SQLiteTable<'a>,
+        T: SQLiteTable<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         DrizzleBuilder {
@@ -190,12 +190,12 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Creates a query with CTE (Common Table Expression).
-    pub fn with<'a, C>(
+    pub fn with<'a, 'b, C>(
         &'a self,
         cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        C: builder::CTEDefinition<'a>,
+        C: builder::CTEDefinition<'b>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         DrizzleBuilder {
@@ -412,8 +412,8 @@ impl<'a, Schema>
 }
 
 // Rusqlite-specific execution methods for all ExecutableState QueryBuilders
-impl<'a, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, 'b, S, Schema, State, Table>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
     State: builder::ExecutableState,
 {

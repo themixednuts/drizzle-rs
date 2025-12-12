@@ -229,7 +229,7 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
                 PostgresSchemaType::Index(&INDEX_INSTANCE)
             };
-            const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
+            const SQL: &'static str = "";
 
             fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 self.to_sql()

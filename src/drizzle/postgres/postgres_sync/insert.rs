@@ -12,8 +12,8 @@ use drizzle_postgres::{
 
 use crate::drizzle::postgres::postgres_sync::DrizzleBuilder;
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
 {
     #[inline]
     pub fn values<T>(
@@ -22,12 +22,12 @@ impl<'a, Schema, Table>
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        InsertBuilder<'a, Schema, InsertValuesSet, Table>,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
     >
     where
-        Table: PostgresTable<'a>,
-        Table::Insert<T>: SQLModel<'a, PostgresValue<'a>>,
+        Table: PostgresTable<'b>,
+        Table::Insert<T>: SQLModel<'b, PostgresValue<'b>>,
     {
         let builder = self.builder.values(values);
         DrizzleBuilder {
@@ -42,19 +42,19 @@ impl<'a, Schema, Table>
 // INSERT ValuesSet State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertValuesSet, Table>, InsertValuesSet>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertValuesSet, Table>, InsertValuesSet>
 where
-    Table: PostgresTable<'a>,
+    Table: PostgresTable<'b>,
 {
     /// Adds conflict resolution clause
     pub fn on_conflict(
         self,
-        conflict: Conflict<'a>,
+        conflict: Conflict<'b>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
+        InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     > {
         let builder = self.builder.on_conflict(conflict);
@@ -68,11 +68,11 @@ where
     /// Adds RETURNING clause
     pub fn returning(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
+        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
         InsertReturningSet,
     > {
         let builder = self.builder.returning(columns);
@@ -88,22 +88,22 @@ where
 // INSERT OnConflict State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, Schema, Table>
+impl<'a, 'b, Schema, Table>
     DrizzleBuilder<
         'a,
         Schema,
-        InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
+        InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
     pub fn returning(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
+        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
         InsertReturningSet,
     > {
         let builder = self.builder.returning(columns);

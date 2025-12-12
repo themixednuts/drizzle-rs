@@ -636,7 +636,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
     /// Adds a LIMIT clause after ORDER BY
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         let sql = helpers::limit(limit);
-        println!("LIMIT SQL: {}", sql);
         SelectBuilder {
             sql: self.sql.append(sql),
             schema: PhantomData,

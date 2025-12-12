@@ -8,10 +8,10 @@ use drizzle_sqlite::{
 
 use crate::drizzle::sqlite::turso::DrizzleBuilder;
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
 where
-    Table: SQLiteTable<'a>,
+    Table: SQLiteTable<'b>,
 {
     #[inline]
     pub fn set(
@@ -20,7 +20,7 @@ where
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     > {
         let builder = self.builder.set(values);
@@ -32,18 +32,18 @@ where
     }
 }
 
-impl<'a, Schema, Table>
+impl<'a, 'b, Schema, Table>
     DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     >
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
+        condition: drizzle_core::SQL<'b, SQLiteValue<'b>>,
+    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
     {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {

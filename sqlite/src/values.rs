@@ -220,10 +220,13 @@ impl<'a> From<rusqlite::types::ValueRef<'a>> for SQLiteValue<'a> {
             rusqlite::types::ValueRef::Null => SQLiteValue::Null,
             rusqlite::types::ValueRef::Integer(i) => SQLiteValue::Integer(i),
             rusqlite::types::ValueRef::Real(r) => SQLiteValue::Real(r),
-            rusqlite::types::ValueRef::Text(items) => {
-                SQLiteValue::Text(String::from_utf8_lossy(items).into_owned().into())
-            }
-            rusqlite::types::ValueRef::Blob(items) => SQLiteValue::Blob(items.to_vec().into()),
+            // Zero-copy: borrow if valid UTF-8, otherwise allocate for lossy conversion
+            rusqlite::types::ValueRef::Text(items) => match std::str::from_utf8(items) {
+                Ok(s) => SQLiteValue::Text(Cow::Borrowed(s)),
+                Err(_) => SQLiteValue::Text(String::from_utf8_lossy(items).into_owned().into()),
+            },
+            // Zero-copy: borrow the blob slice directly
+            rusqlite::types::ValueRef::Blob(items) => SQLiteValue::Blob(Cow::Borrowed(items)),
         }
     }
 }

@@ -3,10 +3,8 @@ use crate::{OwnedParam, SQL, SQLChunk, SQLColumnInfo, SQLParam, SQLTableInfo, To
 use smallvec::SmallVec;
 
 /// Owned version of SQLChunk with 'static lifetime
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub enum OwnedSQLChunk<V: SQLParam> {
-    #[default]
-    Empty,
     Token(Token),
     Ident(String),
     Raw(String),
@@ -22,7 +20,6 @@ pub enum OwnedSQLChunk<V: SQLParam> {
 impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
     fn from(value: SQLChunk<'a, V>) -> Self {
         match value {
-            SQLChunk::Empty => Self::Empty,
             SQLChunk::Token(token) => Self::Token(token),
             SQLChunk::Ident(cow) => Self::Ident(cow.into_owned()),
             SQLChunk::Raw(cow) => Self::Raw(cow.into_owned()),
@@ -40,7 +37,6 @@ impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
 impl<V: SQLParam> From<OwnedSQLChunk<V>> for SQLChunk<'static, V> {
     fn from(value: OwnedSQLChunk<V>) -> Self {
         match value {
-            OwnedSQLChunk::Empty => SQLChunk::Empty,
             OwnedSQLChunk::Token(token) => SQLChunk::Token(token),
             OwnedSQLChunk::Ident(s) => SQLChunk::Ident(Cow::Owned(s)),
             OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(s)),

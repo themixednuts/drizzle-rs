@@ -236,7 +236,7 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #zst_ident {
                 const NAME: &'a str = #name;
                 const TYPE: &'a str = #col_type;
-                const SQL: SQL<'a, PostgresValue<'a>> = SQL::empty();
+                const SQL: &'static str = "";
 
                 fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
                     SQL::raw(#sql)

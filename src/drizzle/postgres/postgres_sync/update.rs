@@ -12,10 +12,10 @@ use drizzle_postgres::{
 
 use crate::drizzle::postgres::postgres_sync::DrizzleBuilder;
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
 where
-    Table: PostgresTable<'a>,
+    Table: PostgresTable<'b>,
 {
     #[inline]
     pub fn set(
@@ -24,7 +24,7 @@ where
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     > {
         let builder = self.builder.set(values);
@@ -36,18 +36,18 @@ where
     }
 }
 
-impl<'a, Schema, Table>
+impl<'a, 'b, Schema, Table>
     DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     >
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, PostgresValue<'a>>,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
+        condition: drizzle_core::SQL<'b, PostgresValue<'b>>,
+    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
     {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {
@@ -59,11 +59,11 @@ impl<'a, Schema, Table>
 
     pub fn returning(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateReturningSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateReturningSet, Table>,
         UpdateReturningSet,
     > {
         let builder = self.builder.returning(columns);
@@ -75,16 +75,16 @@ impl<'a, Schema, Table>
     }
 }
 
-impl<'a, Schema, Table>
-    DrizzleBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
+impl<'a, 'b, Schema, Table>
+    DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
 {
     pub fn returning(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateReturningSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateReturningSet, Table>,
         UpdateReturningSet,
     > {
         let builder = self.builder.returning(columns);

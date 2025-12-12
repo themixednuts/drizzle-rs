@@ -516,28 +516,19 @@ sqlite_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
 #[test]
 fn test_schema_generation() {
     // Test that all schema SQL generates without errors
-    println!("AllTypes SQL: {}", AllTypes::SQL.to_sql().sql());
-    println!(
-        "PrimaryKeyVariations SQL: {}",
-        PrimaryKeyVariations::SQL.to_sql().sql()
-    );
-    println!("UniqueFields SQL: {}", UniqueFields::SQL.to_sql().sql());
-    println!(
-        "CompileTimeDefaults SQL: {}",
-        CompileTimeDefaults::SQL.to_sql().sql()
-    );
-    println!(
-        "RuntimeDefaults SQL: {}",
-        RuntimeDefaults::SQL.to_sql().sql()
-    );
-    println!("EnumFields SQL: {}", EnumFields::SQL.to_sql().sql());
-    println!("NullableTest SQL: {}", NullableTest::SQL.to_sql().sql());
+    println!("AllTypes SQL: {}", AllTypes::SQL);
+    println!("PrimaryKeyVariations SQL: {}", PrimaryKeyVariations::SQL);
+    println!("UniqueFields SQL: {}", UniqueFields::SQL);
+    println!("CompileTimeDefaults SQL: {}", CompileTimeDefaults::SQL);
+    println!("RuntimeDefaults SQL: {}", RuntimeDefaults::SQL);
+    println!("EnumFields SQL: {}", EnumFields::SQL);
+    println!("NullableTest SQL: {}", NullableTest::SQL);
 
     #[cfg(feature = "serde")]
-    println!("JsonFields SQL: {}", JsonFields::SQL.to_sql().sql());
+    println!("JsonFields SQL: {}", JsonFields::SQL);
 
     #[cfg(feature = "uuid")]
-    println!("UuidFields SQL: {}", UuidFields::SQL.to_sql().sql());
+    println!("UuidFields SQL: {}", UuidFields::SQL);
 
     // Just verify they all compile and don't panic
     assert!(true);

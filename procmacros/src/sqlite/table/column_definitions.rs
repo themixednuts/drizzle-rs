@@ -132,7 +132,7 @@ pub(crate) fn generate_column_definitions<'a>(
             &zst_ident,
             quote! {#name},
             quote! {#col_type},
-            quote! {SQL::raw(#sql)},
+            quote! {#sql},
         );
         let sql_column_info_impl = generate_sql_column_info(
             &zst_ident,

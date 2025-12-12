@@ -6,14 +6,14 @@ use drizzle_sqlite::{
 };
 use std::marker::PhantomData;
 
-impl<'a, S, T> DrizzleBuilder<'a, S, DeleteBuilder<'a, S, DeleteInitial, T>, DeleteInitial>
+impl<'a, 'b, S, T> DrizzleBuilder<'a, S, DeleteBuilder<'b, S, DeleteInitial, T>, DeleteInitial>
 where
-    T: SQLiteTable<'a>,
+    T: SQLiteTable<'b>,
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'a, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet> {
+        condition: drizzle_core::SQL<'b, SQLiteValue<'b>>,
+    ) -> DrizzleBuilder<'a, S, DeleteBuilder<'b, S, DeleteWhereSet, T>, DeleteWhereSet> {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
