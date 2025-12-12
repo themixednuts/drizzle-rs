@@ -1,67 +1,65 @@
+use crate::Dialect;
 use core::fmt;
 
-/// Various styles of SQL parameter placeholders.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PlaceholderStyle {
-    /// Colon style placeholders (:param)
-    Colon,
-    /// At-sign style placeholders (@param)
-    AtSign,
-    /// Dollar style placeholders ($param)
-    Dollar,
-    #[default]
-    Positional,
-}
-
 /// A SQL parameter placeholder.
+///
+/// Placeholders store a semantic name for parameter binding. The actual SQL syntax
+/// (`$1`, `?`) is determined by the `Dialect` at render time.
+///
+/// # Examples
+/// ```ignore
+/// // Named placeholder - rendered based on dialect
+/// let placeholder = Placeholder::named("user_id");
+///
+/// // Anonymous placeholder - for positional parameters
+/// let anon = Placeholder::anonymous();
+/// ```
 #[derive(Default, Debug, Clone, Hash, Copy, PartialEq, Eq)]
 pub struct Placeholder {
-    /// The name of the parameter.
+    /// The semantic name of the parameter (used for binding by name).
     pub name: Option<&'static str>,
-    /// The style of the placeholder.
-    pub style: PlaceholderStyle,
 }
 
 impl Placeholder {
-    /// Creates a new placeholder with the given name and style.
-    pub const fn with_style(name: &'static str, style: PlaceholderStyle) -> Self {
-        Placeholder {
-            name: Some(name),
-            style,
-        }
+    /// Creates a named placeholder.
+    ///
+    /// The actual SQL syntax is determined by the `Dialect` at render time:
+    /// - PostgreSQL: `$1`, `$2`, ...
+    /// - SQLite/MySQL: `?`
+    pub const fn named(name: &'static str) -> Self {
+        Placeholder { name: Some(name) }
     }
 
-    /// Creates a new colon-style placeholder.
+    /// Creates an anonymous placeholder (no name).
+    ///
+    /// Used for positional parameters where no name binding is needed.
+    pub const fn anonymous() -> Self {
+        Placeholder { name: None }
+    }
+
+    /// Renders this placeholder for the given dialect and 1-based index.
+    #[inline]
+    pub fn render(&self, dialect: Dialect, index: usize) -> String {
+        dialect.render_placeholder(index)
+    }
+
+    /// Creates a new colon-style placeholder. Alias for `named()`.
     pub const fn colon(name: &'static str) -> Self {
-        Self::with_style(name, PlaceholderStyle::Colon)
+        Self::named(name)
     }
 
-    /// Creates a new at-sign-style placeholder.
-    pub const fn at(name: &'static str) -> Self {
-        Self::with_style(name, PlaceholderStyle::AtSign)
-    }
-
-    /// Creates a new dollar-style placeholder.
-    pub const fn dollar(name: &'static str) -> Self {
-        Self::with_style(name, PlaceholderStyle::Dollar)
-    }
-
-    /// Creates a positional placeholder ('?').
+    /// Creates a positional placeholder ('?'). Alias for `anonymous()`.
     pub const fn positional() -> Self {
-        Placeholder {
-            name: None,
-            style: PlaceholderStyle::Positional,
-        }
+        Self::anonymous()
     }
 }
 
 impl fmt::Display for Placeholder {
+    /// Displays the placeholder as `?` for anonymous or `:name` for named.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.style {
-            PlaceholderStyle::Colon => write!(f, ":{}", self.name.unwrap_or_default()),
-            PlaceholderStyle::AtSign => write!(f, "@{}", self.name.unwrap_or_default()),
-            PlaceholderStyle::Dollar => write!(f, "${}", self.name.unwrap_or_default()),
-            PlaceholderStyle::Positional => write!(f, "?"),
+        match self.name {
+            Some(name) => write!(f, ":{}", name),
+            None => write!(f, "?"),
         }
     }
 }
