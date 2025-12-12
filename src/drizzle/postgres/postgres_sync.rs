@@ -1,3 +1,39 @@
+//! Synchronous PostgreSQL driver using [`postgres`].
+//!
+//! # Example
+//!
+//! ```no_run
+//! use drizzle::postgres_sync::Drizzle;
+//! use drizzle::postgres::prelude::*;
+//! use postgres::{Client, NoTls};
+//!
+//! #[PostgresTable]
+//! struct User {
+//!     #[column(serial, primary)]
+//!     id: i32,
+//!     name: String,
+//! }
+//!
+//! #[derive(PostgresSchema)]
+//! struct AppSchema {
+//!     user: User,
+//! }
+//!
+//! fn main() -> drizzle::Result<()> {
+//!     let client = Client::connect("host=localhost user=postgres", NoTls)?;
+//!     let (mut db, AppSchema { user }) = Drizzle::new(client, AppSchema::new());
+//!     db.create()?;
+//!
+//!     // Insert
+//!     db.insert(user).values([InsertUser::new("Alice")]).execute()?;
+//!
+//!     // Select
+//!     let users: Vec<SelectUser> = db.select(()).from(user).all()?;
+//!
+//!     Ok(())
+//! }
+//! ```
+
 mod delete;
 mod insert;
 mod prepared;
@@ -43,13 +79,19 @@ where
     }
 }
 
-/// Drizzle instance that provides access to the database and query builder.
+/// Synchronous PostgreSQL database wrapper using [`postgres::Client`].
+///
+/// Provides query building methods (`select`, `insert`, `update`, `delete`)
+/// and execution methods (`execute`, `all`, `get`, `transaction`).
 pub struct Drizzle<Schema = ()> {
     client: Client,
     _schema: PhantomData<Schema>,
 }
 
 impl Drizzle {
+    /// Creates a new `Drizzle` instance.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
     pub const fn new<S>(client: Client, schema: S) -> (Drizzle<S>, S) {
         let drizzle = Drizzle {

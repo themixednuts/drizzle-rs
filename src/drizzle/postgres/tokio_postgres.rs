@@ -1,3 +1,42 @@
+//! Async PostgreSQL driver using [`tokio_postgres`].
+//!
+//! # Example
+//!
+//! ```no_run
+//! use drizzle::tokio_postgres::Drizzle;
+//! use drizzle::postgres::prelude::*;
+//! use tokio_postgres::NoTls;
+//!
+//! #[PostgresTable]
+//! struct User {
+//!     #[column(serial, primary)]
+//!     id: i32,
+//!     name: String,
+//! }
+//!
+//! #[derive(PostgresSchema)]
+//! struct AppSchema {
+//!     user: User,
+//! }
+//!
+//! #[tokio::main]
+//! async fn main() -> drizzle::Result<()> {
+//!     let (client, connection) = tokio_postgres::connect("host=localhost user=postgres", NoTls).await?;
+//!     tokio::spawn(async move { connection.await.unwrap() });
+//!
+//!     let (db, AppSchema { user }) = Drizzle::new(client, AppSchema::new());
+//!     db.create().await?;
+//!
+//!     // Insert
+//!     db.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+//!
+//!     // Select
+//!     let users: Vec<SelectUser> = db.select(()).from(user).all().await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+
 mod delete;
 mod insert;
 mod prepared;
@@ -44,7 +83,10 @@ where
     }
 }
 
-/// Drizzle instance that provides access to the database and query builder.
+/// Async PostgreSQL database wrapper using [`tokio_postgres::Client`].
+///
+/// Provides query building methods (`select`, `insert`, `update`, `delete`)
+/// and execution methods (`execute`, `all`, `get`, `transaction`).
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     client: Client,
@@ -52,6 +94,9 @@ pub struct Drizzle<Schema = ()> {
 }
 
 impl Drizzle {
+    /// Creates a new `Drizzle` instance.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
     pub const fn new<S>(client: Client, schema: S) -> (Drizzle<S>, S) {
         let drizzle = Drizzle {
