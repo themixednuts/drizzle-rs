@@ -37,13 +37,14 @@ impl<'a, V: SQLParam + core::fmt::Display> core::fmt::Display for PreparedStatem
 
 /// Internal helper for binding parameters with optimizations
 /// Returns SQL string and an iterator over bound parameter values
+/// placeholder_fn receives the param and the 1-based parameter index
 pub(crate) fn bind_parameters_internal<'a, V, T, P>(
     text_segments: &[CompactString],
     params: &[P],
     param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
     param_name_fn: impl Fn(&P) -> Option<&str>,
     param_value_fn: impl Fn(&P) -> Option<&V>,
-    placeholder_fn: impl Fn(&P) -> String,
+    placeholder_fn: impl Fn(&P, usize) -> String,
 ) -> (String, impl Iterator<Item = V>)
 where
     V: SQLParam + Clone,
@@ -62,14 +63,14 @@ where
     let mut bound_params = SmallVec::<[V; 8]>::new_const();
 
     // Use iterator to avoid bounds checking
-    let mut param_iter = params.iter();
+    let mut param_iter = params.iter().enumerate();
 
     for text_segment in text_segments {
         sql.push_str(text_segment);
 
-        if let Some(param) = param_iter.next() {
-            // Always add the placeholder
-            sql.push_str(&placeholder_fn(param));
+        if let Some((idx, param)) = param_iter.next() {
+            // Always add the placeholder (idx + 1 for 1-based indexing)
+            sql.push_str(&placeholder_fn(param, idx + 1));
 
             // For parameters, prioritize internal values first, then external bindings
             if let Some(value) = param_value_fn(param) {
@@ -91,7 +92,8 @@ where
 }
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
-    /// Bind parameters and render final SQL string
+    /// Bind parameters and render final SQL string with dialect-appropriate placeholders.
+    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL.
     pub fn bind<T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -102,7 +104,7 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref().map(|v| v.as_ref()),
-            |p| p.placeholder.to_string(),
+            |_p, idx| V::DIALECT.render_placeholder(idx),
         )
     }
 }

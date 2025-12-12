@@ -32,7 +32,8 @@ impl<'a, V: SQLParam> From<PreparedStatement<'a, V>> for OwnedPreparedStatement<
 }
 
 impl<V: SQLParam> OwnedPreparedStatement<V> {
-    /// Bind parameters and render final SQL string
+    /// Bind parameters and render final SQL string with dialect-appropriate placeholders.
+    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL.
     pub fn bind<'a, T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -43,13 +44,7 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref(), // OwnedParam can store values
-            |p| {
-                if let Some(name) = &p.placeholder.name {
-                    format!(":{}", name)
-                } else {
-                    "?".to_string()
-                }
-            },
+            |_p, idx| V::DIALECT.render_placeholder(idx),
         )
     }
 }
