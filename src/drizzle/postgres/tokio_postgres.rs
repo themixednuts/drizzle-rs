@@ -78,7 +78,7 @@ impl<Schema> Drizzle<Schema> {
 
     /// Gets a mutable reference to the underlying client
     #[inline]
-    pub fn client_mut(&mut self) -> &mut Client {
+    pub fn mut_client(&mut self) -> &mut Client {
         &mut self.client
     }
 

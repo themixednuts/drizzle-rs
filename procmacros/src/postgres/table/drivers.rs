@@ -387,3 +387,4 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
 pub(crate) fn generate_all_driver_impls(_ctx: &MacroContext) -> Result<TokenStream> {
     Ok(TokenStream::new())
 }
+

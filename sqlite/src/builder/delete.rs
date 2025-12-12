@@ -51,8 +51,8 @@ impl ExecutableState for DeleteReturningSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_core::prelude::*;
 /// use drizzle_sqlite::prelude::*;
+/// use drizzle_core::expressions::conditions::{eq, lt};
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 ///
@@ -89,8 +89,8 @@ impl ExecutableState for DeleteReturningSet {}
 ///
 /// ### DELETE with RETURNING
 /// ```rust
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::eq;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -109,7 +109,6 @@ impl ExecutableState for DeleteReturningSet {}
 ///
 /// ### DELETE all rows (use with caution!)
 /// ```rust
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -136,8 +135,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// # Examples
     ///
     /// ```
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
+    /// # use drizzle_core::expressions::conditions::{eq, gt, and, or};
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }

@@ -58,8 +58,8 @@ impl ExecutableState for UpdateReturningSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_core::prelude::*;
 /// use drizzle_sqlite::prelude::*;
+/// use drizzle_core::expressions::conditions::eq;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 ///
@@ -94,8 +94,8 @@ impl ExecutableState for UpdateReturningSet {}
 ///
 /// ### Multiple Column Updates
 /// ```
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::eq;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
@@ -112,8 +112,8 @@ impl ExecutableState for UpdateReturningSet {}
 ///
 /// ### UPDATE with RETURNING
 /// ```rust
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::eq;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
@@ -145,7 +145,6 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -193,8 +192,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
+    /// # use drizzle_core::expressions::conditions::{eq, gt, and};
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }

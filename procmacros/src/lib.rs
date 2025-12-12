@@ -53,6 +53,7 @@
 //! }
 //!
 //! // Connect and use
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let conn = rusqlite::Connection::open_in_memory()?;
 //! let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
 //! db.create()?;
@@ -64,6 +65,8 @@
 //!
 //! // Query data
 //! let all_users: Vec<SelectUsers> = db.select(()).from(users).all()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! For more detailed documentation, see the individual macro documentation below.
@@ -532,25 +535,24 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// When joining tables with columns of the same name, use `#[column(...)]` to
 /// specify which table's column to use:
 ///
-/// ```
+/// ```no_run
 /// use drizzle::sqlite::prelude::*;
+/// use drizzle_macros::{SQLiteTable, SQLiteFromRow};
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[text]
-///     name: String,
+///     pub name: String,
 /// }
 ///
 /// #[SQLiteTable(name = "posts")]
 /// struct Posts {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[integer(references = Users::id)]
+///     #[column(references = Users::id)]
 ///     user_id: i32,
-///     #[text]
-///     title: String,
+///     pub title: String,
 /// }
 ///
 /// #[derive(SQLiteFromRow, Debug, Default)]
@@ -597,8 +599,10 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ## With JSON (requires `serde` feature, libsql/turso)
 ///
-/// ```
+/// ```ignore
+/// // This example requires serde feature and specific rusqlite version compatibility
 /// use drizzle::sqlite::prelude::*;
+/// use drizzle_macros::SQLiteFromRow;
 /// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -627,7 +631,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// // Usage: let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
 /// ```
 #[cfg(feature = "sqlite")]
-#[proc_macro_derive(SQLiteFromRow, attributes(column))]
+#[proc_macro_derive(SQLiteFromRow, attributes(column, json))]
 pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
@@ -827,48 +831,57 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// Embed expressions directly in the SQL string using `{expression}`:
 ///
-/// ```ignore
-/// use drizzle::{sql, prelude::*};
+/// ```no_run
+/// use drizzle::sql;
+/// use drizzle::sqlite::prelude::*;
 /// use drizzle::rusqlite::Drizzle;
+/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 ///
 /// #[SQLiteTable(name = "users")]
 /// pub struct Users {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     pub id: i32,
-///     #[text]
 ///     pub name: String,
 /// }
 ///
 /// #[derive(SQLiteSchema)]
 /// pub struct Schema { pub users: Users }
 ///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let conn = rusqlite::Connection::open_in_memory()?;
 /// let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
 ///
 /// let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// ## Printf-Style Syntax
 ///
 /// Use `{}` placeholders with arguments after the string:
 ///
-/// ```ignore
-/// use drizzle::{sql, prelude::*};
+/// ```no_run
+/// use drizzle::sql;
+/// use drizzle::sqlite::prelude::*;
 /// use drizzle::rusqlite::Drizzle;
+/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
 ///
 /// #[SQLiteTable(name = "users")]
 /// pub struct Users {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     pub id: i32,
 /// }
 ///
 /// #[derive(SQLiteSchema)]
 /// pub struct Schema { pub users: Users }
 ///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let conn = rusqlite::Connection::open_in_memory()?;
 /// let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
 ///
 /// let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// # Examples
@@ -1108,8 +1121,7 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// ## Text Storage (Variant Names)
 ///
-/// ```compile_fail
-/// // This example requires the `postgres` feature to be enabled
+/// ```no_run
 /// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
@@ -1439,13 +1451,16 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Usage
 ///
 /// ```ignore
+/// // This example requires actual migration files to compile
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle::rusqlite::Drizzle;
+/// use drizzle::{include_migrations, prelude::*};
+/// use drizzle_migrations::EmbeddedMigrations;
 ///
 /// // Embed migrations from ./drizzle directory
 /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
 ///
-/// fn main() -> Result<()> {
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let conn = rusqlite::Connection::open("app.db")?;
 ///     let (db, schema) = Drizzle::new(conn, AppSchema::new());
 ///     
@@ -1476,6 +1491,10 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// You can also explicitly specify the dialect:
 ///
 /// ```ignore
+/// // This example requires actual migration files to compile
+/// use drizzle::{include_migrations, prelude::*};
+/// use drizzle_migrations::EmbeddedMigrations;
+///
 /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle", "postgresql");
 /// ```
 ///

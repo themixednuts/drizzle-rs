@@ -167,7 +167,6 @@ impl ExecutableState for SelectJoinSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_core::prelude::*;
 /// use drizzle_sqlite::prelude::*;
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -207,8 +206,8 @@ impl ExecutableState for SelectJoinSet {}
 /// ## Advanced Queries
 ///
 /// ```rust
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
+/// # use drizzle_core::expressions::conditions::eq;
 /// # use drizzle_sqlite::builder::QueryBuilder;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -223,9 +222,9 @@ impl ExecutableState for SelectJoinSet {}
 /// ```
 ///
 /// ```rust
-/// # use drizzle_core::prelude::*;
 /// # use drizzle_sqlite::prelude::*;
 /// # use drizzle_sqlite::builder::QueryBuilder;
+/// # use drizzle_core::OrderBy;
 /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -253,7 +252,6 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
@@ -295,8 +293,8 @@ where
     /// relate columns from both tables.
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
+    /// # use drizzle_core::expressions::conditions::eq;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
@@ -335,8 +333,8 @@ where
     /// You can use various condition functions from `drizzle_core::expressions::conditions`.
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
+    /// # use drizzle_core::expressions::conditions::{gt, and, eq};
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
@@ -437,7 +435,6 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_core::prelude::*;
     /// # use drizzle_sqlite::prelude::*;
     /// # use drizzle_sqlite::builder::QueryBuilder;
     /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};

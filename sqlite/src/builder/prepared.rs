@@ -207,3 +207,72 @@ impl std::fmt::Display for OwnedPreparedStatement {
         write!(f, "{}", self.inner)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SQLiteValue;
+    use drizzle_core::{SQL, prepared::prepare_render};
+
+    #[test]
+    fn test_prepare_render_basic() {
+        // Test the basic prepare_render functionality for SQLite
+        let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT * FROM users WHERE id = ")
+            .append(SQL::placeholder("user_id"))
+            .append(SQL::raw(" AND name = "))
+            .append(SQL::placeholder("user_name"));
+
+        let prepared = prepare_render(sql);
+
+        // Should have 3 text segments: before first param, between params, after last param
+        assert_eq!(prepared.text_segments.len(), 3);
+        assert_eq!(prepared.params.len(), 2);
+
+        // Verify text segments contain expected content
+        assert!(prepared.text_segments[0].contains("SELECT * FROM users WHERE id"));
+        assert!(prepared.text_segments[1].contains("AND name"));
+    }
+
+    #[test]
+    fn test_prepare_with_no_parameters() {
+        // Test preparing SQL with no parameters
+        let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT COUNT(*) FROM users");
+        let prepared = prepare_render(sql);
+
+        assert_eq!(prepared.text_segments.len(), 1);
+        assert_eq!(prepared.params.len(), 0);
+        assert_eq!(prepared.text_segments[0], "SELECT COUNT(*) FROM users");
+    }
+
+    #[test]
+    fn test_prepared_statement_display() {
+        let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT * FROM users")
+            .append(SQL::raw(" WHERE id = "))
+            .append(SQL::placeholder("id"));
+
+        let prepared = prepare_render(sql);
+        let display = format!("{}", prepared);
+
+        assert!(display.contains("SELECT * FROM users"));
+        assert!(display.contains("WHERE id"));
+    }
+
+    #[test]
+    fn test_owned_conversion_roundtrip() {
+        let sql: SQL<'_, SQLiteValue<'_>> =
+            SQL::raw("SELECT name FROM users WHERE id = ").append(SQL::placeholder("id"));
+
+        let prepared = prepare_render(sql);
+        let core_prepared = PreparedStatement { inner: prepared };
+
+        // Convert to owned
+        let owned = core_prepared.into_owned();
+
+        // Convert back to borrowed
+        let borrowed: PreparedStatement<'_> = owned.into();
+
+        // Verify structure is preserved
+        assert_eq!(borrowed.inner.text_segments.len(), 2);
+        assert_eq!(borrowed.inner.params.len(), 1);
+    }
+}
