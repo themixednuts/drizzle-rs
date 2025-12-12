@@ -2,6 +2,9 @@
 
 SQL ORM inspired by Drizzle ORM.
 
+> [!WARNING]
+> Still in development, expect breaking changes!
+
 ## Quick Start
 
 ### SQLite Example
@@ -745,6 +748,12 @@ struct UserMetadata {
     notifications: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct UserConfig {
+    theme: String,
+    notifications: bool,
+}
+
 #[SQLiteTable(name = "users")]
 pub struct Users {
     #[column(primary)]
@@ -754,7 +763,7 @@ pub struct Users {
     pub metadata: Option<UserMetadata>,
 
     #[column(jsonb)]  // JSON stored as BLOB
-    pub config: Option<UserMetadata>,
+    pub config: Option<UserConfig>,
 }
 ```
 
@@ -767,16 +776,16 @@ pub struct Users {
     pub id: i32,
 
     #[column(json)]   // Standard JSON
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<UserMetadata>,
 
     #[column(jsonb)]  // Binary JSON (faster queries)
-    pub config: Option<serde_json::Value>,
+    pub config: Option<UserConfig>,
 }
 ```
 
 ---
 
-## Migrations
+## Migrations [WIP]
 
 Embed migrations at compile time for runtime execution:
 
