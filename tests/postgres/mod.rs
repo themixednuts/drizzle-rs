@@ -11,6 +11,7 @@ pub mod foreign_keys;
 pub mod index;
 pub mod insert;
 pub mod joins;
+pub mod prepare;
 pub mod schema;
 pub mod select;
 pub mod type_inference;
