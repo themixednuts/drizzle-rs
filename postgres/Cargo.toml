@@ -26,6 +26,8 @@ tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 bytes = { version = "1.11", optional = true }
 
+[dev-dependencies]
+drizzle-macros = { workspace = true, features = ["postgres"] }
 
 [features]
 
