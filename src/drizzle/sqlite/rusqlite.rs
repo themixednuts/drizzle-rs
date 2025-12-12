@@ -1,3 +1,39 @@
+//! Synchronous SQLite driver using [`rusqlite`].
+//!
+//! # Example
+//!
+//! ```no_run
+//! use drizzle::rusqlite::Drizzle;
+//! use drizzle::sqlite::prelude::*;
+//! use rusqlite::Connection;
+//!
+//! #[SQLiteTable]
+//! struct User {
+//!     #[column(primary)]
+//!     id: i32,
+//!     name: String,
+//! }
+//!
+//! #[derive(SQLiteSchema)]
+//! struct AppSchema {
+//!     user: User,
+//! }
+//!
+//! fn main() -> drizzle::Result<()> {
+//!     let conn = Connection::open_in_memory()?;
+//!     let (db, AppSchema { user }) = Drizzle::new(conn, AppSchema::new());
+//!     db.create()?;
+//!
+//!     // Insert
+//!     db.insert(user).values([InsertUser::new("Alice")]).execute()?;
+//!
+//!     // Select
+//!     let users: Vec<SelectUser> = db.select(()).from(user).all()?;
+//!
+//!     Ok(())
+//! }
+//! ```
+
 mod delete;
 mod insert;
 mod prepared;
@@ -43,7 +79,10 @@ where
     }
 }
 
-/// Drizzle instance that provides access to the database and query builder.
+/// Synchronous SQLite database wrapper using [`rusqlite::Connection`].
+///
+/// Provides query building methods (`select`, `insert`, `update`, `delete`)
+/// and execution methods (`execute`, `all`, `get`, `transaction`).
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     conn: Connection,
@@ -51,6 +90,9 @@ pub struct Drizzle<Schema = ()> {
 }
 
 impl Drizzle {
+    /// Creates a new `Drizzle` instance.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
     pub const fn new<S>(conn: Connection, schema: S) -> (Drizzle<S>, S) {
         let drizzle = Drizzle {

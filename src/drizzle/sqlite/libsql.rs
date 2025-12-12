@@ -1,3 +1,41 @@
+//! Async SQLite driver using [`libsql`].
+//!
+//! # Example
+//!
+//! ```no_run
+//! use drizzle::libsql::Drizzle;
+//! use drizzle::sqlite::prelude::*;
+//! use libsql::Builder;
+//!
+//! #[SQLiteTable]
+//! struct User {
+//!     #[column(primary)]
+//!     id: i32,
+//!     name: String,
+//! }
+//!
+//! #[derive(SQLiteSchema)]
+//! struct AppSchema {
+//!     user: User,
+//! }
+//!
+//! #[tokio::main]
+//! async fn main() -> drizzle::Result<()> {
+//!     let db_builder = Builder::new_local(":memory:").build().await?;
+//!     let conn = db_builder.connect()?;
+//!     let (db, AppSchema { user }) = Drizzle::new(conn, AppSchema::new());
+//!     db.create().await?;
+//!
+//!     // Insert
+//!     db.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+//!
+//!     // Select
+//!     let users: Vec<SelectUser> = db.select(()).from(user).all().await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+
 mod delete;
 mod insert;
 mod prepared;
@@ -49,7 +87,10 @@ where
 
 use crate::transaction::sqlite::libsql::Transaction;
 
-/// Drizzle instance that provides access to the database and query builder.
+/// Async SQLite database wrapper using [`libsql::Connection`].
+///
+/// Provides query building methods (`select`, `insert`, `update`, `delete`)
+/// and execution methods (`execute`, `all`, `get`, `transaction`).
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     conn: Connection,
@@ -57,6 +98,9 @@ pub struct Drizzle<Schema = ()> {
 }
 
 impl Drizzle {
+    /// Creates a new `Drizzle` instance.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
     pub const fn new<S>(conn: Connection, schema: S) -> (Drizzle<S>, S) {
         let drizzle = Drizzle {
