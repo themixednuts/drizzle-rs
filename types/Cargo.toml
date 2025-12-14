@@ -1,0 +1,32 @@
+[package]
+name = "drizzle-types"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+version.workspace = true
+
+[features]
+default = ["std"]
+
+# Standard library support (enabled by default)
+std = ["serde?/std"]
+
+# Allocator support for no_std environments
+alloc = ["serde?/alloc"]
+
+# Feature flags for optional type support
+uuid = []
+serde = ["dep:serde"]
+chrono = []
+time = []
+geo-types = []
+cidr = []
+bit-vec = []
+
+[dependencies]
+serde = { workspace = true, optional = true, default-features = false, features = [
+    "derive",
+] }

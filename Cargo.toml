@@ -18,7 +18,7 @@ members = [
   "postgres",
   "mysql",
   "migrations",
-  "cli",
+  "types",
 ]
 
 [workspace.package]
@@ -39,7 +39,8 @@ drizzle-mysql = { path = "./mysql", version = "0.1" }
 drizzle-postgres = { path = "./postgres", version = "0.1" }
 drizzle-sqlite = { path = "./sqlite", version = "0.1" }
 drizzle-migrations = { path = "./migrations", version = "0.1" }
-
+drizzle-types = { path = "./types", version = "0.1" }
+regex = { version = "1.12" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env", "color"] }
 bytes = { version = "1.11" }
@@ -76,6 +77,8 @@ postgres = { version = "0.19.12" }
 tokio-postgres = { version = "0.7.15", default-features = false, features = [
   "runtime",
 ] }
+heck = { version = "0.5" }
+postgres-types = { version = "0.2" }
 
 # CLI-specific dependencies
 colored = { version = "3.0" }
@@ -157,6 +160,7 @@ rusqlite = [
   "drizzle-sqlite?/rusqlite",
   "drizzle-macros/rusqlite",
   "drizzle-core/rusqlite",
+  "drizzle-migrations/rusqlite",
 ]
 turso = [
   "sqlite",
@@ -164,6 +168,7 @@ turso = [
   "drizzle-core/turso",
   "drizzle-macros/turso",
   "drizzle-sqlite?/turso",
+  "drizzle-migrations/turso",
 ]
 libsql = [
   "sqlite",
@@ -171,6 +176,7 @@ libsql = [
   "drizzle-core/libsql",
   "drizzle-macros/libsql",
   "drizzle-sqlite?/libsql",
+  "drizzle-migrations/libsql",
 ]
 serde = [
   "dep:serde_json",
@@ -225,6 +231,7 @@ postgres-sync = [
   "dep:postgres",
   "drizzle-postgres?/postgres-sync",
   "drizzle-macros/postgres",
+  "drizzle-migrations/postgres-sync",
 ]
 tokio-postgres = [
   "postgres",
@@ -232,6 +239,7 @@ tokio-postgres = [
   "dep:tokio",
   "drizzle-postgres?/tokio-postgres",
   "drizzle-macros/postgres",
+  "drizzle-migrations/tokio-postgres",
 ]
 # sqlx-postgres = [
 #   "postgres",
