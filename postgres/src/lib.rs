@@ -56,6 +56,14 @@ pub use common::{Join, JoinType, Number, PostgresSchemaType};
 pub use traits::{DrizzleRow, FromPostgresValue, PostgresColumn, PostgresColumnInfo, PostgresEnum};
 pub use values::{PostgresInsertValue, PostgresValue, ValueWrapper};
 
+// Re-export Row type from the active postgres driver.
+// Note: postgres::Row is a re-export of tokio_postgres::Row, so they're the same type.
+// We prefer tokio_postgres when available since it's the underlying implementation.
+#[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+pub use postgres::Row;
+#[cfg(feature = "tokio-postgres")]
+pub use tokio_postgres::Row;
+
 // Transaction types - PostgreSQL specific isolation levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresTransactionType {

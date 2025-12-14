@@ -1,4 +1,5 @@
 use super::context::MacroContext;
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::{field::FieldInfo, generators::generate_to_sql};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -29,6 +30,11 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             ),
         ));
     }
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let expression = sqlite_paths::expression();
 
     // Track JSON type to SQLite storage type mapping and detect conflicts
     use crate::sqlite::field::SQLiteType;
@@ -72,12 +78,12 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                 let struct_name = info.base_type;
                 let core_conversion = match storage_type {
                     SQLiteType::Text => quote! {
-                        let json_data = serde_json::to_string(&self)?;
-                        Ok(SQLiteValue::Text(::std::borrow::Cow::Owned(json_data)))
+                        let json_data = ::serde_json::to_string(&self)?;
+                        ::std::result::Result::Ok(#sqlite_value::Text(::std::borrow::Cow::Owned(json_data)))
                     },
                     SQLiteType::Blob => quote! {
-                        let json_data = serde_json::to_vec(&self)?;
-                        Ok(SQLiteValue::Blob(::std::borrow::Cow::Owned(json_data)))
+                        let json_data = ::serde_json::to_vec(&self)?;
+                        ::std::result::Result::Ok(#sqlite_value::Blob(::std::borrow::Cow::Owned(json_data)))
                     },
                     _ => {
                         return Err(syn::Error::new_spanned(
@@ -89,10 +95,10 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
                 Ok(quote! {
                     // Core TryInto implementation for SQLiteValue (needed for all drivers)
-                    impl<'a> ::std::convert::TryInto<SQLiteValue<'a>> for #struct_name {
-                        type Error = serde_json::Error;
+                    impl<'a> ::std::convert::TryInto<#sqlite_value<'a>> for #struct_name {
+                        type Error = ::serde_json::Error;
 
-                        fn try_into(self) -> Result<SQLiteValue<'a>, Self::Error> {
+                        fn try_into(self) -> ::std::result::Result<#sqlite_value<'a>, Self::Error> {
                             #core_conversion
                         }
                     }
@@ -113,25 +119,25 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             SQLiteType::Text => generate_to_sql(
                 struct_ident,
                 quote! {
-                    use std::borrow::Cow;
-                    serde_json::to_string(self)
-                        .map(SQLiteValue::from)
+                    use ::std::borrow::Cow;
+                    ::serde_json::to_string(self)
+                        .map(#sqlite_value::from)
                         .map(Cow::Owned)
-                        .map(SQL::param)
-                        .map(|sql| expression::json(sql))
-                        .unwrap_or_else(|_| SQL::empty())
+                        .map(#sql::param)
+                        .map(|sql| #expression::json(sql))
+                        .unwrap_or_else(|_| #sql::empty())
                 },
             ),
             SQLiteType::Blob => generate_to_sql(
                 struct_ident,
                 quote! {
-                    use std::borrow::Cow;
-                    serde_json::to_vec(self)
-                        .map(SQLiteValue::from)
+                    use ::std::borrow::Cow;
+                    ::serde_json::to_vec(self)
+                        .map(#sqlite_value::from)
                         .map(Cow::Owned)
-                        .map(SQL::param)
-                        .map(|sql| expression::jsonb(sql))
-                        .unwrap_or_else(|_| SQL::empty())
+                        .map(#sql::param)
+                        .map(|sql| #expression::jsonb(sql))
+                        .unwrap_or_else(|_| #sql::empty())
                 },
             ),
             _ => quote! {},

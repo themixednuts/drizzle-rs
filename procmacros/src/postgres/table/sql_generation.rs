@@ -61,7 +61,7 @@ pub(super) fn generate_create_table_sql(
                 PostgreSQLFlag::NotNull => {
                     column_def.push_str(" NOT NULL");
                 }
-                PostgreSQLFlag::GeneratedIdentity => {
+                PostgreSQLFlag::Identity => {
                     column_def.push_str(" GENERATED ALWAYS AS IDENTITY");
                 }
                 PostgreSQLFlag::Check(constraint) => {

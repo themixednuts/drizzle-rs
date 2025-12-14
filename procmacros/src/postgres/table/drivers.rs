@@ -317,10 +317,11 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
 // Public API
 // =============================================================================
 
-/// Generate TryFrom implementations for PostgreSQL drivers that use postgres::Row.
+/// Generate TryFrom implementations for PostgreSQL drivers.
 ///
-/// This is used by postgres-sync and tokio-postgres drivers which share the same
-/// postgres::Row type. We use the 'postgres' feature of the macro crate to enable this.
+/// This generates `TryFrom<&drizzle_postgres::Row>` implementations.
+/// The Row type is re-exported by drizzle-postgres from whichever driver is active
+/// (tokio-postgres or postgres-sync), so this single implementation works for both.
 #[cfg(feature = "postgres")]
 pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let MacroContext {
@@ -346,34 +347,33 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         .map(|info| generate_update_field_conversion(info))
         .collect();
 
-    // Generate the implementations for postgres::Row
-    // Note: postgres::Row and tokio_postgres::Row are the same type
-
+    // Generate implementation using drizzle_postgres::Row which re-exports
+    // the Row type from whichever driver is active
     Ok(quote! {
-        impl ::std::convert::TryFrom<&::postgres::Row> for #select_model_ident {
+        impl ::std::convert::TryFrom<&::drizzle_postgres::Row> for #select_model_ident {
             type Error = DrizzleError;
 
-            fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &::drizzle_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#select_field_inits)*
                 })
             }
         }
 
-        impl ::std::convert::TryFrom<&::postgres::Row> for #select_model_partial_ident {
+        impl ::std::convert::TryFrom<&::drizzle_postgres::Row> for #select_model_partial_ident {
             type Error = DrizzleError;
 
-            fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &::drizzle_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#partial_field_inits)*
                 })
             }
         }
 
-        impl ::std::convert::TryFrom<&::postgres::Row> for #update_model_ident {
+        impl ::std::convert::TryFrom<&::drizzle_postgres::Row> for #update_model_ident {
             type Error = DrizzleError;
 
-            fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &::drizzle_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#update_field_inits)*
                 })
@@ -387,3 +387,4 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
 pub(crate) fn generate_all_driver_impls(_ctx: &MacroContext) -> Result<TokenStream> {
     Ok(TokenStream::new())
 }
+

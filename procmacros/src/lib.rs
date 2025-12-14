@@ -76,7 +76,8 @@ extern crate proc_macro;
 mod drizzle_test;
 mod fromrow;
 mod generators;
-mod migrations;
+
+mod paths;
 mod sql;
 mod utils;
 
@@ -1435,96 +1436,6 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_input = syn::parse_macro_input!(attr as crate::postgres::index::IndexAttributes);
 
     match crate::postgres::index::postgres_index_attr_macro(attr_input, input) {
-        Ok(tokens) => tokens.into(),
-        Err(err) => err.to_compile_error().into(),
-    }
-}
-
-/// Embed migrations at compile time for runtime execution.
-///
-/// This macro reads migration files at compile time and embeds them into the binary,
-/// providing compile-time validation that:
-/// - The migrations directory exists
-/// - The journal file is valid
-/// - All referenced migration SQL files exist
-///
-/// # Usage
-///
-/// ```ignore
-/// // This example requires actual migration files to compile
-/// use drizzle::sqlite::prelude::*;
-/// use drizzle::rusqlite::Drizzle;
-/// use drizzle::{include_migrations, prelude::*};
-/// use drizzle_migrations::EmbeddedMigrations;
-///
-/// // Embed migrations from ./drizzle directory
-/// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
-///
-/// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let conn = rusqlite::Connection::open("app.db")?;
-///     let (db, schema) = Drizzle::new(conn, AppSchema::new());
-///     
-///     // Apply embedded migrations at runtime
-///     let applied = db.migrate(&MIGRATIONS)?;
-///     println!("Applied {} migrations", applied);
-///     
-///     Ok(())
-/// }
-/// ```
-///
-/// # Path Resolution
-///
-/// The path is resolved relative to `CARGO_MANIFEST_DIR` (where Cargo.toml is).
-/// The macro will look for migrations in these locations (in order):
-///
-/// 1. `{path}/drizzle.toml` - If exists, reads config and uses `out` directory
-/// 2. `{path}/migrations/` - Direct migrations directory
-/// 3. `{path}/` - Assumes path is the migrations directory
-///
-/// # Dialect Detection
-///
-/// The dialect is automatically detected from:
-/// 1. `drizzle.toml` config file
-/// 2. `_journal.json` dialect field
-/// 3. Defaults to SQLite
-///
-/// You can also explicitly specify the dialect:
-///
-/// ```ignore
-/// // This example requires actual migration files to compile
-/// use drizzle::{include_migrations, prelude::*};
-/// use drizzle_migrations::EmbeddedMigrations;
-///
-/// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle", "postgresql");
-/// ```
-///
-/// # Compile-Time Validation
-///
-/// The macro will fail compilation if:
-/// - The migrations directory doesn't exist
-/// - The `_journal.json` file is missing or invalid
-/// - Any referenced migration SQL file is missing
-///
-/// # Example Directory Structure
-///
-/// ```text
-/// my-project/
-/// ├── Cargo.toml
-/// ├── drizzle.toml          # Optional config
-/// ├── drizzle/
-/// │   └── migrations/
-/// │       ├── 0000_steep_colossus.sql
-/// │       ├── 0001_odd_puma.sql
-/// │       └── meta/
-/// │           └── _journal.json
-/// └── src/
-///     └── main.rs
-/// ```
-#[proc_macro]
-pub fn include_migrations(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as crate::migrations::IncludeMigrationsInput);
-
-    match crate::migrations::include_migrations_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

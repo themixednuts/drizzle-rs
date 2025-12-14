@@ -100,6 +100,50 @@ impl Drizzle {
         };
         (drizzle, schema)
     }
+
+    /// Creates a new `Drizzle` instance from a `Config` with PostgresSyncConnection.
+    ///
+    /// This allows you to use the same configuration for both CLI operations
+    /// and runtime database access. The connection is created from the credentials
+    /// in the config.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use drizzle::postgres_sync::Drizzle;
+    /// use drizzle::postgres::prelude::*;
+    ///
+    /// let config = drizzle_migrations::Config::builder()
+    ///     .schema::<AppSchema>()
+    ///     .postgres()
+    ///     .postgres_sync("localhost", 5432, "postgres", "password", "mydb")
+    ///     .out("./drizzle")
+    ///     .build_with_credentials();
+    ///
+    /// let (db, schema) = Drizzle::with_config(config)?;
+    /// ```
+    pub fn with_config<S: drizzle_migrations::Schema>(
+        config: drizzle_migrations::Config<
+            S,
+            drizzle_migrations::PostgresDialect,
+            drizzle_migrations::PostgresSyncConnection,
+            drizzle_migrations::PostgresCredentials,
+        >,
+    ) -> Result<(Drizzle<S>, S), postgres::Error> {
+        let creds = &config.credentials;
+        let conn_string = creds.connection_string();
+
+        let client = Client::connect(&conn_string, postgres::NoTls)?;
+        let schema = config.schema;
+
+        let drizzle = Drizzle {
+            client,
+            _schema: PhantomData,
+        };
+        Ok((drizzle, schema))
+    }
 }
 
 impl<S> AsRef<Drizzle<S>> for Drizzle<S> {

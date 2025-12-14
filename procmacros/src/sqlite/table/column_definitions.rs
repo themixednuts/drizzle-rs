@@ -1,5 +1,6 @@
 use super::context::MacroContext;
 use crate::generators::{generate_impl, generate_sql_column_info};
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
 use crate::sqlite::generators::*;
 use heck::ToUpperCamelCase;
@@ -20,13 +21,14 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
     let marker_const_name = format_ident!("_ATTR_MARKERS_{}", field_name);
     let marker_count = info.marker_exprs.len();
     let markers = &info.marker_exprs;
+    let column_marker = sqlite_paths::column_marker();
 
     quote! {
         /// Hidden const that references the original attribute markers.
         /// This enables IDE hover documentation for `#[column(...)]` attributes.
         #[doc(hidden)]
         #[allow(dead_code, non_upper_case_globals)]
-        const #marker_const_name: [ColumnMarker; #marker_count] = [#(#markers),*];
+        const #marker_const_name: [#column_marker; #marker_count] = [#(#markers),*];
     }
 }
 
@@ -43,6 +45,14 @@ pub(crate) fn generate_column_definitions<'a>(
         ..
     } = *ctx;
 
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sql_schema = core_paths::sql_schema();
+    let sql_column = core_paths::sql_column();
+    let sqlite_column = sqlite_paths::sqlite_column();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+
     for info in field_infos {
         let field_pascal_case = info.ident.to_string().to_upper_camel_case();
         let zst_ident = format_ident!("{}{}", ctx.struct_ident, field_pascal_case);
@@ -58,14 +68,14 @@ pub(crate) fn generate_column_definitions<'a>(
         );
 
         // Only use default_fn for Rust DEFAULT constant, not SQL default literals
-        let default_const = quote! { None };
+        let default_const = quote! { ::std::option::Option::None };
 
         let default_fn_body = info.default_fn.as_ref().map_or_else(
-            || quote! { None::<fn() -> Self::Type> },
-            |func| quote! { Some(#func) },
+            || quote! { ::std::option::Option::None::<fn() -> Self::Type> },
+            |func| quote! { ::std::option::Option::Some(#func) },
         );
 
-        let sql = &info.sql_definition;
+        let sql_def = &info.sql_definition;
 
         let name = &info.column_name;
         let col_type = &info.column_type.to_sql_type();
@@ -82,10 +92,10 @@ pub(crate) fn generate_column_definitions<'a>(
             quote! {
                 #[allow(non_upper_case_globals)]
                 static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
-                Some(&FK_COLUMN)
+                ::std::option::Option::Some(&FK_COLUMN)
             }
         } else {
-            quote! { None }
+            quote! { ::std::option::Option::None }
         };
 
         // Generate individual trait implementations using generators
@@ -106,7 +116,7 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let sqlite_column_info_impl = generate_sqlite_column_info(
             &zst_ident,
-            quote! {<Self as SQLiteColumn<'_>>::AUTOINCREMENT},
+            quote! {<Self as #sqlite_column<'_>>::AUTOINCREMENT},
             quote! {
                 static TABLE: #struct_ident = #struct_ident::new();
                 &TABLE
@@ -116,13 +126,13 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let to_sql_body = quote! {
             static INSTANCE: #zst_ident = #zst_ident;
-            SQL::column(&INSTANCE)
+            #sql::column(&INSTANCE)
         };
 
         let into_sqlite_value_impl = quote! {
-            impl<'a> ::std::convert::Into<SQLiteValue<'a>> for #zst_ident {
-                fn into(self) -> SQLiteValue<'a> {
-                    SQLiteValue::Text(::std::borrow::Cow::Borrowed(#name))
+            impl<'a> ::std::convert::Into<#sqlite_value<'a>> for #zst_ident {
+                fn into(self) -> #sqlite_value<'a> {
+                    #sqlite_value::Text(::std::borrow::Cow::Borrowed(#name))
                 }
             }
         };
@@ -132,24 +142,24 @@ pub(crate) fn generate_column_definitions<'a>(
             &zst_ident,
             quote! {#name},
             quote! {#col_type},
-            quote! {#sql},
+            quote! {#sql_def},
         );
         let sql_column_info_impl = generate_sql_column_info(
             &zst_ident,
             quote! {
-                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::NAME
+                <Self as #sql_schema<'_, &'static str, #sqlite_value<'_>>>::NAME
             },
             quote! {
-                <Self as SQLSchema<'_, &'static str, SQLiteValue<'_>>>::TYPE
+                <Self as #sql_schema<'_, &'static str, #sqlite_value<'_>>>::TYPE
             },
             quote! {
-                <Self as SQLColumn<'_, SQLiteValue<'_>>>::PRIMARY_KEY
+                <Self as #sql_column<'_, #sqlite_value<'_>>>::PRIMARY_KEY
             },
             quote! {
-                <Self as SQLColumn<'_, SQLiteValue<'_>>>::NOT_NULL
+                <Self as #sql_column<'_, #sqlite_value<'_>>>::NOT_NULL
             },
             quote! {
-                <Self as SQLColumn<'_, SQLiteValue<'_>>>::UNIQUE
+                <Self as #sql_column<'_, #sqlite_value<'_>>>::UNIQUE
             },
             quote! {
                 #has_default
@@ -172,7 +182,7 @@ pub(crate) fn generate_column_definitions<'a>(
         let sql_column_impl = generate_sql_column(
             &zst_ident,
             quote! {#struct_ident},
-            quote! {SQLiteSchemaType},
+            quote! {#sqlite_schema_type},
             quote! {#rust_type},
             quote! { #is_primary },
             quote! { #is_not_null || #is_primary },

@@ -101,6 +101,51 @@ impl Drizzle {
         };
         (drizzle, schema)
     }
+
+    /// Creates a new `Drizzle` instance from a `Config` with RusqliteConnection.
+    ///
+    /// This allows you to use the same configuration for both CLI operations
+    /// and runtime database access. The connection is created from the credentials
+    /// in the config.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use drizzle::rusqlite::Drizzle;
+    /// use drizzle::sqlite::prelude::*;
+    ///
+    /// let config = drizzle_migrations::Config::builder()
+    ///     .schema::<AppSchema>()
+    ///     .sqlite()
+    ///     .rusqlite("./dev.db")
+    ///     .out("./drizzle")
+    ///     .build_with_credentials();
+    ///
+    /// let (db, schema) = Drizzle::with_config(config)?;
+    ///
+    /// // Use the database
+    /// let users = db.select(()).from(schema.users).all()?;
+    /// ```
+    pub fn with_config<S: drizzle_migrations::Schema>(
+        config: drizzle_migrations::Config<
+            S,
+            drizzle_migrations::SqliteDialect,
+            drizzle_migrations::RusqliteConnection,
+            drizzle_migrations::SqliteCredentials,
+        >,
+    ) -> Result<(Drizzle<S>, S), rusqlite::Error> {
+        let path = &config.credentials.path;
+        let conn = Connection::open(path)?;
+        let schema = config.schema;
+
+        let drizzle = Drizzle {
+            conn,
+            _schema: PhantomData,
+        };
+        Ok((drizzle, schema))
+    }
 }
 
 impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
@@ -313,64 +358,6 @@ where
             self.conn.execute_batch(&batch_sql)?;
         }
         Ok(())
-    }
-}
-
-impl<Schema> Drizzle<Schema> {
-    /// Run embedded migrations.
-    ///
-    /// This method applies compile-time embedded migrations to the database.
-    /// Migrations are embedded using the `include_migrations!` macro.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use drizzle::prelude::*;
-    /// use drizzle::rusqlite::Drizzle;
-    ///
-    /// // Embed migrations at compile time
-    /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
-    ///
-    /// let conn = rusqlite::Connection::open("my.db").unwrap();
-    /// let (db, _) = Drizzle::new(conn, ());
-    ///
-    /// // Apply embedded migrations
-    /// let applied = db.migrate(&MIGRATIONS).unwrap();
-    /// println!("Applied {} migrations", applied);
-    /// ```
-    pub fn migrate(
-        &self,
-        migrations: &drizzle_migrations::EmbeddedMigrations,
-    ) -> drizzle_core::error::Result<usize> {
-        if migrations.is_empty() {
-            return Ok(0);
-        }
-
-        // Create migrations table
-        self.conn.execute(migrations.create_table_sql(), [])?;
-
-        // Get applied migrations
-        let mut stmt = self.conn.prepare(migrations.query_applied_sql())?;
-        let applied: Vec<String> = stmt
-            .query_map([], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-
-        // Get pending migrations
-        let pending = migrations.pending(&applied);
-        let count = pending.len();
-
-        for migration in pending {
-            // Execute each statement
-            for stmt in migration.statements() {
-                self.conn.execute(stmt, [])?;
-            }
-
-            // Record as applied
-            self.conn
-                .execute(migrations.record_migration_sql(), [migration.tag])?;
-        }
-
-        Ok(count)
     }
 }
 

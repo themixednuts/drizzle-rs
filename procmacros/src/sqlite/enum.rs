@@ -1,3 +1,4 @@
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DataEnum, Expr, ExprLit, ExprUnary, Ident, Lit, UnOp, spanned::Spanned};
@@ -41,6 +42,10 @@ fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
 }
 // Generate implementation for text-based enum representation
 pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
+    // Get paths for fully-qualified types
+    let drizzle_error = core_paths::drizzle_error();
+    let from_sqlite_value = sqlite_paths::from_sqlite_value();
+
     let display_variants = data.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         let variant_str = variant_name.to_string();
@@ -85,18 +90,6 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         })
         .collect();
-
-    // let to_str_variants: Vec<_> = data
-    //     .variants
-    //     .iter()
-    //     .map(|variant| {
-    //         let ident = &variant.ident;
-
-    //         quote! {
-    //             #name::#ident => SQLiteValue::from(#ident).into()
-    //         }
-    //     })
-    //     .collect();
 
     let to_integer_variants = data
         .variants
@@ -157,7 +150,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
 
     let base_impls = quote! {
 
-        impl From<#name> for i64 {
+        impl ::std::convert::From<#name> for i64 {
             fn from(value: #name) -> Self {
                 match value {
                     #(#to_integer_variants,)*
@@ -165,7 +158,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
-        impl From<&#name> for i64 {
+        impl ::std::convert::From<&#name> for i64 {
             fn from(value: &#name) -> Self {
                 match value {
                     #(#to_integer_ref_variants,)*
@@ -173,41 +166,41 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
-        impl TryFrom<i64> for #name {
-            type Error = DrizzleError;
+        impl ::std::convert::TryFrom<i64> for #name {
+            type Error = #drizzle_error;
 
-            fn try_from(value: i64) -> std::result::Result<Self, Self::Error> {
-                Ok(match value {
+            fn try_from(value: i64) -> ::std::result::Result<Self, Self::Error> {
+                ::std::result::Result::Ok(match value {
                     #(#from_integer_variants,)*
-                    _ => return Err(DrizzleError::Mapping(format!("{value}").into())),
+                    _ => return ::std::result::Result::Err(#drizzle_error::Mapping(::std::format!("{value}").into())),
                 })
             }
         }
 
-        impl TryFrom<&i64> for #name {
-            type Error = DrizzleError;
+        impl ::std::convert::TryFrom<&i64> for #name {
+            type Error = #drizzle_error;
 
-            fn try_from(value: &i64) -> std::result::Result<Self, Self::Error> {
+            fn try_from(value: &i64) -> ::std::result::Result<Self, Self::Error> {
                 let value = *value;
-                Ok(match value {
+                ::std::result::Result::Ok(match value {
                     #(#from_integer_variants,)*
-                    _ => return Err(DrizzleError::Mapping(format!("{value}").into())),
+                    _ => return ::std::result::Result::Err(#drizzle_error::Mapping(::std::format!("{value}").into())),
                 })
             }
         }
 
         // Generic Option implementation - works for any T that can convert to the enum
-        impl<T> TryFrom<Option<T>> for #name
+        impl<T> ::std::convert::TryFrom<::std::option::Option<T>> for #name
         where
-            T: TryInto<#name>,
-            T::Error: Into<DrizzleError>,
+            T: ::std::convert::TryInto<#name>,
+            T::Error: ::std::convert::Into<#drizzle_error>,
         {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
-            fn try_from(value: Option<T>) -> std::result::Result<Self, Self::Error> {
+            fn try_from(value: ::std::option::Option<T>) -> ::std::result::Result<Self, Self::Error> {
                 match value {
-                    Some(inner) => inner.try_into().map_err(Into::into),
-                    None => Err(DrizzleError::Mapping("Cannot convert None to enum".into())),
+                    ::std::option::Option::Some(inner) => inner.try_into().map_err(::std::convert::Into::into),
+                    ::std::option::Option::None => ::std::result::Result::Err(#drizzle_error::Mapping("Cannot convert None to enum".into())),
                 }
             }
         }
@@ -216,15 +209,15 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         impl_try_from_int!(#name => isize, usize, i32, u32, i16, u16, i8, u8);
 
         // Implement Display for the enum
-        impl std::fmt::Display for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl ::std::fmt::Display for #name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 match self {
                     #(#display_variants)*
                 }
             }
         }
 
-        impl From<#name> for &str {
+        impl ::std::convert::From<#name> for &str {
             fn from(value: #name) -> Self {
                 match value {
                     #(#to_str_variants,)*
@@ -232,7 +225,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
-        impl From<&#name> for &str {
+        impl ::std::convert::From<&#name> for &str {
             fn from(value: &#name) -> Self {
                 match value {
                     #(#to_str_ref_variants,)*
@@ -240,7 +233,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
-        impl AsRef<str> for #name {
+        impl ::std::convert::AsRef<str> for #name {
             fn as_ref(&self) -> &str {
                 match self {
                     #(#to_str_variants,)*
@@ -248,42 +241,42 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
 
-        impl TryFrom<&str> for #name {
-            type Error = DrizzleError;
+        impl ::std::convert::TryFrom<&str> for #name {
+            type Error = #drizzle_error;
 
-            fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
-                Ok(match value {
+            fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+                ::std::result::Result::Ok(match value {
                     #(#from_str_variants)*
-                    _ => return Err(DrizzleError::Mapping(format!("{value}").into())),
+                    _ => return ::std::result::Result::Err(#drizzle_error::Mapping(::std::format!("{value}").into())),
                 })
             }
         }
 
-        impl TryFrom<&String> for #name {
-            type Error = DrizzleError;
+        impl ::std::convert::TryFrom<&::std::string::String> for #name {
+            type Error = #drizzle_error;
 
-            fn try_from(value: &String) -> std::result::Result<Self, Self::Error> {
-                <#name as std::str::FromStr>::from_str(value)
+            fn try_from(value: &::std::string::String) -> ::std::result::Result<Self, Self::Error> {
+                <#name as ::std::str::FromStr>::from_str(value)
             }
         }
 
-        impl TryFrom<String> for #name {
-            type Error = DrizzleError;
+        impl ::std::convert::TryFrom<::std::string::String> for #name {
+            type Error = #drizzle_error;
 
-            fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-                <#name as std::str::FromStr>::from_str(&value)
+            fn try_from(value: ::std::string::String) -> ::std::result::Result<Self, Self::Error> {
+                <#name as ::std::str::FromStr>::from_str(&value)
             }
         }
 
 
         // Implement FromStr for the enum with String as the error type
-        impl std::str::FromStr for #name {
-            type Err = DrizzleError;
+        impl ::std::str::FromStr for #name {
+            type Err = #drizzle_error;
 
-            fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-                Ok(match s {
+            fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
+                ::std::result::Result::Ok(match s {
                     #(#from_str_variants)*
-                    _ => return Err(DrizzleError::Mapping(format!("{s}").into())),
+                    _ => return ::std::result::Result::Err(#drizzle_error::Mapping(::std::format!("{s}").into())),
                 })
             }
         }
@@ -305,7 +298,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                             .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
                         Self::try_from(s_str).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
                     },
-                    _ => Err(::rusqlite::types::FromSqlError::InvalidType),
+                    _ => ::std::result::Result::Err(::rusqlite::types::FromSqlError::InvalidType),
                 }
             }
         }
@@ -314,7 +307,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         impl ::rusqlite::types::ToSql for #name {
             fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
                 let val: &str = self.into();
-                Ok(::rusqlite::types::ToSqlOutput::Borrowed(
+                ::std::result::Result::Ok(::rusqlite::types::ToSqlOutput::Borrowed(
                     ::rusqlite::types::ValueRef::Text(val.as_bytes())
                 ))
             }
@@ -328,24 +321,24 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     // This trait provides a unified interface for value conversion
     #[cfg(any(feature = "libsql", feature = "turso"))]
     let from_sqlite_value_impl = quote! {
-        impl FromSQLiteValue for #name {
-            fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, DrizzleError> {
-                Self::try_from(value).map_err(Into::into)
+        impl #from_sqlite_value for #name {
+            fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, #drizzle_error> {
+                Self::try_from(value).map_err(::std::convert::Into::into)
             }
 
-            fn from_sqlite_text(value: &str) -> ::std::result::Result<Self, DrizzleError> {
-                Self::try_from(value).map_err(Into::into)
+            fn from_sqlite_text(value: &str) -> ::std::result::Result<Self, #drizzle_error> {
+                Self::try_from(value).map_err(::std::convert::Into::into)
             }
 
-            fn from_sqlite_real(_value: f64) -> ::std::result::Result<Self, DrizzleError> {
-                Err(DrizzleError::ConversionError(
-                    format!("cannot convert REAL to {}", stringify!(#name)).into()
+            fn from_sqlite_real(_value: f64) -> ::std::result::Result<Self, #drizzle_error> {
+                ::std::result::Result::Err(#drizzle_error::ConversionError(
+                    ::std::format!("cannot convert REAL to {}", stringify!(#name)).into()
                 ))
             }
 
-            fn from_sqlite_blob(_value: &[u8]) -> ::std::result::Result<Self, DrizzleError> {
-                Err(DrizzleError::ConversionError(
-                    format!("cannot convert BLOB to {}", stringify!(#name)).into()
+            fn from_sqlite_blob(_value: &[u8]) -> ::std::result::Result<Self, #drizzle_error> {
+                ::std::result::Result::Err(#drizzle_error::ConversionError(
+                    ::std::format!("cannot convert BLOB to {}", stringify!(#name)).into()
                 ))
             }
         }

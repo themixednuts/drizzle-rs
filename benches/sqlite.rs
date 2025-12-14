@@ -10,17 +10,17 @@ static ALLOC: AllocProfiler = AllocProfiler::system();
 // Schema Definitions
 // ============================================================================
 
-#[SQLiteTable(NAME = "users")]
+#[SQLiteTable(name = "users")]
 struct User {
-    #[column(PRIMARY)]
+    #[column(primary)]
     id: i32,
     name: String,
     email: String,
 }
 
-#[SQLiteTable(NAME = "posts")]
+#[SQLiteTable(name = "posts")]
 struct Post {
-    #[column(PRIMARY)]
+    #[column(primary)]
     id: i32,
     title: String,
     content: String,

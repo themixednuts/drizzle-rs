@@ -1,11 +1,21 @@
+//! Code generation helper functions for SQLite table macros.
+//!
+//! These functions provide reusable trait implementation generators using
+//! fully-qualified paths from the paths module.
+
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
 /// Generate SQLite ToSQL trait implementation
 pub fn generate_to_sql(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+    let to_sql = core_paths::to_sql();
+    let sql = core_paths::sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+
     quote! {
-        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+        impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident {
+            fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
                 #body
             }
         }
@@ -25,8 +35,11 @@ pub fn generate_sql_column(
     default: TokenStream,
     default_fn: TokenStream,
 ) -> TokenStream {
+    let sql_column = core_paths::sql_column();
+    let sqlite_value = sqlite_paths::sqlite_value();
+
     quote! {
-        impl<'a> SQLColumn<'a, SQLiteValue<'a>> for #struct_ident {
+        impl<'a> #sql_column<'a, #sqlite_value<'a>> for #struct_ident {
             type Table = #table;
             type TableType = #table_type;
             type Type = #r#type;
@@ -34,9 +47,9 @@ pub fn generate_sql_column(
             const PRIMARY_KEY: bool = #primary_key;
             const NOT_NULL: bool = #not_null;
             const UNIQUE: bool = #unique;
-            const DEFAULT: Option<Self::Type> = #default;
+            const DEFAULT: ::std::option::Option<Self::Type> = #default;
 
-            fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
+            fn default_fn(&'a self) -> ::std::option::Option<impl Fn() -> Self::Type> {
                 #default_fn
             }
         }
@@ -49,17 +62,20 @@ pub fn generate_sqlite_column_info(
     table: TokenStream,
     foreign_key: TokenStream,
 ) -> TokenStream {
+    let sqlite_column_info = sqlite_paths::sqlite_column_info();
+    let sqlite_table_info = sqlite_paths::sqlite_table_info();
+
     quote! {
-        impl SQLiteColumnInfo for #ident {
+        impl #sqlite_column_info for #ident {
             fn is_autoincrement(&self) -> bool {
                 #is_autoincrement
             }
 
-            fn table(&self) -> &dyn SQLiteTableInfo {
+            fn table(&self) -> &dyn #sqlite_table_info {
                 #table
             }
 
-            fn foreign_key(&self) -> Option<&'static dyn SQLiteColumnInfo> {
+            fn foreign_key(&self) -> ::std::option::Option<&'static dyn #sqlite_column_info> {
                 #foreign_key
             }
         }
@@ -68,8 +84,10 @@ pub fn generate_sqlite_column_info(
 
 /// Generate SQLite SQLiteColumn trait implementation
 pub fn generate_sqlite_column(struct_ident: &Ident, is_autoincrement: TokenStream) -> TokenStream {
+    let sqlite_column = sqlite_paths::sqlite_column();
+
     quote! {
-        impl<'a> SQLiteColumn<'a> for #struct_ident {
+        impl<'a> #sqlite_column<'a> for #struct_ident {
             const AUTOINCREMENT: bool = #is_autoincrement;
         }
     }
@@ -83,9 +101,13 @@ pub fn generate_sqlite_table_info(
     without_rowid: TokenStream,
     columns: TokenStream,
 ) -> TokenStream {
+    let sqlite_table_info = sqlite_paths::sqlite_table_info();
+    let sqlite_column_info = sqlite_paths::sqlite_column_info();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+
     quote! {
-        impl SQLiteTableInfo for #struct_ident {
-            fn r#type(&self) -> &SQLiteSchemaType {
+        impl #sqlite_table_info for #struct_ident {
+            fn r#type(&self) -> &#sqlite_schema_type {
                 #r#type
             }
 
@@ -95,15 +117,15 @@ pub fn generate_sqlite_table_info(
             fn without_rowid(&self) -> bool {
                 #without_rowid
             }
-            fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo] {
+            fn sqlite_columns(&self) -> &'static [&'static dyn #sqlite_column_info] {
                 #columns
             }
 
-            fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-                SQLiteTableInfo::sqlite_columns(self)
+            fn sqlite_dependencies(&self) -> ::std::boxed::Box<[&'static dyn #sqlite_table_info]> {
+                #sqlite_table_info::sqlite_columns(self)
                     .iter()
-                    .filter_map(|col| SQLiteColumnInfo::foreign_key(*col))
-                    .map(|fk_col| SQLiteColumnInfo::table(fk_col))
+                    .filter_map(|col| #sqlite_column_info::foreign_key(*col))
+                    .map(|fk_col| #sqlite_column_info::table(fk_col))
                     .collect()
             }
         }
@@ -116,8 +138,10 @@ pub fn generate_sqlite_table(
     without_rowid: TokenStream,
     strict: TokenStream,
 ) -> TokenStream {
+    let sqlite_table = sqlite_paths::sqlite_table();
+
     quote! {
-        impl<'a> SQLiteTable<'a> for #struct_ident {
+        impl<'a> #sqlite_table<'a> for #struct_ident {
             const WITHOUT_ROWID: bool = #without_rowid;
             const STRICT: bool = #strict;
         }
@@ -132,8 +156,12 @@ pub fn generate_sql_table(
     update: TokenStream,
     aliased: TokenStream,
 ) -> TokenStream {
+    let sql_table = core_paths::sql_table();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+    let sqlite_value = sqlite_paths::sqlite_value();
+
     quote! {
-        impl<'a> SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>> for #struct_ident {
+        impl<'a> #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident {
             type Select = #select;
             type Insert<T> = #insert;
             type Update = #update;
@@ -154,19 +182,24 @@ pub fn generate_sql_schema(
     const_sql: TokenStream,
     runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
+    let sql_schema = core_paths::sql_schema();
+    let sql = core_paths::sql();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+    let sqlite_value = sqlite_paths::sqlite_value();
+
     let fn_method = runtime_sql
         .map(|v| {
             quote! {
-                fn sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+                fn sql(&self) -> #sql<'a, #sqlite_value<'a>> {
                     #v
                 }
             }
         })
         .unwrap_or_else(|| quote! {});
     quote! {
-        impl<'a> SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>> for #struct_ident {
+        impl<'a> #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident {
             const NAME: &'a str = #name;
-            const TYPE: SQLiteSchemaType = #r#type;
+            const TYPE: #sqlite_schema_type = #r#type;
             const SQL: &'static str = #const_sql;
             #fn_method
         }
@@ -180,14 +213,18 @@ pub fn generate_sql_schema_field(
     r#type: TokenStream,
     sql: TokenStream,
 ) -> TokenStream {
+    let sql_schema = core_paths::sql_schema();
+    let sql_type = core_paths::sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+
     quote! {
-        impl<'a> SQLSchema<'a, &'a str, SQLiteValue<'a>> for #struct_ident {
+        impl<'a> #sql_schema<'a, &'a str, #sqlite_value<'a>> for #struct_ident {
             const NAME: &'a str = #name;
             const TYPE: &'a str = #r#type;
             const SQL: &'static str = "";
 
-            fn sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                SQL::raw(#sql)
+            fn sql(&self) -> #sql_type<'a, #sqlite_value<'a>> {
+                #sql_type::raw(#sql)
             }
         }
     }

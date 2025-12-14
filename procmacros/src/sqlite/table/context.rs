@@ -5,6 +5,7 @@
 //! single source of truth for field analysis decisions.
 
 use super::attributes::TableAttributes;
+use crate::paths::sqlite as sqlite_paths;
 use crate::sqlite::field::{FieldInfo, SQLiteType, TypeCategory};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
@@ -82,6 +83,8 @@ impl<'a> MacroContext<'a> {
         model_type: ModelType,
     ) -> TokenStream {
         let base_type = field.base_type;
+        let sqlite_value = sqlite_paths::sqlite_value();
+        let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
 
         match model_type {
             ModelType::Select => {
@@ -92,10 +95,10 @@ impl<'a> MacroContext<'a> {
             ModelType::Insert => {
                 // Use TypeCategory to determine the insert value type
                 let insert_value_inner = field.insert_value_inner_type();
-                quote!(SQLiteInsertValue<'a, SQLiteValue<'a>, #insert_value_inner>)
+                quote!(#sqlite_insert_value<'a, #sqlite_value<'a>, #insert_value_inner>)
             }
             ModelType::Update | ModelType::PartialSelect => {
-                quote!(Option<#base_type>)
+                quote!(::std::option::Option<#base_type>)
             }
         }
     }
@@ -103,6 +106,7 @@ impl<'a> MacroContext<'a> {
     /// Gets the default value expression for insert model
     pub(crate) fn get_insert_default_value(&self, field: &FieldInfo) -> TokenStream {
         let name = field.ident;
+        let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
 
         // Handle runtime function defaults (default_fn)
         if let Some(f) = &field.default_fn {
@@ -115,7 +119,7 @@ impl<'a> MacroContext<'a> {
         }
 
         // Default to Omit so database can handle defaults
-        quote! { #name: SQLiteInsertValue::Omit }
+        quote! { #name: #sqlite_insert_value::Omit }
     }
 
     // =========================================================================
@@ -129,23 +133,24 @@ impl<'a> MacroContext<'a> {
         let name = field.ident;
         let column_name = &field.column_name;
         let category = field.type_category();
+        let sqlite_value = sqlite_paths::sqlite_value();
 
         // Handle UUID fields with type-aware conversion
         if matches!(category, TypeCategory::Uuid) {
             let uuid_conversion = match field.column_type {
                 SQLiteType::Text => {
-                    quote! { SQLiteValue::Text(::std::borrow::Cow::Owned(val.to_string())) }
+                    quote! { #sqlite_value::Text(::std::borrow::Cow::Owned(val.to_string())) }
                 }
                 SQLiteType::Blob => {
-                    quote! { SQLiteValue::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
+                    quote! { #sqlite_value::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
                 }
                 _ => {
-                    quote! { val.clone().try_into().unwrap_or(SQLiteValue::Null) }
+                    quote! { val.clone().try_into().unwrap_or(#sqlite_value::Null) }
                 }
             };
 
             return quote! {
-                if let Some(val) = &self.#name {
+                if let ::std::option::Option::Some(val) = &self.#name {
                     assignments.push((#column_name, #uuid_conversion));
                 }
             };
@@ -155,11 +160,11 @@ impl<'a> MacroContext<'a> {
         let conversion = if matches!(category, TypeCategory::Enum) {
             quote! { val.clone().into() }
         } else {
-            quote! { val.clone().try_into().unwrap_or(SQLiteValue::Null) }
+            quote! { val.clone().try_into().unwrap_or(#sqlite_value::Null) }
         };
 
         quote! {
-            if let Some(val) = &self.#name {
+            if let ::std::option::Option::Some(val) = &self.#name {
                 assignments.push((#column_name, #conversion));
             }
         }

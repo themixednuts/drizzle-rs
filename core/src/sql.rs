@@ -6,7 +6,7 @@ mod tokens;
 use crate::ToSQL;
 use crate::prelude::*;
 use crate::{
-    Param, ParamBind, Placeholder,
+    DialectExt, Param, ParamBind, Placeholder,
     traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
 };
 pub use chunk::*;
@@ -236,8 +236,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write SQL to a buffer with dialect-appropriate placeholders
-    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL
+    /// Uses `$1, $2, ...` for PostgreSQL, `?` or `:name` for SQLite, `?` for MySQL
+    /// Named placeholders use `:name` syntax only for SQLite; PostgreSQL always uses `$N`
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
+        use crate::Dialect;
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
@@ -245,8 +247,17 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                     chunk.write(buf);
                     self.write_select_columns(buf, i);
                 }
-                SQLChunk::Param(_) => {
-                    let _ = buf.write_str(&V::DIALECT.render_placeholder(param_index));
+                SQLChunk::Param(param) => {
+                    // Named placeholders use :name syntax only for SQLite
+                    // PostgreSQL always uses $N, MySQL always uses ?
+                    if let Some(name) = param.placeholder.name
+                        && V::DIALECT == Dialect::SQLite
+                    {
+                        let _ = buf.write_char(':');
+                        let _ = buf.write_str(name);
+                    } else {
+                        let _ = buf.write_str(&V::DIALECT.render_placeholder(param_index));
+                    }
                     param_index += 1;
                 }
                 _ => chunk.write(buf),

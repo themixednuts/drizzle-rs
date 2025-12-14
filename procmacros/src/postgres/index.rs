@@ -1,3 +1,4 @@
+use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, parse::Parse};
@@ -115,6 +116,16 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
 
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sql_schema = core_paths::sql_schema();
+    let sql_index = core_paths::sql_index();
+    let sql_index_info = core_paths::sql_index_info();
+    let sql_table_info = core_paths::sql_table_info();
+    let to_sql = core_paths::to_sql();
+    let postgres_value = postgres_paths::postgres_value();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+
     // Extract columns from tuple struct fields: struct UserEmailIdx(User::email);
     let columns = match &input.data {
         syn::Data::Struct(data_struct) => {
@@ -202,12 +213,12 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             }
         }
 
-        impl<'a> SQLIndex<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
+        impl<'a> #sql_index<'a, #postgres_schema_type, #postgres_value<'a>> for #struct_ident {
             type Table = #table_type;
         }
 
-        impl SQLIndexInfo for #struct_ident {
-            fn table(&self) -> &dyn SQLTableInfo {
+        impl #sql_index_info for #struct_ident {
+            fn table(&self) -> &dyn #sql_table_info {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #table_type = #table_type::new();
                 &TABLE_INSTANCE
@@ -222,23 +233,23 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             }
         }
 
-        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
+        impl<'a> #sql_schema<'a, #postgres_schema_type, #postgres_value<'a>> for #struct_ident {
             const NAME: &'a str = #index_name;
-            const TYPE: PostgresSchemaType = {
+            const TYPE: #postgres_schema_type = {
                 #[allow(non_upper_case_globals)]
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
-                PostgresSchemaType::Index(&INDEX_INSTANCE)
+                #postgres_schema_type::Index(&INDEX_INSTANCE)
             };
             const SQL: &'static str = "";
 
-            fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                self.to_sql()
+            fn sql(&self) -> #sql<'a, #postgres_value<'a>> {
+                #to_sql::to_sql(self)
             }
         }
 
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                SQL::raw(#create_index_sql)
+        impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_ident {
+            fn to_sql(&self) -> #sql<'a, #postgres_value<'a>> {
+                #sql::raw(#create_index_sql)
             }
         }
     };

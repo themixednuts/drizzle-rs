@@ -359,69 +359,6 @@ where
     }
 }
 
-impl<Schema> Drizzle<Schema> {
-    /// Run embedded migrations.
-    ///
-    /// This method applies compile-time embedded migrations to the database.
-    /// Migrations are embedded using the `include_migrations!` macro.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use drizzle::prelude::*;
-    /// use drizzle::turso::Drizzle;
-    ///
-    /// // Embed migrations at compile time
-    /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
-    ///
-    /// async fn run() -> Result<()> {
-    ///     let conn = turso::Connection::open(":memory:")?;
-    ///     let (db, _) = Drizzle::new(conn, ());
-    ///
-    ///     // Apply embedded migrations
-    ///     let applied = db.migrate(&MIGRATIONS).await?;
-    ///     println!("Applied {} migrations", applied);
-    ///     Ok(())
-    /// }
-    /// ```
-    pub async fn migrate(
-        &self,
-        migrations: &drizzle_migrations::EmbeddedMigrations,
-    ) -> drizzle_core::error::Result<usize> {
-        if migrations.is_empty() {
-            return Ok(0);
-        }
-
-        // Create migrations table
-        self.conn.execute(migrations.create_table_sql(), ()).await?;
-
-        // Get applied migrations
-        let mut rows = self.conn.query(migrations.query_applied_sql(), ()).await?;
-        let mut applied: Vec<String> = Vec::new();
-        while let Some(row) = rows.next().await? {
-            applied.push(row.get::<String>(0)?);
-        }
-
-        // Get pending migrations
-        let pending = migrations.pending(&applied);
-        let count = pending.len();
-
-        for migration in pending {
-            // Execute each statement
-            for stmt in migration.statements() {
-                self.conn.execute(stmt, ()).await?;
-            }
-
-            // Record as applied
-            self.conn
-                .execute(migrations.record_migration_sql(), [migration.tag])
-                .await?;
-        }
-
-        Ok(count)
-    }
-}
-
 // CTE (WITH) Builder Implementation for Turso
 impl<'a, Schema>
     DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>

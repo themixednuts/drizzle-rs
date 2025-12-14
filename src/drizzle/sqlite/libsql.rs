@@ -109,6 +109,60 @@ impl Drizzle {
         };
         (drizzle, schema)
     }
+
+    /// Creates a new `Drizzle` instance from a `Config` with LibsqlConnection.
+    ///
+    /// This allows you to use the same configuration for both CLI operations
+    /// and runtime database access. The connection is created from the credentials
+    /// in the config.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use drizzle::libsql::Drizzle;
+    /// use drizzle::sqlite::prelude::*;
+    ///
+    /// // Local database
+    /// let config = drizzle_migrations::Config::builder()
+    ///     .schema::<AppSchema>()
+    ///     .sqlite()
+    ///     .libsql_local("./dev.db")
+    ///     .out("./drizzle")
+    ///     .build_with_credentials();
+    ///
+    /// let (db, schema) = Drizzle::with_config(config).await?;
+    /// ```
+    pub async fn with_config<S: drizzle_migrations::Schema>(
+        config: drizzle_migrations::Config<
+            S,
+            drizzle_migrations::SqliteDialect,
+            drizzle_migrations::LibsqlConnection,
+            drizzle_migrations::LibsqlCredentials,
+        >,
+    ) -> Result<(Drizzle<S>, S), libsql::Error> {
+        let creds = &config.credentials;
+
+        let db = if let (Some(sync_url), Some(auth_token)) = (&creds.sync_url, &creds.auth_token) {
+            // Embedded replica with sync
+            libsql::Builder::new_remote_replica(&creds.path, sync_url.clone(), auth_token.clone())
+                .build()
+                .await?
+        } else {
+            // Local only
+            libsql::Builder::new_local(&creds.path).build().await?
+        };
+
+        let conn = db.connect()?;
+        let schema = config.schema;
+
+        let drizzle = Drizzle {
+            conn,
+            _schema: PhantomData,
+        };
+        Ok((drizzle, schema))
+    }
 }
 
 impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
@@ -342,71 +396,6 @@ where
             self.conn.execute_batch(&batch_sql).await?;
         }
         Ok(())
-    }
-}
-
-impl<Schema> Drizzle<Schema> {
-    /// Run embedded migrations.
-    ///
-    /// This method applies compile-time embedded migrations to the database.
-    /// Migrations are embedded using the `include_migrations!` macro.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use drizzle::sqlite::prelude::*;
-    /// use drizzle::libsql::Drizzle;
-    /// use drizzle::{include_migrations, EmbeddedMigrations};
-    ///
-    /// // Embed migrations at compile time
-    /// const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
-    ///
-    /// async fn run() -> Result<()> {
-    ///     let db_builder = libsql::Builder::new_local(":memory:").build().await?;
-    ///     let conn = db_builder.connect()?;
-    ///     let (db, _) = Drizzle::new(conn, ());
-    ///
-    ///     // Apply embedded migrations
-    ///     let applied = db.migrate(&MIGRATIONS).await?;
-    ///     println!("Applied {} migrations", applied);
-    ///     Ok(())
-    /// }
-    /// ```
-    pub async fn migrate(
-        &self,
-        migrations: &drizzle_migrations::EmbeddedMigrations,
-    ) -> drizzle_core::error::Result<usize> {
-        if migrations.is_empty() {
-            return Ok(0);
-        }
-
-        // Create migrations table
-        self.conn.execute(migrations.create_table_sql(), ()).await?;
-
-        // Get applied migrations
-        let mut rows = self.conn.query(migrations.query_applied_sql(), ()).await?;
-        let mut applied: Vec<String> = Vec::new();
-        while let Some(row) = rows.next().await? {
-            applied.push(row.get::<String>(0)?);
-        }
-
-        // Get pending migrations
-        let pending = migrations.pending(&applied);
-        let count = pending.len();
-
-        for migration in pending {
-            // Execute each statement
-            for stmt in migration.statements() {
-                self.conn.execute(stmt, ()).await?;
-            }
-
-            // Record as applied
-            self.conn
-                .execute(migrations.record_migration_sql(), [migration.tag])
-                .await?;
-        }
-
-        Ok(count)
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::paths::core as core_paths;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
@@ -51,8 +52,17 @@ fn extract_struct_fields(
 /// Generate SQLite-specific FromRow implementation (rusqlite, libsql, turso)
 #[cfg(feature = "sqlite")]
 pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+    use crate::paths::sqlite as sqlite_paths;
+
     let struct_name = &input.ident;
     let (fields, is_tuple) = extract_struct_fields(&input)?;
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+    let token = core_paths::token();
+    let drizzle_error = core_paths::drizzle_error();
+    let sqlite_value = sqlite_paths::sqlite_value();
 
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
 
@@ -82,7 +92,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
                     type Error = ::rusqlite::Error;
 
                     fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self(
+                        ::std::result::Result::Ok(Self(
                             #(#field_assignments)*
                         ))
                     }
@@ -94,7 +104,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
                     type Error = ::rusqlite::Error;
 
                     fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self {
+                        ::std::result::Result::Ok(Self {
                             #(#field_assignments)*
                         })
                     }
@@ -127,10 +137,10 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         let turso_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = DrizzleError;
+                    type Error = #drizzle_error;
 
                     fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self(
+                        ::std::result::Result::Ok(Self(
                             #(#field_assignments)*
                         ))
                     }
@@ -139,10 +149,10 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         } else {
             quote! {
                 impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = DrizzleError;
+                    type Error = #drizzle_error;
 
                     fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self {
+                        ::std::result::Result::Ok(Self {
                             #(#field_assignments)*
                         })
                     }
@@ -175,10 +185,10 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         let libsql_impl = if is_tuple {
             quote! {
                 impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = DrizzleError;
+                    type Error = #drizzle_error;
 
                     fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self(
+                        ::std::result::Result::Ok(Self(
                             #(#field_assignments)*
                         ))
                     }
@@ -187,10 +197,10 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         } else {
             quote! {
                 impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = DrizzleError;
+                    type Error = #drizzle_error;
 
                     fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
-                        Ok(Self {
+                        ::std::result::Result::Ok(Self {
                             #(#field_assignments)*
                         })
                     }
@@ -212,22 +222,22 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 
                 if let Some(column_ref) = parse_column_reference(field) {
                     quote! {
-                        columns.push(#column_ref.to_sql().alias(#field_name_str));
+                        columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
                     }
                 } else {
                     quote! {
-                        columns.push(SQL::raw(#field_name_str));
+                        columns.push(#sql::raw(#field_name_str));
                     }
                 }
             })
             .collect::<Vec<_>>();
 
         quote! {
-            impl<'a> ToSQL<'a, SQLiteValue<'a>> for #struct_name {
-                fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                    let mut columns = Vec::new();
+            impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_name {
+                fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+                    let mut columns = ::std::vec::Vec::new();
                     #(#column_specs)*
-                    SQL::join(columns, Token::COMMA)
+                    #sql::join(columns, #token::COMMA)
                 }
             }
         }
@@ -242,8 +252,17 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 /// Generate PostgreSQL-specific FromRow implementation (postgres-sync, tokio-postgres)
 #[cfg(feature = "postgres")]
 pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+    use crate::paths::postgres as postgres_paths;
+
     let struct_name = &input.ident;
     let (fields, is_tuple) = extract_struct_fields(&input)?;
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+    let token = core_paths::token();
+    let drizzle_error = core_paths::drizzle_error();
+    let postgres_value = postgres_paths::postgres_value();
 
     let field_assignments = if is_tuple {
         fields
@@ -264,13 +283,13 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
 
     let struct_construct = if is_tuple {
         quote! {
-            Ok(Self(
+            ::std::result::Result::Ok(Self(
                 #(#field_assignments)*
             ))
         }
     } else {
         quote! {
-            Ok(Self {
+            ::std::result::Result::Ok(Self {
                 #(#field_assignments)*
             })
         }
@@ -288,22 +307,22 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
 
                 if let Some(column_ref) = parse_column_reference(field) {
                     quote! {
-                        columns.push(#column_ref.to_sql().alias(#field_name_str));
+                        columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
                     }
                 } else {
                     quote! {
-                        columns.push(SQL::raw(#field_name_str));
+                        columns.push(#sql::raw(#field_name_str));
                     }
                 }
             })
             .collect::<Vec<_>>();
 
         quote! {
-            impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_name {
-                fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                    let mut columns = Vec::new();
+            impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_name {
+                fn to_sql(&self) -> #sql<'a, #postgres_value<'a>> {
+                    let mut columns = ::std::vec::Vec::new();
                     #(#column_specs)*
-                    SQL::join(columns, Token::COMMA)
+                    #sql::join(columns, #token::COMMA)
                 }
             }
         }
@@ -316,7 +335,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         // This covers both "tokio-postgres only" and "both features enabled" cases
         #[cfg(feature = "tokio-postgres")]
         impl ::std::convert::TryFrom<&::tokio_postgres::Row> for #struct_name {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::tokio_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 #struct_construct
@@ -326,7 +345,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         // When only postgres-sync is enabled (without tokio-postgres), use postgres::Row
         #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 #struct_construct

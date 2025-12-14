@@ -3,6 +3,7 @@
 //! Generates `with_*` methods for Insert, Update, and PartialSelect models.
 
 use super::super::context::{MacroContext, ModelType};
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::{FieldInfo, SQLiteType, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
@@ -44,6 +45,13 @@ fn generate_insert_convenience_method(
     let base_type = field.base_type;
     let method_name = format_ident!("with_{}", field_name);
     let insert_model = &ctx.insert_model_ident;
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
+    let value_wrapper = sqlite_paths::value_wrapper();
+    let expression = sqlite_paths::expression();
 
     // Create generic parameters: field names as markers (UserName, UserEmail)
     let generic_params: Vec<_> = ctx
@@ -105,7 +113,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #insert_value_type>>
+                        V: ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #insert_value_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -121,7 +129,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>>
+                        V: ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -136,7 +144,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<SQLiteInsertValue<'a, SQLiteValue<'a>, ::std::string::String>>
+                        V: ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, ::std::string::String>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -151,7 +159,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<SQLiteInsertValue<'a, SQLiteValue<'a>, ::std::vec::Vec<u8>>>
+                        V: ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, ::std::vec::Vec<u8>>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -167,7 +175,7 @@ fn generate_insert_convenience_method(
                 impl<'a, #(#generic_params),*> #insert_model<'a, (#(#generic_params),*)> {
                     pub fn #method_name<V>(self, value: V) -> #insert_model<'a, (#(#return_pattern_generics),*)>
                     where
-                        V: Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>>
+                        V: ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #base_type>>
                     {
                         #insert_model {
                             #(#field_assignments,)*
@@ -191,16 +199,23 @@ fn generate_json_insert_method(
     generic_params: &[syn::Ident],
     return_pattern_generics: &[syn::Ident],
 ) -> TokenStream {
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
+    let value_wrapper = sqlite_paths::value_wrapper();
+    let expression = sqlite_paths::expression();
+
     let json_wrapper = match field.column_type {
         SQLiteType::Text => quote! {
             {
-                let json_str = serde_json::to_string(&value)
+                let json_str = ::serde_json::to_string(&value)
                     .unwrap_or_else(|_| "null".to_string());
-                SQLiteInsertValue::Value(
-                    ValueWrapper {
-                        value: expression::json(
-                            SQL::param(
-                                SQLiteValue::Text(
+                #sqlite_insert_value::Value(
+                    #value_wrapper {
+                        value: #expression::json(
+                            #sql::param(
+                                #sqlite_value::Text(
                                     ::std::borrow::Cow::Owned(json_str)
                                 )
                             )),
@@ -211,13 +226,13 @@ fn generate_json_insert_method(
         },
         SQLiteType::Blob => quote! {
             {
-                let json_bytes = serde_json::to_vec(&value)
+                let json_bytes = ::serde_json::to_vec(&value)
                     .unwrap_or_else(|_| "null".as_bytes().to_vec());
-                SQLiteInsertValue::Value(
-                    ValueWrapper {
-                        value: expression::jsonb(
-                            SQL::param(
-                                SQLiteValue::Blob(
+                #sqlite_insert_value::Value(
+                    #value_wrapper {
+                        value: #expression::jsonb(
+                            #sql::param(
+                                #sqlite_value::Blob(
                                     ::std::borrow::Cow::Owned(json_bytes)
                                 )
                             )),
@@ -267,13 +282,13 @@ fn generate_update_convenience_method(
     method_name: &syn::Ident,
 ) -> TokenStream {
     let field_name = field.ident;
-    let assignment = quote! { self.#field_name = Some(value); };
+    let assignment = quote! { self.#field_name = ::std::option::Option::Some(value); };
     let category = field.type_category();
 
     match category {
         TypeCategory::Uuid => {
             quote! {
-                pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
+                pub fn #method_name<T: ::std::convert::Into<::uuid::Uuid>>(mut self, value: T) -> Self {
                     let value = value.into();
                     #assignment
                     self
@@ -294,7 +309,7 @@ fn generate_update_convenience_method(
         }
         TypeCategory::String => {
             quote! {
-                pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
+                pub fn #method_name<T: ::std::convert::Into<::std::string::String>>(mut self, value: T) -> Self {
                     let value = value.into();
                     #assignment
                     self
@@ -303,7 +318,7 @@ fn generate_update_convenience_method(
         }
         TypeCategory::Blob => {
             quote! {
-                pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
+                pub fn #method_name<T: ::std::convert::Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
                     let value = value.into();
                     #assignment
                     self

@@ -1,3 +1,4 @@
+use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Result};
@@ -5,6 +6,17 @@ use syn::{Data, DeriveInput, Fields, Result};
 /// Generates the PostgresSchema derive implementation
 pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let struct_name = &input.ident;
+
+    // Get paths for fully-qualified types
+    let sql_schema = core_paths::sql_schema();
+    let sql_schema_impl = core_paths::sql_schema_impl();
+    let sql_table_info = core_paths::sql_table_info();
+    let sql_column_info = core_paths::sql_column_info();
+    let sql_index_info = core_paths::sql_index_info();
+    let postgres_value = postgres_paths::postgres_value();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let postgres_table_info = postgres_paths::postgres_table_info();
+    let postgres_column_info = postgres_paths::postgres_column_info();
 
     // Extract fields from the struct
     let fields = match &input.data {
@@ -52,6 +64,9 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
 
     let create_statements_impl = generate_create_statements_method(&all_fields);
 
+    // For Schema trait to_snapshot
+    let field_types_for_snapshot: Vec<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
+
     Ok(quote! {
         impl Default for #struct_name {
             fn default() -> Self {
@@ -73,55 +88,192 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
         }
 
         // Implement SQLSchemaImpl trait
-        impl SQLSchemaImpl for #struct_name {
-            fn create_statements(&self) -> Vec<String> {
+        impl #sql_schema_impl for #struct_name {
+            fn create_statements(&self) -> ::std::vec::Vec<::std::string::String> {
                 #create_statements_impl
             }
         }
 
         // Implement tuple destructuring support
-        impl From<#struct_name> for (#(#all_field_types,)*) {
+        impl ::std::convert::From<#struct_name> for (#(#all_field_types,)*) {
             fn from(schema: #struct_name) -> Self {
                 (#(schema.#all_field_names,)*)
+            }
+        }
+
+        // Implement drizzle_migrations::Schema trait for migration config
+        impl drizzle_migrations::Schema for #struct_name {
+            fn dialect(&self) -> drizzle_migrations::Dialect {
+                drizzle_migrations::Dialect::PostgreSQL
+            }
+
+            fn to_snapshot(&self) -> drizzle_migrations::Snapshot {
+                // Use type aliases to avoid name collisions with user types
+                type MigSnapshot = drizzle_migrations::postgres::PostgresSnapshot;
+                type MigEntity = drizzle_migrations::postgres::ddl::PostgresEntity;
+                type MigSchema = drizzle_migrations::postgres::ddl::Schema;
+                type MigTable = drizzle_migrations::postgres::ddl::Table;
+                type MigColumn = drizzle_migrations::postgres::ddl::Column;
+                type MigIdentity = drizzle_migrations::postgres::ddl::Identity;
+                type MigIndex = drizzle_migrations::postgres::ddl::Index;
+                type MigPrimaryKey = drizzle_migrations::postgres::ddl::PrimaryKey;
+                type MigUniqueConstraint = drizzle_migrations::postgres::ddl::UniqueConstraint;
+                type MigEnum = drizzle_migrations::postgres::ddl::Enum;
+
+                let mut snapshot = MigSnapshot::new();
+
+                // Add public schema entity
+                snapshot.add_entity(MigEntity::Schema(MigSchema {
+                    name: "public".to_string(),
+                }));
+
+                // Iterate through all schema fields and add DDL entities
+                #(
+                    match <#field_types_for_snapshot as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
+                        #postgres_schema_type::Table(table_info) => {
+                            // Add table entity
+                            let table_name = #sql_table_info::name(table_info);
+                            snapshot.add_entity(MigEntity::Table(MigTable {
+                                schema: "public".to_string(),
+                                name: table_name.to_string(),
+                                is_rls_enabled: ::std::option::Option::None,
+                            }));
+
+                            // Add column entities using PostgresTableInfo::postgres_columns
+                            for col in #postgres_table_info::postgres_columns(table_info) {
+                                // col is &dyn PostgresColumnInfo which extends SQLColumnInfo
+                                // Use method syntax since trait object vtable includes supertrait methods
+                                snapshot.add_entity(MigEntity::Column(MigColumn {
+                                    schema: "public".to_string(),
+                                    table: table_name.to_string(),
+                                    name: col.name().to_string(),
+                                    sql_type: col.postgres_type().to_string(),
+                                    type_schema: ::std::option::Option::None,
+                                    not_null: col.is_not_null(),
+                                    default: ::std::option::Option::None, // Default value access would need additional trait method
+                                    generated: ::std::option::Option::None,
+                                    identity: if col.is_generated_identity() || col.is_serial() || col.is_bigserial() {
+                                        ::std::option::Option::Some(MigIdentity {
+                                            name: ::std::format!("{}_{}_seq", table_name, col.name()),
+                                            schema: ::std::option::Option::Some("public".to_string()),
+                                            type_: if col.is_generated_identity() { "always".to_string() } else { "byDefault".to_string() },
+                                            increment: ::std::option::Option::None,
+                                            min_value: ::std::option::Option::None,
+                                            max_value: ::std::option::Option::None,
+                                            start_with: ::std::option::Option::None,
+                                            cache: ::std::option::Option::None,
+                                            cycle: ::std::option::Option::None,
+                                        })
+                                    } else {
+                                        ::std::option::Option::None
+                                    },
+                                    dimensions: ::std::option::Option::None,
+                                }));
+
+                                // Add primary key entity if this is a primary key column
+                                if col.is_primary_key() {
+                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey {
+                                        schema: "public".to_string(),
+                                        table: table_name.to_string(),
+                                        name: ::std::format!("{}_pkey", table_name),
+                                        name_explicit: false,
+                                        columns: ::std::vec![col.name().to_string()],
+                                    }));
+                                }
+
+                                // Add unique constraint entity if this column is unique
+                                if col.is_unique() {
+                                    snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint {
+                                        schema: "public".to_string(),
+                                        table: table_name.to_string(),
+                                        name: ::std::format!("{}_{}_key", table_name, col.name()),
+                                        name_explicit: false,
+                                        columns: ::std::vec![col.name().to_string()],
+                                        nulls_not_distinct: false,
+                                    }));
+                                }
+                            }
+                        }
+                        #postgres_schema_type::Index(index_info) => {
+                            // Add index entity
+                            // Note: SQLIndexInfo doesn't expose column info directly
+                            let table = #sql_index_info::table(index_info);
+                            snapshot.add_entity(MigEntity::Index(MigIndex {
+                                schema: "public".to_string(),
+                                table: #sql_table_info::name(table).to_string(),
+                                name: #sql_index_info::name(index_info).to_string(),
+                                columns: ::std::vec::Vec::new(), // Would need columns from index definition
+                                is_unique: #sql_index_info::is_unique(index_info),
+                                r#where: ::std::option::Option::None,
+                                method: ::std::option::Option::None,
+                                concurrently: false,
+                                r#with: ::std::option::Option::None,
+                            }));
+                        }
+                        #postgres_schema_type::Enum(enum_info) => {
+                            // Add enum entity
+                            snapshot.add_entity(MigEntity::Enum(MigEnum {
+                                schema: "public".to_string(),
+                                name: enum_info.name().to_string(),
+                                values: enum_info.variants().iter().map(|v| v.to_string()).collect(),
+                            }));
+                        }
+                        #postgres_schema_type::View => {
+                            // Views not implemented yet
+                        }
+                        #postgres_schema_type::Trigger => {
+                            // Triggers not implemented yet
+                        }
+                    }
+                )*
+
+                drizzle_migrations::Snapshot::Postgres(snapshot)
             }
         }
     })
 }
 
 fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    // Get paths for fully-qualified types
+    let sql_schema = core_paths::sql_schema();
+    let sql_table_info = core_paths::sql_table_info();
+    let sql_index_info = core_paths::sql_index_info();
+    let postgres_value = postgres_paths::postgres_value();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+
     // Extract field names and types for easier iteration
     let field_names: Vec<_> = fields.iter().map(|(name, _)| *name).collect();
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        let mut tables: Vec<(&str, String, &dyn SQLTableInfo)> = Vec::new();
-        let mut indexes: std::collections::HashMap<&str, Vec<String>> = std::collections::HashMap::new();
-        let mut enums: Vec<String> = Vec::new();
+        let mut tables: ::std::vec::Vec<(&str, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
+        let mut indexes: ::std::collections::HashMap<&str, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
         // Collect all tables, indexes, and enums
         #(
-            match <#field_types as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE {
-                PostgresSchemaType::Table(table_info) => {
-                    let table_name = table_info.name();
-                    let table_sql = <_ as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::sql(&self.#field_names).sql();
+            match <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
+                #postgres_schema_type::Table(table_info) => {
+                    let table_name = #sql_table_info::name(table_info);
+                    let table_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
-                PostgresSchemaType::Index(index_info) => {
-                    let index_sql = <_ as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::sql(&self.#field_names).sql();
-                    let table_name = index_info.table().name();
+                #postgres_schema_type::Index(index_info) => {
+                    let index_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
+                    let table_name = #sql_table_info::name(#sql_index_info::table(index_info));
                     indexes
                         .entry(table_name)
-                        .or_insert_with(Vec::new)
+                        .or_insert_with(::std::vec::Vec::new)
                         .push(index_sql);
                 }
-                PostgresSchemaType::Enum(enum_info) => {
+                #postgres_schema_type::Enum(enum_info) => {
                     let enum_sql = enum_info.create_type_sql();
                     enums.push(enum_sql);
                 }
-                PostgresSchemaType::View => {
+                #postgres_schema_type::View => {
                     // Views not implemented yet
                 }
-                PostgresSchemaType::Trigger => {
+                #postgres_schema_type::Trigger => {
                     // Triggers not implemented yet
                 }
             }
@@ -129,12 +281,12 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         // Sort tables by dependencies (topological sort) then by name for deterministic ordering
         tables.sort_by(|a, b| {
-            use std::cmp::Ordering;
+            use ::std::cmp::Ordering;
 
             // Check if a depends on b
-            let a_depends_on_b = a.2.dependencies().iter().any(|dep| dep.name() == b.0);
+            let a_depends_on_b = #sql_table_info::dependencies(a.2).iter().any(|dep| #sql_table_info::name(*dep) == b.0);
             // Check if b depends on a
-            let b_depends_on_a = b.2.dependencies().iter().any(|dep| dep.name() == a.0);
+            let b_depends_on_a = #sql_table_info::dependencies(b.2).iter().any(|dep| #sql_table_info::name(*dep) == a.0);
 
             match (a_depends_on_b, b_depends_on_a) {
                 (true, false) => Ordering::Greater,  // a comes after b
@@ -144,7 +296,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         });
 
         // Build final SQL statements: enums first, then tables in dependency order, then their indexes
-        let mut sql_statements = Vec::<String>::new();
+        let mut sql_statements = ::std::vec::Vec::<::std::string::String>::new();
 
         // Add all enums first (they must be created before tables that use them)
         sql_statements.extend(enums);
@@ -154,7 +306,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             sql_statements.push(table_sql);
 
             // Add indexes for this table
-            if let Some(table_indexes) = indexes.get(table_name) {
+            if let ::std::option::Option::Some(table_indexes) = indexes.get(table_name) {
                 for index_sql in table_indexes {
                     sql_statements.push(index_sql.clone());
                 }

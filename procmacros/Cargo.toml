@@ -22,6 +22,8 @@ proc-macro-crate = "3.4"
 paste = { workspace = true }
 # Migration types for metadata generation
 drizzle-migrations = { path = "../migrations" }
+# Shared type definitions
+drizzle-types = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
@@ -85,4 +87,7 @@ bit-vec = []
 rusqlite = ["sqlite"]
 libsql = ["sqlite"]
 turso = ["sqlite"]
+# PostgreSQL driver-specific features
+postgres-sync = ["postgres"]
+tokio-postgres = ["postgres"]
 # sqlx-postgres = ["postgres"]

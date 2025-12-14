@@ -173,10 +173,14 @@ impl ExecutableState for InsertOnConflictSet {}
 ///
 /// SQLite supports various conflict resolution strategies:
 ///
-/// ```rust
-/// # use drizzle_sqlite::prelude::*;
-/// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
-/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// # }
+/// # use drizzle::sqlite::prelude::*;
+/// # use drizzle::sqlite::builder::{QueryBuilder, insert::Conflict};
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
@@ -206,9 +210,13 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_sqlite::prelude::*;
-    /// # use drizzle_sqlite::builder::QueryBuilder;
-    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
@@ -261,9 +269,13 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_sqlite::prelude::*;
-    /// # use drizzle_sqlite::builder::{QueryBuilder, insert::Conflict};
-    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::{QueryBuilder, insert::Conflict};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();

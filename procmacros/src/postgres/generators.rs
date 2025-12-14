@@ -1,16 +1,21 @@
 //! Code generation helper functions for PostgreSQL table macros.
 //!
-//! These functions provide reusable trait implementation generators,
-//! matching the pattern used in the SQLite module for consistency.
+//! These functions provide reusable trait implementation generators using
+//! fully-qualified paths from the paths module.
 
+use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
 /// Generate PostgreSQL ToSQL trait implementation
 pub fn generate_to_sql(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+    let to_sql = core_paths::to_sql();
+    let sql = core_paths::sql();
+    let postgres_value = postgres_paths::postgres_value();
+
     quote! {
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #struct_ident {
-            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
+        impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_ident {
+            fn to_sql(&self) -> #sql<'a, #postgres_value<'a>> {
                 #body
             }
         }
@@ -30,8 +35,11 @@ pub fn generate_sql_column(
     default: TokenStream,
     default_fn: TokenStream,
 ) -> TokenStream {
+    let sql_column = core_paths::sql_column();
+    let postgres_value = postgres_paths::postgres_value();
+
     quote! {
-        impl<'a> SQLColumn<'a, PostgresValue<'a>> for #struct_ident {
+        impl<'a> #sql_column<'a, #postgres_value<'a>> for #struct_ident {
             type Table = #table;
             type TableType = #table_type;
             type Type = #r#type;
@@ -39,9 +47,9 @@ pub fn generate_sql_column(
             const PRIMARY_KEY: bool = #primary_key;
             const NOT_NULL: bool = #not_null;
             const UNIQUE: bool = #unique;
-            const DEFAULT: Option<Self::Type> = #default;
+            const DEFAULT: ::std::option::Option<Self::Type> = #default;
 
-            fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
+            fn default_fn(&'a self) -> ::std::option::Option<impl Fn() -> Self::Type> {
                 #default_fn
             }
         }
@@ -55,17 +63,20 @@ pub fn generate_postgres_column_info(
     table: TokenStream,
     foreign_key: TokenStream,
 ) -> TokenStream {
+    let postgres_column_info = postgres_paths::postgres_column_info();
+    let postgres_table_info = postgres_paths::postgres_table_info();
+
     quote! {
-        impl PostgresColumnInfo for #ident {
+        impl #postgres_column_info for #ident {
             fn is_serial(&self) -> bool {
                 #is_serial
             }
 
-            fn table(&self) -> &dyn PostgresTableInfo {
+            fn table(&self) -> &dyn #postgres_table_info {
                 #table
             }
 
-            fn foreign_key(&self) -> Option<&'static dyn PostgresColumnInfo> {
+            fn foreign_key(&self) -> ::std::option::Option<&'static dyn #postgres_column_info> {
                 #foreign_key
             }
         }
@@ -74,8 +85,10 @@ pub fn generate_postgres_column_info(
 
 /// Generate PostgresColumn trait implementation
 pub fn generate_postgres_column(struct_ident: &Ident, is_serial: TokenStream) -> TokenStream {
+    let postgres_column = postgres_paths::postgres_column();
+
     quote! {
-        impl<'a> PostgresColumn<'a> for #struct_ident {
+        impl<'a> #postgres_column<'a> for #struct_ident {
             const SERIAL: bool = #is_serial;
         }
     }
@@ -87,21 +100,25 @@ pub fn generate_postgres_table_info(
     r#type: TokenStream,
     columns: TokenStream,
 ) -> TokenStream {
+    let postgres_table_info = postgres_paths::postgres_table_info();
+    let postgres_column_info = postgres_paths::postgres_column_info();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+
     quote! {
-        impl PostgresTableInfo for #struct_ident {
-            fn r#type(&self) -> &PostgresSchemaType {
+        impl #postgres_table_info for #struct_ident {
+            fn r#type(&self) -> &#postgres_schema_type {
                 #r#type
             }
 
-            fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
+            fn postgres_columns(&self) -> &'static [&'static dyn #postgres_column_info] {
                 #columns
             }
 
-            fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
-                PostgresTableInfo::postgres_columns(self)
+            fn postgres_dependencies(&self) -> ::std::boxed::Box<[&'static dyn #postgres_table_info]> {
+                #postgres_table_info::postgres_columns(self)
                     .iter()
-                    .filter_map(|col| PostgresColumnInfo::foreign_key(*col))
-                    .map(|fk_col| PostgresColumnInfo::table(fk_col))
+                    .filter_map(|col| #postgres_column_info::foreign_key(*col))
+                    .map(|fk_col| #postgres_column_info::table(fk_col))
                     .collect()
             }
         }
@@ -110,8 +127,10 @@ pub fn generate_postgres_table_info(
 
 /// Generate PostgresTable trait implementation
 pub fn generate_postgres_table(struct_ident: &Ident) -> TokenStream {
+    let postgres_table = postgres_paths::postgres_table();
+
     quote! {
-        impl<'a> PostgresTable<'a> for #struct_ident {}
+        impl<'a> #postgres_table<'a> for #struct_ident {}
     }
 }
 
@@ -123,8 +142,12 @@ pub fn generate_sql_table(
     update: TokenStream,
     aliased: TokenStream,
 ) -> TokenStream {
+    let sql_table = core_paths::sql_table();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let postgres_value = postgres_paths::postgres_value();
+
     quote! {
-        impl<'a> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
+        impl<'a> #sql_table<'a, #postgres_schema_type, #postgres_value<'a>> for #struct_ident {
             type Select = #select;
             type Insert<T> = #insert;
             type Update = #update;
@@ -145,19 +168,24 @@ pub fn generate_sql_schema(
     const_sql: TokenStream,
     runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
+    let sql_schema = core_paths::sql_schema();
+    let sql = core_paths::sql();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let postgres_value = postgres_paths::postgres_value();
+
     let fn_method = runtime_sql
         .map(|v| {
             quote! {
-                fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
+                fn sql(&self) -> #sql<'a, #postgres_value<'a>> {
                     #v
                 }
             }
         })
         .unwrap_or_else(|| quote! {});
     quote! {
-        impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #struct_ident {
+        impl<'a> #sql_schema<'a, #postgres_schema_type, #postgres_value<'a>> for #struct_ident {
             const NAME: &'a str = #name;
-            const TYPE: PostgresSchemaType = #r#type;
+            const TYPE: #postgres_schema_type = #r#type;
             const SQL: &'static str = #const_sql;
             #fn_method
         }
@@ -171,13 +199,17 @@ pub fn generate_sql_schema_field(
     r#type: TokenStream,
     sql: TokenStream,
 ) -> TokenStream {
+    let sql_schema = core_paths::sql_schema();
+    let sql_type = core_paths::sql();
+    let postgres_value = postgres_paths::postgres_value();
+
     quote! {
-        impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #struct_ident {
+        impl<'a> #sql_schema<'a, &'a str, #postgres_value<'a>> for #struct_ident {
             const NAME: &'a str = #name;
             const TYPE: &'a str = #r#type;
             const SQL: &'static str = "";
 
-            fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
+            fn sql(&self) -> #sql_type<'a, #postgres_value<'a>> {
                 #sql
             }
         }

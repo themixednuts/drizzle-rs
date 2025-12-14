@@ -1,5 +1,6 @@
 use super::context::MacroContext;
 use crate::generators::generate_sql_table_info;
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::generators::*;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -22,6 +23,14 @@ pub(crate) fn generate_table_impls(
         &ctx.update_model_ident,
     );
 
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sql_schema = core_paths::sql_schema();
+    let sql_column_info = core_paths::sql_column_info();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+    let sqlite_column_info = sqlite_paths::sqlite_column_info();
+
     // Generate SQL implementation based on whether table has foreign keys
     let create_table_sql = &ctx.create_table_sql;
 
@@ -31,7 +40,7 @@ pub(crate) fn generate_table_impls(
             (
                 quote! { "" }, // Empty const, use runtime method
                 Some(quote! {
-                    SQL::raw(#runtime_sql)
+                    #sql::raw(#runtime_sql)
                 }),
             )
         } else {
@@ -45,7 +54,7 @@ pub(crate) fn generate_table_impls(
 
     let to_sql_body = quote! {
         static INSTANCE: #struct_ident = #struct_ident::new();
-        SQL::table(&INSTANCE)
+        #sql::table(&INSTANCE)
     };
 
     let sql_schema_impl = generate_sql_schema(
@@ -55,7 +64,7 @@ pub(crate) fn generate_table_impls(
             {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                SQLiteSchemaType::Table(&TABLE_INSTANCE)
+                #sqlite_schema_type::Table(&TABLE_INSTANCE)
             }
         },
         quote! {#sql_const},
@@ -72,12 +81,12 @@ pub(crate) fn generate_table_impls(
     let sql_table_info_impl = generate_sql_table_info(
         struct_ident,
         quote! {
-            <Self as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::NAME
+            <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME
         },
         quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
             #[allow(non_upper_case_globals)]
-            static COLUMNS: [&'static dyn SQLColumnInfo; #columns_len] =
+            static COLUMNS: [&'static dyn #sql_column_info; #columns_len] =
                 [#(&#column_zst_idents,)*];
             &COLUMNS
         },
@@ -85,14 +94,14 @@ pub(crate) fn generate_table_impls(
     let sqlite_table_info_impl = generate_sqlite_table_info(
         struct_ident,
         quote! {
-            &<Self as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::TYPE
+            &<Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE
         },
         quote! {#strict},
         quote! {#without_rowid},
         quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
             #[allow(non_upper_case_globals)]
-            static SQLITE_COLUMNS: [&'static dyn SQLiteColumnInfo; #columns_len] =
+            static SQLITE_COLUMNS: [&'static dyn #sqlite_column_info; #columns_len] =
                 [#(&#column_zst_idents,)*];
             &SQLITE_COLUMNS
         },

@@ -61,7 +61,7 @@ pub mod traits;
 
 // Re-export key types and traits
 pub use conversions::ToSQL;
-pub use dialect::Dialect;
+pub use dialect::{Dialect, DialectExt};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;

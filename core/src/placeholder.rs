@@ -1,5 +1,5 @@
-use crate::Dialect;
 use crate::prelude::*;
+use crate::{Dialect, DialectExt};
 use core::fmt;
 
 /// A SQL parameter placeholder.

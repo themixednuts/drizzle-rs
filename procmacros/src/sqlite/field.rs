@@ -8,229 +8,51 @@ use syn::{
 };
 
 // =============================================================================
-// Type Category - Centralized type classification for code generation
+// Re-export shared types from drizzle-types
 // =============================================================================
 
-/// Categorizes Rust types for consistent handling across the macro system.
+/// Re-export TypeCategory from the shared types crate
+pub(crate) use drizzle_types::sqlite::TypeCategory;
+
+/// Re-export SQLiteType from the shared types crate  
+pub(crate) use drizzle_types::sqlite::SQLiteType as SharedSQLiteType;
+
+// =============================================================================
+// Local SQLiteType wrapper with procmacro-specific functionality
+// =============================================================================
+
+/// Local wrapper around SharedSQLiteType with additional procmacro-specific methods.
 ///
-/// This enum provides a single source of truth for type detection, eliminating
-/// fragile string matching scattered across multiple files. This is used for
-/// both type inference (Rust type → SQLite type) and code generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TypeCategory {
-    /// `arrayvec::ArrayString<N>` - Fixed-capacity string on the stack
-    ArrayString,
-    /// `arrayvec::ArrayVec<u8, N>` - Fixed-capacity byte array on the stack
-    ArrayVec,
-    /// `std::string::String` - Heap-allocated string
-    String,
-    /// `Vec<u8>` - Heap-allocated byte array
-    Blob,
-    /// `[u8; N]` - Fixed-size byte array
-    ByteArray,
-    /// `uuid::Uuid` - UUID type (defaults to BLOB, can be overridden to TEXT)
-    Uuid,
-    /// Any type with `#[json]` flag or `serde_json::Value`
-    Json,
-    /// Any type with `#[enum]` flag (defaults to TEXT, can be INTEGER)
-    Enum,
-    /// `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` - Integer types
-    Integer,
-    /// `f32`, `f64` - Floating point types
-    Real,
-    /// `bool` - Boolean type (stored as INTEGER 0/1)
-    Bool,
-    /// Chrono date/time types - stored as TEXT
-    DateTime,
-    /// Unknown type - requires explicit type annotation
-    Unknown,
-}
-
-impl TypeCategory {
-    /// Detect the category from a type string representation.
-    ///
-    /// Order matters: more specific types (ArrayString) must be checked
-    /// before more general types (String).
-    pub(crate) fn from_type_string(type_str: &str) -> Self {
-        // Remove whitespace for consistent matching
-        let type_str = type_str.replace(' ', "");
-
-        // Handle Option<T> wrapper - recurse into inner type
-        if type_str.starts_with("Option<") && type_str.ends_with('>') {
-            let inner = &type_str[7..type_str.len() - 1];
-            return Self::from_type_string(inner);
-        }
-
-        // Fixed-size byte arrays first
-        if type_str.starts_with("[u8;") || type_str.contains("[u8;") {
-            return TypeCategory::ByteArray;
-        }
-
-        // ArrayVec/ArrayString before generic checks
-        if type_str.contains("ArrayString") {
-            return TypeCategory::ArrayString;
-        }
-        if type_str.contains("ArrayVec") && type_str.contains("u8") {
-            return TypeCategory::ArrayVec;
-        }
-
-        // UUID
-        if type_str.contains("Uuid") {
-            return TypeCategory::Uuid;
-        }
-
-        // JSON (serde_json::Value)
-        if type_str.contains("serde_json::Value") || type_str == "Value" {
-            return TypeCategory::Json;
-        }
-
-        // Chrono types - all stored as TEXT in SQLite
-        if type_str.contains("NaiveDate")
-            || type_str.contains("NaiveTime")
-            || type_str.contains("NaiveDateTime")
-            || type_str.contains("DateTime<")
-        {
-            return TypeCategory::DateTime;
-        }
-
-        // Time crate types
-        if type_str.contains("time::Date")
-            || type_str.contains("time::Time")
-            || type_str.contains("PrimitiveDateTime")
-            || type_str.contains("OffsetDateTime")
-        {
-            return TypeCategory::DateTime;
-        }
-
-        // String types
-        if type_str.contains("String") {
-            return TypeCategory::String;
-        }
-
-        // Vec<u8>
-        if type_str.contains("Vec<u8>") {
-            return TypeCategory::Blob;
-        }
-
-        // Primitives - check exact matches for simple types
-        match type_str.as_str() {
-            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "isize" | "usize" => {
-                TypeCategory::Integer
-            }
-            "f32" | "f64" => TypeCategory::Real,
-            "bool" => TypeCategory::Bool,
-            _ => TypeCategory::Unknown,
-        }
-    }
-
-    /// Infer the SQLite type from this category.
-    ///
-    /// Returns Some(SQLiteType) for types that can be automatically inferred,
-    /// or None for types that require explicit annotation (Unknown, Enum without context).
-    pub(crate) fn to_sqlite_type(&self) -> Option<SQLiteType> {
-        match self {
-            // Integer types → INTEGER
-            TypeCategory::Integer | TypeCategory::Bool => Some(SQLiteType::Integer),
-            // Floating point → REAL
-            TypeCategory::Real => Some(SQLiteType::Real),
-            // String types → TEXT
-            TypeCategory::String | TypeCategory::ArrayString | TypeCategory::DateTime => {
-                Some(SQLiteType::Text)
-            }
-            // Binary types → BLOB
-            TypeCategory::Blob | TypeCategory::ArrayVec | TypeCategory::ByteArray => {
-                Some(SQLiteType::Blob)
-            }
-            // UUID defaults to BLOB (more efficient), but can be overridden to TEXT
-            TypeCategory::Uuid => Some(SQLiteType::Blob),
-            // JSON defaults to TEXT (human-readable), but can be overridden to BLOB
-            TypeCategory::Json => Some(SQLiteType::Text),
-            // Enum defaults to TEXT (variant names), but can be overridden to INTEGER
-            TypeCategory::Enum => Some(SQLiteType::Text),
-            // Unknown types require explicit annotation
-            TypeCategory::Unknown => None,
-        }
-    }
-
-    /// Check if this category requires the FromSQLiteValue trait for conversion
-    #[allow(dead_code)]
-    pub(crate) fn uses_from_sqlite_value(&self) -> bool {
-        matches!(self, TypeCategory::ArrayString | TypeCategory::ArrayVec)
-    }
-
-    /// Check if this category should use a generic `impl Into<...>` parameter
-    #[allow(dead_code)]
-    pub(crate) fn uses_into_param(&self) -> bool {
-        matches!(
-            self,
-            TypeCategory::String | TypeCategory::Blob | TypeCategory::Uuid
-        )
-    }
-}
-
-/// Enum representing supported SQLite column types.
-///
-/// These correspond to the [SQLite storage classes](https://sqlite.org/datatype3.html#storage_classes_and_datatypes).
-/// Each type maps to specific Rust types and has different capabilities for constraints and features.
+/// This contains methods that are only needed during macro expansion,
+/// such as validation with detailed error messages.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SQLiteType {
-    /// SQLite INTEGER type - stores signed integers up to 8 bytes.
-    ///
-    /// See: <https://sqlite.org/datatype3.html#integer_datatype>
-    ///
-    /// Supports: primary keys, autoincrement, enums (discriminant storage)
     Integer,
-
-    /// SQLite TEXT type - stores text in UTF-8, UTF-16BE, or UTF-16LE encoding.
-    ///
-    /// See: <https://sqlite.org/datatype3.html#text_datatype>
-    ///
-    /// Supports: enums (variant name storage), JSON serialization
     Text,
-
-    /// SQLite BLOB type - stores binary data exactly as input.
-    ///
-    /// See: <https://sqlite.org/datatype3.html#blob_datatype>
-    ///
-    /// Supports: JSON serialization, UUID storage
     Blob,
-
-    /// SQLite REAL type - stores floating point values as 8-byte IEEE floating point numbers.
-    ///
-    /// See: <https://sqlite.org/datatype3.html#real_datatype>
     Real,
-
-    /// SQLite NUMERIC type - stores values as INTEGER, REAL, or TEXT depending on the value.
-    ///
-    /// See: <https://sqlite.org/datatype3.html#numeric_datatype>
     Numeric,
-
-    /// SQLite ANY type - no type affinity, can store any type of data.
-    ///
-    /// See: <https://sqlite.org/datatype3.html#type_affinity>
     #[default]
     Any,
 }
 
-impl Display for SQLiteType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_sql_type())
+impl From<SharedSQLiteType> for SQLiteType {
+    fn from(shared: SharedSQLiteType) -> Self {
+        match shared {
+            SharedSQLiteType::Integer => SQLiteType::Integer,
+            SharedSQLiteType::Text => SQLiteType::Text,
+            SharedSQLiteType::Blob => SQLiteType::Blob,
+            SharedSQLiteType::Real => SQLiteType::Real,
+            SharedSQLiteType::Numeric => SQLiteType::Numeric,
+            SharedSQLiteType::Any => SQLiteType::Any,
+        }
     }
 }
 
 impl SQLiteType {
     /// Convert from attribute name to enum variant
     pub(crate) fn from_attribute_name(name: &str) -> Option<Self> {
-        match name.to_lowercase().as_str() {
-            "integer" => Some(Self::Integer),
-            "text" => Some(Self::Text),
-            "blob" => Some(Self::Blob),
-            "real" => Some(Self::Real),
-            "number" | "numeric" => Some(Self::Numeric),
-            "boolean" => Some(Self::Integer), // Store booleans as integers (0/1)
-            "any" => Some(Self::Any),
-            _ => None,
-        }
+        SharedSQLiteType::from_attribute_name(name).map(Into::into)
     }
 
     /// Get the SQL type string for this type
@@ -247,15 +69,34 @@ impl SQLiteType {
 
     /// Check if a flag is valid for this column type
     pub(crate) fn is_valid_flag(&self, flag: &str) -> bool {
-        matches!(
-            (self, flag),
-            (Self::Integer, "autoincrement")
-                | (Self::Text | Self::Blob, "json")
-                | (Self::Text | Self::Integer, "enum")
-                | (_, "primary" | "primary_key" | "unique")
-        )
+        matches!(flag, "primary" | "primary_key" | "unique")
+            || matches!(
+                (self, flag),
+                (Self::Integer, "autoincrement")
+                    | (Self::Text | Self::Blob, "json")
+                    | (Self::Text | Self::Integer, "enum")
+            )
     }
+}
 
+impl Display for SQLiteType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_sql_type())
+    }
+}
+
+// =============================================================================
+// TypeCategory helper functions for procmacros
+// =============================================================================
+
+/// Convert a TypeCategory to the local SQLiteType
+///
+/// This wraps the shared type's method and converts to our local type
+pub(crate) fn type_category_to_sqlite(cat: &TypeCategory) -> Option<SQLiteType> {
+    drizzle_types::sqlite::TypeCategory::to_sqlite_type(cat).map(Into::into)
+}
+
+impl SQLiteType {
     /// Validate a flag for this column type, returning an error with SQLite docs link if invalid.
     ///
     /// Provides helpful error messages with links to relevant SQLite documentation
@@ -784,7 +625,7 @@ impl<'a> FieldInfo<'a> {
             attrs.column_type.clone()
         } else {
             // Infer from Rust type
-            type_category.to_sqlite_type().unwrap_or_else(|| {
+            type_category_to_sqlite(&type_category).unwrap_or_else(|| {
                 // If we can't infer, default to ANY (flexible SQLite type)
                 // This allows unknown types to work but may cause runtime issues
                 SQLiteType::Any
@@ -1052,15 +893,14 @@ impl<'a> FieldInfo<'a> {
     ///
     /// Uses the actual schema types for type-safe construction,
     /// ensuring consistency with drizzle-kit format.
-    pub(crate) fn to_column_meta(&self) -> drizzle_migrations::sqlite::Column {
+    pub(crate) fn to_column_meta(&self, table_name: &str) -> drizzle_migrations::sqlite::Column {
         let mut col = drizzle_migrations::sqlite::Column::new(
+            table_name,
             &self.column_name,
             self.column_type.to_sql_type().to_lowercase(),
         );
 
-        if self.is_primary {
-            col = col.primary_key();
-        }
+        // Note: primary_key is handled via PrimaryKey entity, not a column field
         if !self.is_nullable {
             col = col.not_null();
         }
@@ -1068,7 +908,12 @@ impl<'a> FieldInfo<'a> {
             col = col.autoincrement();
         }
         if let Some(default) = self.default_to_json_value() {
-            col = col.default_value(default);
+            // Convert serde_json::Value to String for DDL storage
+            let default_str = match &default {
+                serde_json::Value::String(s) => s.clone(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            };
+            col = col.default_value(default_str);
         }
 
         col
@@ -1088,15 +933,17 @@ impl<'a> FieldInfo<'a> {
             table_name, self.column_name, table_to, column_to
         );
 
-        Some(drizzle_migrations::sqlite::ForeignKey {
-            name: fk_name,
-            table_from: table_name.to_string(),
-            columns_from: vec![self.column_name.clone()],
+        let mut fk = drizzle_migrations::sqlite::ForeignKey::new(
+            table_name,
+            &fk_name,
+            vec![self.column_name.clone()],
             table_to,
-            columns_to: vec![column_to],
-            on_update: fk_ref.on_update.clone(),
-            on_delete: fk_ref.on_delete.clone(),
-        })
+            vec![column_to],
+        );
+        fk.on_update = fk_ref.on_update.clone();
+        fk.on_delete = fk_ref.on_delete.clone();
+
+        Some(fk)
     }
 }
 
@@ -1112,17 +959,23 @@ pub(crate) fn generate_table_meta_json(
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
 ) -> String {
-    let mut table = drizzle_migrations::sqlite::Table::new(table_name);
+    use drizzle_migrations::sqlite::{Column, ForeignKey, PrimaryKey, SqliteEntity, Table};
+
+    // Collect all entities
+    let mut entities: Vec<SqliteEntity> = Vec::new();
+
+    // Add Table entity
+    entities.push(SqliteEntity::Table(Table::new(table_name)));
 
     // Add columns
     for field in field_infos {
-        table.add_column(field.to_column_meta());
+        entities.push(SqliteEntity::Column(field.to_column_meta(table_name)));
     }
 
     // Add foreign keys
     for field in field_infos {
         if let Some(fk) = field.to_foreign_key_meta(table_name) {
-            table.add_foreign_key(fk);
+            entities.push(SqliteEntity::ForeignKey(fk));
         }
     }
 
@@ -1136,15 +989,12 @@ pub(crate) fn generate_table_meta_json(
 
         if pk_columns.len() > 1 {
             let pk_name = format!("{}_pk", table_name);
-            let pk = drizzle_migrations::sqlite::CompositePK {
-                name: Some(pk_name.clone()),
-                columns: pk_columns,
-            };
-            table.composite_primary_keys.insert(pk_name, pk);
+            let pk = PrimaryKey::new(table_name, &pk_name, pk_columns);
+            entities.push(SqliteEntity::PrimaryKey(pk));
         }
     }
 
-    serde_json::to_string(&table).unwrap_or_else(|_| "{}".to_string())
+    serde_json::to_string(&entities).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// Check if a type is an Option<T>

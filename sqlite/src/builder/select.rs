@@ -167,9 +167,13 @@ impl ExecutableState for SelectJoinSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_sqlite::prelude::*;
-/// use drizzle_sqlite::builder::QueryBuilder;
-/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// # }
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::sqlite::builder::QueryBuilder;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
@@ -192,7 +196,7 @@ impl ExecutableState for SelectJoinSet {}
 /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
 ///
 /// // SELECT with WHERE clause
-/// use drizzle_core::expressions::conditions::gt;
+/// use drizzle::core::expressions::conditions::gt;
 /// let query = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
@@ -205,11 +209,15 @@ impl ExecutableState for SelectJoinSet {}
 ///
 /// ## Advanced Queries
 ///
-/// ```rust
-/// # use drizzle_sqlite::prelude::*;
-/// # use drizzle_core::expressions::conditions::eq;
-/// # use drizzle_sqlite::builder::QueryBuilder;
-/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// # }
+/// # use drizzle::sqlite::prelude::*;
+/// # use drizzle::core::expressions::conditions::eq;
+/// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User, post: Post }
@@ -221,11 +229,15 @@ impl ExecutableState for SelectJoinSet {}
 ///     .join(post, eq(user.id, post.user_id));
 /// ```
 ///
-/// ```rust
-/// # use drizzle_sqlite::prelude::*;
-/// # use drizzle_sqlite::builder::QueryBuilder;
-/// # use drizzle_core::OrderBy;
-/// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// # }
+/// # use drizzle::sqlite::prelude::*;
+/// # use drizzle::sqlite::builder::QueryBuilder;
+/// # use drizzle::core::OrderBy;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
@@ -252,9 +264,13 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_sqlite::prelude::*;
-    /// # use drizzle_sqlite::builder::QueryBuilder;
-    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
@@ -293,10 +309,14 @@ where
     /// relate columns from both tables.
     ///
     /// ```rust
-    /// # use drizzle_sqlite::prelude::*;
-    /// # use drizzle_core::expressions::conditions::eq;
-    /// # use drizzle_sqlite::builder::QueryBuilder;
-    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::core::expressions::conditions::eq;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User, post: Post }
@@ -330,13 +350,17 @@ where
     /// Adds a WHERE clause to filter query results.
     ///
     /// This method applies conditions to filter the rows returned by the query.
-    /// You can use various condition functions from `drizzle_core::expressions::conditions`.
+    /// You can use various condition functions from `drizzle::core::expressions::conditions`.
     ///
     /// ```rust
-    /// # use drizzle_sqlite::prelude::*;
-    /// # use drizzle_core::expressions::conditions::{gt, and, eq};
-    /// # use drizzle_sqlite::builder::QueryBuilder;
-    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::core::expressions::conditions::{gt, and, eq};
+    /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
@@ -353,7 +377,7 @@ where
     ///
     /// // Multiple conditions
     /// let query = builder
-    ///     .select(user.name)  
+    ///     .select(user.name)
     ///     .from(user)
     ///     .r#where(and([gt(user.id, 10), eq(user.name, "Alice")]));
     /// ```
@@ -435,9 +459,13 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// # use drizzle_sqlite::prelude::*;
-    /// # use drizzle_sqlite::builder::QueryBuilder;
-    /// # use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();

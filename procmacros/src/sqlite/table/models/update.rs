@@ -1,5 +1,6 @@
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Result;
@@ -7,6 +8,11 @@ use syn::Result;
 /// Generates the Update model with convenience methods
 pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
     let update_model = &ctx.update_model_ident;
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
 
     let mut update_fields = Vec::new();
     let mut update_field_conversions = Vec::new();
@@ -43,11 +49,11 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
             #(#update_convenience_methods)*
         }
 
-        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #update_model {
-            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                let mut assignments = Vec::new();
+        impl<'a> #to_sql<'a, #sqlite_value<'a>> for #update_model {
+            fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+                let mut assignments = ::std::vec::Vec::new();
                 #(#update_field_conversions)*
-                SQL::assignments(assignments)
+                #sql::assignments(assignments)
             }
         }
     })

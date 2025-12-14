@@ -4,6 +4,7 @@
 
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::{SQLiteType, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
@@ -17,6 +18,18 @@ pub(crate) fn generate_insert_model(
 ) -> Result<TokenStream> {
     let insert_model = &ctx.insert_model_ident;
     let struct_ident = &ctx.struct_ident;
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sql_model = core_paths::sql_model();
+    let to_sql = core_paths::to_sql();
+    let sql_column_info = core_paths::sql_column_info();
+    let sql_table_info = core_paths::sql_table_info();
+    let token = core_paths::token();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
+    let value_wrapper = sqlite_paths::value_wrapper();
+    let expression = sqlite_paths::expression();
 
     // Convert bool slice to tuple literal for required fields pattern
     let required_fields_pattern_literal = generate_pattern_literal(ctx, required_fields_pattern);
@@ -96,23 +109,23 @@ pub(crate) fn generate_insert_model(
         // Convenience methods for setting fields
         #(#insert_convenience_methods)*
 
-        impl<'a, T> ToSQL<'a, SQLiteValue<'a>> for #insert_model<'a, T> {
-            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                SQLModel::values(self)
+        impl<'a, T> #to_sql<'a, #sqlite_value<'a>> for #insert_model<'a, T> {
+            fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+                #sql_model::values(self)
             }
         }
 
-        impl<'a, T> SQLModel<'a, SQLiteValue<'a>> for #insert_model<'a, T> {
-            type Columns = Box<[&'static dyn SQLColumnInfo]>;
+        impl<'a, T> #sql_model<'a, #sqlite_value<'a>> for #insert_model<'a, T> {
+            type Columns = ::std::boxed::Box<[&'static dyn #sql_column_info]>;
 
             fn columns(&self) -> Self::Columns {
                 static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = SQLTableInfo::columns(&TABLE);
-                let mut result_columns = Vec::new();
+                let all_columns = #sql_table_info::columns(&TABLE);
+                let mut result_columns = ::std::vec::Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        SQLiteInsertValue::Omit => {}
+                        #sqlite_insert_value::Omit => {}
                         _ => {
                             result_columns.push(all_columns[#insert_field_indices]);
                         }
@@ -122,22 +135,22 @@ pub(crate) fn generate_insert_model(
                 result_columns.into_boxed_slice()
             }
 
-            fn values(&self) -> SQL<'a, SQLiteValue<'a>> {
-                let mut sql_parts = Vec::new();
+            fn values(&self) -> #sql<'a, #sqlite_value<'a>> {
+                let mut sql_parts = ::std::vec::Vec::new();
 
                 #(
                     match &self.#insert_field_names {
-                        SQLiteInsertValue::Omit => {}
-                        SQLiteInsertValue::Null => {
-                            sql_parts.push(SQL::param(SQLiteValue::Null));
+                        #sqlite_insert_value::Omit => {}
+                        #sqlite_insert_value::Null => {
+                            sql_parts.push(#sql::param(#sqlite_value::Null));
                         }
-                        SQLiteInsertValue::Value(wrapper) => {
+                        #sqlite_insert_value::Value(wrapper) => {
                             sql_parts.push(wrapper.value.clone());
                         }
                     }
                 )*
 
-                SQL::join(sql_parts, Token::COMMA)
+                #sql::join(sql_parts, #token::COMMA)
             }
         }
     })
@@ -199,18 +212,25 @@ fn generate_constructor_param(
     let base_type = info.base_type;
     let category = info.type_category();
 
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
+    let value_wrapper = sqlite_paths::value_wrapper();
+    let expression = sqlite_paths::expression();
+
     match category {
         TypeCategory::Json => {
             let json_assignment = match info.column_type {
                 SQLiteType::Text => quote! {
                     #field_name: {
-                        let json_str = serde_json::to_string(&#field_name)
+                        let json_str = ::serde_json::to_string(&#field_name)
                             .unwrap_or_else(|_| "null".to_string());
-                        SQLiteInsertValue::Value(
-                            ValueWrapper {
-                                value: expression::json(
-                                    SQL::param(
-                                        SQLiteValue::Text(
+                        #sqlite_insert_value::Value(
+                            #value_wrapper {
+                                value: #expression::json(
+                                    #sql::param(
+                                        #sqlite_value::Text(
                                             ::std::borrow::Cow::Owned(json_str)
                                         )
                                     )),
@@ -221,13 +241,13 @@ fn generate_constructor_param(
                 },
                 SQLiteType::Blob => quote! {
                     #field_name: {
-                        let json_bytes = serde_json::to_vec(&#field_name)
+                        let json_bytes = ::serde_json::to_vec(&#field_name)
                             .unwrap_or_else(|_| "null".as_bytes().to_vec());
-                        SQLiteInsertValue::Value(
-                            ValueWrapper {
-                                value: expression::jsonb(
-                                    SQL::param(
-                                        SQLiteValue::Blob(
+                        #sqlite_insert_value::Value(
+                            #value_wrapper {
+                                value: #expression::jsonb(
+                                    #sql::param(
+                                        #sqlite_value::Blob(
                                             ::std::borrow::Cow::Owned(json_bytes)
                                         )
                                     )),
@@ -243,26 +263,26 @@ fn generate_constructor_param(
         TypeCategory::Uuid => {
             let insert_value_type = info.insert_value_inner_type();
             (
-                quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #insert_value_type>> },
+                quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #insert_value_type>> },
                 quote! { #field_name: #field_name.into() },
             )
         }
         TypeCategory::String => (
-            quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, ::std::string::String>> },
+            quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, ::std::string::String>> },
             quote! { #field_name: #field_name.into() },
         ),
         TypeCategory::Blob => (
-            quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, ::std::vec::Vec<u8>>> },
+            quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, ::std::vec::Vec<u8>>> },
             quote! { #field_name: #field_name.into() },
         ),
         // ArrayString, ArrayVec, Enum use base type directly
         TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Enum => (
-            quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>> },
+            quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),
         // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use base type directly
         _ => (
-            quote! { #field_name: impl Into<SQLiteInsertValue<'a, SQLiteValue<'a>, #base_type>> },
+            quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),
     }

@@ -8,7 +8,173 @@ use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
 use drizzle_core::SQL;
 use drizzle_macros::postgres_test;
-use drizzle_postgres::params;
+use drizzle_postgres::{PostgresValue, params};
+
+// =============================================================================
+// Placeholder Indexing Tests (verify $1, $2, $3... are correct)
+// =============================================================================
+
+/// Test that multiple positional placeholders get correct sequential indices
+#[test]
+fn test_placeholder_indexing_sequential() {
+    // Build a SQL with multiple positional placeholders
+    let sql = SQL::<PostgresValue>::raw("SELECT * FROM users WHERE name = ")
+        .append(SQL::param(PostgresValue::from("Alice")))
+        .append(SQL::raw(" AND age > "))
+        .append(SQL::param(PostgresValue::from(25i32)))
+        .append(SQL::raw(" AND active = "))
+        .append(SQL::param(PostgresValue::from(true)));
+
+    let sql_string = sql.sql();
+    println!("Generated SQL: {}", sql_string);
+
+    // PostgreSQL should use $1, $2, $3 for positional placeholders
+    assert!(
+        sql_string.contains("$1"),
+        "SQL should contain $1, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$2"),
+        "SQL should contain $2, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$3"),
+        "SQL should contain $3, got: {}",
+        sql_string
+    );
+
+    // Verify the order is correct
+    let idx1 = sql_string.find("$1").unwrap();
+    let idx2 = sql_string.find("$2").unwrap();
+    let idx3 = sql_string.find("$3").unwrap();
+    assert!(
+        idx1 < idx2 && idx2 < idx3,
+        "Placeholders should appear in order: $1 at {}, $2 at {}, $3 at {}",
+        idx1,
+        idx2,
+        idx3
+    );
+}
+
+/// Test that named placeholders in PostgreSQL are rendered as $N (not :name)
+/// PostgreSQL only supports $N style placeholders
+#[test]
+fn test_named_placeholder_rendering() {
+    let sql = SQL::<PostgresValue>::raw("SELECT * FROM users WHERE name = ")
+        .append(SQL::placeholder("user_name"))
+        .append(SQL::raw(" AND id = "))
+        .append(SQL::placeholder("user_id"));
+
+    let sql_string = sql.sql();
+    println!("Generated SQL: {}", sql_string);
+
+    // PostgreSQL uses $N style even for named placeholders
+    // The name is used for binding, not for SQL syntax
+    assert!(
+        sql_string.contains("$1"),
+        "SQL should contain $1, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$2"),
+        "SQL should contain $2, got: {}",
+        sql_string
+    );
+
+    // PostgreSQL should NOT use :name style
+    assert!(
+        !sql_string.contains(":user_name"),
+        "PostgreSQL should not use :name style placeholders"
+    );
+}
+
+/// Test mixing named and positional placeholders - all become $N in PostgreSQL
+#[test]
+fn test_mixed_placeholder_styles() {
+    let sql = SQL::<PostgresValue>::raw("SELECT * FROM users WHERE name = ")
+        .append(SQL::placeholder("user_name")) // Named - becomes $1
+        .append(SQL::raw(" AND age > "))
+        .append(SQL::param(PostgresValue::from(25i32))) // Positional - becomes $2
+        .append(SQL::raw(" AND status = "))
+        .append(SQL::placeholder("status")); // Named - becomes $3
+
+    let sql_string = sql.sql();
+    println!("Generated SQL: {}", sql_string);
+
+    // All placeholders in PostgreSQL use $N style
+    assert!(
+        sql_string.contains("$1"),
+        "SQL should contain $1, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$2"),
+        "SQL should contain $2, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$3"),
+        "SQL should contain $3, got: {}",
+        sql_string
+    );
+
+    // PostgreSQL should NOT use :name style
+    assert!(
+        !sql_string.contains(":user_name"),
+        "PostgreSQL should not use :name style"
+    );
+    assert!(
+        !sql_string.contains(":status"),
+        "PostgreSQL should not use :name style"
+    );
+}
+
+/// Test that many positional placeholders maintain correct indexing
+#[test]
+fn test_many_positional_placeholders() {
+    let mut sql = SQL::<PostgresValue>::raw("SELECT * FROM data WHERE ");
+
+    // Add 10 conditions with positional placeholders
+    for i in 0..10 {
+        if i > 0 {
+            sql = sql.append(SQL::raw(" AND "));
+        }
+        sql = sql.append(SQL::raw(format!("col{} = ", i)));
+        sql = sql.append(SQL::param(PostgresValue::from(i as i32)));
+    }
+
+    let sql_string = sql.sql();
+    println!("Generated SQL: {}", sql_string);
+
+    // Verify all placeholders from $1 to $10 are present
+    for i in 1..=10 {
+        let placeholder = format!("${}", i);
+        assert!(
+            sql_string.contains(&placeholder),
+            "SQL should contain {}, got: {}",
+            placeholder,
+            sql_string
+        );
+    }
+
+    // Verify order by finding indices
+    let mut last_idx = 0;
+    for i in 1..=10 {
+        let placeholder = format!("${}", i);
+        let idx = sql_string.find(&placeholder).unwrap();
+        assert!(
+            idx > last_idx || i == 1,
+            "${} should appear after ${}, found at {} vs {}",
+            i,
+            i - 1,
+            idx,
+            last_idx
+        );
+        last_idx = idx;
+    }
+}
 
 #[derive(Debug, PostgresFromRow, Default)]
 struct PgSimpleResult {

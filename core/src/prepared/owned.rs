@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use crate::{
-    OwnedParam, ParamBind, SQL, SQLChunk, ToSQL,
+    DialectExt, OwnedParam, ParamBind, SQL, SQLChunk, ToSQL,
     prepared::{PreparedStatement, bind_parameters_internal},
     traits::SQLParam,
 };

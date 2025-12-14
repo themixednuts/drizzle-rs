@@ -86,9 +86,8 @@ pub(crate) use transaction_builder_join_impl;
 pub use drizzle_core::error::Result;
 pub use drizzle_macros::sql;
 
-// Migration types and macro
-pub use drizzle_macros::include_migrations;
-pub use drizzle_migrations::{Dialect, EmbeddedMigration, EmbeddedMigrations};
+// Migration types
+pub use drizzle_migrations::Dialect;
 
 /// SQLite-specific FromRow derive macro for automatic row-to-struct conversion.
 /// Supports rusqlite, libsql, and turso drivers.
@@ -155,6 +154,7 @@ pub mod sqlite {
     pub use drizzle_sqlite::{SQLiteTransactionType, params, pragma};
 
     // SQLite types and traits
+    pub use drizzle_sqlite::attrs;
     pub use drizzle_sqlite::builder;
     pub use drizzle_sqlite::common;
     pub use drizzle_sqlite::traits;
@@ -284,6 +284,7 @@ pub mod postgres {
     pub use drizzle_postgres::PostgresTransactionType;
 
     // PostgreSQL types and traits
+    pub use drizzle_postgres::attrs;
     pub use drizzle_postgres::builder;
     pub use drizzle_postgres::common;
     pub use drizzle_postgres::traits;
@@ -399,8 +400,17 @@ mod sqlite_tests {
     #[cfg(feature = "rusqlite")]
     #[test]
     fn test_insert() {
+        use drizzle_migrations::config::Config;
         use drizzle_sqlite::builder::Conflict;
 
+        let config = Config::builder()
+            .sqlite()
+            .rusqlite_in_memory()
+            .schema::<Schema>()
+            .breakpoints(true)
+            .out("./drizzle")
+            .build();
+        let d = drizzle::rusqlite::Drizzle::with_config(config);
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let (db, Schema { user, .. }) = drizzle::rusqlite::Drizzle::new(conn, Schema::new());
         db.create().expect("Should have created table");

@@ -1,3 +1,9 @@
+//! Shared code generation helper functions.
+//!
+//! These functions provide reusable trait implementation generators using
+//! fully-qualified paths from the paths module.
+
+use crate::paths::core as core_paths;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
@@ -14,8 +20,11 @@ pub fn generate_sql_column_info(
     foreign_key: TokenStream,
     table: TokenStream,
 ) -> TokenStream {
+    let sql_column_info = core_paths::sql_column_info();
+    let sql_table_info = core_paths::sql_table_info();
+
     quote! {
-        impl SQLColumnInfo for #struct_ident {
+        impl #sql_column_info for #struct_ident {
             fn name(&self) -> &str {
                 #name
             }
@@ -34,10 +43,10 @@ pub fn generate_sql_column_info(
             fn has_default(&self) -> bool {
                 #has_default
             }
-            fn table(&self) -> &dyn SQLTableInfo {
+            fn table(&self) -> &dyn #sql_table_info {
                 #table
             }
-            fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
+            fn foreign_key(&self) -> ::std::option::Option<&'static dyn #sql_column_info> {
                 #foreign_key
             }
         }
@@ -50,21 +59,24 @@ pub fn generate_sql_table_info(
     name: TokenStream,
     columns: TokenStream,
 ) -> TokenStream {
+    let sql_table_info = core_paths::sql_table_info();
+    let sql_column_info = core_paths::sql_column_info();
+
     quote! {
-        impl SQLTableInfo for #struct_ident {
+        impl #sql_table_info for #struct_ident {
             fn name(&self) -> &str {
                 #name
             }
 
-            fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
+            fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
                 #columns
             }
 
-            fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
-                SQLTableInfo::columns(self)
+            fn dependencies(&self) -> ::std::boxed::Box<[&'static dyn #sql_table_info]> {
+                #sql_table_info::columns(self)
                     .iter()
-                    .filter_map(|col| SQLColumnInfo::foreign_key(*col))
-                    .map(|fk_col| SQLColumnInfo::table(fk_col))
+                    .filter_map(|col| #sql_column_info::foreign_key(*col))
+                    .map(|fk_col| #sql_column_info::table(fk_col))
                     .collect()
             }
         }

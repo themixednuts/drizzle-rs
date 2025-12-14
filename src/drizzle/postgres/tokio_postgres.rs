@@ -105,6 +105,62 @@ impl Drizzle {
         };
         (drizzle, schema)
     }
+
+    /// Creates a new `Drizzle` instance from a `Config` with TokioPostgresConnection.
+    ///
+    /// This allows you to use the same configuration for both CLI operations
+    /// and runtime database access. The connection is created from the credentials
+    /// in the config.
+    ///
+    /// **Note**: This spawns a tokio task to drive the connection. Make sure
+    /// you have a tokio runtime available.
+    ///
+    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use drizzle::tokio_postgres::Drizzle;
+    /// use drizzle::postgres::prelude::*;
+    ///
+    /// let config = drizzle_migrations::Config::builder()
+    ///     .schema::<AppSchema>()
+    ///     .postgres()
+    ///     .tokio_postgres("localhost", 5432, "postgres", "password", "mydb")
+    ///     .out("./drizzle")
+    ///     .build_with_credentials();
+    ///
+    /// let (db, schema) = Drizzle::with_config(config).await?;
+    /// ```
+    pub async fn with_config<S: drizzle_migrations::Schema>(
+        config: drizzle_migrations::Config<
+            S,
+            drizzle_migrations::PostgresDialect,
+            drizzle_migrations::TokioPostgresConnection,
+            drizzle_migrations::PostgresCredentials,
+        >,
+    ) -> Result<(Drizzle<S>, S), tokio_postgres::Error> {
+        let creds = &config.credentials;
+        let conn_string = creds.connection_string();
+
+        let (client, connection) =
+            tokio_postgres::connect(&conn_string, tokio_postgres::NoTls).await?;
+
+        // Spawn connection driver task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("postgres connection error: {}", e);
+            }
+        });
+
+        let schema = config.schema;
+
+        let drizzle = Drizzle {
+            client,
+            _schema: PhantomData,
+        };
+        Ok((drizzle, schema))
+    }
 }
 
 impl<S> AsRef<Drizzle<S>> for Drizzle<S> {

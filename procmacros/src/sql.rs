@@ -1,3 +1,4 @@
+use crate::paths::core as core_paths;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
@@ -196,6 +197,9 @@ fn parse_template(template: &str) -> Result<Vec<SqlSegment>> {
 
 /// Generate the TokenStream for the sql! macro implementation
 pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+
     let segments = match input {
         SqlInput::StringLiteral(template) => {
             let template_str = template.value();
@@ -209,7 +213,7 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
 
     if segments.is_empty() {
         return Ok(quote! {
-            SQL::empty()
+            #sql::empty()
         });
     }
 
@@ -221,13 +225,13 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
             SqlSegment::Text(text) => {
                 if !text.is_empty() {
                     segment_tokens.push(quote! {
-                        SQL::raw(#text)
+                        #sql::raw(#text)
                     });
                 }
             }
             SqlSegment::Expression(expr) => {
                 segment_tokens.push(quote! {
-                    ToSQL::to_sql(&#expr)
+                    #to_sql::to_sql(&#expr)
                 });
             }
         }

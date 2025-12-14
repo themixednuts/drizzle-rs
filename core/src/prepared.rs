@@ -2,7 +2,7 @@ pub mod owned;
 
 use crate::prelude::*;
 use crate::{
-    Param, ParamBind, SQL, SQLChunk, ToSQL, prepared::owned::OwnedPreparedStatement,
+    DialectExt, Param, ParamBind, SQL, SQLChunk, ToSQL, prepared::owned::OwnedPreparedStatement,
     traits::SQLParam,
 };
 use compact_str::CompactString;
@@ -93,18 +93,29 @@ where
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
     /// Bind parameters and render final SQL string with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL.
+    /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL.
     pub fn bind<T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
     ) -> (String, impl Iterator<Item = V>) {
+        use crate::Dialect;
         bind_parameters_internal(
             &self.text_segments,
             &self.params,
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref().map(|v| v.as_ref()),
-            |_p, idx| V::DIALECT.render_placeholder(idx),
+            |p, idx| {
+                // Named placeholders use :name syntax only for SQLite
+                // PostgreSQL always uses $N, MySQL always uses ?
+                if let Some(name) = p.placeholder.name
+                    && V::DIALECT == Dialect::SQLite
+                {
+                    Cow::Owned(format!(":{}", name))
+                } else {
+                    V::DIALECT.render_placeholder(idx)
+                }
+            },
         )
     }
 }

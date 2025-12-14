@@ -1,3 +1,4 @@
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -42,6 +43,16 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
     let is_unique = attr.unique;
+
+    // Get paths for fully-qualified types
+    let sql = core_paths::sql();
+    let sql_schema = core_paths::sql_schema();
+    let sql_index = core_paths::sql_index();
+    let sql_index_info = core_paths::sql_index_info();
+    let sql_table_info = core_paths::sql_table_info();
+    let to_sql = core_paths::to_sql();
+    let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
 
     // Extract columns from tuple struct fields: struct UserEmailIdx(User::email);
     let columns = match &input.data {
@@ -150,14 +161,14 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             }
         }
 
-        impl<'a> SQLIndex<'a, SQLiteSchemaType, SQLiteValue<'a>> for #struct_ident
+        impl<'a> #sql_index<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident
         {
             type Table = #table_type;
         }
 
-        impl SQLIndexInfo for #struct_ident
+        impl #sql_index_info for #struct_ident
         {
-            fn table(&self) -> &dyn SQLTableInfo {
+            fn table(&self) -> &dyn #sql_table_info {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #table_type = #table_type::new();
                 &TABLE_INSTANCE
@@ -172,29 +183,29 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             }
         }
 
-        impl<'a> SQLSchema<'a, SQLiteSchemaType, SQLiteValue<'a>> for #struct_ident
+        impl<'a> #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident
         {
             const NAME: &'a str = #index_name;
-            const TYPE: SQLiteSchemaType = {
+            const TYPE: #sqlite_schema_type = {
                 #[allow(non_upper_case_globals)]
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
-                SQLiteSchemaType::Index(&INDEX_INSTANCE)
+                #sqlite_schema_type::Index(&INDEX_INSTANCE)
             };
             const SQL: &'static str = "";
 
-            fn sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                self.to_sql()
+            fn sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+                #to_sql::to_sql(self)
             }
         }
 
-        impl<'a> ToSQL<'a, SQLiteValue<'a>> for #struct_ident
+        impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident
         {
-            fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-                let table_name = <#table_type as SQLSchema<'_, SQLiteSchemaType, SQLiteValue<'_>>>::NAME;
-                let column_names = vec![#(#column_name_exprs),*];
+            fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+                let table_name = <#table_type as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME;
+                let column_names = ::std::vec![#(#column_name_exprs),*];
                 let column_list = column_names.join(", ");
-                let sql = format!("CREATE {}INDEX \"{}\" ON \"{}\" ({})", #unique_keyword, #index_name, table_name, column_list);
-                SQL::raw(sql)
+                let sql = ::std::format!("CREATE {}INDEX \"{}\" ON \"{}\" ({})", #unique_keyword, #index_name, table_name, column_list);
+                #sql::raw(sql)
             }
         }
     })
