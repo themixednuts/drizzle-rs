@@ -3,9 +3,9 @@
 //! This module provides the `Schema` trait that user-defined schema structs
 //! implement (via derive macros) to enable migration generation.
 
-use crate::Dialect;
 use crate::postgres::PostgresSnapshot;
 use crate::sqlite::SQLiteSnapshot;
+use drizzle_types::Dialect;
 
 /// A unified snapshot type that can hold either SQLite or PostgreSQL schema data.
 ///

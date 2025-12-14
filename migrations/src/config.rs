@@ -8,8 +8,7 @@ use clap::{Parser, Subcommand};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
-/// Re-export the unified Dialect enum from drizzle-types
-pub use drizzle_types::Dialect;
+use drizzle_types::Dialect;
 
 /// Configuration errors
 #[derive(Debug, thiserror::Error)]

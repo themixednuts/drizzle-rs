@@ -5,8 +5,8 @@
 //! - Track applied migrations
 //! - Apply pending migrations in order
 
-use crate::config::Dialect;
 use crate::journal::Journal;
+use drizzle_types::Dialect;
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -5,8 +5,8 @@
 
 use serde_json::{Map, Value};
 
-use crate::config::Dialect;
 use crate::version::{POSTGRES_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION};
+use drizzle_types::Dialect;
 
 /// Upgrade a SQLite snapshot from v5 to v6
 ///

@@ -1,11 +1,11 @@
 //! Migration file writer
 
-use crate::config::Dialect;
 use crate::journal::Journal;
 use crate::sqlite::statements::SqliteGenerator;
 use crate::sqlite::{SQLiteSnapshot, SchemaDiff as SqliteSchemaDiff};
 use crate::version::ORIGIN_UUID;
 use crate::words::generate_migration_tag;
+use drizzle_types::Dialect;
 
 use std::fs;
 use std::io;

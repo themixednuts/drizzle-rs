@@ -3,7 +3,7 @@
 //! These match the versions used by drizzle-kit for compatibility.
 //! All version constants are centralized here for maintainability.
 
-use crate::config::Dialect;
+use drizzle_types::Dialect;
 
 /// The origin UUID used for the first migration's prev_id
 pub const ORIGIN_UUID: &str = "00000000-0000-0000-0000-000000000000";

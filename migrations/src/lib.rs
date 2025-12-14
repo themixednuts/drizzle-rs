@@ -40,8 +40,6 @@ pub mod version;
 pub mod words;
 pub mod writer;
 
-pub use config::Dialect;
-
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{Migration, Migrator, MigratorError};
 pub use version::{

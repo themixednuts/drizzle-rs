@@ -5,7 +5,7 @@
 //! that is the current recommended style.
 
 use super::collection::SQLiteDDL;
-use super::ddl::{Column, ForeignKey, Index, PrimaryKey, SqlTypeCategory, Table, UniqueConstraint};
+use super::ddl::{Column, ForeignKey, Index, SqlTypeCategory, Table};
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 

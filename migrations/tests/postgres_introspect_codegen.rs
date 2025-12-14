@@ -4,7 +4,7 @@
 //! correctly handle various PostgreSQL-specific types and constraints.
 
 use drizzle_migrations::{
-    parser::{Dialect, SchemaParser},
+    parser::SchemaParser,
     postgres::{
         PostgresDDL,
         codegen::{CodegenOptions, generate_rust_schema, sql_type_to_rust_type},
@@ -19,6 +19,7 @@ use drizzle_migrations::{
         },
     },
 };
+use drizzle_types::Dialect;
 
 // =============================================================================
 // Helper Functions

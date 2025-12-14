@@ -201,9 +201,7 @@ pub fn prepare_migration_renames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::ddl::{
-        Column, ENTITY_TYPE_COLUMNS, ENTITY_TYPE_SCHEMAS, ENTITY_TYPE_TABLES, Schema, Table,
-    };
+    use crate::postgres::ddl::{Column, Schema, Table};
 
     #[test]
     fn test_empty_diff() {

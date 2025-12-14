@@ -1352,6 +1352,7 @@ dependencies = [
  "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",
+ "drizzle-types",
  "eframe",
  "futures-util",
  "geo-types",

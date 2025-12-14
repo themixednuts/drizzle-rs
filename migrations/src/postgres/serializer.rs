@@ -89,11 +89,10 @@ pub fn load_latest_snapshot(drizzle_folder: &Path) -> SerializerResult<Option<Po
     }
 
     // Read journal to find latest snapshot
-    let journal_contents =
-        std::fs::read_to_string(&journal_path).map_err(|e| SerializerError {
-            message: format!("Failed to read journal: {}", e),
-            path: Some(journal_path.display().to_string()),
-        })?;
+    let journal_contents = std::fs::read_to_string(&journal_path).map_err(|e| SerializerError {
+        message: format!("Failed to read journal: {}", e),
+        path: Some(journal_path.display().to_string()),
+    })?;
 
     let journal: serde_json::Value =
         serde_json::from_str(&journal_contents).map_err(|e| SerializerError {
@@ -114,12 +113,10 @@ pub fn load_latest_snapshot(drizzle_folder: &Path) -> SerializerResult<Option<Po
 
     // Get the last entry's tag
     let last_entry = entries.last().unwrap();
-    let tag = last_entry["tag"]
-        .as_str()
-        .ok_or_else(|| SerializerError {
-            message: "Invalid journal entry: missing tag".to_string(),
-            path: Some(journal_path.display().to_string()),
-        })?;
+    let tag = last_entry["tag"].as_str().ok_or_else(|| SerializerError {
+        message: "Invalid journal entry: missing tag".to_string(),
+        path: Some(journal_path.display().to_string()),
+    })?;
 
     let snapshot_path = meta_folder.join(format!("{}_snapshot.json", tag));
     load_snapshot(&snapshot_path).map(Some)
@@ -231,5 +228,3 @@ mod tests {
         assert_eq!(snapshots.len(), 2);
     }
 }
-
-

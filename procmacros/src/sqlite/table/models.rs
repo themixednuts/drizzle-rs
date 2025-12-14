@@ -139,4 +139,3 @@ fn generate_model_trait_impls(
 
     })
 }
-

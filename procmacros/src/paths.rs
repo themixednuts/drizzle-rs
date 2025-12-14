@@ -194,6 +194,116 @@ pub mod sqlite {
 }
 
 // =============================================================================
+// MIGRATIONS TYPES AND TRAITS
+// =============================================================================
+
+pub mod migrations {
+    use super::*;
+
+    pub fn schema() -> TokenStream {
+        quote!(drizzle::migrations::Schema)
+    }
+
+    pub fn dialect() -> TokenStream {
+        quote!(drizzle::Dialect)
+    }
+
+    pub fn snapshot() -> TokenStream {
+        quote!(drizzle::migrations::Snapshot)
+    }
+
+    // SQLite DDL types
+    pub mod sqlite {
+        use super::*;
+
+        pub fn snapshot() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::SQLiteSnapshot)
+        }
+
+        pub fn entity() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::SqliteEntity)
+        }
+
+        pub fn table() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::Table)
+        }
+
+        pub fn column() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::Column)
+        }
+
+        pub fn index() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::Index)
+        }
+
+        pub fn index_column() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::IndexColumn)
+        }
+
+        pub fn index_origin() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::IndexOrigin)
+        }
+
+        pub fn primary_key() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::PrimaryKey)
+        }
+
+        pub fn unique_constraint() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ddl::UniqueConstraint)
+        }
+
+        pub fn foreign_key() -> TokenStream {
+            quote!(drizzle::migrations::sqlite::ForeignKey)
+        }
+    }
+
+    // PostgreSQL DDL types
+    pub mod postgres {
+        use super::*;
+
+        pub fn snapshot() -> TokenStream {
+            quote!(drizzle::migrations::postgres::PostgresSnapshot)
+        }
+
+        pub fn entity() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::PostgresEntity)
+        }
+
+        pub fn schema_entity() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::Schema)
+        }
+
+        pub fn table() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::Table)
+        }
+
+        pub fn column() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::Column)
+        }
+
+        pub fn identity() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::Identity)
+        }
+
+        pub fn index() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::Index)
+        }
+
+        pub fn primary_key() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::PrimaryKey)
+        }
+
+        pub fn unique_constraint() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::UniqueConstraint)
+        }
+
+        pub fn enum_type() -> TokenStream {
+            quote!(drizzle::migrations::postgres::ddl::Enum)
+        }
+    }
+}
+
+// =============================================================================
 // POSTGRES TYPES AND TRAITS
 // =============================================================================
 
@@ -238,7 +348,11 @@ pub mod postgres {
     }
 
     pub fn drizzle_row() -> TokenStream {
-        quote!(drizzle::postgres::DrizzleRow)
+        quote!(drizzle::postgres::traits::DrizzleRow)
+    }
+
+    pub fn row() -> TokenStream {
+        quote!(drizzle::postgres::Row)
     }
 
     pub fn column_marker() -> TokenStream {

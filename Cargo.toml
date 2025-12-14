@@ -253,6 +253,7 @@ tokio-postgres = [
 drizzle-core = { workspace = true }
 drizzle-macros = { workspace = true }
 drizzle-migrations = { workspace = true }
+drizzle-types = { workspace = true }
 paste = { workspace = true }
 
 # Optional dependencies activated by features

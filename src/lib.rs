@@ -86,8 +86,12 @@ pub(crate) use transaction_builder_join_impl;
 pub use drizzle_core::error::Result;
 pub use drizzle_macros::sql;
 
-// Migration types
-pub use drizzle_migrations::Dialect;
+// Shared types - re-export from drizzle_types
+pub use drizzle_types::Dialect;
+
+// Migrations - re-export for macro-generated code
+#[doc(hidden)]
+pub use drizzle_migrations as migrations;
 
 /// SQLite-specific FromRow derive macro for automatic row-to-struct conversion.
 /// Supports rusqlite, libsql, and turso drivers.
@@ -290,6 +294,10 @@ pub mod postgres {
     pub use drizzle_postgres::traits;
     pub use drizzle_postgres::values;
 
+    // Re-export Row and DrizzleRow for macro-generated code
+    pub use drizzle_postgres::Row;
+    pub use drizzle_postgres::traits::DrizzleRow;
+
     /// PostgreSQL-focused prelude that layers on top of `core::prelude`.
     pub mod prelude {
         pub use crate::core::prelude::*;
@@ -410,7 +418,7 @@ mod sqlite_tests {
             .breakpoints(true)
             .out("./drizzle")
             .build();
-        let d = drizzle::rusqlite::Drizzle::with_config(config);
+        let _d = drizzle::rusqlite::Drizzle::with_config(config);
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let (db, Schema { user, .. }) = drizzle::rusqlite::Drizzle::new(conn, Schema::new());
         db.create().expect("Should have created table");

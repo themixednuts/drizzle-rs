@@ -698,4 +698,3 @@ mod tests {
         assert_eq!(snapshot.ddl.len(), 2);
     }
 }
-

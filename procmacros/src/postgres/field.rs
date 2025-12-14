@@ -1192,14 +1192,14 @@ impl FieldInfo {
                         // identity(always) or identity(by_default) syntax
                         is_generated_identity = true;
                         flags.insert(PostgreSQLFlag::Identity);
-                        
+
                         // Parse the parenthesized content: identity(always) or identity(by_default)
                         if meta.input.peek(syn::token::Paren) {
                             let content;
                             syn::parenthesized!(content in meta.input);
                             let mode_ident: Ident = content.parse()?;
                             let mode_str = mode_ident.to_string().to_ascii_uppercase();
-                            
+
                             match mode_str.as_str() {
                                 "ALWAYS" => {
                                     identity_mode = Some(IdentityMode::Always);
@@ -1214,14 +1214,14 @@ impl FieldInfo {
                                     ));
                                 }
                             }
-                            
+
                             // TODO: Parse optional sequence options after a comma
                             // e.g., identity(always, start = 100, increment = 10)
                         } else {
                             // Default to ALWAYS if no argument
                             identity_mode = Some(IdentityMode::Always);
                         }
-                        
+
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "IDENTITY"));
                     }
                     "GENERATED" => {
@@ -1230,11 +1230,11 @@ impl FieldInfo {
                         if meta.input.peek(syn::token::Paren) {
                             let content;
                             syn::parenthesized!(content in meta.input);
-                            
+
                             // First argument: "stored" or "virtual"
                             let type_ident: Ident = content.parse()?;
                             let type_str = type_ident.to_string().to_ascii_lowercase();
-                            
+
                             let stored = match type_str.as_str() {
                                 "stored" => true,
                                 "virtual" => false,
@@ -1245,11 +1245,11 @@ impl FieldInfo {
                                     ));
                                 }
                             };
-                            
+
                             // Expect comma then expression string
                             content.parse::<Token![,]>()?;
                             let expr_lit: Lit = content.parse()?;
-                            
+
                             let expression = if let Lit::Str(s) = expr_lit {
                                 s.value()
                             } else {
@@ -1258,7 +1258,7 @@ impl FieldInfo {
                                     "Expected string literal for generation expression",
                                 ));
                             };
-                            
+
                             generated_column = Some(GeneratedColumn { expression, stored });
                         } else {
                             return Err(syn::Error::new_spanned(
@@ -1266,7 +1266,7 @@ impl FieldInfo {
                                 "generated() requires arguments: generated(stored|virtual, \"expression\")",
                             ));
                         }
-                        
+
                         marker_exprs.push(Self::make_uppercase_path(path_ident, "GENERATED"));
                     }
                     "JSON" => {

@@ -25,12 +25,7 @@
 
 use std::collections::HashMap;
 
-// =============================================================================
-// Dialect (re-exported from drizzle-types)
-// =============================================================================
-
-/// Re-export the shared Dialect enum
-pub use drizzle_types::Dialect;
+use drizzle_types::Dialect;
 
 /// Extension trait for parser-specific dialect functionality
 pub trait DialectParserExt {

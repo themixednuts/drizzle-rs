@@ -98,14 +98,14 @@ pub(crate) fn generate_field_assignment(
             if field_name.is_some() {
                 quote! {
                     {
-                        use ::drizzle_postgres::DrizzleRow;
+                        use drizzle::postgres::DrizzleRow;
                         DrizzleRow::get_column_by_name::<Option<#target_type>>(row, #idx_or_name)?
                     }
                 }
             } else {
                 quote! {
                     {
-                        use ::drizzle_postgres::DrizzleRow;
+                        use drizzle::postgres::DrizzleRow;
                         DrizzleRow::get_column::<Option<#target_type>>(row, #idx_or_name)?
                     }
                 }
@@ -113,14 +113,14 @@ pub(crate) fn generate_field_assignment(
         } else if field_name.is_some() {
             quote! {
                 {
-                    use ::drizzle_postgres::DrizzleRow;
+                    use drizzle::postgres::DrizzleRow;
                     DrizzleRow::get_column_by_name::<#target_type>(row, #idx_or_name)?
                 }
             }
         } else {
             quote! {
                 {
-                    use ::drizzle_postgres::DrizzleRow;
+                    use drizzle::postgres::DrizzleRow;
                     DrizzleRow::get_column::<#target_type>(row, #idx_or_name)?
                 }
             }
@@ -144,6 +144,3 @@ pub(crate) fn generate_field_assignment(
     };
     Ok(name)
 }
-
-
-

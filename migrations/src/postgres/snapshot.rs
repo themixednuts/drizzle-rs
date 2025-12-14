@@ -106,7 +106,7 @@ pub struct PostgresSnapshotV7 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::ddl::{ENTITY_TYPE_SCHEMAS, ENTITY_TYPE_TABLES, Schema, Table};
+    use crate::postgres::ddl::{Schema, Table};
 
     #[test]
     fn test_new_snapshot() {

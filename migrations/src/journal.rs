@@ -2,8 +2,8 @@
 //!
 //! The journal (_journal.json) tracks all applied migrations in order.
 
-use crate::config::Dialect;
 use crate::version::{JOURNAL_VERSION, snapshot_version};
+use drizzle_types::Dialect;
 use serde::{Deserialize, Serialize};
 
 /// Migration journal - tracks all migrations

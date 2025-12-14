@@ -1,4 +1,4 @@
-use crate::paths::{core as core_paths, postgres as postgres_paths};
+use crate::paths::{core as core_paths, migrations as mig_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Result};
@@ -67,6 +67,21 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     // For Schema trait to_snapshot
     let field_types_for_snapshot: Vec<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
 
+    // Get migrations paths
+    let mig_schema = mig_paths::schema();
+    let mig_dialect = mig_paths::dialect();
+    let mig_snapshot = mig_paths::snapshot();
+    let mig_pg_snapshot = mig_paths::postgres::snapshot();
+    let mig_pg_entity = mig_paths::postgres::entity();
+    let mig_pg_schema_entity = mig_paths::postgres::schema_entity();
+    let mig_pg_table = mig_paths::postgres::table();
+    let mig_pg_column = mig_paths::postgres::column();
+    let mig_pg_identity = mig_paths::postgres::identity();
+    let mig_pg_index = mig_paths::postgres::index();
+    let mig_pg_primary_key = mig_paths::postgres::primary_key();
+    let mig_pg_unique_constraint = mig_paths::postgres::unique_constraint();
+    let mig_pg_enum = mig_paths::postgres::enum_type();
+
     Ok(quote! {
         impl Default for #struct_name {
             fn default() -> Self {
@@ -101,24 +116,24 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
             }
         }
 
-        // Implement drizzle_migrations::Schema trait for migration config
-        impl drizzle_migrations::Schema for #struct_name {
-            fn dialect(&self) -> drizzle_migrations::Dialect {
-                drizzle_migrations::Dialect::PostgreSQL
+        // Implement migrations Schema trait for migration config
+        impl #mig_schema for #struct_name {
+            fn dialect(&self) -> #mig_dialect {
+                #mig_dialect::PostgreSQL
             }
 
-            fn to_snapshot(&self) -> drizzle_migrations::Snapshot {
+            fn to_snapshot(&self) -> #mig_snapshot {
                 // Use type aliases to avoid name collisions with user types
-                type MigSnapshot = drizzle_migrations::postgres::PostgresSnapshot;
-                type MigEntity = drizzle_migrations::postgres::ddl::PostgresEntity;
-                type MigSchema = drizzle_migrations::postgres::ddl::Schema;
-                type MigTable = drizzle_migrations::postgres::ddl::Table;
-                type MigColumn = drizzle_migrations::postgres::ddl::Column;
-                type MigIdentity = drizzle_migrations::postgres::ddl::Identity;
-                type MigIndex = drizzle_migrations::postgres::ddl::Index;
-                type MigPrimaryKey = drizzle_migrations::postgres::ddl::PrimaryKey;
-                type MigUniqueConstraint = drizzle_migrations::postgres::ddl::UniqueConstraint;
-                type MigEnum = drizzle_migrations::postgres::ddl::Enum;
+                type MigSnapshot = #mig_pg_snapshot;
+                type MigEntity = #mig_pg_entity;
+                type MigSchema = #mig_pg_schema_entity;
+                type MigTable = #mig_pg_table;
+                type MigColumn = #mig_pg_column;
+                type MigIdentity = #mig_pg_identity;
+                type MigIndex = #mig_pg_index;
+                type MigPrimaryKey = #mig_pg_primary_key;
+                type MigUniqueConstraint = #mig_pg_unique_constraint;
+                type MigEnum = #mig_pg_enum;
 
                 let mut snapshot = MigSnapshot::new();
 
@@ -227,7 +242,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                     }
                 )*
 
-                drizzle_migrations::Snapshot::Postgres(snapshot)
+                #mig_snapshot::Postgres(snapshot)
             }
         }
     })

@@ -3,7 +3,6 @@
 //! This module provides type checking, naming conventions, and default value
 //! handling for PostgreSQL columns matching drizzle-kit grammar.ts
 
-
 // =============================================================================
 // Naming Conventions
 // =============================================================================
@@ -143,7 +142,10 @@ impl PgTypeCategory {
         }
 
         // Numeric types
-        if is_match(&normalized, r"(?:numeric|decimal)(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*") {
+        if is_match(
+            &normalized,
+            r"(?:numeric|decimal)(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*",
+        ) {
             return Self::Numeric;
         }
         if is_match(&normalized, r"real(?:\s*\[\s*\])*") {
@@ -159,10 +161,16 @@ impl PgTypeCategory {
         }
 
         // String types
-        if is_match(&normalized, r"(?:char|character)(?:\(\d+\))?(?:\s*\[\s*\])*") {
+        if is_match(
+            &normalized,
+            r"(?:char|character)(?:\(\d+\))?(?:\s*\[\s*\])*",
+        ) {
             return Self::Char;
         }
-        if is_match(&normalized, r"(?:varchar|character varying)(?:\(\d+\))?(?:\s*\[\s*\])*") {
+        if is_match(
+            &normalized,
+            r"(?:varchar|character varying)(?:\(\d+\))?(?:\s*\[\s*\])*",
+        ) {
             return Self::Varchar;
         }
         if is_match(&normalized, r"text(?:\s*\[\s*\])*") {
@@ -227,7 +235,10 @@ impl PgTypeCategory {
         if is_match(&normalized, r"halfvec(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*") {
             return Self::HalfVec;
         }
-        if is_match(&normalized, r"sparsevec(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*") {
+        if is_match(
+            &normalized,
+            r"sparsevec(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*",
+        ) {
             return Self::SparseVec;
         }
 
@@ -618,4 +629,3 @@ mod tests {
         assert_eq!(IdentityDefaults::max_for("bigint"), "9223372036854775807");
     }
 }
-

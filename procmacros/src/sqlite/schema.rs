@@ -1,4 +1,4 @@
-use crate::paths::{core as core_paths, sqlite as sqlite_paths};
+use crate::paths::{core as core_paths, migrations as mig_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Result};
@@ -67,6 +67,18 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     // For Schema trait to_snapshot
     let field_types_for_snapshot: Vec<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
 
+    // Get migrations paths
+    let mig_schema = mig_paths::schema();
+    let mig_dialect = mig_paths::dialect();
+    let mig_snapshot = mig_paths::snapshot();
+    let mig_sqlite_snapshot = mig_paths::sqlite::snapshot();
+    let mig_sqlite_entity = mig_paths::sqlite::entity();
+    let mig_sqlite_table = mig_paths::sqlite::table();
+    let mig_sqlite_column = mig_paths::sqlite::column();
+    let mig_sqlite_index = mig_paths::sqlite::index();
+    let mig_sqlite_primary_key = mig_paths::sqlite::primary_key();
+    let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
+
     Ok(quote! {
         impl Default for #struct_name {
             fn default() -> Self {
@@ -101,23 +113,21 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
             }
         }
 
-        // Implement drizzle_migrations::Schema trait for migration config
-        impl drizzle_migrations::Schema for #struct_name {
-            fn dialect(&self) -> drizzle_migrations::Dialect {
-                drizzle_migrations::Dialect::SQLite
+        // Implement migrations Schema trait for migration config
+        impl #mig_schema for #struct_name {
+            fn dialect(&self) -> #mig_dialect {
+                #mig_dialect::SQLite
             }
 
-            fn to_snapshot(&self) -> drizzle_migrations::Snapshot {
+            fn to_snapshot(&self) -> #mig_snapshot {
                 // Use type aliases to avoid name collisions with user types
-                type MigSnapshot = drizzle_migrations::sqlite::SQLiteSnapshot;
-                type MigEntity = drizzle_migrations::sqlite::ddl::SqliteEntity;
-                type MigTable = drizzle_migrations::sqlite::ddl::Table;
-                type MigColumn = drizzle_migrations::sqlite::ddl::Column;
-                type MigIndex = drizzle_migrations::sqlite::ddl::Index;
-                type MigIndexColumn = drizzle_migrations::sqlite::ddl::IndexColumn;
-                type MigIndexOrigin = drizzle_migrations::sqlite::ddl::IndexOrigin;
-                type MigPrimaryKey = drizzle_migrations::sqlite::ddl::PrimaryKey;
-                type MigUniqueConstraint = drizzle_migrations::sqlite::ddl::UniqueConstraint;
+                type MigSnapshot = #mig_sqlite_snapshot;
+                type MigEntity = #mig_sqlite_entity;
+                type MigTable = #mig_sqlite_table;
+                type MigColumn = #mig_sqlite_column;
+                type MigIndex = #mig_sqlite_index;
+                type MigPrimaryKey = #mig_sqlite_primary_key;
+                type MigUniqueConstraint = #mig_sqlite_unique_constraint;
 
                 let mut snapshot = MigSnapshot::new();
 
@@ -192,7 +202,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                     }
                 )*
 
-                drizzle_migrations::Snapshot::Sqlite(snapshot)
+                #mig_snapshot::Sqlite(snapshot)
             }
         }
     })
