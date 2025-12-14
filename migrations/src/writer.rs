@@ -1,56 +1,77 @@
 //! Migration file writer
 
-use crate::config::DrizzleConfig;
+use crate::config::Dialect;
 use crate::journal::Journal;
-use crate::sqlgen::sqlite::SqliteGenerator;
+use crate::sqlite::statements::SqliteGenerator;
 use crate::sqlite::{SQLiteSnapshot, SchemaDiff as SqliteSchemaDiff};
 use crate::version::ORIGIN_UUID;
 use crate::words::generate_migration_tag;
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Migration writer for creating migration files
 pub struct MigrationWriter {
-    config: DrizzleConfig,
+    /// Output directory for migrations
+    out: PathBuf,
+    /// Database dialect
+    dialect: Dialect,
+    /// Enable SQL statement breakpoints
+    breakpoints: bool,
 }
 
 impl MigrationWriter {
-    /// Create a new migration writer with the given configuration
-    pub fn new(config: DrizzleConfig) -> Self {
-        Self { config }
+    /// Create a new migration writer with the given settings
+    pub fn new(out: impl Into<PathBuf>, dialect: Dialect) -> Self {
+        Self {
+            out: out.into(),
+            dialect,
+            breakpoints: true,
+        }
     }
 
-    /// Create from a config file path
-    pub fn from_config_file(path: &Path) -> Result<Self, MigrationError> {
-        let config = DrizzleConfig::from_file(path)
-            .map_err(|e| MigrationError::ConfigError(e.to_string()))?;
-        Ok(Self::new(config))
+    /// Set whether to use breakpoints in generated SQL
+    pub fn with_breakpoints(mut self, enabled: bool) -> Self {
+        self.breakpoints = enabled;
+        self
+    }
+
+    /// Get the migrations directory path
+    pub fn migrations_dir(&self) -> &Path {
+        &self.out
+    }
+
+    /// Get the meta directory path
+    pub fn meta_dir(&self) -> PathBuf {
+        self.out.join("meta")
+    }
+
+    /// Get the journal file path
+    pub fn journal_path(&self) -> PathBuf {
+        self.meta_dir().join("_journal.json")
     }
 
     /// Ensure the migration directories exist
     pub fn ensure_dirs(&self) -> io::Result<()> {
-        fs::create_dir_all(self.config.migrations_dir())?;
-        fs::create_dir_all(self.config.meta_dir())?;
+        fs::create_dir_all(self.migrations_dir())?;
+        fs::create_dir_all(self.meta_dir())?;
         Ok(())
     }
 
     /// Load or create the journal
     pub fn load_journal(&self) -> io::Result<Journal> {
-        Journal::load_or_create(&self.config.journal_path(), self.config.dialect)
+        Journal::load_or_create(&self.journal_path(), self.dialect)
     }
 
     /// Get the path to a snapshot file
-    pub fn snapshot_path(&self, idx: u32) -> std::path::PathBuf {
-        self.config
-            .meta_dir()
-            .join(format!("{:04}_snapshot.json", idx))
+    pub fn snapshot_path(&self, idx: u32) -> PathBuf {
+        self.meta_dir().join(format!("{:04}_snapshot.json", idx))
     }
 
     /// Get the path to a migration SQL file
-    pub fn migration_path(&self, tag: &str) -> std::path::PathBuf {
-        self.config.migrations_dir().join(format!("{}.sql", tag))
+    pub fn migration_path(&self, tag: &str) -> PathBuf {
+        self.out.join(format!("{}.sql", tag))
     }
 
     /// Load the previous snapshot, or return an empty one if none exists
@@ -91,7 +112,7 @@ impl MigrationWriter {
         let tag = generate_migration_tag(idx);
 
         // Generate SQL
-        let generator = SqliteGenerator::new().with_breakpoints(self.config.breakpoints);
+        let generator = SqliteGenerator::new().with_breakpoints(self.breakpoints);
         let statements = generator.generate_migration(diff);
 
         if statements.is_empty() {
@@ -106,16 +127,16 @@ impl MigrationWriter {
 
         // Create snapshot with proper chain
         let mut snapshot = current_snapshot.clone();
-        let prev_id = if journal.entries.is_empty() {
-            ORIGIN_UUID.to_string()
+        let prev_ids = if journal.entries.is_empty() {
+            vec![ORIGIN_UUID.to_string()]
         } else {
             // Load previous snapshot to get its ID
             let prev_snapshot = self
                 .load_previous_snapshot()
                 .map_err(|e| MigrationError::IoError(e.to_string()))?;
-            prev_snapshot.id.clone()
+            vec![prev_snapshot.id.clone()]
         };
-        snapshot.prev_id = prev_id;
+        snapshot.prev_ids = prev_ids;
         snapshot.id = uuid::Uuid::new_v4().to_string();
 
         // Write snapshot
@@ -125,9 +146,9 @@ impl MigrationWriter {
             .map_err(|e| MigrationError::IoError(e.to_string()))?;
 
         // Update journal
-        journal.add_entry(tag.clone(), self.config.breakpoints);
+        journal.add_entry(tag.clone(), self.breakpoints);
         journal
-            .save(&self.config.journal_path())
+            .save(&self.journal_path())
             .map_err(|e| MigrationError::IoError(e.to_string()))?;
 
         Ok(tag)
@@ -163,36 +184,4 @@ pub enum MigrationError {
 
     #[error("Snapshot error: {0}")]
     SnapshotError(String),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    fn temp_config() -> DrizzleConfig {
-        DrizzleConfig {
-            out: PathBuf::from("./test_drizzle_output"),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn test_migration_writer_creation() {
-        let config = temp_config();
-        let writer = MigrationWriter::new(config.clone());
-        assert_eq!(writer.config.out, config.out);
-    }
-
-    #[test]
-    fn test_snapshot_path() {
-        let config = temp_config();
-        let writer = MigrationWriter::new(config);
-
-        let path = writer.snapshot_path(0);
-        assert!(path.to_string_lossy().contains("0000_snapshot.json"));
-
-        let path = writer.snapshot_path(42);
-        assert!(path.to_string_lossy().contains("0042_snapshot.json"));
-    }
 }

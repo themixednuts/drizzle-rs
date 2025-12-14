@@ -227,11 +227,11 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
         .to_string();
 
     match dialect {
-        Dialect::Sqlite => match version.as_str() {
+        Dialect::SQLite => match version.as_str() {
             "5" => upgrade_sqlite_v5_to_v6(json),
             _ => json, // Already latest or unknown
         },
-        Dialect::Postgresql => {
+        Dialect::PostgreSQL => {
             let mut current = json;
             let mut current_version = version;
 
@@ -246,7 +246,37 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
 
             current
         }
-        Dialect::Mysql => json, // MySQL v5 is current, no upgrades needed
+        Dialect::MySQL => json, // MySQL v5 is current, no upgrades needed
+    }
+}
+
+/// Check if a snapshot needs upgrade using the Dialect trait
+///
+/// This provides type-safe version checking using the dialect marker types:
+/// ```ignore
+/// use drizzle_migrations::{Sqlite, DialectTrait};
+/// if Sqlite::needs_upgrade(version) {
+///     // perform upgrade
+/// }
+/// ```
+pub fn needs_upgrade_for_dialect(dialect: Dialect, version: u32) -> bool {
+    use crate::traits::{Dialect as DialectTrait, Mysql, Postgres, Sqlite};
+
+    match dialect {
+        Dialect::SQLite => Sqlite::needs_upgrade_from(version),
+        Dialect::PostgreSQL => Postgres::needs_upgrade_from(version),
+        Dialect::MySQL => Mysql::needs_upgrade_from(version),
+    }
+}
+
+/// Get the latest version for a dialect using the Dialect trait
+pub fn latest_version_for_dialect(dialect: Dialect) -> u32 {
+    use crate::traits::{Dialect as DialectTrait, Mysql, Postgres, Sqlite, Version};
+
+    match dialect {
+        Dialect::SQLite => <Sqlite as DialectTrait>::LatestVersion::NUMBER,
+        Dialect::PostgreSQL => <Postgres as DialectTrait>::LatestVersion::NUMBER,
+        Dialect::MySQL => <Mysql as DialectTrait>::LatestVersion::NUMBER,
     }
 }
 
@@ -276,7 +306,7 @@ mod tests {
 
         let v6 = upgrade_sqlite_v5_to_v6(v5);
 
-        assert_eq!(v6["version"], "6");
+        assert_eq!(v6["version"], SQLITE_SNAPSHOT_VERSION);
         assert!(v6["views"].is_object());
 
         let default = v6["tables"]["users"]["columns"]["metadata"]["default"]
@@ -338,7 +368,7 @@ mod tests {
 
         let v7 = upgrade_postgres_v6_to_v7(v6);
 
-        assert_eq!(v7["version"], "7");
+        assert_eq!(v7["version"], POSTGRES_SNAPSHOT_VERSION);
 
         let columns = &v7["tables"]["public.users"]["indexes"]["idx_name"]["columns"];
         assert!(columns.is_array());
@@ -374,9 +404,9 @@ mod tests {
             "enums": {}
         });
 
-        let latest = upgrade_to_latest(v5, Dialect::Postgresql);
+        let latest = upgrade_to_latest(v5, Dialect::PostgreSQL);
 
-        assert_eq!(latest["version"], "7");
+        assert_eq!(latest["version"], POSTGRES_SNAPSHOT_VERSION);
         assert!(
             latest["tables"]["public.users"]["indexes"]["idx"]["columns"][0]["expression"]
                 .is_string()

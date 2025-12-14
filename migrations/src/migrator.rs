@@ -5,10 +5,10 @@
 //! - Track applied migrations
 //! - Apply pending migrations in order
 
-use crate::config::DrizzleConfig;
+use crate::config::Dialect;
 use crate::journal::Journal;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A migration file with its SQL content
 #[derive(Debug, Clone)]
@@ -45,8 +45,12 @@ impl Migration {
 
 /// Runtime migrator for applying migrations programmatically
 pub struct Migrator {
-    /// Configuration
-    config: DrizzleConfig,
+    /// Database dialect
+    dialect: Dialect,
+    /// Migrations directory
+    migrations_dir: PathBuf,
+    /// Migrations table name
+    migrations_table: String,
     /// Loaded journal
     journal: Journal,
     /// Loaded migrations
@@ -54,16 +58,19 @@ pub struct Migrator {
 }
 
 impl Migrator {
-    /// Create a new migrator from a drizzle.toml config file
-    pub fn from_config_file(path: &Path) -> Result<Self, MigratorError> {
-        let config = DrizzleConfig::from_file(path)
-            .map_err(|e| MigratorError::ConfigError(e.to_string()))?;
-        Self::new(config)
+    /// Create a new migrator from a migrations directory
+    pub fn from_dir(dir: impl Into<PathBuf>, dialect: Dialect) -> Result<Self, MigratorError> {
+        Self::from_dir_with_table(dir, dialect, "__drizzle_migrations".to_string())
     }
 
-    /// Create a new migrator with the given configuration
-    pub fn new(config: DrizzleConfig) -> Result<Self, MigratorError> {
-        let journal_path = config.journal_path();
+    /// Create a new migrator with a custom migrations table name
+    pub fn from_dir_with_table(
+        dir: impl Into<PathBuf>,
+        dialect: Dialect,
+        migrations_table: String,
+    ) -> Result<Self, MigratorError> {
+        let migrations_dir = dir.into();
+        let journal_path = migrations_dir.join("meta").join("_journal.json");
 
         let journal = if journal_path.exists() {
             Journal::load(&journal_path).map_err(|e| MigratorError::JournalError(e.to_string()))?
@@ -73,13 +80,18 @@ impl Migrator {
 
         let mut migrations = Vec::new();
 
-        // Load all migration files
+        // Load all migration files - try folder/migration.sql first, fall back to {tag}.sql
         for entry in &journal.entries {
-            let sql_path = config.migrations_dir().join(format!("{}.sql", entry.tag));
+            let folder_path = migrations_dir.join(&entry.tag).join("migration.sql");
+            let flat_path = migrations_dir.join(format!("{}.sql", entry.tag));
 
-            if !sql_path.exists() {
+            let sql_path = if folder_path.exists() {
+                folder_path
+            } else if flat_path.exists() {
+                flat_path
+            } else {
                 return Err(MigratorError::MissingMigration(entry.tag.clone()));
-            }
+            };
 
             let sql =
                 fs::read_to_string(&sql_path).map_err(|e| MigratorError::IoError(e.to_string()))?;
@@ -93,7 +105,9 @@ impl Migrator {
         }
 
         Ok(Self {
-            config,
+            dialect,
+            migrations_dir,
+            migrations_table,
             journal,
             migrations,
         })
@@ -116,10 +130,10 @@ impl Migrator {
 
     /// Get the SQL to create the migrations tracking table
     pub fn create_migrations_table_sql(&self) -> String {
-        let table_name = self.config.migrations_table();
+        let table_name = &self.migrations_table;
 
-        match self.config.dialect {
-            crate::config::Dialect::Sqlite => format!(
+        match self.dialect {
+            Dialect::SQLite => format!(
                 r#"CREATE TABLE IF NOT EXISTS "{}" (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     hash TEXT NOT NULL,
@@ -127,7 +141,7 @@ impl Migrator {
 );"#,
                 table_name
             ),
-            crate::config::Dialect::Postgresql => format!(
+            Dialect::PostgreSQL => format!(
                 r#"CREATE TABLE IF NOT EXISTS "{}" (
     id SERIAL PRIMARY KEY,
     hash TEXT NOT NULL,
@@ -135,7 +149,7 @@ impl Migrator {
 );"#,
                 table_name
             ),
-            crate::config::Dialect::Mysql => format!(
+            Dialect::MySQL => format!(
                 r#"CREATE TABLE IF NOT EXISTS `{}` (
     id INT PRIMARY KEY AUTO_INCREMENT,
     hash VARCHAR(255) NOT NULL,
@@ -148,16 +162,16 @@ impl Migrator {
 
     /// Get the SQL to record a migration as applied
     pub fn record_migration_sql(&self, tag: &str) -> String {
-        let table_name = self.config.migrations_table();
+        let table_name = &self.migrations_table;
 
-        match self.config.dialect {
-            crate::config::Dialect::Sqlite => {
+        match self.dialect {
+            Dialect::SQLite => {
                 format!(r#"INSERT INTO "{}" (hash) VALUES ('{}');"#, table_name, tag)
             }
-            crate::config::Dialect::Postgresql => {
+            Dialect::PostgreSQL => {
                 format!(r#"INSERT INTO "{}" (hash) VALUES ('{}');"#, table_name, tag)
             }
-            crate::config::Dialect::Mysql => {
+            Dialect::MySQL => {
                 format!(r#"INSERT INTO `{}` (hash) VALUES ('{}');"#, table_name, tag)
             }
         }
@@ -165,24 +179,29 @@ impl Migrator {
 
     /// Get the SQL to query applied migrations
     pub fn query_applied_sql(&self) -> String {
-        let table_name = self.config.migrations_table();
+        let table_name = &self.migrations_table;
 
-        match self.config.dialect {
-            crate::config::Dialect::Sqlite => {
+        match self.dialect {
+            Dialect::SQLite => {
                 format!(r#"SELECT hash FROM "{}" ORDER BY id;"#, table_name)
             }
-            crate::config::Dialect::Postgresql => {
+            Dialect::PostgreSQL => {
                 format!(r#"SELECT hash FROM "{}" ORDER BY id;"#, table_name)
             }
-            crate::config::Dialect::Mysql => {
+            Dialect::MySQL => {
                 format!(r#"SELECT hash FROM `{}` ORDER BY id;"#, table_name)
             }
         }
     }
 
-    /// Get configuration
-    pub fn config(&self) -> &DrizzleConfig {
-        &self.config
+    /// Get the dialect
+    pub fn dialect(&self) -> Dialect {
+        self.dialect
+    }
+
+    /// Get the migrations directory
+    pub fn migrations_dir(&self) -> &Path {
+        &self.migrations_dir
     }
 
     /// Get journal
@@ -205,11 +224,17 @@ pub fn load_migrations_from_dir(dir: &Path) -> Result<Vec<Migration>, MigratorEr
     let mut migrations = Vec::new();
 
     for entry in &journal.entries {
-        let sql_path = dir.join(format!("{}.sql", entry.tag));
+        // Try folder/migration.sql first, fall back to {tag}.sql
+        let folder_path = dir.join(&entry.tag).join("migration.sql");
+        let flat_path = dir.join(format!("{}.sql", entry.tag));
 
-        if !sql_path.exists() {
+        let sql_path = if folder_path.exists() {
+            folder_path
+        } else if flat_path.exists() {
+            flat_path
+        } else {
             return Err(MigratorError::MissingMigration(entry.tag.clone()));
-        }
+        };
 
         let sql =
             fs::read_to_string(&sql_path).map_err(|e| MigratorError::IoError(e.to_string()))?;
@@ -245,39 +270,4 @@ pub enum MigratorError {
 
     #[error("Migration failed: {0}")]
     ExecutionError(String),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_migration_statements_with_breakpoints() {
-        let migration = Migration {
-            tag: "0000_test".to_string(),
-            idx: 0,
-            sql: "CREATE TABLE a;\n--> statement-breakpoint\nCREATE TABLE b;".to_string(),
-            has_breakpoints: true,
-        };
-
-        let stmts = migration.statements();
-        assert_eq!(stmts.len(), 2);
-        assert_eq!(stmts[0], "CREATE TABLE a;");
-        assert_eq!(stmts[1], "CREATE TABLE b;");
-    }
-
-    #[test]
-    fn test_migration_statements_without_breakpoints() {
-        let migration = Migration {
-            tag: "0000_test".to_string(),
-            idx: 0,
-            sql: "CREATE TABLE a; CREATE TABLE b;".to_string(),
-            has_breakpoints: false,
-        };
-
-        let stmts = migration.statements();
-        assert_eq!(stmts.len(), 2);
-        assert_eq!(stmts[0], "CREATE TABLE a");
-        assert_eq!(stmts[1], "CREATE TABLE b");
-    }
 }

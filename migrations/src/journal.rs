@@ -116,15 +116,15 @@ mod tests {
 
     #[test]
     fn test_new_sqlite_journal() {
-        let journal = Journal::new(Dialect::Sqlite);
+        let journal = Journal::new(Dialect::SQLite);
         assert_eq!(journal.version, "7");
-        assert_eq!(journal.dialect, Dialect::Sqlite);
+        assert_eq!(journal.dialect, Dialect::SQLite);
         assert!(journal.entries.is_empty());
     }
 
     #[test]
     fn test_add_entry() {
-        let mut journal = Journal::new(Dialect::Sqlite);
+        let mut journal = Journal::new(Dialect::SQLite);
         journal.add_entry("0000_initial".to_string(), true);
 
         assert_eq!(journal.entries.len(), 1);
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_journal_serialization() {
-        let mut journal = Journal::new(Dialect::Sqlite);
+        let mut journal = Journal::new(Dialect::SQLite);
         journal.add_entry("0000_test".to_string(), true);
 
         let json = journal.to_json().unwrap();

@@ -1,456 +1,384 @@
-//! Schema diff types and logic for SQLite
+//! Schema diff types and logic for SQLite v7 DDL format
+//!
+//! This module provides diffing between DDL collections and
+//! generates migration statements from schema changes.
 
-use super::{
-    CheckConstraint, Column, CompositePK, ForeignKey, Index, SQLiteSnapshot, Table,
-    UniqueConstraint,
+use super::SQLiteSnapshot;
+use super::collection::{DiffType, EntityDiff, SQLiteDDL, diff_ddl};
+use super::ddl::SqliteEntity;
+use super::statements::{
+    AddColumnStatement, CreateIndexStatement, CreateTableStatement, CreateViewStatement,
+    DropColumnStatement, DropIndexStatement, DropTableStatement, DropViewStatement, JsonStatement,
+    TableFull, from_json,
 };
-use std::collections::HashMap;
+use crate::traits::EntityKind;
+use std::collections::{HashMap, HashSet};
+
+// Re-export diff types from collection
+pub use super::collection::{DiffType as SchemaDiffType, EntityDiff as SchemaEntityDiff};
 
 /// Complete schema diff between two snapshots
 #[derive(Debug, Clone, Default)]
 pub struct SchemaDiff {
-    /// Table-level changes
-    pub tables: TablesDiff,
-    /// View-level changes (not yet implemented)
-    pub views: ViewsDiff,
+    /// All entity diffs
+    pub diffs: Vec<EntityDiff>,
 }
 
 impl SchemaDiff {
     /// Check if there are any changes
     pub fn has_changes(&self) -> bool {
-        self.tables.has_changes() || self.views.has_changes()
+        !self.diffs.is_empty()
     }
 
     /// Check if this diff is empty (no changes)
     pub fn is_empty(&self) -> bool {
-        !self.has_changes()
-    }
-}
-
-/// Table-level diff
-#[derive(Debug, Clone, Default)]
-pub struct TablesDiff {
-    /// Tables that need to be created
-    pub created: Vec<Table>,
-    /// Table names that need to be dropped
-    pub deleted: Vec<String>,
-    /// Tables that have been altered
-    pub altered: Vec<AlteredTable>,
-}
-
-impl TablesDiff {
-    /// Check if there are any table changes
-    pub fn has_changes(&self) -> bool {
-        !self.created.is_empty() || !self.deleted.is_empty() || !self.altered.is_empty()
-    }
-}
-
-/// An altered table with detailed changes
-#[derive(Debug, Clone)]
-pub struct AlteredTable {
-    /// Table name
-    pub name: String,
-    /// Column changes
-    pub columns: ColumnsDiff,
-    /// Index changes
-    pub indexes: IndexesDiff,
-    /// Foreign key changes
-    pub foreign_keys: ForeignKeysDiff,
-    /// Unique constraint changes
-    pub unique_constraints: UniqueConstraintsDiff,
-    /// Check constraint changes
-    pub check_constraints: CheckConstraintsDiff,
-    /// Composite primary key changes
-    pub composite_pks: CompositePKsDiff,
-}
-
-impl AlteredTable {
-    /// Check if there are any changes to this table
-    pub fn has_changes(&self) -> bool {
-        self.columns.has_changes()
-            || self.indexes.has_changes()
-            || self.foreign_keys.has_changes()
-            || self.unique_constraints.has_changes()
-            || self.check_constraints.has_changes()
-            || self.composite_pks.has_changes()
-    }
-}
-
-/// Column-level diff
-#[derive(Debug, Clone, Default)]
-pub struct ColumnsDiff {
-    /// Columns to add
-    pub added: Vec<Column>,
-    /// Column names to drop
-    pub deleted: Vec<String>,
-    /// Columns that were altered (old, new)
-    pub altered: Vec<AlteredColumn>,
-}
-
-impl ColumnsDiff {
-    /// Check if there are any column changes
-    pub fn has_changes(&self) -> bool {
-        !self.added.is_empty() || !self.deleted.is_empty() || !self.altered.is_empty()
-    }
-}
-
-/// An altered column with before/after state
-#[derive(Debug, Clone)]
-pub struct AlteredColumn {
-    /// Column name
-    pub name: String,
-    /// Old column definition
-    pub old: Column,
-    /// New column definition
-    pub new: Column,
-}
-
-impl AlteredColumn {
-    /// Check if the type changed
-    pub fn type_changed(&self) -> bool {
-        self.old.sql_type != self.new.sql_type
+        self.diffs.is_empty()
     }
 
-    /// Check if nullability changed
-    pub fn nullability_changed(&self) -> bool {
-        self.old.not_null != self.new.not_null
+    /// Get created entities
+    pub fn created(&self) -> Vec<&EntityDiff> {
+        self.diffs
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Create)
+            .collect()
     }
 
-    /// Check if primary key status changed
-    pub fn primary_key_changed(&self) -> bool {
-        self.old.primary_key != self.new.primary_key
+    /// Get dropped entities
+    pub fn dropped(&self) -> Vec<&EntityDiff> {
+        self.diffs
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Drop)
+            .collect()
     }
 
-    /// Check if autoincrement changed
-    pub fn autoincrement_changed(&self) -> bool {
-        self.old.autoincrement != self.new.autoincrement
+    /// Get altered entities
+    pub fn altered(&self) -> Vec<&EntityDiff> {
+        self.diffs
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Alter)
+            .collect()
     }
 
-    /// Check if default value changed
-    pub fn default_changed(&self) -> bool {
-        self.old.default != self.new.default
+    /// Get diffs filtered by entity kind
+    pub fn by_kind(&self, kind: EntityKind) -> Vec<&EntityDiff> {
+        self.diffs.iter().filter(|d| d.kind == kind).collect()
+    }
+
+    /// Get created tables
+    pub fn created_tables(&self) -> Vec<&EntityDiff> {
+        self.diffs
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Create && d.kind == EntityKind::Table)
+            .collect()
+    }
+
+    /// Get dropped tables
+    pub fn dropped_tables(&self) -> Vec<&EntityDiff> {
+        self.diffs
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Drop && d.kind == EntityKind::Table)
+            .collect()
     }
 }
-
-/// Index-level diff
-#[derive(Debug, Clone, Default)]
-pub struct IndexesDiff {
-    /// Indexes to create
-    pub added: Vec<Index>,
-    /// Index names to drop
-    pub deleted: Vec<String>,
-    /// Indexes that were altered (old, new)
-    pub altered: Vec<(Index, Index)>,
-}
-
-impl IndexesDiff {
-    /// Check if there are any index changes
-    pub fn has_changes(&self) -> bool {
-        !self.added.is_empty() || !self.deleted.is_empty() || !self.altered.is_empty()
-    }
-}
-
-/// Foreign key diff
-#[derive(Debug, Clone, Default)]
-pub struct ForeignKeysDiff {
-    /// Foreign keys to add
-    pub added: Vec<ForeignKey>,
-    /// Foreign key names to drop
-    pub deleted: Vec<String>,
-    /// Foreign keys that were altered (old, new)
-    pub altered: Vec<(ForeignKey, ForeignKey)>,
-}
-
-impl ForeignKeysDiff {
-    /// Check if there are any foreign key changes
-    pub fn has_changes(&self) -> bool {
-        !self.added.is_empty() || !self.deleted.is_empty() || !self.altered.is_empty()
-    }
-}
-
-/// Unique constraint diff
-#[derive(Debug, Clone, Default)]
-pub struct UniqueConstraintsDiff {
-    pub added: Vec<UniqueConstraint>,
-    pub deleted: Vec<String>,
-}
-
-impl UniqueConstraintsDiff {
-    pub fn has_changes(&self) -> bool {
-        !self.added.is_empty() || !self.deleted.is_empty()
-    }
-}
-
-/// Check constraint diff
-#[derive(Debug, Clone, Default)]
-pub struct CheckConstraintsDiff {
-    pub added: Vec<CheckConstraint>,
-    pub deleted: Vec<String>,
-}
-
-impl CheckConstraintsDiff {
-    pub fn has_changes(&self) -> bool {
-        !self.added.is_empty() || !self.deleted.is_empty()
-    }
-}
-
-/// Composite primary key diff
-#[derive(Debug, Clone, Default)]
-pub struct CompositePKsDiff {
-    pub added: Vec<CompositePK>,
-    pub deleted: Vec<String>,
-    pub altered: Vec<(CompositePK, CompositePK)>,
-}
-
-impl CompositePKsDiff {
-    pub fn has_changes(&self) -> bool {
-        !self.added.is_empty() || !self.deleted.is_empty() || !self.altered.is_empty()
-    }
-}
-
-/// View-level diff (placeholder for future implementation)
-#[derive(Debug, Clone, Default)]
-pub struct ViewsDiff {
-    pub created: Vec<String>,
-    pub deleted: Vec<String>,
-}
-
-impl ViewsDiff {
-    pub fn has_changes(&self) -> bool {
-        !self.created.is_empty() || !self.deleted.is_empty()
-    }
-}
-
-// =============================================================================
-// Diff Functions
-// =============================================================================
 
 /// Compare two SQLite snapshots and return the diff
 pub fn diff_snapshots(prev: &SQLiteSnapshot, cur: &SQLiteSnapshot) -> SchemaDiff {
+    let prev_ddl = SQLiteDDL::from_entities(prev.ddl.clone());
+    let cur_ddl = SQLiteDDL::from_entities(cur.ddl.clone());
+
     SchemaDiff {
-        tables: diff_tables(&prev.tables, &cur.tables),
-        views: ViewsDiff::default(), // TODO: Implement view diffing
+        diffs: diff_ddl(&prev_ddl, &cur_ddl),
     }
 }
 
-/// Compare two sets of tables
-fn diff_tables(prev: &HashMap<String, Table>, cur: &HashMap<String, Table>) -> TablesDiff {
-    let mut diff = TablesDiff::default();
-
-    // Find created tables (in cur but not in prev)
-    for (name, table) in cur {
-        if !prev.contains_key(name) {
-            diff.created.push(table.clone());
-        }
+/// Compare two DDL collections directly
+pub fn diff_collections(prev: &SQLiteDDL, cur: &SQLiteDDL) -> SchemaDiff {
+    SchemaDiff {
+        diffs: diff_ddl(prev, cur),
     }
+}
 
-    // Find deleted tables (in prev but not in cur)
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
-        }
-    }
+// =============================================================================
+// Migration Diff Result
+// =============================================================================
 
-    // Find altered tables (in both, but different)
-    for (name, cur_table) in cur {
-        if let Some(prev_table) = prev.get(name) {
-            let altered = diff_table(prev_table, cur_table);
-            if altered.has_changes() {
-                diff.altered.push(altered);
+/// A table rename operation
+#[derive(Debug, Clone)]
+pub struct TableRename {
+    pub from: String,
+    pub to: String,
+}
+
+/// A column rename operation
+#[derive(Debug, Clone)]
+pub struct ColumnRename {
+    pub table: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// Result of computing a migration diff
+#[derive(Debug, Clone, Default)]
+pub struct MigrationDiff {
+    /// JSON statements for the migration
+    pub statements: Vec<JsonStatement>,
+    /// Generated SQL statements
+    pub sql_statements: Vec<String>,
+    /// Renames that occurred (for tracking in snapshot)
+    pub renames: Vec<String>,
+    /// Warning messages
+    pub warnings: Vec<String>,
+}
+
+/// Group diffs by table name
+#[allow(dead_code)]
+fn group_diffs_by_table<'a>(diffs: &[&'a EntityDiff]) -> HashMap<String, Vec<&'a EntityDiff>> {
+    let mut grouped: HashMap<String, Vec<&'a EntityDiff>> = HashMap::new();
+
+    for diff in diffs {
+        if let Some(table) = &diff.table {
+            grouped.entry(table.clone()).or_default().push(*diff);
+        } else {
+            // Extract table from name for columns (format: "table:column")
+            if diff.kind == EntityKind::Column {
+                if let Some(table) = diff.name.split(':').next() {
+                    grouped.entry(table.to_string()).or_default().push(*diff);
+                }
             }
         }
     }
 
-    diff
+    grouped
 }
 
-/// Compare two tables and return the diff
-fn diff_table(prev: &Table, cur: &Table) -> AlteredTable {
-    AlteredTable {
-        name: cur.name.clone(),
-        columns: diff_columns(&prev.columns, &cur.columns),
-        indexes: diff_indexes(&prev.indexes, &cur.indexes),
-        foreign_keys: diff_foreign_keys(&prev.foreign_keys, &cur.foreign_keys),
-        unique_constraints: diff_unique_constraints(
-            &prev.unique_constraints,
-            &cur.unique_constraints,
-        ),
-        check_constraints: diff_check_constraints(&prev.check_constraints, &cur.check_constraints),
-        composite_pks: diff_composite_pks(
-            &prev.composite_primary_keys,
-            &cur.composite_primary_keys,
-        ),
+/// Build a TableFull from DDL for a given table name
+pub fn table_from_ddl(table_name: &str, ddl: &SQLiteDDL) -> TableFull {
+    let entities = ddl.table_entities(table_name);
+
+    TableFull {
+        name: table_name.to_string(),
+        columns: entities.columns.into_iter().cloned().collect(),
+        pk: entities.pk.cloned(),
+        fks: entities.fks.into_iter().cloned().collect(),
+        uniques: entities.uniques.into_iter().cloned().collect(),
+        checks: entities.checks.into_iter().cloned().collect(),
     }
 }
 
-/// Compare two sets of columns
-fn diff_columns(prev: &HashMap<String, Column>, cur: &HashMap<String, Column>) -> ColumnsDiff {
-    let mut diff = ColumnsDiff::default();
+/// Compute a full migration diff between two DDL states
+///
+/// This is a simplified version of the TypeScript ddlDiff function.
+/// For a fully interactive migration with rename detection, you would
+/// need to provide resolver callbacks.
+pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
+    let schema_diff = diff_collections(prev, cur);
+    let mut statements = Vec::new();
+    let mut warnings = Vec::new();
+    let renames = Vec::new();
 
-    // Find added columns
-    for (name, column) in cur {
-        if !prev.contains_key(name) {
-            diff.added.push(column.clone());
+    // Track created/dropped table names
+    let created_table_names: HashSet<String> = schema_diff
+        .created_tables()
+        .iter()
+        .map(|d| d.name.clone())
+        .collect();
+
+    let dropped_table_names: HashSet<String> = schema_diff
+        .dropped_tables()
+        .iter()
+        .map(|d| d.name.clone())
+        .collect();
+
+    // 1. Create tables
+    for table_diff in schema_diff.created_tables() {
+        if let Some(SqliteEntity::Table(table)) = &table_diff.right {
+            let table_full = table_from_ddl(&table.name, cur);
+            statements.push(JsonStatement::CreateTable(CreateTableStatement {
+                table: table_full,
+            }));
         }
     }
 
-    // Find deleted columns
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
+    // 2. Add columns (for existing tables only)
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Create {
+            if let Some(SqliteEntity::Column(col)) = &col_diff.right {
+                // Skip columns for newly created tables
+                if !created_table_names.contains(&col.table) {
+                    // Find associated FK if any
+                    let fk = cur
+                        .fks
+                        .for_table(&col.table)
+                        .into_iter()
+                        .find(|fk| fk.columns.len() == 1 && fk.columns[0] == col.name)
+                        .cloned();
+
+                    statements.push(JsonStatement::AddColumn(AddColumnStatement {
+                        column: col.clone(),
+                        fk,
+                    }));
+                }
+            }
         }
     }
 
-    // Find altered columns
-    for (name, cur_col) in cur {
-        if let Some(prev_col) = prev.get(name)
-            && prev_col != cur_col
-        {
-            diff.altered.push(AlteredColumn {
-                name: name.clone(),
-                old: prev_col.clone(),
-                new: cur_col.clone(),
-            });
+    // 3. Drop indexes
+    for idx_diff in schema_diff.by_kind(EntityKind::Index) {
+        if idx_diff.diff_type == DiffType::Drop {
+            if let Some(SqliteEntity::Index(idx)) = &idx_diff.left {
+                statements.push(JsonStatement::DropIndex(DropIndexStatement {
+                    index: idx.clone(),
+                }));
+            }
         }
     }
 
-    diff
+    // 4. Create indexes (including for newly created tables)
+    for idx_diff in schema_diff.by_kind(EntityKind::Index) {
+        if idx_diff.diff_type == DiffType::Create {
+            if let Some(SqliteEntity::Index(idx)) = &idx_diff.right {
+                statements.push(JsonStatement::CreateIndex(CreateIndexStatement {
+                    index: idx.clone(),
+                }));
+            }
+        }
+    }
+
+    // 5. Alter indexes (drop old, create new)
+    for idx_diff in schema_diff.by_kind(EntityKind::Index) {
+        if idx_diff.diff_type == DiffType::Alter {
+            if let Some(SqliteEntity::Index(old_idx)) = &idx_diff.left {
+                statements.push(JsonStatement::DropIndex(DropIndexStatement {
+                    index: old_idx.clone(),
+                }));
+            }
+            if let Some(SqliteEntity::Index(new_idx)) = &idx_diff.right {
+                statements.push(JsonStatement::CreateIndex(CreateIndexStatement {
+                    index: new_idx.clone(),
+                }));
+            }
+        }
+    }
+
+    // 6. Drop columns (for non-dropped tables)
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Drop {
+            if let Some(SqliteEntity::Column(col)) = &col_diff.left {
+                // Skip columns for dropped tables
+                if !dropped_table_names.contains(&col.table) {
+                    statements.push(JsonStatement::DropColumn(DropColumnStatement {
+                        column: col.clone(),
+                    }));
+                }
+            }
+        }
+    }
+
+    // 7. Drop views
+    for view_diff in schema_diff.by_kind(EntityKind::View) {
+        if view_diff.diff_type == DiffType::Drop {
+            if let Some(SqliteEntity::View(view)) = &view_diff.left {
+                if !view.is_existing {
+                    statements.push(JsonStatement::DropView(DropViewStatement {
+                        view: view.clone(),
+                    }));
+                }
+            }
+        }
+    }
+
+    // 8. Create views
+    for view_diff in schema_diff.by_kind(EntityKind::View) {
+        if view_diff.diff_type == DiffType::Create {
+            if let Some(SqliteEntity::View(view)) = &view_diff.right {
+                if !view.is_existing {
+                    statements.push(JsonStatement::CreateView(CreateViewStatement {
+                        view: view.clone(),
+                    }));
+                }
+            }
+        }
+    }
+
+    // 9. Alter views (drop and recreate)
+    for view_diff in schema_diff.by_kind(EntityKind::View) {
+        if view_diff.diff_type == DiffType::Alter {
+            if let Some(SqliteEntity::View(old_view)) = &view_diff.left {
+                statements.push(JsonStatement::DropView(DropViewStatement {
+                    view: old_view.clone(),
+                }));
+            }
+            if let Some(SqliteEntity::View(new_view)) = &view_diff.right {
+                statements.push(JsonStatement::CreateView(CreateViewStatement {
+                    view: new_view.clone(),
+                }));
+            }
+        }
+    }
+
+    // 10. Drop tables
+    for table_diff in schema_diff.dropped_tables() {
+        statements.push(JsonStatement::DropTable(DropTableStatement {
+            table_name: table_diff.name.clone(),
+        }));
+    }
+
+    // Check for column alterations that require table recreation
+    // (SQLite doesn't support many ALTER TABLE operations)
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Alter {
+            if let Some(SqliteEntity::Column(col)) = &col_diff.right {
+                if col
+                    .generated
+                    .as_ref()
+                    .map(|g| g.gen_type == super::ddl::GeneratedType::Stored)
+                    .unwrap_or(false)
+                {
+                    warnings.push(format!(
+                        "Column '{}' in table '{}' has STORED generated column which requires table recreation",
+                        col.name, col.table
+                    ));
+                }
+            }
+        }
+    }
+
+    // Convert to SQL
+    let result = from_json(statements.clone());
+
+    MigrationDiff {
+        statements,
+        sql_statements: result.sql_statements,
+        renames,
+        warnings,
+    }
 }
 
-/// Compare two sets of indexes
-fn diff_indexes(prev: &HashMap<String, Index>, cur: &HashMap<String, Index>) -> IndexesDiff {
-    let mut diff = IndexesDiff::default();
+/// Prepare rename tracking strings for snapshot storage
+pub fn prepare_migration_renames(
+    table_renames: &[TableRename],
+    column_renames: &[ColumnRename],
+) -> Vec<String> {
+    let mut renames = Vec::new();
 
-    for (name, index) in cur {
-        if !prev.contains_key(name) {
-            diff.added.push(index.clone());
-        }
+    for tr in table_renames {
+        renames.push(format!("table:{}:{}", tr.from, tr.to));
     }
 
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
-        }
+    for cr in column_renames {
+        renames.push(format!("column:{}:{}:{}", cr.table, cr.from, cr.to));
     }
 
-    for (name, cur_idx) in cur {
-        if let Some(prev_idx) = prev.get(name)
-            && prev_idx != cur_idx
-        {
-            diff.altered.push((prev_idx.clone(), cur_idx.clone()));
-        }
-    }
-
-    diff
-}
-
-/// Compare two sets of foreign keys
-fn diff_foreign_keys(
-    prev: &HashMap<String, ForeignKey>,
-    cur: &HashMap<String, ForeignKey>,
-) -> ForeignKeysDiff {
-    let mut diff = ForeignKeysDiff::default();
-
-    for (name, fk) in cur {
-        if !prev.contains_key(name) {
-            diff.added.push(fk.clone());
-        }
-    }
-
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
-        }
-    }
-
-    for (name, cur_fk) in cur {
-        if let Some(prev_fk) = prev.get(name)
-            && prev_fk != cur_fk
-        {
-            diff.altered.push((prev_fk.clone(), cur_fk.clone()));
-        }
-    }
-
-    diff
-}
-
-/// Compare unique constraints
-fn diff_unique_constraints(
-    prev: &HashMap<String, UniqueConstraint>,
-    cur: &HashMap<String, UniqueConstraint>,
-) -> UniqueConstraintsDiff {
-    let mut diff = UniqueConstraintsDiff::default();
-
-    for (name, uc) in cur {
-        if !prev.contains_key(name) {
-            diff.added.push(uc.clone());
-        }
-    }
-
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
-        }
-    }
-
-    diff
-}
-
-/// Compare check constraints
-fn diff_check_constraints(
-    prev: &HashMap<String, CheckConstraint>,
-    cur: &HashMap<String, CheckConstraint>,
-) -> CheckConstraintsDiff {
-    let mut diff = CheckConstraintsDiff::default();
-
-    for (name, cc) in cur {
-        if !prev.contains_key(name) {
-            diff.added.push(cc.clone());
-        }
-    }
-
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
-        }
-    }
-
-    diff
-}
-
-/// Compare composite primary keys
-fn diff_composite_pks(
-    prev: &HashMap<String, CompositePK>,
-    cur: &HashMap<String, CompositePK>,
-) -> CompositePKsDiff {
-    let mut diff = CompositePKsDiff::default();
-
-    for (name, pk) in cur {
-        if !prev.contains_key(name) {
-            diff.added.push(pk.clone());
-        }
-    }
-
-    for name in prev.keys() {
-        if !cur.contains_key(name) {
-            diff.deleted.push(name.clone());
-        }
-    }
-
-    for (name, cur_pk) in cur {
-        if let Some(prev_pk) = prev.get(name)
-            && prev_pk != cur_pk
-        {
-            diff.altered.push((prev_pk.clone(), cur_pk.clone()));
-        }
-    }
-
-    diff
+    renames
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sqlite::{
+        SqliteEntity,
+        ddl::{Column, Table},
+    };
 
     #[test]
     fn test_empty_diff() {
@@ -466,14 +394,14 @@ mod tests {
         let prev = SQLiteSnapshot::new();
         let mut cur = SQLiteSnapshot::new();
 
-        let mut table = Table::new("users");
-        table.add_column(Column::new("id", "integer").primary_key());
-        cur.add_table(table);
+        cur.add_entity(SqliteEntity::Table(Table::new("users")));
+        cur.add_entity(SqliteEntity::Column(
+            Column::new("users", "id", "integer").not_null(),
+        ));
 
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes());
-        assert_eq!(diff.tables.created.len(), 1);
-        assert_eq!(diff.tables.created[0].name, "users");
+        assert_eq!(diff.created_tables().len(), 1);
     }
 
     #[test]
@@ -481,51 +409,10 @@ mod tests {
         let mut prev = SQLiteSnapshot::new();
         let cur = SQLiteSnapshot::new();
 
-        prev.add_table(Table::new("users"));
+        prev.add_entity(SqliteEntity::Table(Table::new("users")));
 
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes());
-        assert_eq!(diff.tables.deleted.len(), 1);
-        assert_eq!(diff.tables.deleted[0], "users");
-    }
-
-    #[test]
-    fn test_column_addition() {
-        let mut prev = SQLiteSnapshot::new();
-        let mut cur = SQLiteSnapshot::new();
-
-        let mut prev_table = Table::new("users");
-        prev_table.add_column(Column::new("id", "integer"));
-        prev.add_table(prev_table);
-
-        let mut cur_table = Table::new("users");
-        cur_table.add_column(Column::new("id", "integer"));
-        cur_table.add_column(Column::new("name", "text"));
-        cur.add_table(cur_table);
-
-        let diff = diff_snapshots(&prev, &cur);
-        assert!(diff.has_changes());
-        assert_eq!(diff.tables.altered.len(), 1);
-        assert_eq!(diff.tables.altered[0].columns.added.len(), 1);
-        assert_eq!(diff.tables.altered[0].columns.added[0].name, "name");
-    }
-
-    #[test]
-    fn test_column_modification() {
-        let mut prev = SQLiteSnapshot::new();
-        let mut cur = SQLiteSnapshot::new();
-
-        let mut prev_table = Table::new("users");
-        prev_table.add_column(Column::new("name", "text"));
-        prev.add_table(prev_table);
-
-        let mut cur_table = Table::new("users");
-        cur_table.add_column(Column::new("name", "text").not_null());
-        cur.add_table(cur_table);
-
-        let diff = diff_snapshots(&prev, &cur);
-        assert!(diff.has_changes());
-        assert_eq!(diff.tables.altered[0].columns.altered.len(), 1);
-        assert!(diff.tables.altered[0].columns.altered[0].nullability_changed());
+        assert_eq!(diff.dropped_tables().len(), 1);
     }
 }
