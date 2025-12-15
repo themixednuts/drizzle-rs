@@ -1,11 +1,8 @@
 //! SQLite implementation for Drizzle
 //!
-//! This crate provides SQLite-specific functionality for Drizzle.
+//! This crate provides SQLite-specific types, query builders, and utilities.
 
-//------------------------------------------------------------------------------
-// Module Declarations
-//------------------------------------------------------------------------------
-
+// Public modules
 pub mod attrs;
 pub mod builder;
 pub mod common;
@@ -16,56 +13,16 @@ pub mod pragma;
 pub mod traits;
 pub mod values;
 
-//------------------------------------------------------------------------------
-// Prelude
-//------------------------------------------------------------------------------
+// Re-export key types at crate root
+pub use builder::QueryBuilder;
+pub use common::SQLiteSchemaType;
+pub use traits::{
+    DrizzleRow, FromSQLiteValue, SQLiteColumn, SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo,
+};
+pub use values::{OwnedSQLiteValue, SQLiteInsertValue, SQLiteValue, ValueWrapper};
 
-/// A prelude module that re-exports commonly used types and traits
-pub mod prelude {
-    pub use crate::SQLiteTransactionType;
-    pub use crate::pragma::Pragma;
-    pub use crate::traits::SQLiteColumn;
-    pub use crate::traits::{DrizzleRow, FromSQLiteValue};
-    pub use crate::values::SQLiteValue;
-
-    // Re-export core traits and types needed by macro-generated code
-    pub use crate::common::SQLiteSchemaType;
-    pub use crate::traits::{SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo};
-    pub use drizzle_core::error::DrizzleError;
-    pub use drizzle_core::{
-        SQL, SQLColumn, SQLColumnInfo, SQLIndexInfo, SQLModel, SQLParam, SQLPartial, SQLSchema,
-        SQLSchemaImpl, SQLTable, SQLTableInfo, ToSQL, Token,
-    };
-
-    // Builder for query construction
-    pub use crate::builder::QueryBuilder;
-
-    // Values and insert types needed by macro-generated code
-    pub use crate::values::{SQLiteInsertValue, ValueWrapper};
-
-    // Re-export modules directly so macro-generated code can use `traits::*`, etc.
-    pub use crate::attrs::*;
-    pub use crate::common;
-    pub use crate::traits;
-    pub use crate::values;
-
-    // Re-export conditions and expression modules
-    pub use crate::conditions;
-    pub use crate::expression;
-
-    // Shared markers (used by both column and table attributes)
-    pub use crate::attrs::{NAME, NameMarker};
-
-    // Re-export rusqlite trait implementations when the feature is enabled
-    #[cfg(feature = "rusqlite")]
-    pub use ::rusqlite::types::ToSql;
-}
-
-pub use self::values::{OwnedSQLiteValue, SQLiteInsertValue, SQLiteValue};
-
-// Re-export ParamBind for use in macros
+// Re-export ParamBind for use in params! macro
 pub use drizzle_core::ParamBind;
-use drizzle_core::SQL;
 
 #[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
 use std::marker::PhantomData;
@@ -227,4 +184,5 @@ macro_rules! params_internal {
     };
 }
 
-pub type SQLiteSQL<'a> = SQL<'a, SQLiteValue<'a>>;
+// Type alias for convenience
+pub type SQLiteSQL<'a> = drizzle_core::SQL<'a, SQLiteValue<'a>>;

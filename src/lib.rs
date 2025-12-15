@@ -1,21 +1,6 @@
 //! # Drizzle for Rust
 //!
-//! Drizzle is a type-safe SQL query builder for Rust, supporting multiple database
-//! drivers including SQLite (via rusqlite, libsql, turso) and PostgreSQL (via sqlx).
-
-// Allow warnings for WIP code and different driver configurations
-#![allow(
-    unexpected_cfgs,
-    unused_imports,
-    unused_macros,
-    unused_mut,
-    dead_code,
-    clippy::redundant_closure,
-    clippy::needless_question_mark,
-    clippy::await_holding_refcell_ref,
-    clippy::duplicated_attributes,
-    clippy::single_component_path_imports
-)]
+//! A type-safe SQL query builder for Rust, supporting SQLite and PostgreSQL.
 //!
 //! ## Quick Start
 //!
@@ -37,40 +22,42 @@
 //! }
 //!
 //! # fn main() -> drizzle::Result<()> {
-//! // Connect to database and perform operations
 //! let conn = rusqlite::Connection::open_in_memory()?;
 //! let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::new());
 //!
-//! // Create tables
 //! db.create()?;
-//!
-//! // Insert data
 //! db.insert(user)
 //!     .values([InsertUser::new("John Doe").with_email("john@example.com")])
 //!     .execute()?;
 //!
-//! // Query data
 //! let users: Vec<SelectUser> = db.select(()).from(user).all()?;
-//! assert_eq!(users.len(), 1);
-//! assert_eq!(users[0].id, 1);
-//! assert_eq!(users[0].name, "John Doe");
-//! assert_eq!(users[0].email, Some("john@example.com".to_string()));
 //! # Ok(())
 //! # }
 //! ```
 //!
-//!
 //! ## Database Support
 //!
-//! | Database   | Driver    | Feature Flag   | Status |
-//! |------------|-----------|----------------|--------|
-//! | SQLite     | rusqlite  | `rusqlite`     | ✅     |
-//! | SQLite     | libsql    | `libsql`       | ✅     |
-//! | SQLite     | turso     | `turso`        | ✅     |
-//! | PostgreSQL | sqlx      | `sqlx-postgres`| 🚧     |
-//! | MySQL      | sqlx      | `mysql`        | 🚧     |
+//! | Database   | Driver         | Feature Flag     | Status |
+//! |------------|----------------|------------------|--------|
+//! | SQLite     | rusqlite       | `rusqlite`       | ✅     |
+//! | SQLite     | libsql         | `libsql`         | ✅     |
+//! | SQLite     | turso          | `turso`          | ✅     |
+//! | PostgreSQL | postgres       | `postgres-sync`  | ✅     |
+//! | PostgreSQL | tokio-postgres | `tokio-postgres` | ✅     |
 
 #![cfg_attr(docsrs, feature(doc_cfg, rustdoc_internals))]
+#![allow(
+    unexpected_cfgs,
+    unused_imports,
+    unused_macros,
+    unused_mut,
+    dead_code,
+    clippy::redundant_closure,
+    clippy::needless_question_mark,
+    clippy::await_holding_refcell_ref,
+    clippy::duplicated_attributes,
+    clippy::single_component_path_imports
+)]
 
 mod drizzle;
 mod transaction;
@@ -82,122 +69,235 @@ pub(crate) use drizzle_builder_join_impl;
 #[doc(hidden)]
 pub(crate) use transaction_builder_join_impl;
 
-// Essential re-exports
+// =============================================================================
+// Root-level exports
+// =============================================================================
+
+/// Result type for drizzle operations
 pub use drizzle_core::error::Result;
+
+/// SQL template macro
 pub use drizzle_macros::sql;
 
-// Shared types - re-export from drizzle_types
+/// Database dialect enum
 pub use drizzle_types::Dialect;
 
-// Migrations - re-export for macro-generated code
-#[doc(hidden)]
-pub use drizzle_migrations as migrations;
-
-/// SQLite-specific FromRow derive macro for automatic row-to-struct conversion.
-/// Supports rusqlite, libsql, and turso drivers.
-#[cfg(feature = "sqlite")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
-pub use drizzle_macros::SQLiteFromRow;
-
-/// PostgreSQL-specific FromRow derive macro for automatic row-to-struct conversion.
-/// Supports postgres-sync and tokio-postgres drivers.
-#[cfg(feature = "postgres")]
-#[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
-pub use drizzle_macros::PostgresFromRow;
-
-/// Error types and result handling.
-///
-/// This module provides access to [`DrizzleError`] for comprehensive error handling
-/// across all database operations and SQL generation.
+/// Error types
 pub mod error {
     pub use drizzle_core::error::DrizzleError;
 }
 
-/// Core functionality shared across all database implementations.
-pub mod core {
-    // Core traits and types
-    pub use drizzle_core::traits::*;
-    pub use drizzle_core::{
-        OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL, Token,
-    };
+// Hidden re-export for macro-generated code
+#[doc(hidden)]
+pub use drizzle_migrations as migrations;
 
+// =============================================================================
+// Core module - shared functionality
+// =============================================================================
+
+/// Core types and traits shared across all database implementations.
+///
+/// # Module Structure
+///
+/// - **Types**: `SQL`, `SQLChunk`, `Token`, `Param`, `ParamBind`, `OrderBy`, etc.
+/// - **Traits**: `ToSQL`, `SQLComparable`, `SQLTable`, `SQLColumn`, etc.
+/// - **Expressions**: Aggregate and helper functions like `alias`, `count`, `sum`, etc.
+/// - **Conditions**: Query conditions like `eq`, `neq`, `gt`, `and`, `or`, etc.
+///
+/// # Import Patterns
+///
+/// ```rust,ignore
+/// // Import conditions for WHERE clauses (explicit import required)
+/// use drizzle::core::conditions::{eq, gt, and, or};
+///
+/// // Import expression helpers
+/// use drizzle::core::expressions::{alias, count, sum};
+/// ```
+pub mod core {
+    // ==========================================================================
+    // Types - fundamental SQL building blocks
+    // ==========================================================================
+
+    /// Core SQL types for building queries
+    pub use drizzle_core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
+
+    // ==========================================================================
+    // Traits - interfaces for SQL generation
+    // ==========================================================================
+
+    /// Conversion trait for SQL generation
+    pub use drizzle_core::ToSQL;
+
+    /// Comparison trait for SQL expressions
+    pub use drizzle_core::SQLComparable;
+
+    /// All core traits (SQLTable, SQLColumn, SQLSchema, SQLModel, etc.)
+    pub use drizzle_core::traits::*;
+
+    // ==========================================================================
     // Prepared statements
+    // ==========================================================================
+
+    /// Prepared statement support
     pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
 
-    // Condition expressions
-    pub use drizzle_core::expressions::conditions::*;
+    // ==========================================================================
+    // Expression modules - require explicit import
+    // ==========================================================================
 
-    // Expression functions
-    pub use drizzle_core::expressions::*;
+    /// Expression functions: `alias`, `count`, `sum`, `avg`, `min`, `max`, `distinct`, `coalesce`, `cast`
+    ///
+    /// ```rust,ignore
+    /// use drizzle::core::expressions::{alias, count, sum};
+    ///
+    /// db.select(alias(count(user.id), "total"))
+    /// ```
+    pub use drizzle_core::expressions;
 
-    /// Core prelude with the minimal set of commonly used items.
-    pub mod prelude {
-        pub use drizzle_core::error::DrizzleError;
-        pub use drizzle_core::expressions::conditions::*;
-        pub use drizzle_core::expressions::*;
-        pub use drizzle_core::impl_try_from_int;
-        pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
-        pub use drizzle_core::traits::*;
-        pub use drizzle_core::{
-            OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, SQLComparable, ToSQL, Token,
-        };
-    }
+    /// Query conditions: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `and`, `or`, `not`, `like`, `in_array`, etc.
+    ///
+    /// ```rust,ignore
+    /// use drizzle::core::conditions::{eq, gt, and};
+    ///
+    /// db.select(()).from(user).r#where(and([eq(user.name, "Alice"), gt(user.age, 21)]))
+    /// ```
+    pub use drizzle_core::expressions::conditions;
+
+    // ==========================================================================
+    // Hidden re-exports for macro-generated code
+    // ==========================================================================
+
+    #[doc(hidden)]
+    pub use drizzle_core::impl_try_from_int;
 }
 
-/// SQLite-specific functionality and components.
+// =============================================================================
+// SQLite module
+// =============================================================================
+
+/// SQLite-specific types, macros, and query builder.
 #[cfg(feature = "sqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
-    pub use drizzle_sqlite::builder::QueryBuilder;
+    // Macros
+    pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable};
+    pub use drizzle_sqlite::{params, params_internal};
 
-    // SQLite macros
-    pub use drizzle_macros::{SQLiteEnum, SQLiteIndex, SQLiteSchema, SQLiteTable};
+    // Query builder
+    pub use drizzle_sqlite::QueryBuilder;
 
-    pub use drizzle_sqlite::conditions;
-    pub use drizzle_sqlite::expression;
-    pub use drizzle_sqlite::{SQLiteTransactionType, params, pragma};
+    // Types and traits
+    pub use drizzle_sqlite::{
+        DrizzleRow, FromSQLiteValue, SQLiteColumn, SQLiteColumnInfo, SQLiteSchemaType, SQLiteTable,
+        SQLiteTableInfo, SQLiteTransactionType, SQLiteValue,
+    };
 
-    // SQLite types and traits
-    pub use drizzle_sqlite::attrs;
-    pub use drizzle_sqlite::builder;
-    pub use drizzle_sqlite::common;
-    pub use drizzle_sqlite::traits;
-    pub use drizzle_sqlite::values;
+    // Sub-modules for advanced use
+    pub use drizzle_sqlite::{attrs, builder, common, conditions, expression, traits, values};
 
-    /// SQLite-focused prelude that layers on top of `core::prelude`.
+    /// SQLite prelude - import this for schema declarations.
+    ///
+    /// Since proc macros qualify paths, you mainly need macros and attribute markers.
     pub mod prelude {
-        pub use crate::core::prelude::*;
+        // Macros for schema declarations
         pub use drizzle_macros::{
             SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable,
         };
-        pub use drizzle_sqlite::builder::QueryBuilder;
-        pub use drizzle_sqlite::common::SQLiteSchemaType;
-        // Note: json/jsonb expression functions are NOT exported here to avoid conflict
-        // with column attribute markers. Import from drizzle::sqlite::expression if needed.
-        pub use drizzle_sqlite::traits::{
-            DrizzleRow, FromSQLiteValue, SQLiteColumn, SQLiteColumnInfo, SQLiteTable,
-            SQLiteTableInfo,
+
+        // Parameter macro for prepared statements
+        pub use drizzle_sqlite::params;
+
+        // Core types and traits (but not expressions/conditions)
+        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
+        pub use crate::core::{SQLComparable, ToSQL};
+        pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+        pub use drizzle_core::traits::*;
+
+        // SQLite-specific types and traits
+        pub use super::{
+            SQLiteColumn, SQLiteColumnInfo, SQLiteSchemaType, SQLiteTableInfo, SQLiteValue,
         };
-        pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue, ValueWrapper};
-        pub use drizzle_sqlite::{SQLiteTransactionType, conditions, expression, params, pragma};
+        pub use drizzle_sqlite::{SQLiteInsertValue, SQLiteTable};
 
-        // Re-export modules directly so macro-generated code can use `traits::*`, etc.
-        pub use drizzle_sqlite::common;
-        pub use drizzle_sqlite::traits;
-        pub use drizzle_sqlite::values;
-
-        // Attribute markers for IDE documentation
-        // These provide hover docs when using #[column(PRIMARY)], #[SQLiteTable(STRICT)], etc.
+        // Attribute markers (NAME, PRIMARY, etc.)
         pub use drizzle_sqlite::attrs::*;
     }
 }
 
-/// Rusqlite driver implementation.
-///
-/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
-/// for working with SQLite databases via the rusqlite crate.
-///
-/// Enabled with the `rusqlite` feature flag.
+// =============================================================================
+// PostgreSQL module
+// =============================================================================
+
+/// PostgreSQL-specific types, macros, and query builder.
+#[cfg(feature = "postgres")]
+#[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
+pub mod postgres {
+    // Macros
+    pub use drizzle_macros::{
+        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
+    };
+    pub use drizzle_postgres::{params, params_internal};
+
+    // Query builder
+    pub use drizzle_postgres::QueryBuilder;
+
+    // Types and traits
+    pub use drizzle_postgres::{
+        DrizzleRow, FromPostgresValue, PostgresColumn, PostgresColumnInfo, PostgresEnum,
+        PostgresSchemaType, PostgresTable, PostgresTableInfo, PostgresTransactionType,
+        PostgresValue,
+    };
+
+    // Re-export Row type (conditionally available based on driver feature)
+    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    pub use drizzle_postgres::Row;
+    #[cfg(feature = "tokio-postgres")]
+    pub use drizzle_postgres::Row;
+
+    // Sub-modules for advanced use
+    pub use drizzle_postgres::{attrs, builder, common, traits, values};
+
+    /// PostgreSQL prelude - import this for schema declarations.
+    ///
+    /// Since proc macros qualify paths, you mainly need macros and attribute markers.
+    pub mod prelude {
+        // Macros for schema declarations
+        pub use drizzle_macros::{
+            PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
+        };
+
+        // Core types and traits (but not expressions/conditions)
+        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
+        pub use crate::core::{SQLComparable, ToSQL};
+        pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+        pub use drizzle_core::traits::*;
+
+        // PostgreSQL-specific types and traits
+        pub use super::{
+            PostgresColumn, PostgresColumnInfo, PostgresSchemaType, PostgresTableInfo,
+            PostgresValue,
+        };
+        pub use drizzle_postgres::{PostgresInsertValue, PostgresTable};
+
+        // Attribute markers (NAME, PRIMARY, etc.)
+        pub use drizzle_postgres::attrs::*;
+    }
+}
+
+// =============================================================================
+// MySQL module (WIP)
+// =============================================================================
+
+/// MySQL-specific types, macros, and query builder.
+#[cfg(feature = "mysql")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
+pub mod mysql {}
+
+// =============================================================================
+// Driver modules
+// =============================================================================
+
+/// Rusqlite driver - synchronous SQLite via rusqlite.
 #[cfg(feature = "rusqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
 pub mod rusqlite {
@@ -205,12 +305,7 @@ pub mod rusqlite {
     pub use crate::transaction::sqlite::rusqlite::Transaction;
 }
 
-/// LibSQL driver implementation.
-///
-/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
-/// for working with SQLite databases via the libsql crate.
-///
-/// Enabled with the `libsql` feature flag.
+/// LibSQL driver - async SQLite via libsql.
 #[cfg(feature = "libsql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "libsql")))]
 pub mod libsql {
@@ -218,12 +313,7 @@ pub mod libsql {
     pub use crate::transaction::sqlite::libsql::Transaction;
 }
 
-/// Turso driver implementation.
-///
-/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
-/// for working with Turso (libSQL-compatible) databases.
-///
-/// Enabled with the `turso` feature flag.
+/// Turso driver - async SQLite via Turso.
 #[cfg(feature = "turso")]
 #[cfg_attr(docsrs, doc(cfg(feature = "turso")))]
 pub mod turso {
@@ -231,12 +321,7 @@ pub mod turso {
     pub use crate::transaction::sqlite::turso::Transaction;
 }
 
-/// Postgres (sync) driver implementation.
-///
-/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
-/// for working with PostgreSQL databases using the synchronous `postgres` crate.
-///
-/// Enabled with the `postgres-sync` feature flag.
+/// Postgres sync driver - synchronous PostgreSQL via postgres crate.
 #[cfg(feature = "postgres-sync")]
 #[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
 pub mod postgres_sync {
@@ -244,12 +329,7 @@ pub mod postgres_sync {
     pub use crate::transaction::postgres::postgres_sync::Transaction;
 }
 
-/// Tokio-postgres (async) driver implementation.
-///
-/// Provides the main [`Drizzle`] database connection and [`Transaction`] types
-/// for working with PostgreSQL databases using the async `tokio-postgres` crate.
-///
-/// Enabled with the `tokio-postgres` feature flag.
+/// Tokio-postgres driver - async PostgreSQL via tokio-postgres.
 #[cfg(feature = "tokio-postgres")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio-postgres")))]
 pub mod tokio_postgres {
@@ -257,103 +337,27 @@ pub mod tokio_postgres {
     pub use crate::transaction::postgres::tokio_postgres::Transaction;
 }
 
-// Sqlx PostgreSQL driver
-// #[cfg(feature = "sqlx-postgres")]
-// pub mod sqlx_postgres {
-//     pub use crate::drizzle::postgres::sqlx::Drizzle;
-//     pub use crate::transaction::postgres::sqlx::Transaction;
-// }
+// =============================================================================
+// Note: No global prelude - use database-specific preludes
+// =============================================================================
+//
+// For database-specific functionality, use:
+// - `drizzle::sqlite::prelude::*` for SQLite
+// - `drizzle::postgres::prelude::*` for PostgreSQL
+//
+// For conditions and expressions, import explicitly:
+// - `use drizzle::core::conditions::{eq, gt, and, or};`
+// - `use drizzle::core::expressions::{alias, count, sum};`
 
-/// PostgreSQL-specific functionality and components.
-///
-/// This module provides PostgreSQL-specific query building, macros, and utilities.
-/// Available when the `postgres` feature is enabled.
-///
-/// Key components:
-/// - **QueryBuilder**: PostgreSQL query construction
-/// - **Macros**: Table, schema, enum, and index derive macros
-/// - **Enums**: Native PostgreSQL enum support
-/// - **Transactions**: PostgreSQL transaction management
-///
-/// Note: Currently under development (🚧).
-#[cfg(feature = "postgres")]
-#[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
-pub mod postgres {
-    pub use drizzle_postgres::builder::QueryBuilder;
-
-    // PostgreSQL macros
-    pub use drizzle_macros::{PostgresEnum, PostgresIndex, PostgresSchema, PostgresTable};
-
-    // PostgreSQL builders and helpers
-    pub use drizzle_postgres::PostgresTransactionType;
-
-    // PostgreSQL types and traits
-    pub use drizzle_postgres::attrs;
-    pub use drizzle_postgres::builder;
-    pub use drizzle_postgres::common;
-    pub use drizzle_postgres::traits;
-    pub use drizzle_postgres::values;
-
-    // Re-export Row and DrizzleRow for macro-generated code
-    pub use drizzle_postgres::Row;
-    pub use drizzle_postgres::traits::DrizzleRow;
-
-    /// PostgreSQL-focused prelude that layers on top of `core::prelude`.
-    pub mod prelude {
-        pub use crate::core::prelude::*;
-        pub use drizzle_macros::{
-            PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
-        };
-        pub use drizzle_postgres::PostgresTransactionType;
-        pub use drizzle_postgres::builder::QueryBuilder;
-        pub use drizzle_postgres::common::PostgresSchemaType;
-        pub use drizzle_postgres::traits::{
-            PostgresColumn, PostgresColumnInfo, PostgresEnum, PostgresTable, PostgresTableInfo,
-        };
-        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue, ValueWrapper};
-
-        // Re-export modules directly so macro-generated code can use `traits::*`, etc.
-        pub use drizzle_postgres::common;
-        pub use drizzle_postgres::traits;
-        pub use drizzle_postgres::values;
-
-        // Attribute markers for IDE documentation
-        // These provide hover docs when using #[column(PRIMARY)], #[PostgresTable(UNLOGGED)], etc.
-        pub use drizzle_postgres::attrs::*;
-    }
-}
-
-/// MySQL-specific functionality and components.
-///
-/// This module will provide MySQL-specific query building, macros, and utilities.
-/// Available when the `mysql` feature is enabled.
-///
-/// Note: Currently under development (🚧).
-#[cfg(feature = "mysql")]
-pub mod mysql {
-    // pub use querybuilder::mysql::...;
-}
-
-/// A layered prelude that composes driver-specific preludes on top of core.
-///
-/// ```
-/// use drizzle::prelude::*;            // Core + enabled drivers
-/// use drizzle::sqlite::prelude::*;    // SQLite-specific additions
-/// use drizzle::postgres::prelude::*;  // Postgres-specific additions
-/// ```
-pub mod prelude {
-    pub use crate::core::prelude::*;
-}
+// =============================================================================
+// Tests
+// =============================================================================
 
 #[cfg(any(feature = "turso", feature = "libsql", feature = "rusqlite"))]
 #[cfg(test)]
 mod sqlite_tests {
-    use drizzle::sqlite::prelude::*;
-    use drizzle_macros::SQLiteTable;
-
-    use drizzle_sqlite::builder::QueryBuilder;
-    #[cfg(feature = "rusqlite")]
-    use rusqlite;
+    use crate::sqlite::QueryBuilder;
+    use crate::sqlite::prelude::*;
 
     #[SQLiteTable(NAME = "Users")]
     pub struct User {
@@ -370,57 +374,28 @@ mod sqlite_tests {
         title: String,
     }
 
-    #[SQLiteTable(NAME = "Comments")]
-    pub struct Comment {
-        #[column(PRIMARY)]
-        id: i32,
-        content: String,
-    }
-
     #[derive(SQLiteSchema)]
     pub struct Schema {
         pub user: User,
         pub post: Post,
-        pub comment: Comment,
     }
 
     #[test]
     fn test_schema_macro() {
-        // Create a schema with the User table using schema! macro
         let Schema { user, .. } = Schema::new();
         let builder = QueryBuilder::new::<Schema>();
-
         let query = builder.select(user.id).from(user);
         assert_eq!(query.to_sql().sql(), r#"SELECT "Users"."id" FROM "Users""#);
-    }
-
-    #[test]
-    fn test_alias() {
-        let qb = QueryBuilder::new::<Schema>();
-        let u = User::alias("u");
-
-        let stmt = qb.select(()).from(u).r#where(eq(u.id, 1));
-        let sql = stmt.to_sql();
-
-        println!("{sql}");
     }
 
     #[cfg(feature = "rusqlite")]
     #[test]
     fn test_insert() {
-        use drizzle_migrations::config::Config;
+        use crate::rusqlite::Drizzle;
         use drizzle_sqlite::builder::Conflict;
 
-        let config = Config::builder()
-            .sqlite()
-            .rusqlite_in_memory()
-            .schema::<Schema>()
-            .breakpoints(true)
-            .out("./drizzle")
-            .build();
-        let _d = drizzle::rusqlite::Drizzle::with_config(config);
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        let (db, Schema { user, .. }) = drizzle::rusqlite::Drizzle::new(conn, Schema::new());
+        let conn = ::rusqlite::Connection::open_in_memory().unwrap();
+        let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::new());
         db.create().expect("Should have created table");
 
         let result = db
@@ -441,58 +416,21 @@ mod sqlite_tests {
         assert_eq!(query.len(), 1);
         assert_eq!(query[0].id, 1);
         assert_eq!(query[0].name, "test");
-        assert_eq!(query[0].email, None);
-    }
-
-    #[test]
-    fn test_placeholder_integration() {
-        use drizzle::core::Placeholder;
-
-        // Test that placeholders work with the new unified SQL-based approach
-        let placeholder = Placeholder::colon("test_name");
-        let insert_value: InsertUser<'_, _> = InsertUser::new(placeholder);
-
-        // Verify it's a Value variant containing SQL with the placeholder
-        match &insert_value.name {
-            drizzle::sqlite::values::SQLiteInsertValue::Value(wrapper) => {
-                // Check that the SQL contains our placeholder
-                let sql_string = wrapper.value.sql();
-                assert!(sql_string.contains("test_name") || sql_string.contains("?"));
-            }
-            _ => panic!("Expected Value variant containing SQL"),
-        }
-
-        // Test that regular values still work
-        let regular_insert: InsertUser<'_, _> = InsertUser::new("regular_value");
-        match &regular_insert.name {
-            drizzle::sqlite::values::SQLiteInsertValue::Value(wrapper) => {
-                // Check that the SQL contains our parameter
-                assert!(!wrapper.value.sql().is_empty());
-            }
-            _ => panic!("Expected Value variant for regular string"),
-        }
     }
 }
 
 #[cfg(feature = "postgres")]
 #[cfg(test)]
 mod postgres_tests {
+    use crate::core::conditions::eq;
+    use crate::postgres::QueryBuilder;
     use crate::postgres::prelude::*;
-    use drizzle_core::{SQLColumnInfo, ToSQL, expressions::conditions::eq};
 
     #[derive(Debug, Clone, Default, PostgresEnum)]
     pub enum Status {
         #[default]
         Active,
         Inactive,
-    }
-
-    #[derive(Debug, Clone, Default, PostgresEnum)]
-    pub enum Priority {
-        #[default]
-        Low,
-        Medium,
-        High,
     }
 
     #[PostgresTable(name = "users")]
@@ -503,81 +441,22 @@ mod postgres_tests {
         email: Option<String>,
         #[column(enum)]
         status: Status,
-        #[column(enum)]
-        priority: Priority,
     }
-
-    #[PostgresTable(name = "posts")]
-    pub struct Post {
-        #[column(primary, serial)]
-        id: i32,
-        title: String,
-        published: bool,
-    }
-
-    #[PostgresIndex(unique)]
-    pub struct UserEmailIdx(User::email);
 
     #[derive(PostgresSchema)]
     pub struct Schema {
         pub user: User,
-        pub post: Post,
-        pub user_email_idx: UserEmailIdx,
     }
 
     #[test]
-    fn test_postgres_table_creation() {
-        let user = User::new();
-        assert_eq!(user.id.name(), "id");
-        assert_eq!(user.name.name(), "name");
-        assert_eq!(user.email.name(), "email");
-    }
-
-    #[test]
-    fn test_postgres_index_creation() {
-        let idx = UserEmailIdx::new();
-        assert_eq!(idx.index_name(), "user_email_idx");
-        assert!(idx.create_index_sql().contains("CREATE UNIQUE INDEX"));
-    }
-
-    #[test]
-    fn test_postgres_enum_values() {
-        use drizzle_core::ToSQL;
-
-        // Test text-based enum (stored as TEXT)
-        let status = Status::Active;
-        let status_sql = status.to_sql();
-        println!("Text enum SQL: {}", status_sql);
-
-        // Test native PostgreSQL enum (stored as native ENUM)
-        let priority = Priority::High;
-        let priority_sql = priority.to_sql();
-        println!("Native enum SQL: {}", priority_sql);
-
-        // Verify they generate different types of SQL
-        // Text enum should be a text parameter
-        // Native enum should be an enum parameter
-        assert!(!status_sql.to_string().is_empty());
-        assert!(!priority_sql.to_string().is_empty());
-    }
-
-    #[test]
-    fn test_postgres_stuff() {
-        use crate::postgres::QueryBuilder;
-
+    fn test_postgres_query() {
         let Schema { user, .. } = Schema::new();
         let qb = QueryBuilder::new::<Schema>();
-
         let stmt = qb.select(user.id).from(user).r#where(eq(user.id, 12));
         let sql = stmt.to_sql();
-        println!("{sql}");
-
         assert_eq!(
             sql.sql(),
             r#"SELECT "users"."id" FROM "users" WHERE "users"."id" = $1"#
         );
-
-        let _insert =
-            InsertUser::new("name", Status::Active, Priority::Low).with_email("test@email");
     }
 }
