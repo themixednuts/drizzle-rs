@@ -4,7 +4,6 @@
 #[cfg(feature = "postgres")]
 mod unit_tests {
     use crate::common::schema::postgres::*;
-    use drizzle::prelude::*;
 
     #[test]
     fn test_enum_from_str() {
@@ -66,6 +65,7 @@ mod unit_tests {
 ))]
 mod execution {
     use crate::common::schema::postgres::*;
+    use drizzle::core::conditions::*;
     use drizzle::postgres::prelude::*;
     use drizzle_macros::postgres_test;
 

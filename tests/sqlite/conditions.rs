@@ -3,6 +3,9 @@
 use crate::common::schema::sqlite::{
     ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
 };
+use drizzle::core::conditions::*;
+use drizzle::core::expressions::*;
+use drizzle::sqlite::conditions::json_extract;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
@@ -386,7 +389,6 @@ sqlite_test!(test_string_operations, SimpleSchema, {
 #[cfg(all(feature = "sqlite", feature = "serde"))]
 sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
     use crate::common::schema::sqlite::{ComplexSchema, UserMetadata};
-    use drizzle::sqlite::conditions::*;
 
     let ComplexSchema { complex } = schema;
 

@@ -3,6 +3,8 @@
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{ComplexSchema, InsertComplex};
 use crate::common::schema::sqlite::{InsertSimple, Role, SelectSimple, SimpleSchema};
+use drizzle::core::conditions::*;
+use drizzle::core::expressions::*;
 use drizzle::sql;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;

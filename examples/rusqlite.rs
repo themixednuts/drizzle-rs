@@ -19,7 +19,7 @@ fn main() {
 
     #[cfg(feature = "rusqlite")]
     {
-        use drizzle::core::eq;
+        use drizzle::core::conditions::eq;
 
         let conn = Connection::open_in_memory().expect("open connection");
         let (db, Schema { users, posts }) = drizzle::rusqlite::Drizzle::new(conn, Schema::new());

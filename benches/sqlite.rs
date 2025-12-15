@@ -1,6 +1,11 @@
 #![allow(clippy::redundant_closure)]
 
 use divan::{AllocProfiler, Bencher, black_box};
+use drizzle::core::{
+    SQLSchema,
+    expressions::conditions::eq,
+    expressions::{alias, count},
+};
 use drizzle::sqlite::prelude::*;
 
 #[global_allocator]

@@ -4,6 +4,8 @@
 ))]
 
 use arrayvec::{ArrayString, ArrayVec};
+use drizzle::core::conditions::*;
+use drizzle::core::expressions::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 

@@ -6,6 +6,7 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::schema::postgres::*;
+use drizzle::core::conditions::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
