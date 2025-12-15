@@ -36,6 +36,7 @@ impl<S: Schema> Config<S, SqliteDialect, LibsqlConnection, LibsqlCredentials> {
 
         let result = match args.command {
             CliCommand::Generate { name, custom } => self.cmd_generate(name, custom),
+            CliCommand::Migrate => self.migrate().await,
             CliCommand::Status => self.cmd_status(),
             CliCommand::Push => self.push().await,
             CliCommand::Introspect { output } => self.introspect(output).await,
@@ -45,6 +46,109 @@ impl<S: Schema> Config<S, SqliteDialect, LibsqlConnection, LibsqlCredentials> {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+
+    /// Run pending migrations from the migrations folder.
+    pub async fn migrate(&self) -> Result<(), ConfigError> {
+        use crate::journal::Journal;
+
+        println!("🚀 Running migrations on LibSQL database...");
+        println!("  Path: {}", self.credentials.path);
+
+        let journal_path = self.journal_path();
+        if !journal_path.exists() {
+            println!("No migrations found.");
+            return Ok(());
+        }
+
+        let journal =
+            Journal::load(&journal_path).map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+        if journal.entries.is_empty() {
+            println!("No migrations found.");
+            return Ok(());
+        }
+
+        // Connect to the database
+        let db = libsql::Builder::new_local(&self.credentials.path)
+            .build()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let conn = db
+            .connect()
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        // Create migrations tracking table if it doesn't exist
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )",
+            (),
+        )
+        .await
+        .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        // Get already applied migrations
+        let mut rows = conn
+            .query("SELECT hash FROM __drizzle_migrations", ())
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let mut applied = std::collections::HashSet::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        {
+            let hash: String = row
+                .get(0)
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+            applied.insert(hash);
+        }
+
+        let mut applied_count = 0;
+        for entry in &journal.entries {
+            if applied.contains(&entry.tag) {
+                continue;
+            }
+
+            let migration_path = self.migrations_dir().join(&entry.tag).join("migration.sql");
+            if !migration_path.exists() {
+                return Err(ConfigError::IoError(format!(
+                    "Migration file not found: {}",
+                    migration_path.display()
+                )));
+            }
+
+            let sql = std::fs::read_to_string(&migration_path)
+                .map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+            println!("  Applying: {}", entry.tag);
+
+            // Execute the migration
+            conn.execute_batch(&sql)
+                .await
+                .map_err(|e| ConfigError::ConnectionError(format!("Migration failed: {}", e)))?;
+
+            // Record the migration
+            conn.execute(
+                "INSERT INTO __drizzle_migrations (hash) VALUES (?)",
+                libsql::params![entry.tag.clone()],
+            )
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+            applied_count += 1;
+        }
+
+        if applied_count == 0 {
+            println!("✓ All migrations already applied.");
+        } else {
+            println!("✓ Applied {} migration(s).", applied_count);
+        }
+
+        Ok(())
     }
 
     /// Introspect the SQLite database via libsql and generate a snapshot.
@@ -470,18 +574,5 @@ impl<S: Schema> Config<S, SqliteDialect, LibsqlConnection, LibsqlCredentials> {
     /// This calls the sync implementation since it only involves file I/O.
     pub async fn status(&self) -> Result<(), ConfigError> {
         self.cmd_status()
-    }
-
-    /// Run a CLI command asynchronously.
-    ///
-    /// This allows users to integrate with their own async runtime.
-    /// Parse CLI args with `CliArgs::parse()` and pass the command here.
-    pub async fn run_command(&self, command: CliCommand) -> Result<(), ConfigError> {
-        match command {
-            CliCommand::Generate { name, custom } => self.generate(name, custom).await,
-            CliCommand::Status => self.status().await,
-            CliCommand::Push => self.push().await,
-            CliCommand::Introspect { output } => self.introspect(output).await,
-        }
     }
 }

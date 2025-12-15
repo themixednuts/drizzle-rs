@@ -16,7 +16,7 @@ pub struct CliArgs {
 /// CLI subcommands
 #[derive(Subcommand, Debug)]
 pub enum CliCommand {
-    /// Generate a new migration
+    /// Generate a new migration from schema changes
     Generate {
         /// Migration name (optional, auto-generated if not provided)
         #[arg(short, long)]
@@ -26,6 +26,8 @@ pub enum CliCommand {
         #[arg(long)]
         custom: bool,
     },
+    /// Run pending migrations from the migrations folder
+    Migrate,
     /// Show migration status
     Status,
     /// Push schema changes directly to the database (no migration file)

@@ -36,6 +36,7 @@ impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCred
 
         let result = match args.command {
             CliCommand::Generate { name, custom } => self.cmd_generate(name, custom),
+            CliCommand::Migrate => self.migrate().await,
             CliCommand::Status => self.cmd_status(),
             CliCommand::Push => self.push().await,
             CliCommand::Introspect { output } => self.introspect(output).await,
@@ -45,6 +46,109 @@ impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCred
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+
+    /// Run pending migrations from the migrations folder.
+    ///
+    /// This reads the journal to find pending migrations, executes them in order,
+    /// and tracks which migrations have been applied in the `__drizzle_migrations` table.
+    pub async fn migrate(&self) -> Result<(), ConfigError> {
+        use crate::journal::Journal;
+
+        println!("🚀 Running migrations on PostgreSQL database...");
+        println!(
+            "  Host: {}:{}",
+            self.credentials.host, self.credentials.port
+        );
+        println!("  DB:   {}", self.credentials.database);
+
+        let journal_path = self.journal_path();
+        if !journal_path.exists() {
+            println!("No migrations found.");
+            return Ok(());
+        }
+
+        let journal =
+            Journal::load(&journal_path).map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+        if journal.entries.is_empty() {
+            println!("No migrations found.");
+            return Ok(());
+        }
+
+        // Connect to the database
+        let (client, connection) = self.connect().await?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("Connection error: {}", e);
+            }
+        });
+
+        // Create migrations tracking table if it doesn't exist
+        client
+            .execute(
+                "CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+                    id SERIAL PRIMARY KEY,
+                    hash TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )",
+                &[],
+            )
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        // Get already applied migrations
+        let rows = client
+            .query("SELECT hash FROM __drizzle_migrations", &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let applied: std::collections::HashSet<String> =
+            rows.iter().map(|row| row.get(0)).collect();
+
+        let mut applied_count = 0;
+        for entry in &journal.entries {
+            if applied.contains(&entry.tag) {
+                continue;
+            }
+
+            let migration_path = self.migrations_dir().join(&entry.tag).join("migration.sql");
+            if !migration_path.exists() {
+                return Err(ConfigError::IoError(format!(
+                    "Migration file not found: {}",
+                    migration_path.display()
+                )));
+            }
+
+            let sql = std::fs::read_to_string(&migration_path)
+                .map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+            println!("  Applying: {}", entry.tag);
+
+            // Execute the migration
+            client
+                .batch_execute(&sql)
+                .await
+                .map_err(|e| ConfigError::ConnectionError(format!("Migration failed: {}", e)))?;
+
+            // Record the migration
+            client
+                .execute(
+                    "INSERT INTO __drizzle_migrations (hash) VALUES ($1)",
+                    &[&entry.tag],
+                )
+                .await
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+            applied_count += 1;
+        }
+
+        if applied_count == 0 {
+            println!("✓ All migrations already applied.");
+        } else {
+            println!("✓ Applied {} migration(s).", applied_count);
+        }
+
+        Ok(())
     }
 
     /// Connect to the PostgreSQL database and return the client.
@@ -63,7 +167,20 @@ impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCred
         let conn_str = self.credentials.connection_string();
         tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
             .await
-            .map_err(|e| ConfigError::ConnectionError(e.to_string()))
+            .map_err(|e| {
+                // Mask password in connection string for error message
+                let masked_conn_str = format!(
+                    "host={} port={} user={} password=*** dbname={}",
+                    self.credentials.host,
+                    self.credentials.port,
+                    self.credentials.username,
+                    self.credentials.database
+                );
+                ConfigError::ConnectionError(format!(
+                    "Failed to connect to PostgreSQL: {}\n  Connection: {}",
+                    e, masked_conn_str
+                ))
+            })
     }
 
     /// Introspect the PostgreSQL database via tokio-postgres and generate a snapshot.
@@ -420,18 +537,5 @@ impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCred
     /// This calls the sync implementation since it only involves file I/O.
     pub async fn status(&self) -> Result<(), ConfigError> {
         self.cmd_status()
-    }
-
-    /// Run a CLI command asynchronously.
-    ///
-    /// This allows users to integrate with their own async runtime.
-    /// Parse CLI args with `CliArgs::parse()` and pass the command here.
-    pub async fn run_command(&self, command: CliCommand) -> Result<(), ConfigError> {
-        match command {
-            CliCommand::Generate { name, custom } => self.generate(name, custom).await,
-            CliCommand::Status => self.status().await,
-            CliCommand::Push => self.push().await,
-            CliCommand::Introspect { output } => self.introspect(output).await,
-        }
     }
 }

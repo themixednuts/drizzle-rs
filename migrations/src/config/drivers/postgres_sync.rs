@@ -22,6 +22,7 @@ impl<S: Schema> Config<S, PostgresDialect, PostgresSyncConnection, PostgresCrede
 
         let result = match args.command {
             CliCommand::Generate { name, custom } => self.cmd_generate(name, custom),
+            CliCommand::Migrate => self.cmd_migrate(),
             CliCommand::Status => self.cmd_status(),
             CliCommand::Push => self.cmd_push(),
             CliCommand::Introspect { output } => self.cmd_introspect(output),
@@ -31,6 +32,99 @@ impl<S: Schema> Config<S, PostgresDialect, PostgresSyncConnection, PostgresCrede
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+
+    /// Run pending migrations from the migrations folder.
+    fn cmd_migrate(&self) -> Result<(), ConfigError> {
+        use crate::journal::Journal;
+
+        println!("🚀 Running migrations on PostgreSQL database...");
+        println!(
+            "  Host: {}:{}",
+            self.credentials.host, self.credentials.port
+        );
+        println!("  DB:   {}", self.credentials.database);
+
+        let journal_path = self.journal_path();
+        if !journal_path.exists() {
+            println!("No migrations found.");
+            return Ok(());
+        }
+
+        let journal =
+            Journal::load(&journal_path).map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+        if journal.entries.is_empty() {
+            println!("No migrations found.");
+            return Ok(());
+        }
+
+        // Connect to the database
+        let conn_str = self.credentials.connection_string();
+        let mut client = postgres::Client::connect(&conn_str, postgres::NoTls)
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        // Create migrations tracking table if it doesn't exist
+        client
+            .execute(
+                "CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+                    id SERIAL PRIMARY KEY,
+                    hash TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )",
+                &[],
+            )
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        // Get already applied migrations
+        let rows = client
+            .query("SELECT hash FROM __drizzle_migrations", &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let applied: std::collections::HashSet<String> =
+            rows.iter().map(|row| row.get(0)).collect();
+
+        let mut applied_count = 0;
+        for entry in &journal.entries {
+            if applied.contains(&entry.tag) {
+                continue;
+            }
+
+            let migration_path = self.migrations_dir().join(&entry.tag).join("migration.sql");
+            if !migration_path.exists() {
+                return Err(ConfigError::IoError(format!(
+                    "Migration file not found: {}",
+                    migration_path.display()
+                )));
+            }
+
+            let sql = std::fs::read_to_string(&migration_path)
+                .map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+            println!("  Applying: {}", entry.tag);
+
+            // Execute the migration
+            client
+                .batch_execute(&sql)
+                .map_err(|e| ConfigError::ConnectionError(format!("Migration failed: {}", e)))?;
+
+            // Record the migration
+            client
+                .execute(
+                    "INSERT INTO __drizzle_migrations (hash) VALUES ($1)",
+                    &[&entry.tag],
+                )
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+            applied_count += 1;
+        }
+
+        if applied_count == 0 {
+            println!("✓ All migrations already applied.");
+        } else {
+            println!("✓ Applied {} migration(s).", applied_count);
+        }
+
+        Ok(())
     }
 
     /// Introspect the PostgreSQL database and generate a snapshot

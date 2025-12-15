@@ -61,6 +61,9 @@
 //! # Generate with a custom name
 //! cargo run --bin drizzle -- generate --name "add_users_table"
 //!
+//! # Run pending migrations
+//! cargo run --bin drizzle -- migrate
+//!
 //! # Push schema directly to database (no migration file)
 //! cargo run --bin drizzle -- push
 //!
@@ -124,9 +127,9 @@ pub use schema::{Schema, Snapshot};
 
 // Re-export Config typestate types for Rust-based configuration
 pub use config::{
-    CliArgs, CliCommand, Config, ConfigBuilder, ConfigError, DialectMarker, LibsqlCredentials,
-    MysqlDialect, NoConnection, NoCredentials, NoDialect, NoSchema, PostgresCredentials,
-    PostgresDialect, SqliteCredentials, SqliteDialect, TursoCredentials,
+    Config, ConfigBuilder, ConfigError, DialectMarker, LibsqlCredentials, MysqlDialect,
+    NoConnection, NoCredentials, NoDialect, NoSchema, PostgresCredentials, PostgresDialect,
+    SqliteCredentials, SqliteDialect, TursoCredentials,
 };
 
 // Conditionally re-export connection markers and driver-specific builders
