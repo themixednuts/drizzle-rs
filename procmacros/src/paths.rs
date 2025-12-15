@@ -134,6 +134,10 @@ pub mod core {
     pub fn sql_enum_info() -> TokenStream {
         quote!(drizzle::core::SQLEnumInfo)
     }
+
+    pub fn impl_try_from_int() -> TokenStream {
+        quote!(drizzle::core::impl_try_from_int)
+    }
 }
 
 // =============================================================================

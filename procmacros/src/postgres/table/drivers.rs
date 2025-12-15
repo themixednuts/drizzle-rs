@@ -7,6 +7,7 @@
 //! This mirrors the pattern used by SQLite's driver infrastructure.
 
 use super::context::MacroContext;
+use crate::paths;
 use crate::postgres::field::{FieldInfo, PostgreSQLType, TypeCategory};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -28,6 +29,7 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 ///
 /// The field type in the Select model matches the original table definition.
 fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
+    let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;
@@ -54,7 +56,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
                     #name: {
                         let v: Option<i32> = row.get::<_, Option<i32>>(#name_str);
                         match v {
-                            Some(v) => Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?),
+                            Some(v) => Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| #drizzle_error::ConversionError(format!("Failed to convert {} to enum", v).into()))?),
                             None => None,
                         }
                     },
@@ -63,7 +65,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
                 quote! {
                     #name: {
                         let v: i32 = row.get::<_, i32>(#name_str);
-                        <#base_type as TryFrom<i32>>::try_from(v).map_err(|_| DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?
+                        <#base_type as TryFrom<i32>>::try_from(v).map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?
                     },
                 }
             }
@@ -74,7 +76,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
                     #name: {
                         let s: Option<String> = row.get::<_, Option<String>>(#name_str);
                         match s {
-                            Some(s) => Some(s.parse::<#base_type>().map_err(|_| DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?),
+                            Some(s) => Some(s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?),
                             None => None,
                         }
                     },
@@ -83,7 +85,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
                 quote! {
                     #name: {
                         let s: String = row.get::<_, String>(#name_str);
-                        s.parse::<#base_type>().map_err(|_| DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?
+                        s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?
                     },
                 }
             }
@@ -113,7 +115,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
                 #name: {
                     let json_val: Option<::serde_json::Value> = row.get::<_, Option<::serde_json::Value>>(#name_str);
                     match json_val {
-                        Some(v) => Some(::serde_json::from_value(v).map_err(|e| DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?),
+                        Some(v) => Some(::serde_json::from_value(v).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?),
                         None => None,
                     }
                 },
@@ -122,7 +124,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
             quote! {
                 #name: {
                     let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#name_str);
-                    ::serde_json::from_value(json_val).map_err(|e| DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?
+                    ::serde_json::from_value(json_val).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?
                 },
             }
         }
@@ -143,6 +145,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
 ///
 /// We use try_get which returns Result<T, Error> and fall back to None on error.
 fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
+    let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;
@@ -251,6 +254,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
 /// In update models, ALL fields are Option<BaseType>. We get the base type value
 /// from the row and wrap it in Some().
 fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
+    let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;
@@ -272,7 +276,7 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
             quote! {
                 #name: {
                     let v: i32 = row.get::<_, i32>(#name_str);
-                    Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?)
+                    Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?)
                 },
             }
         } else {
@@ -280,7 +284,7 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
             quote! {
                 #name: {
                     let s: String = row.get::<_, String>(#name_str);
-                    Some(s.parse::<#base_type>().map_err(|_| DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?)
+                    Some(s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?)
                 },
             }
         }
@@ -298,7 +302,7 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
         quote! {
             #name: {
                 let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#name_str);
-                Some(::serde_json::from_value(json_val).map_err(|e| DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?)
+                Some(::serde_json::from_value(json_val).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?)
             },
         }
     } else {
@@ -324,6 +328,7 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
 /// (tokio-postgres or postgres-sync), so this single implementation works for both.
 #[cfg(feature = "postgres")]
 pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let drizzle_error = paths::core::drizzle_error();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -351,7 +356,7 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
     // the Row type from whichever driver is active
     Ok(quote! {
         impl ::std::convert::TryFrom<&drizzle::postgres::Row> for #select_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &drizzle::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -361,7 +366,7 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         }
 
         impl ::std::convert::TryFrom<&drizzle::postgres::Row> for #select_model_partial_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &drizzle::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -371,7 +376,7 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         }
 
         impl ::std::convert::TryFrom<&drizzle::postgres::Row> for #update_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &drizzle::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {

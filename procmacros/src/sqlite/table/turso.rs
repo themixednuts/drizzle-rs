@@ -5,6 +5,7 @@
 use super::drivers::{self, DriverConfig};
 use super::errors;
 use super::{FieldInfo, MacroContext};
+use crate::paths;
 use crate::sqlite::field::SQLiteType;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -39,10 +40,11 @@ impl DriverConfig for TursoDriver {
     }
 
     fn wrap_required(inner: TokenStream, name: &syn::Ident) -> TokenStream {
+        let drizzle_error = paths::core::drizzle_error();
         let error_msg = errors::conversion::required_field(&name.to_string());
         quote! {
             #name: #inner
-                .ok_or_else(|| DrizzleError::ConversionError(#error_msg.to_string().into()))?,
+                .ok_or_else(|| #drizzle_error::ConversionError(#error_msg.to_string().into()))?,
         }
     }
 
@@ -59,6 +61,7 @@ impl DriverConfig for TursoDriver {
 
 /// Generate TryFrom implementations for turso::Row for a table's models
 pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let drizzle_error = paths::core::drizzle_error();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -86,7 +89,7 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&#row_type> for #select_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &#row_type) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -98,7 +101,7 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&#row_type> for #update_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &#row_type) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {

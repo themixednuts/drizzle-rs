@@ -4,6 +4,7 @@
 
 use super::errors;
 use super::{FieldInfo, MacroContext};
+use crate::paths;
 use crate::sqlite::field::{SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -15,6 +16,8 @@ use syn::Result;
 
 /// Generate TryFrom implementations for libsql::Row for a table's models
 pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let drizzle_error = paths::core::drizzle_error();
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -37,7 +40,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -49,7 +52,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #update_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -219,11 +222,12 @@ fn handle_arraystring_field(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let base_type = info.base_type;
     let accessor = if is_optional {
-        quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| <#base_type as FromSQLiteValue>::from_sqlite_text(&v).ok())))
+        quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(&v).ok())))
     } else {
-        quote!(row.get::<String>(#idx).map(|v| <#base_type as FromSQLiteValue>::from_sqlite_text(&v))?)
+        quote!(row.get::<String>(#idx).map(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(&v))?)
     };
 
     Ok(quote! { #name: #accessor?, })
@@ -235,11 +239,12 @@ fn handle_arrayvec_field(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let base_type = info.base_type;
     let accessor = if is_optional {
-        quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| <#base_type as FromSQLiteValue>::from_sqlite_blob(&v).ok())))
+        quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(&v).ok())))
     } else {
-        quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as FromSQLiteValue>::from_sqlite_blob(&v))?)
+        quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(&v))?)
     };
 
     Ok(quote! { #name: #accessor?, })

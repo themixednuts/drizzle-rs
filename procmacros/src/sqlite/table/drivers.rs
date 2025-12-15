@@ -4,6 +4,7 @@
 //! for different SQLite drivers (rusqlite, libsql, turso), reducing code duplication
 //! and ensuring consistent behavior.
 
+use crate::paths;
 use crate::sqlite::field::{FieldInfo, SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -192,10 +193,11 @@ fn generate_arraystring_conversion<D: DriverConfig>(
 ) -> Result<TokenStream> {
     let accessor = D::text_accessor(idx);
     let base_type = info.base_type;
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
 
     Ok(quote!(
         #accessor
-            .map(|v| <#base_type as FromSQLiteValue>::from_sqlite_text(v))
+            .map(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(v))
             .transpose()?
     ))
 }
@@ -208,10 +210,11 @@ fn generate_arrayvec_conversion<D: DriverConfig>(
 ) -> Result<TokenStream> {
     let accessor = D::blob_accessor(idx);
     let base_type = info.base_type;
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
 
     Ok(quote!(
         #accessor
-            .map(|v| <#base_type as FromSQLiteValue>::from_sqlite_blob(v))
+            .map(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(v))
             .transpose()?
     ))
 }

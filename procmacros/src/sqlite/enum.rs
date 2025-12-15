@@ -45,6 +45,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     // Get paths for fully-qualified types
     let drizzle_error = core_paths::drizzle_error();
     let from_sqlite_value = sqlite_paths::from_sqlite_value();
+    let impl_try_from_int = core_paths::impl_try_from_int();
 
     let display_variants = data.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
@@ -206,7 +207,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
         // Integer type conversions - all delegate to i64 conversion
         // Using macro-generated implementations for cleaner code
-        impl_try_from_int!(#name => isize, usize, i32, u32, i16, u16, i8, u8);
+        #impl_try_from_int!(#name => isize, usize, i32, u32, i16, u16, i8, u8);
 
         // Implement Display for the enum
         impl ::std::fmt::Display for #name {

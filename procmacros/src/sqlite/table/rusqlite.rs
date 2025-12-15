@@ -7,6 +7,7 @@
 
 use super::errors;
 use super::{FieldInfo, MacroContext};
+use crate::paths;
 use crate::sqlite::field::{SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -18,6 +19,8 @@ use syn::Result;
 
 /// Generate TryFrom implementations for rusqlite::Row for a table's models
 pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let drizzle_error = paths::core::drizzle_error();
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -38,7 +41,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #select_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -52,7 +55,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #partial_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -64,7 +67,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #update_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
@@ -87,6 +90,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
 /// Generate field conversion for SelectModel
 fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
     let column_name = &info.column_name;
     let base_type = info.base_type;
@@ -111,7 +115,7 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
                 let value_ref = row.get_ref(#column_name)?;
                 match value_ref {
                     ::rusqlite::types::ValueRef::Null => None,
-                    _ => Some(<#base_type as FromSQLiteValue>::from_value_ref(value_ref)?),
+                    _ => Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?),
                 }
             },
         })
@@ -119,7 +123,7 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
         Ok(quote! {
             #name: {
                 let value_ref = row.get_ref(#column_name)?;
-                <#base_type as FromSQLiteValue>::from_value_ref(value_ref)?
+                <#base_type as #from_sqlite_value>::from_value_ref(value_ref)?
             },
         })
     }
@@ -127,6 +131,7 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
 
 /// Generate field conversion for UpdateModel (always wraps in Some)
 fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
     let column_name = &info.column_name;
     let base_type = info.base_type;
@@ -148,13 +153,14 @@ fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     Ok(quote! {
         #name: {
             let value_ref = row.get_ref(#column_name)?;
-            Some(<#base_type as FromSQLiteValue>::from_value_ref(value_ref)?)
+            Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?)
         },
     })
 }
 
 /// Generate field conversion for PartialSelectModel (all fields are Option<T>)
 fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+    let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
     let column_name = &info.column_name;
     let base_type = info.base_type;
@@ -172,7 +178,7 @@ fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
             let value_ref = row.get_ref(#column_name).unwrap_or(::rusqlite::types::ValueRef::Null);
             match value_ref {
                 ::rusqlite::types::ValueRef::Null => None,
-                _ => <#base_type as FromSQLiteValue>::from_value_ref(value_ref).ok(),
+                _ => <#base_type as #from_sqlite_value>::from_value_ref(value_ref).ok(),
             }
         },
     })

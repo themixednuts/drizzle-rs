@@ -1,4 +1,5 @@
 use super::{FieldInfo, MacroContext};
+use crate::paths;
 use crate::postgres::field::{PostgreSQLFlag, PostgreSQLType};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -6,6 +7,7 @@ use syn::{Error, Result};
 
 /// Generate TryFrom implementations for sqlx::postgres::PgRow for a table's models
 pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    let drizzle_error = paths::core::drizzle_error();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -27,7 +29,7 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #select_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
                 use ::sqlx::Row;
@@ -40,7 +42,7 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let partial_select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #select_model_partial_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
                 use ::sqlx::Row;
@@ -53,7 +55,7 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let update_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #update_model_ident {
-            type Error = DrizzleError;
+            type Error = #drizzle_error;
 
             fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
                 use ::sqlx::Row;

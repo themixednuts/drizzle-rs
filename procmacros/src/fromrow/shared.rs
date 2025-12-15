@@ -3,6 +3,7 @@
 //! Both drivers use DrizzleRow::get_column for unified type conversion via FromSQLiteValue trait.
 //! Only JSON handling differs between them.
 
+use crate::paths;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Field, Result};
@@ -30,11 +31,11 @@ pub(crate) fn generate_field_assignment<D: DriverJsonAccessor>(
     }
 
     // All other types use DrizzleRow::get_column with FromSQLiteValue
+    let drizzle_row = paths::sqlite::drizzle_row();
     let field_type = &field.ty;
     let accessor = quote! {
         {
-            use DrizzleRow;
-            <_ as DrizzleRow>::get_column::<#field_type>(row, #idx)
+            <_ as #drizzle_row>::get_column::<#field_type>(row, #idx)
         }
     };
 
