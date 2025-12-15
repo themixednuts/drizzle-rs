@@ -555,10 +555,7 @@ impl<S: Schema> Config<S, SqliteDialect, RusqliteConnection, SqliteCredentials> 
         let result = match args.command {
             CliCommand::Generate { name, custom } => self.cmd_generate(name, custom),
             CliCommand::Status => self.cmd_status(),
-            CliCommand::Push => {
-                eprintln!("Push command not yet implemented");
-                Ok(())
-            }
+            CliCommand::Push => self.cmd_push(),
             CliCommand::Introspect { output } => self.cmd_introspect(output),
         };
 
@@ -758,6 +755,225 @@ impl<S: Schema> Config<S, SqliteDialect, RusqliteConnection, SqliteCredentials> 
 
         Ok(())
     }
+
+    /// Push schema changes directly to the database without creating migration files
+    fn cmd_push(&self) -> Result<(), ConfigError> {
+        use crate::schema::Snapshot;
+        use crate::sqlite::ddl::{Table, View, extract_generated_columns};
+        use crate::sqlite::introspect::{
+            IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
+            process_columns, process_foreign_keys, process_indexes, queries,
+        };
+
+        println!("🚀 Pushing schema changes to SQLite database...");
+        println!("  Path: {}", self.credentials.path);
+
+        // Connect to the database
+        let conn = rusqlite::Connection::open(&self.credentials.path)
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        // Introspect current database state
+        let mut result = IntrospectionResult::default();
+
+        // Get tables
+        let mut stmt = conn
+            .prepare(queries::TABLES_QUERY)
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let tables: Vec<(String, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut table_sql_map = std::collections::HashMap::new();
+        for (name, sql) in &tables {
+            if let Some(sql) = sql {
+                table_sql_map.insert(name.clone(), sql.clone());
+            }
+            result.tables.push(Table::new(name.clone()));
+        }
+
+        // Get columns
+        let mut stmt = conn
+            .prepare(queries::COLUMNS_QUERY)
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_columns: Vec<RawColumnInfo> = stmt
+            .query_map([], |row| {
+                Ok(RawColumnInfo {
+                    table: row.get(0)?,
+                    name: row.get(1)?,
+                    column_type: row.get(2)?,
+                    not_null: row.get(3)?,
+                    default_value: row.get(4)?,
+                    pk: row.get(5)?,
+                    hidden: row.get(6)?,
+                    sql: row.get(7)?,
+                })
+            })
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Parse generated columns from table SQL
+        let mut generated_columns = std::collections::HashMap::new();
+        for (table_name, sql) in &table_sql_map {
+            let table_gens = extract_generated_columns(sql);
+            for (col_name, generated_col) in table_gens {
+                let key = format!("{}:{}", table_name, col_name);
+                generated_columns.insert(key, generated_col);
+            }
+        }
+
+        let pk_columns = std::collections::HashSet::new();
+        let (columns, primary_keys) =
+            process_columns(&raw_columns, &generated_columns, &pk_columns);
+        result.columns = columns;
+        result.primary_keys = primary_keys;
+
+        // Get indexes and foreign keys per table
+        for table in &result.tables {
+            // Indexes
+            let index_query = queries::indexes_query(&table.name);
+            if let Ok(mut stmt) = conn.prepare(&index_query) {
+                let raw_indexes: Vec<RawIndexInfo> = stmt
+                    .query_map([], |row| {
+                        Ok(RawIndexInfo {
+                            table: table.name.clone(),
+                            name: row.get(1)?,
+                            unique: row.get(2)?,
+                            origin: row.get(3)?,
+                            partial: row.get(4)?,
+                        })
+                    })
+                    .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+                // Get index columns
+                let mut index_columns = Vec::new();
+                for idx in &raw_indexes {
+                    let info_query = queries::index_info_query(&idx.name);
+                    if let Ok(mut stmt) = conn.prepare(&info_query) {
+                        let cols: Vec<RawIndexColumn> = stmt
+                            .query_map([], |row| {
+                                Ok(RawIndexColumn {
+                                    index_name: idx.name.clone(),
+                                    seqno: row.get(0)?,
+                                    cid: row.get(1)?,
+                                    name: row.get(2)?,
+                                    desc: row.get(3)?,
+                                    coll: row.get(4)?,
+                                    key: row.get(5)?,
+                                })
+                            })
+                            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+                            .filter_map(|r| r.ok())
+                            .collect();
+                        index_columns.extend(cols);
+                    }
+                }
+
+                let indexes = process_indexes(&raw_indexes, &index_columns, &table_sql_map);
+                result.indexes.extend(indexes);
+            }
+
+            // Foreign keys
+            let fk_query = queries::foreign_keys_query(&table.name);
+            if let Ok(mut stmt) = conn.prepare(&fk_query) {
+                let raw_fks: Vec<RawForeignKey> = stmt
+                    .query_map([], |row| {
+                        Ok(RawForeignKey {
+                            table: table.name.clone(),
+                            id: row.get(0)?,
+                            seq: row.get(1)?,
+                            to_table: row.get(2)?,
+                            from_column: row.get(3)?,
+                            to_column: row.get(4)?,
+                            on_update: row.get(5)?,
+                            on_delete: row.get(6)?,
+                            r#match: row.get(7)?,
+                        })
+                    })
+                    .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+                let fks = process_foreign_keys(&raw_fks);
+                result.foreign_keys.extend(fks);
+            }
+        }
+
+        // Get views
+        if let Ok(mut stmt) = conn.prepare(queries::VIEWS_QUERY) {
+            let views: Vec<View> = stmt
+                .query_map([], |row| {
+                    let name: String = row.get(0)?;
+                    let sql: Option<String> = row.get(1)?;
+                    let definition =
+                        sql.and_then(|s| crate::sqlite::introspect::parse_view_sql(&s));
+                    Ok(View {
+                        name,
+                        definition,
+                        is_existing: false,
+                    })
+                })
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+            result.views = views;
+        }
+
+        // Convert introspection to snapshot (database state)
+        let db_snapshot = result.to_snapshot();
+
+        // Get desired schema snapshot (code state)
+        let code_snapshot = self.to_snapshot();
+
+        // Generate diff (database -> code = what changes need to be made)
+        let sql_statements = match (&Snapshot::Sqlite(db_snapshot), &code_snapshot) {
+            (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
+                use crate::sqlite::{diff_snapshots, statements::SqliteGenerator};
+
+                let diff = diff_snapshots(prev_snap, curr_snap);
+                if !diff.has_changes() {
+                    println!("No schema changes detected 😴");
+                    return Ok(());
+                }
+
+                let generator = SqliteGenerator::new().with_breakpoints(false);
+                generator.generate_migration(&diff)
+            }
+            _ => {
+                return Err(ConfigError::GenerationError(
+                    "Mismatched snapshot dialects".into(),
+                ));
+            }
+        };
+
+        if sql_statements.is_empty() {
+            println!("No schema changes detected 😴");
+            return Ok(());
+        }
+
+        println!("\n📋 Changes to apply:");
+        for stmt in &sql_statements {
+            println!("  {}", stmt.lines().next().unwrap_or(stmt));
+        }
+        println!();
+
+        // Execute each statement
+        for stmt in &sql_statements {
+            conn.execute_batch(stmt)
+                .map_err(|e| ConfigError::ConnectionError(format!("Failed to execute: {}", e)))?;
+        }
+
+        println!(
+            "✓ Schema pushed successfully! ({} statements)",
+            sql_statements.len()
+        );
+
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -773,10 +989,7 @@ impl<S: Schema> Config<S, PostgresDialect, PostgresSyncConnection, PostgresCrede
         let result = match args.command {
             CliCommand::Generate { name, custom } => self.cmd_generate(name, custom),
             CliCommand::Status => self.cmd_status(),
-            CliCommand::Push => {
-                eprintln!("Push command not yet implemented");
-                Ok(())
-            }
+            CliCommand::Push => self.cmd_push(),
             CliCommand::Introspect { output } => self.cmd_introspect(output),
         };
 
@@ -936,6 +1149,187 @@ impl<S: Schema> Config<S, PostgresDialect, PostgresSyncConnection, PostgresCrede
         println!("  Sequences:    {}", result.sequences.len());
         println!("  Views:        {}", result.views.len());
         println!("  Snapshot:     {}", snapshot_path.display());
+
+        Ok(())
+    }
+
+    /// Push schema changes directly to the database without creating migration files
+    fn cmd_push(&self) -> Result<(), ConfigError> {
+        use crate::postgres::ddl::Schema as DbSchema;
+        use crate::postgres::introspect::{
+            IntrospectionResult, RawColumnInfo, RawEnumInfo, RawSequenceInfo, RawTableInfo,
+            RawViewInfo, process_columns, process_enums, process_sequences, process_tables,
+            process_views, queries,
+        };
+        use crate::schema::Snapshot;
+
+        // Build connection URL from credentials
+        let conn_url = format!(
+            "host={} port={} user={} password={} dbname={}",
+            self.credentials.host,
+            self.credentials.port,
+            self.credentials.username,
+            self.credentials.password,
+            self.credentials.database
+        );
+
+        println!("🚀 Pushing schema changes to PostgreSQL database...");
+        println!(
+            "  Host: {}:{}",
+            self.credentials.host, self.credentials.port
+        );
+        println!("  DB:   {}", self.credentials.database);
+
+        // Connect to the database
+        let mut client = postgres::Client::connect(&conn_url, postgres::NoTls)
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut result = IntrospectionResult::default();
+
+        // Get schemas
+        let schema_rows = client
+            .query(queries::SCHEMAS_QUERY, &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        for row in &schema_rows {
+            let name: String = row.get(0);
+            result.schemas.push(DbSchema { name });
+        }
+
+        // Get tables
+        let table_rows = client
+            .query(queries::TABLES_QUERY, &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_tables: Vec<RawTableInfo> = table_rows
+            .iter()
+            .map(|row| RawTableInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                is_rls_enabled: row.get(2),
+            })
+            .collect();
+        result.tables = process_tables(&raw_tables);
+
+        // Get columns
+        let column_rows = client
+            .query(queries::COLUMNS_QUERY, &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_columns: Vec<RawColumnInfo> = column_rows
+            .iter()
+            .map(|row| RawColumnInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                column_type: row.get(3),
+                type_schema: row.get(4),
+                not_null: row.get(5),
+                default_value: row.get(6),
+                is_identity: row.get(7),
+                identity_type: row.get(8),
+                is_generated: row.get(9),
+                generated_expression: row.get(10),
+                ordinal_position: row.get(11),
+            })
+            .collect();
+        result.columns = process_columns(&raw_columns);
+
+        // Get enums
+        let enum_rows = client
+            .query(queries::ENUMS_QUERY, &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_enums: Vec<RawEnumInfo> = enum_rows
+            .iter()
+            .map(|row| RawEnumInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                values: row.get(2),
+            })
+            .collect();
+        result.enums = process_enums(&raw_enums);
+
+        // Get sequences
+        let seq_rows = client
+            .query(queries::SEQUENCES_QUERY, &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_seqs: Vec<RawSequenceInfo> = seq_rows
+            .iter()
+            .map(|row| RawSequenceInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                data_type: row.get(2),
+                start_value: row.get(3),
+                min_value: row.get(4),
+                max_value: row.get(5),
+                increment: row.get(6),
+                cycle: row.get(7),
+                cache_value: row.get(8),
+            })
+            .collect();
+        result.sequences = process_sequences(&raw_seqs);
+
+        // Get views
+        let view_rows = client
+            .query(queries::VIEWS_QUERY, &[])
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_views: Vec<RawViewInfo> = view_rows
+            .iter()
+            .map(|row| RawViewInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                definition: row.get(2),
+                is_materialized: row.get(3),
+            })
+            .collect();
+        result.views = process_views(&raw_views);
+
+        // Convert introspection to snapshot (database state)
+        let db_snapshot = result.to_snapshot();
+
+        // Get desired schema snapshot (code state)
+        let code_snapshot = self.to_snapshot();
+
+        // Generate diff (database -> code = what changes need to be made)
+        let sql_statements = match (&Snapshot::Postgres(db_snapshot), &code_snapshot) {
+            (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
+                use crate::postgres::{diff_snapshots, statements::PostgresGenerator};
+
+                let diff = diff_snapshots(&prev_snap.ddl, &curr_snap.ddl);
+                if !diff.has_changes() {
+                    println!("No schema changes detected 😴");
+                    return Ok(());
+                }
+
+                let generator = PostgresGenerator::new().with_breakpoints(false);
+                generator.generate(&diff.diffs)
+            }
+            _ => {
+                return Err(ConfigError::GenerationError(
+                    "Mismatched snapshot dialects".into(),
+                ));
+            }
+        };
+
+        if sql_statements.is_empty() {
+            println!("No schema changes detected 😴");
+            return Ok(());
+        }
+
+        println!("\n📋 Changes to apply:");
+        for stmt in &sql_statements {
+            println!("  {}", stmt.lines().next().unwrap_or(stmt));
+        }
+        println!();
+
+        // Execute each statement
+        for stmt in &sql_statements {
+            client
+                .batch_execute(stmt)
+                .map_err(|e| ConfigError::ConnectionError(format!("Failed to execute: {}", e)))?;
+        }
+
+        println!(
+            "✓ Schema pushed successfully! ({} statements)",
+            sql_statements.len()
+        );
 
         Ok(())
     }
@@ -1128,6 +1522,262 @@ impl<S: Schema> Config<S, SqliteDialect, LibsqlConnection, LibsqlCredentials> {
 
         Ok(())
     }
+
+    /// Push schema changes directly to the database without creating migration files.
+    ///
+    /// This is an async function - the caller must provide an async runtime.
+    pub async fn push(&self) -> Result<(), ConfigError> {
+        use crate::schema::Snapshot;
+        use crate::sqlite::ddl::{Table, View, extract_generated_columns};
+        use crate::sqlite::introspect::{
+            IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
+            parse_view_sql, process_columns, process_foreign_keys, process_indexes, queries,
+        };
+
+        println!("🚀 Pushing schema changes to SQLite database via libsql...");
+        println!("  Path: {}", self.credentials.path);
+
+        // Connect to libsql
+        let db = if let (Some(sync_url), Some(auth_token)) =
+            (&self.credentials.sync_url, &self.credentials.auth_token)
+        {
+            libsql::Builder::new_remote_replica(
+                &self.credentials.path,
+                sync_url.clone(),
+                auth_token.clone(),
+            )
+            .build()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        } else {
+            libsql::Builder::new_local(&self.credentials.path)
+                .build()
+                .await
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        };
+
+        let conn = db
+            .connect()
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut result = IntrospectionResult::default();
+
+        // Get tables
+        let mut rows = conn
+            .query(queries::TABLES_QUERY, ())
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut table_sql_map = std::collections::HashMap::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        {
+            let name: String = row
+                .get(0)
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+            let sql: Option<String> = row.get(1).ok();
+            if let Some(ref sql) = sql {
+                table_sql_map.insert(name.clone(), sql.clone());
+            }
+            result.tables.push(Table::new(name));
+        }
+
+        // Get columns
+        let mut column_rows = conn
+            .query(queries::COLUMNS_QUERY, ())
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut raw_columns = Vec::new();
+        while let Some(row) = column_rows
+            .next()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        {
+            raw_columns.push(RawColumnInfo {
+                table: row.get(0).unwrap_or_default(),
+                name: row.get(1).unwrap_or_default(),
+                column_type: row.get(2).unwrap_or_default(),
+                not_null: row.get(3).unwrap_or(false),
+                default_value: row.get(4).ok(),
+                pk: row.get(5).unwrap_or(0),
+                hidden: row.get(6).unwrap_or(0),
+                sql: row.get(7).ok(),
+            });
+        }
+
+        // Parse generated columns
+        let mut generated_columns = std::collections::HashMap::new();
+        for (table_name, sql) in &table_sql_map {
+            let table_gens = extract_generated_columns(sql);
+            for (col_name, generated_col) in table_gens {
+                let key = format!("{}:{}", table_name, col_name);
+                generated_columns.insert(key, generated_col);
+            }
+        }
+
+        let pk_columns = std::collections::HashSet::new();
+        let (columns, primary_keys) =
+            process_columns(&raw_columns, &generated_columns, &pk_columns);
+        result.columns = columns;
+        result.primary_keys = primary_keys;
+
+        // Get indexes per table
+        for table in &result.tables {
+            let index_query = queries::indexes_query(&table.name);
+            if let Ok(mut stmt) = conn.query(&index_query, ()).await {
+                let mut raw_indexes = Vec::new();
+                while let Ok(Some(row)) = stmt.next().await {
+                    raw_indexes.push(RawIndexInfo {
+                        table: table.name.clone(),
+                        name: row.get(1).unwrap_or_default(),
+                        unique: row.get(2).unwrap_or(false),
+                        origin: row.get(3).unwrap_or_default(),
+                        partial: row.get(4).unwrap_or(false),
+                    });
+                }
+
+                let mut index_columns = Vec::new();
+                for idx in &raw_indexes {
+                    let info_query = queries::index_info_query(&idx.name);
+                    if let Ok(mut cols_stmt) = conn.query(&info_query, ()).await {
+                        while let Ok(Some(row)) = cols_stmt.next().await {
+                            index_columns.push(RawIndexColumn {
+                                index_name: idx.name.clone(),
+                                seqno: row.get(0).unwrap_or(0),
+                                cid: row.get(1).unwrap_or(0),
+                                name: row.get(2).ok(),
+                                desc: row.get(3).unwrap_or(false),
+                                coll: row.get(4).unwrap_or_default(),
+                                key: row.get(5).unwrap_or(false),
+                            });
+                        }
+                    }
+                }
+
+                let indexes = process_indexes(&raw_indexes, &index_columns, &table_sql_map);
+                result.indexes.extend(indexes);
+            }
+
+            // Foreign keys
+            let fk_query = queries::foreign_keys_query(&table.name);
+            if let Ok(mut fk_stmt) = conn.query(&fk_query, ()).await {
+                let mut raw_fks = Vec::new();
+                while let Ok(Some(row)) = fk_stmt.next().await {
+                    raw_fks.push(RawForeignKey {
+                        table: table.name.clone(),
+                        id: row.get(0).unwrap_or(0),
+                        seq: row.get(1).unwrap_or(0),
+                        to_table: row.get(2).unwrap_or_default(),
+                        from_column: row.get(3).unwrap_or_default(),
+                        to_column: row.get(4).unwrap_or_default(),
+                        on_update: row.get(5).unwrap_or_default(),
+                        on_delete: row.get(6).unwrap_or_default(),
+                        r#match: row.get(7).unwrap_or_default(),
+                    });
+                }
+                let fks = process_foreign_keys(&raw_fks);
+                result.foreign_keys.extend(fks);
+            }
+        }
+
+        // Get views
+        if let Ok(mut view_rows) = conn.query(queries::VIEWS_QUERY, ()).await {
+            let mut views = Vec::new();
+            while let Ok(Some(row)) = view_rows.next().await {
+                let name: String = row.get(0).unwrap_or_default();
+                let sql: Option<String> = row.get(1).ok();
+                let definition = sql.and_then(|s| parse_view_sql(&s));
+                views.push(View {
+                    name,
+                    definition,
+                    is_existing: false,
+                });
+            }
+            result.views = views;
+        }
+
+        // Convert introspection to snapshot (database state)
+        let db_snapshot = result.to_snapshot();
+
+        // Get desired schema snapshot (code state)
+        let code_snapshot = self.to_snapshot();
+
+        // Generate diff (database -> code = what changes need to be made)
+        let sql_statements = match (&Snapshot::Sqlite(db_snapshot), &code_snapshot) {
+            (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
+                use crate::sqlite::{diff_snapshots, statements::SqliteGenerator};
+
+                let diff = diff_snapshots(prev_snap, curr_snap);
+                if !diff.has_changes() {
+                    println!("No schema changes detected 😴");
+                    return Ok(());
+                }
+
+                let generator = SqliteGenerator::new().with_breakpoints(false);
+                generator.generate_migration(&diff)
+            }
+            _ => {
+                return Err(ConfigError::GenerationError(
+                    "Mismatched snapshot dialects".into(),
+                ));
+            }
+        };
+
+        if sql_statements.is_empty() {
+            println!("No schema changes detected 😴");
+            return Ok(());
+        }
+
+        println!("\n📋 Changes to apply:");
+        for stmt in &sql_statements {
+            println!("  {}", stmt.lines().next().unwrap_or(stmt));
+        }
+        println!();
+
+        // Execute each statement
+        for stmt in &sql_statements {
+            conn.execute(stmt, ())
+                .await
+                .map_err(|e| ConfigError::ConnectionError(format!("Failed to execute: {}", e)))?;
+        }
+
+        println!(
+            "✓ Schema pushed successfully! ({} statements)",
+            sql_statements.len()
+        );
+
+        Ok(())
+    }
+
+    /// Generate a new migration (async-compatible wrapper).
+    ///
+    /// This calls the sync implementation since it only involves file I/O.
+    pub async fn generate(&self, name: Option<String>, custom: bool) -> Result<(), ConfigError> {
+        self.cmd_generate(name, custom)
+    }
+
+    /// Show migration status (async-compatible wrapper).
+    ///
+    /// This calls the sync implementation since it only involves file I/O.
+    pub async fn status(&self) -> Result<(), ConfigError> {
+        self.cmd_status()
+    }
+
+    /// Run a CLI command asynchronously.
+    ///
+    /// This allows users to integrate with their own async runtime.
+    /// Parse CLI args with `CliArgs::parse()` and pass the command here.
+    pub async fn run_command(&self, command: CliCommand) -> Result<(), ConfigError> {
+        match command {
+            CliCommand::Generate { name, custom } => self.generate(name, custom).await,
+            CliCommand::Status => self.status().await,
+            CliCommand::Push => self.push().await,
+            CliCommand::Introspect { output } => self.introspect(output).await,
+        }
+    }
 }
 
 // =============================================================================
@@ -1308,6 +1958,252 @@ impl<S: Schema> Config<S, SqliteDialect, TursoConnection, TursoCredentials> {
 
         Ok(())
     }
+
+    /// Push schema changes directly to the database without creating migration files.
+    ///
+    /// This is an async function - the caller must provide an async runtime.
+    pub async fn push(&self) -> Result<(), ConfigError> {
+        use crate::schema::Snapshot;
+        use crate::sqlite::ddl::{Table, View, extract_generated_columns};
+        use crate::sqlite::introspect::{
+            IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
+            parse_view_sql, process_columns, process_foreign_keys, process_indexes, queries,
+        };
+
+        println!("🚀 Pushing schema changes to SQLite database via Turso...");
+        println!("  URL: {}", self.credentials.url);
+
+        // Connect to Turso (remote libsql database)
+        let db = libsql::Builder::new_remote(
+            self.credentials.url.clone(),
+            self.credentials.auth_token.clone(),
+        )
+        .build()
+        .await
+        .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let conn = db
+            .connect()
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut result = IntrospectionResult::default();
+
+        // Get tables
+        let mut rows = conn
+            .query(queries::TABLES_QUERY, ())
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut table_sql_map = std::collections::HashMap::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        {
+            let name: String = row
+                .get(0)
+                .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+            let sql: Option<String> = row.get(1).ok();
+            if let Some(ref sql) = sql {
+                table_sql_map.insert(name.clone(), sql.clone());
+            }
+            result.tables.push(Table::new(name));
+        }
+
+        // Get columns
+        let mut column_rows = conn
+            .query(queries::COLUMNS_QUERY, ())
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+
+        let mut raw_columns = Vec::new();
+        while let Some(row) = column_rows
+            .next()
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?
+        {
+            raw_columns.push(RawColumnInfo {
+                table: row.get(0).unwrap_or_default(),
+                name: row.get(1).unwrap_or_default(),
+                column_type: row.get(2).unwrap_or_default(),
+                not_null: row.get(3).unwrap_or(false),
+                default_value: row.get(4).ok(),
+                pk: row.get(5).unwrap_or(0),
+                hidden: row.get(6).unwrap_or(0),
+                sql: row.get(7).ok(),
+            });
+        }
+
+        // Parse generated columns
+        let mut generated_columns = std::collections::HashMap::new();
+        for (table_name, sql) in &table_sql_map {
+            let table_gens = extract_generated_columns(sql);
+            for (col_name, generated_col) in table_gens {
+                let key = format!("{}:{}", table_name, col_name);
+                generated_columns.insert(key, generated_col);
+            }
+        }
+
+        let pk_columns = std::collections::HashSet::new();
+        let (columns, primary_keys) =
+            process_columns(&raw_columns, &generated_columns, &pk_columns);
+        result.columns = columns;
+        result.primary_keys = primary_keys;
+
+        // Get indexes per table
+        for table in &result.tables {
+            let index_query = queries::indexes_query(&table.name);
+            if let Ok(mut stmt) = conn.query(&index_query, ()).await {
+                let mut raw_indexes = Vec::new();
+                while let Ok(Some(row)) = stmt.next().await {
+                    raw_indexes.push(RawIndexInfo {
+                        table: table.name.clone(),
+                        name: row.get(1).unwrap_or_default(),
+                        unique: row.get(2).unwrap_or(false),
+                        origin: row.get(3).unwrap_or_default(),
+                        partial: row.get(4).unwrap_or(false),
+                    });
+                }
+
+                let mut index_columns = Vec::new();
+                for idx in &raw_indexes {
+                    let info_query = queries::index_info_query(&idx.name);
+                    if let Ok(mut cols_stmt) = conn.query(&info_query, ()).await {
+                        while let Ok(Some(row)) = cols_stmt.next().await {
+                            index_columns.push(RawIndexColumn {
+                                index_name: idx.name.clone(),
+                                seqno: row.get(0).unwrap_or(0),
+                                cid: row.get(1).unwrap_or(0),
+                                name: row.get(2).ok(),
+                                desc: row.get(3).unwrap_or(false),
+                                coll: row.get(4).unwrap_or_default(),
+                                key: row.get(5).unwrap_or(false),
+                            });
+                        }
+                    }
+                }
+
+                let indexes = process_indexes(&raw_indexes, &index_columns, &table_sql_map);
+                result.indexes.extend(indexes);
+            }
+
+            // Foreign keys
+            let fk_query = queries::foreign_keys_query(&table.name);
+            if let Ok(mut fk_stmt) = conn.query(&fk_query, ()).await {
+                let mut raw_fks = Vec::new();
+                while let Ok(Some(row)) = fk_stmt.next().await {
+                    raw_fks.push(RawForeignKey {
+                        table: table.name.clone(),
+                        id: row.get(0).unwrap_or(0),
+                        seq: row.get(1).unwrap_or(0),
+                        to_table: row.get(2).unwrap_or_default(),
+                        from_column: row.get(3).unwrap_or_default(),
+                        to_column: row.get(4).unwrap_or_default(),
+                        on_update: row.get(5).unwrap_or_default(),
+                        on_delete: row.get(6).unwrap_or_default(),
+                        r#match: row.get(7).unwrap_or_default(),
+                    });
+                }
+                let fks = process_foreign_keys(&raw_fks);
+                result.foreign_keys.extend(fks);
+            }
+        }
+
+        // Get views
+        if let Ok(mut view_rows) = conn.query(queries::VIEWS_QUERY, ()).await {
+            let mut views = Vec::new();
+            while let Ok(Some(row)) = view_rows.next().await {
+                let name: String = row.get(0).unwrap_or_default();
+                let sql: Option<String> = row.get(1).ok();
+                let definition = sql.and_then(|s| parse_view_sql(&s));
+                views.push(View {
+                    name,
+                    definition,
+                    is_existing: false,
+                });
+            }
+            result.views = views;
+        }
+
+        // Convert introspection to snapshot (database state)
+        let db_snapshot = result.to_snapshot();
+
+        // Get desired schema snapshot (code state)
+        let code_snapshot = self.to_snapshot();
+
+        // Generate diff (database -> code = what changes need to be made)
+        let sql_statements = match (&Snapshot::Sqlite(db_snapshot), &code_snapshot) {
+            (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
+                use crate::sqlite::{diff_snapshots, statements::SqliteGenerator};
+
+                let diff = diff_snapshots(prev_snap, curr_snap);
+                if !diff.has_changes() {
+                    println!("No schema changes detected 😴");
+                    return Ok(());
+                }
+
+                let generator = SqliteGenerator::new().with_breakpoints(false);
+                generator.generate_migration(&diff)
+            }
+            _ => {
+                return Err(ConfigError::GenerationError(
+                    "Mismatched snapshot dialects".into(),
+                ));
+            }
+        };
+
+        if sql_statements.is_empty() {
+            println!("No schema changes detected 😴");
+            return Ok(());
+        }
+
+        println!("\n📋 Changes to apply:");
+        for stmt in &sql_statements {
+            println!("  {}", stmt.lines().next().unwrap_or(stmt));
+        }
+        println!();
+
+        // Execute each statement
+        for stmt in &sql_statements {
+            conn.execute(stmt, ())
+                .await
+                .map_err(|e| ConfigError::ConnectionError(format!("Failed to execute: {}", e)))?;
+        }
+
+        println!(
+            "✓ Schema pushed successfully! ({} statements)",
+            sql_statements.len()
+        );
+
+        Ok(())
+    }
+
+    /// Generate a new migration (async-compatible wrapper).
+    ///
+    /// This calls the sync implementation since it only involves file I/O.
+    pub async fn generate(&self, name: Option<String>, custom: bool) -> Result<(), ConfigError> {
+        self.cmd_generate(name, custom)
+    }
+
+    /// Show migration status (async-compatible wrapper).
+    ///
+    /// This calls the sync implementation since it only involves file I/O.
+    pub async fn status(&self) -> Result<(), ConfigError> {
+        self.cmd_status()
+    }
+
+    /// Run a CLI command asynchronously.
+    ///
+    /// This allows users to integrate with their own async runtime.
+    /// Parse CLI args with `CliArgs::parse()` and pass the command here.
+    pub async fn run_command(&self, command: CliCommand) -> Result<(), ConfigError> {
+        match command {
+            CliCommand::Generate { name, custom } => self.generate(name, custom).await,
+            CliCommand::Status => self.status().await,
+            CliCommand::Push => self.push().await,
+            CliCommand::Introspect { output } => self.introspect(output).await,
+        }
+    }
 }
 
 // =============================================================================
@@ -1316,15 +2212,29 @@ impl<S: Schema> Config<S, SqliteDialect, TursoConnection, TursoCredentials> {
 
 #[cfg(feature = "tokio-postgres")]
 impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCredentials> {
+    /// Connect to the PostgreSQL database and return the client.
+    ///
+    /// The caller is responsible for spawning the connection task.
+    /// Returns a tuple of (client, connection) where the connection should be spawned.
+    async fn connect(
+        &self,
+    ) -> Result<
+        (
+            tokio_postgres::Client,
+            tokio_postgres::Connection<tokio_postgres::Socket, tokio_postgres::tls::NoTlsStream>,
+        ),
+        ConfigError,
+    > {
+        let conn_str = self.credentials.connection_string();
+        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))
+    }
+
     /// Introspect the PostgreSQL database via tokio-postgres and generate a snapshot.
     ///
     /// This is an async function - the caller must provide an async runtime.
-    /// The caller is responsible for spawning the connection task.
-    pub async fn introspect(
-        &self,
-        output: Option<PathBuf>,
-        client: &tokio_postgres::Client,
-    ) -> Result<(), ConfigError> {
+    pub async fn introspect(&self, output: Option<PathBuf>) -> Result<(), ConfigError> {
         use crate::postgres::ddl::Schema as DbSchema;
         use crate::postgres::introspect::{
             IntrospectionResult, RawColumnInfo, RawEnumInfo, RawSequenceInfo, RawTableInfo,
@@ -1343,6 +2253,16 @@ impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCred
         );
         println!("  DB:     {}", self.credentials.database);
         println!("  Output: {}", output_dir.display());
+
+        // Connect to the database
+        let (client, connection) = self.connect().await?;
+
+        // Spawn the connection task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("Connection error: {}", e);
+            }
+        });
 
         let mut result = IntrospectionResult::default();
 
@@ -1465,6 +2385,219 @@ impl<S: Schema> Config<S, PostgresDialect, TokioPostgresConnection, PostgresCred
         println!("  Snapshot:     {}", snapshot_path.display());
 
         Ok(())
+    }
+
+    /// Push schema changes directly to the database without creating migration files.
+    ///
+    /// This is an async function - the caller must provide an async runtime.
+    pub async fn push(&self) -> Result<(), ConfigError> {
+        use crate::postgres::ddl::Schema as DbSchema;
+        use crate::postgres::introspect::{
+            IntrospectionResult, RawColumnInfo, RawEnumInfo, RawSequenceInfo, RawTableInfo,
+            RawViewInfo, process_columns, process_enums, process_sequences, process_tables,
+            process_views, queries,
+        };
+        use crate::schema::Snapshot;
+
+        println!("🚀 Pushing schema changes to PostgreSQL database via tokio-postgres...");
+        println!(
+            "  Host: {}:{}",
+            self.credentials.host, self.credentials.port
+        );
+        println!("  DB:   {}", self.credentials.database);
+
+        // Connect to the database
+        let (client, connection) = self.connect().await?;
+
+        // Spawn the connection task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("Connection error: {}", e);
+            }
+        });
+
+        let mut result = IntrospectionResult::default();
+
+        // Get schemas
+        let schema_rows = client
+            .query(queries::SCHEMAS_QUERY, &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        for row in &schema_rows {
+            let name: String = row.get(0);
+            result.schemas.push(DbSchema { name });
+        }
+
+        // Get tables
+        let table_rows = client
+            .query(queries::TABLES_QUERY, &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_tables: Vec<RawTableInfo> = table_rows
+            .iter()
+            .map(|row| RawTableInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                is_rls_enabled: row.get(2),
+            })
+            .collect();
+        result.tables = process_tables(&raw_tables);
+
+        // Get columns
+        let column_rows = client
+            .query(queries::COLUMNS_QUERY, &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_columns: Vec<RawColumnInfo> = column_rows
+            .iter()
+            .map(|row| RawColumnInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                column_type: row.get(3),
+                type_schema: row.get(4),
+                not_null: row.get(5),
+                default_value: row.get(6),
+                is_identity: row.get(7),
+                identity_type: row.get(8),
+                is_generated: row.get(9),
+                generated_expression: row.get(10),
+                ordinal_position: row.get(11),
+            })
+            .collect();
+        result.columns = process_columns(&raw_columns);
+
+        // Get enums
+        let enum_rows = client
+            .query(queries::ENUMS_QUERY, &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_enums: Vec<RawEnumInfo> = enum_rows
+            .iter()
+            .map(|row| RawEnumInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                values: row.get(2),
+            })
+            .collect();
+        result.enums = process_enums(&raw_enums);
+
+        // Get sequences
+        let seq_rows = client
+            .query(queries::SEQUENCES_QUERY, &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_seqs: Vec<RawSequenceInfo> = seq_rows
+            .iter()
+            .map(|row| RawSequenceInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                data_type: row.get(2),
+                start_value: row.get(3),
+                min_value: row.get(4),
+                max_value: row.get(5),
+                increment: row.get(6),
+                cycle: row.get(7),
+                cache_value: row.get(8),
+            })
+            .collect();
+        result.sequences = process_sequences(&raw_seqs);
+
+        // Get views
+        let view_rows = client
+            .query(queries::VIEWS_QUERY, &[])
+            .await
+            .map_err(|e| ConfigError::ConnectionError(e.to_string()))?;
+        let raw_views: Vec<RawViewInfo> = view_rows
+            .iter()
+            .map(|row| RawViewInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                definition: row.get(2),
+                is_materialized: row.get(3),
+            })
+            .collect();
+        result.views = process_views(&raw_views);
+
+        // Convert introspection to snapshot (database state)
+        let db_snapshot = result.to_snapshot();
+
+        // Get desired schema snapshot (code state)
+        let code_snapshot = self.to_snapshot();
+
+        // Generate diff (database -> code = what changes need to be made)
+        let sql_statements = match (&Snapshot::Postgres(db_snapshot), &code_snapshot) {
+            (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
+                use crate::postgres::{diff_snapshots, statements::PostgresGenerator};
+
+                let diff = diff_snapshots(&prev_snap.ddl, &curr_snap.ddl);
+                if !diff.has_changes() {
+                    println!("No schema changes detected 😴");
+                    return Ok(());
+                }
+
+                let generator = PostgresGenerator::new().with_breakpoints(false);
+                generator.generate(&diff.diffs)
+            }
+            _ => {
+                return Err(ConfigError::GenerationError(
+                    "Mismatched snapshot dialects".into(),
+                ));
+            }
+        };
+
+        if sql_statements.is_empty() {
+            println!("No schema changes detected 😴");
+            return Ok(());
+        }
+
+        println!("\n📋 Changes to apply:");
+        for stmt in &sql_statements {
+            println!("  {}", stmt.lines().next().unwrap_or(stmt));
+        }
+        println!();
+
+        // Execute each statement
+        for stmt in &sql_statements {
+            client
+                .batch_execute(stmt)
+                .await
+                .map_err(|e| ConfigError::ConnectionError(format!("Failed to execute: {}", e)))?;
+        }
+
+        println!(
+            "✓ Schema pushed successfully! ({} statements)",
+            sql_statements.len()
+        );
+
+        Ok(())
+    }
+
+    /// Generate a new migration (async-compatible wrapper).
+    ///
+    /// This calls the sync implementation since it only involves file I/O.
+    pub async fn generate(&self, name: Option<String>, custom: bool) -> Result<(), ConfigError> {
+        self.cmd_generate(name, custom)
+    }
+
+    /// Show migration status (async-compatible wrapper).
+    ///
+    /// This calls the sync implementation since it only involves file I/O.
+    pub async fn status(&self) -> Result<(), ConfigError> {
+        self.cmd_status()
+    }
+
+    /// Run a CLI command asynchronously.
+    ///
+    /// This allows users to integrate with their own async runtime.
+    /// Parse CLI args with `CliArgs::parse()` and pass the command here.
+    pub async fn run_command(&self, command: CliCommand) -> Result<(), ConfigError> {
+        match command {
+            CliCommand::Generate { name, custom } => self.generate(name, custom).await,
+            CliCommand::Status => self.status().await,
+            CliCommand::Push => self.push().await,
+            CliCommand::Introspect { output } => self.introspect(output).await,
+        }
     }
 }
 

@@ -24,6 +24,7 @@ drizzle-types = { workspace = true, features = ["serde"] }
 rusqlite = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
 
@@ -39,5 +40,5 @@ std = ["regex"]
 rusqlite = ["dep:rusqlite"]
 libsql = ["dep:libsql"]
 turso = ["dep:turso", "dep:libsql"]
-tokio-postgres = ["dep:tokio-postgres"]
+tokio-postgres = ["dep:tokio-postgres", "dep:tokio", "tokio/rt"]
 postgres-sync = ["dep:postgres"]
