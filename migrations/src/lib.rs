@@ -6,23 +6,78 @@
 //! - Rust-based configuration via `Config` typestate
 //! - Migration file writing
 //!
-//! # Configuration
+//! # Usage
 //!
-//! Use the `Config` builder for Rust-based configuration:
+//! ## Step 1: Add a binary target to your Cargo.toml
+//!
+//! ```toml
+//! [[bin]]
+//! name = "drizzle"
+//! path = "src/bin/drizzle.rs"
+//! ```
+//!
+//! ## Step 2: Create the CLI binary
+//!
+//! ### Sync Drivers (rusqlite, postgres-sync)
 //!
 //! ```ignore
-//! use drizzle_migrations::Config;
+//! // src/bin/drizzle.rs
+//! use drizzle_migrations::RusqliteConfigBuilder;
+//! use my_app::schema::AppSchema;
 //!
-//! let config = Config::builder()
-//!     .schema::<AppSchema>()
-//!     .sqlite()
-//!     .rusqlite("./dev.db")
-//!     .out("./drizzle")
-//!     .build();
-//!
-//! // Run CLI commands
-//! config.run_cli();
+//! fn main() {
+//!     RusqliteConfigBuilder::new("./dev.db")
+//!         .schema::<AppSchema>()
+//!         .out("./drizzle")
+//!         .build()
+//!         .run_cli();
+//! }
 //! ```
+//!
+//! ### Async Drivers (libsql, turso, tokio-postgres)
+//!
+//! ```ignore
+//! // src/bin/drizzle.rs
+//! use drizzle_migrations::TokioPostgresConfigBuilder;
+//! use my_app::schema::AppSchema;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     TokioPostgresConfigBuilder::new("localhost", 5432, "user", "pass", "mydb")
+//!         .schema::<AppSchema>()
+//!         .out("./drizzle")
+//!         .build()
+//!         .run_cli()
+//!         .await;
+//! }
+//! ```
+//!
+//! ## Step 3: Run CLI commands
+//!
+//! ```bash
+//! # Generate a migration from schema changes
+//! cargo run --bin drizzle -- generate
+//!
+//! # Generate with a custom name
+//! cargo run --bin drizzle -- generate --name "add_users_table"
+//!
+//! # Push schema directly to database (no migration file)
+//! cargo run --bin drizzle -- push
+//!
+//! # Introspect database and generate snapshot
+//! cargo run --bin drizzle -- introspect
+//!
+//! # Show migration status
+//! cargo run --bin drizzle -- status
+//! ```
+//!
+//! # Available Builders
+//!
+//! - [`RusqliteConfigBuilder`] - rusqlite (file-based SQLite) - sync
+//! - [`LibsqlConfigBuilder`] - libsql (embedded replica SQLite) - async
+//! - [`TursoConfigBuilder`] - turso (edge SQLite) - async
+//! - [`TokioPostgresConfigBuilder`] - tokio-postgres (async PostgreSQL) - async
+//! - [`PostgresSyncConfigBuilder`] - postgres-sync (sync PostgreSQL) - sync
 
 pub mod collection;
 pub mod config;
@@ -69,23 +124,23 @@ pub use schema::{Schema, Snapshot};
 
 // Re-export Config typestate types for Rust-based configuration
 pub use config::{
-    Config, ConfigBuilder, ConfigError, DialectMarker, LibsqlCredentials, MysqlDialect,
-    NoConnection, NoCredentials, NoDialect, PostgresCredentials, PostgresDialect,
-    SqliteCredentials, SqliteDialect, TursoCredentials,
+    CliArgs, CliCommand, Config, ConfigBuilder, ConfigError, DialectMarker, LibsqlCredentials,
+    MysqlDialect, NoConnection, NoCredentials, NoDialect, NoSchema, PostgresCredentials,
+    PostgresDialect, SqliteCredentials, SqliteDialect, TursoCredentials,
 };
 
-// Conditionally re-export connection markers
+// Conditionally re-export connection markers and driver-specific builders
 #[cfg(feature = "rusqlite")]
-pub use config::RusqliteConnection;
+pub use config::{RusqliteConfigBuilder, RusqliteConnection};
 
 #[cfg(feature = "libsql")]
-pub use config::LibsqlConnection;
+pub use config::{LibsqlConfigBuilder, LibsqlConnection};
 
 #[cfg(feature = "turso")]
-pub use config::TursoConnection;
+pub use config::{TursoConfigBuilder, TursoConnection};
 
 #[cfg(feature = "tokio-postgres")]
-pub use config::TokioPostgresConnection;
+pub use config::{TokioPostgresConfigBuilder, TokioPostgresConnection};
 
 #[cfg(feature = "postgres-sync")]
-pub use config::PostgresSyncConnection;
+pub use config::{PostgresSyncConfigBuilder, PostgresSyncConnection};
