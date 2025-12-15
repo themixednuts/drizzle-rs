@@ -1,0 +1,66 @@
+[package]
+name = "drizzle-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Command-line interface for drizzle-rs migrations"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "drizzle"
+path = "src/main.rs"
+
+[dependencies]
+# Core drizzle dependencies
+drizzle-migrations = { workspace = true }
+drizzle-types = { workspace = true, features = ["serde"] }
+
+# CLI framework
+clap = { workspace = true }
+colored = { workspace = true }
+
+# Configuration
+toml = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# File discovery
+glob = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Driver dependencies (optional, per-driver for push/migrate/introspect)
+rusqlite = { workspace = true, optional = true }
+postgres = { workspace = true, optional = true }
+tokio-postgres = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["rt", "macros"] }
+libsql = { workspace = true, optional = true }
+turso = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+
+[features]
+default = []
+
+# SQLite drivers
+rusqlite = ["dep:rusqlite", "drizzle-migrations/rusqlite"]
+libsql = ["dep:libsql", "drizzle-migrations/libsql", "dep:tokio"]
+turso = ["dep:turso", "dep:libsql", "drizzle-migrations/turso", "dep:tokio"]
+
+# PostgreSQL drivers
+postgres-sync = ["dep:postgres", "drizzle-migrations/postgres-sync"]
+tokio-postgres = [
+    "dep:tokio-postgres",
+    "dep:tokio",
+    "drizzle-migrations/tokio-postgres",
+]
+
+# Bundle all drivers
+all-drivers = ["rusqlite", "libsql", "turso", "postgres-sync", "tokio-postgres"]

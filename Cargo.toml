@@ -19,6 +19,7 @@ members = [
   "mysql",
   "migrations",
   "types",
+  "cli",
 ]
 
 [workspace.package]

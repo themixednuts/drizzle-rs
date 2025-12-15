@@ -3,22 +3,83 @@
 //! This crate provides types and utilities for:
 //! - Schema snapshots compatible with drizzle-kit format
 //! - Migration diffing and SQL generation  
+//! - **Runtime migration execution** with embedded or remote migrations
 //! - Rust-based configuration via `Config` typestate
-//! - Migration file writing
 //!
-//! # Usage
+//! # Runtime Migrations
 //!
-//! ## Step 1: Add a binary target to your Cargo.toml
+//! ## Embedded Migrations (recommended for production/serverless)
 //!
-//! ```toml
-//! [[bin]]
-//! name = "drizzle"
-//! path = "src/bin/drizzle.rs"
+//! For production deployments, especially serverless, embed migrations at compile time:
+//!
+//! ```ignore
+//! use drizzle_migrations::{Migration, MigrationSet, migrations};
+//! use drizzle_types::Dialect;
+//!
+//! // Option 1: Use the migrations! macro
+//! const MIGRATIONS: &[Migration] = migrations![
+//!     ("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
+//!     ("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
+//! ];
+//!
+//! async fn run_migrations(db: &YourDatabase) {
+//!     let set = MigrationSet::new(MIGRATIONS.iter().cloned(), Dialect::PostgreSQL);
+//!     
+//!     // Get applied migrations from DB
+//!     let applied = db.query_column::<String>(&set.query_applied_sql()).await?;
+//!     
+//!     // Apply pending migrations
+//!     for migration in set.pending(&applied) {
+//!         for statement in migration.statements() {
+//!             db.execute(statement).await?;
+//!         }
+//!         db.execute(&set.record_migration_sql(migration.tag())).await?;
+//!     }
+//! }
 //! ```
 //!
-//! ## Step 2: Create the CLI binary
+//! ## Loading from Filesystem (for development)
 //!
-//! ### Sync Drivers (rusqlite, postgres-sync)
+//! During development, load migrations from the migrations directory:
+//!
+//! ```ignore
+//! use drizzle_migrations::MigrationSet;
+//! use drizzle_types::Dialect;
+//!
+//! let set = MigrationSet::from_dir("./drizzle", Dialect::SQLite)?;
+//! ```
+//!
+//! ## Loading from Remote (S3, etc.)
+//!
+//! For serverless or dynamic environments, load migrations from any source:
+//!
+//! ```ignore
+//! // Load migrations from S3, HTTP, or any other source
+//! let migrations_data = fetch_from_s3("my-bucket", "migrations.json").await?;
+//! let migrations: Vec<Migration> = serde_json::from_slice(&migrations_data)?;
+//! let set = MigrationSet::new(migrations, Dialect::PostgreSQL);
+//! ```
+//!
+//! # CLI Usage
+//!
+//! For generating migrations, use the `drizzle-cli` crate or the programmatic config API:
+//!
+//! ## Using drizzle-cli (recommended)
+//!
+//! ```bash
+//! # Install
+//! cargo install drizzle-cli
+//!
+//! # Initialize config
+//! drizzle init --dialect sqlite
+//!
+//! # Generate migrations
+//! drizzle generate
+//! ```
+//!
+//! ## Using Programmatic Config
+//!
+//! If you need the schema in Rust (rather than parsing from files), use the config builders:
 //!
 //! ```ignore
 //! // src/bin/drizzle.rs
@@ -32,46 +93,6 @@
 //!         .build()
 //!         .run_cli();
 //! }
-//! ```
-//!
-//! ### Async Drivers (libsql, turso, tokio-postgres)
-//!
-//! ```ignore
-//! // src/bin/drizzle.rs
-//! use drizzle_migrations::TokioPostgresConfigBuilder;
-//! use my_app::schema::AppSchema;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     TokioPostgresConfigBuilder::new("localhost", 5432, "user", "pass", "mydb")
-//!         .schema::<AppSchema>()
-//!         .out("./drizzle")
-//!         .build()
-//!         .run_cli()
-//!         .await;
-//! }
-//! ```
-//!
-//! ## Step 3: Run CLI commands
-//!
-//! ```bash
-//! # Generate a migration from schema changes
-//! cargo run --bin drizzle -- generate
-//!
-//! # Generate with a custom name
-//! cargo run --bin drizzle -- generate --name "add_users_table"
-//!
-//! # Run pending migrations
-//! cargo run --bin drizzle -- migrate
-//!
-//! # Push schema directly to database (no migration file)
-//! cargo run --bin drizzle -- push
-//!
-//! # Introspect database and generate snapshot
-//! cargo run --bin drizzle -- introspect
-//!
-//! # Show migration status
-//! cargo run --bin drizzle -- status
 //! ```
 //!
 //! # Available Builders
@@ -99,7 +120,7 @@ pub mod words;
 pub mod writer;
 
 pub use journal::{Journal, JournalEntry};
-pub use migrator::{Migration, Migrator, MigratorError};
+pub use migrator::{Migration, MigrationSet, MigratorError};
 pub use version::{
     JOURNAL_VERSION, MYSQL_SNAPSHOT_VERSION, ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION,
     SINGLESTORE_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION, is_latest_version, is_supported_version,
