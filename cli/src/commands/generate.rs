@@ -178,14 +178,14 @@ fn load_previous_snapshot(
     use drizzle_migrations::schema::Snapshot;
 
     // Try to load journal and get latest snapshot
-    if let Ok(journal) = Journal::load(journal_path) {
-        if let Some(latest) = journal.entries.last() {
-            // Snapshot is in {out}/{tag}/snapshot.json
-            let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");
-            if snapshot_path.exists() {
-                return Snapshot::load(&snapshot_path, dialect)
-                    .map_err(|e| CliError::IoError(e.to_string()));
-            }
+    if let Ok(journal) = Journal::load(journal_path)
+        && let Some(latest) = journal.entries.last()
+    {
+        // Snapshot is in {out}/{tag}/snapshot.json
+        let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");
+        if snapshot_path.exists() {
+            return Snapshot::load(&snapshot_path, dialect)
+                .map_err(|e| CliError::IoError(e.to_string()));
         }
     }
 

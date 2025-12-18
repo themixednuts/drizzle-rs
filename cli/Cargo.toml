@@ -20,6 +20,7 @@ drizzle-types = { workspace = true, features = ["serde"] }
 # CLI framework
 clap = { workspace = true }
 colored = { workspace = true }
+heck = { workspace = true }
 
 # Configuration
 toml = { workspace = true }
@@ -34,7 +35,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 
 # Driver dependencies (optional, per-driver for push/migrate/introspect)
-rusqlite = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true, features = ["bundled"] }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "macros"] }
@@ -50,17 +51,10 @@ predicates = { workspace = true }
 default = []
 
 # SQLite drivers
-rusqlite = ["dep:rusqlite", "drizzle-migrations/rusqlite"]
-libsql = ["dep:libsql", "drizzle-migrations/libsql", "dep:tokio"]
-turso = ["dep:turso", "dep:libsql", "drizzle-migrations/turso", "dep:tokio"]
+rusqlite = ["dep:rusqlite"]
+libsql = ["dep:libsql", "dep:tokio"]
+turso = ["dep:turso", "dep:libsql", "dep:tokio"]
 
 # PostgreSQL drivers
-postgres-sync = ["dep:postgres", "drizzle-migrations/postgres-sync"]
-tokio-postgres = [
-    "dep:tokio-postgres",
-    "dep:tokio",
-    "drizzle-migrations/tokio-postgres",
-]
-
-# Bundle all drivers
-all-drivers = ["rusqlite", "libsql", "turso", "postgres-sync", "tokio-postgres"]
+postgres-sync = ["dep:postgres"]
+tokio-postgres = ["dep:tokio-postgres", "dep:tokio"]

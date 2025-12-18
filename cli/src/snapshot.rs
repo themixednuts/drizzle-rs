@@ -8,6 +8,13 @@ use drizzle_migrations::postgres::PostgresSnapshot;
 use drizzle_migrations::schema::Snapshot;
 use drizzle_migrations::sqlite::SQLiteSnapshot;
 use drizzle_types::Dialect;
+use heck::ToSnakeCase;
+use std::borrow::Cow;
+
+/// Helper to convert Vec<String> to Vec<Cow<'static, str>> by taking ownership.
+fn leak_strings(strings: Vec<String>) -> Vec<Cow<'static, str>> {
+    strings.into_iter().map(Cow::Owned).collect()
+}
 
 /// Convert a `ParseResult` into a `Snapshot` for migration diffing
 pub fn parse_result_to_snapshot(result: &ParseResult) -> Snapshot {
@@ -29,10 +36,10 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
 
     // Process tables
     for table in result.tables.values() {
-        let table_name = to_snake_case(&table.name);
+        let table_name = table.name.to_snake_case();
 
         // Add table entity
-        snapshot.add_entity(SqliteEntity::Table(Table::new(&table_name)));
+        snapshot.add_entity(SqliteEntity::Table(Table::new(table_name.clone())));
 
         // Process columns
         let mut pk_columns = Vec::new();
@@ -43,35 +50,35 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
 
             // Track primary key columns
             if field.is_primary_key() {
-                pk_columns.push(to_snake_case(&field.name));
+                pk_columns.push(field.name.to_snake_case());
             }
 
             // Add unique constraint if column is unique (not primary)
             if field.is_unique() && !field.is_primary_key() {
-                let col_name = to_snake_case(&field.name);
+                let col_name = field.name.to_snake_case();
                 let constraint_name = format!("{}_{}_unique", table_name, col_name);
-                snapshot.add_entity(SqliteEntity::UniqueConstraint(UniqueConstraint::new(
-                    &table_name,
-                    &constraint_name,
-                    vec![col_name],
-                )));
+                snapshot.add_entity(SqliteEntity::UniqueConstraint(
+                    UniqueConstraint::from_strings(
+                        table_name.clone(),
+                        constraint_name,
+                        vec![col_name],
+                    ),
+                ));
             }
 
             // Add foreign key if references exist
-            if let Some(ref_target) = field.references() {
-                if let Some(fk) = build_sqlite_foreign_key(&table_name, field, &ref_target) {
-                    snapshot.add_entity(SqliteEntity::ForeignKey(fk));
-                }
+            if let Some(ref_target) = field.references()
+                && let Some(fk) = build_sqlite_foreign_key(&table_name, field, &ref_target)
+            {
+                snapshot.add_entity(SqliteEntity::ForeignKey(fk));
             }
         }
 
         // Add primary key entity
         if !pk_columns.is_empty() {
             let pk_name = format!("{}_pk", table_name);
-            snapshot.add_entity(SqliteEntity::PrimaryKey(PrimaryKey::new(
-                &table_name,
-                &pk_name,
-                pk_columns,
+            snapshot.add_entity(SqliteEntity::PrimaryKey(PrimaryKey::from_strings(
+                table_name, pk_name, pk_columns,
             )));
         }
     }
@@ -94,18 +101,16 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
     let mut snapshot = PostgresSnapshot::new();
 
     // Add public schema
-    snapshot.add_entity(PostgresEntity::Schema(PgSchema {
-        name: "public".to_string(),
-    }));
+    snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
 
     // Process tables
     for table in result.tables.values() {
-        let table_name = to_snake_case(&table.name);
+        let table_name = table.name.to_snake_case();
 
         // Add table entity
         snapshot.add_entity(PostgresEntity::Table(Table {
-            schema: "public".to_string(),
-            name: table_name.clone(),
+            schema: Cow::Borrowed("public"),
+            name: Cow::Owned(table_name.clone()),
             is_rls_enabled: None,
         }));
 
@@ -118,38 +123,38 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
 
             // Track primary key columns
             if field.is_primary_key() {
-                pk_columns.push(to_snake_case(&field.name));
+                pk_columns.push(field.name.to_snake_case());
             }
 
             // Add unique constraint if column is unique (not primary)
             if field.is_unique() && !field.is_primary_key() {
-                let col_name = to_snake_case(&field.name);
+                let col_name = field.name.to_snake_case();
                 snapshot.add_entity(PostgresEntity::UniqueConstraint(UniqueConstraint {
-                    schema: "public".to_string(),
-                    table: table_name.clone(),
-                    name: format!("{}_{}_key", table_name, col_name),
+                    schema: Cow::Borrowed("public"),
+                    table: Cow::Owned(table_name.clone()),
+                    name: Cow::Owned(format!("{}_{}_key", table_name, col_name)),
                     name_explicit: false,
-                    columns: vec![col_name],
+                    columns: Cow::Owned(leak_strings(vec![col_name])),
                     nulls_not_distinct: false,
                 }));
             }
 
             // Add foreign key if references exist
-            if let Some(ref_target) = field.references() {
-                if let Some(fk) = build_postgres_foreign_key(&table_name, field, &ref_target) {
-                    snapshot.add_entity(PostgresEntity::ForeignKey(fk));
-                }
+            if let Some(ref_target) = field.references()
+                && let Some(fk) = build_postgres_foreign_key(&table_name, field, &ref_target)
+            {
+                snapshot.add_entity(PostgresEntity::ForeignKey(fk));
             }
         }
 
         // Add primary key entity
         if !pk_columns.is_empty() {
             snapshot.add_entity(PostgresEntity::PrimaryKey(PrimaryKey {
-                schema: "public".to_string(),
-                table: table_name.clone(),
-                name: format!("{}_pkey", table_name),
+                schema: Cow::Borrowed("public"),
+                table: Cow::Owned(table_name.clone()),
+                name: Cow::Owned(format!("{}_pkey", table_name)),
                 name_explicit: false,
-                columns: pk_columns,
+                columns: Cow::Owned(leak_strings(pk_columns)),
             }));
         }
     }
@@ -170,10 +175,10 @@ fn build_sqlite_column(
 ) -> drizzle_migrations::sqlite::Column {
     use drizzle_migrations::sqlite::Column;
 
-    let col_name = to_snake_case(&field.name);
+    let col_name = field.name.to_snake_case();
     let col_type = infer_sqlite_type(&field.ty);
 
-    let mut col = Column::new(table_name, &col_name, col_type);
+    let mut col = Column::new(table_name.to_string(), col_name, col_type);
 
     if !field.is_nullable() {
         col = col.not_null();
@@ -195,30 +200,30 @@ fn build_postgres_column(
     table_name: &str,
     field: &ParsedField,
 ) -> drizzle_migrations::postgres::Column {
-    use drizzle_migrations::postgres::{Column, Identity};
+    use drizzle_migrations::postgres::{Column, Identity, IdentityType};
 
-    let col_name = to_snake_case(&field.name);
+    let col_name = field.name.to_snake_case();
     let col_type = infer_postgres_type(&field.ty);
     let is_serial = field.has_attr("serial") || field.has_attr("bigserial");
     let is_identity = field.has_attr("generated") || field.has_attr("identity");
 
     Column {
-        schema: "public".to_string(),
-        table: table_name.to_string(),
-        name: col_name.clone(),
-        sql_type: col_type,
+        schema: Cow::Borrowed("public"),
+        table: Cow::Owned(table_name.to_string()),
+        name: Cow::Owned(col_name.clone()),
+        sql_type: Cow::Owned(col_type),
         type_schema: None,
         not_null: !field.is_nullable(),
-        default: field.default_value(),
+        default: field.default_value().map(Cow::Owned),
         generated: None,
         identity: if is_serial || is_identity {
             Some(Identity {
-                name: format!("{}_{}_seq", table_name, col_name),
-                schema: Some("public".to_string()),
+                name: Cow::Owned(format!("{}_{}_seq", table_name, col_name)),
+                schema: Some(Cow::Borrowed("public")),
                 type_: if is_identity {
-                    "always".to_string()
+                    IdentityType::Always
                 } else {
-                    "byDefault".to_string()
+                    IdentityType::ByDefault
                 },
                 increment: None,
                 min_value: None,
@@ -239,7 +244,7 @@ fn build_sqlite_foreign_key(
     table_name: &str,
     field: &ParsedField,
     ref_target: &str,
-) -> Option<drizzle_migrations::sqlite::ForeignKey> {
+) -> Option<drizzle_migrations::sqlite::ForeignKey<'static>> {
     use drizzle_migrations::sqlite::ForeignKey;
 
     // Parse "Table::column" reference
@@ -248,24 +253,24 @@ fn build_sqlite_foreign_key(
         return None;
     }
 
-    let ref_table = to_snake_case(parts[0]);
-    let ref_column = to_snake_case(parts[1]);
-    let col_name = to_snake_case(&field.name);
+    let ref_table = parts[0].to_snake_case();
+    let ref_column = parts[1].to_snake_case();
+    let col_name = field.name.to_snake_case();
     let fk_name = format!(
         "{}_{}_{}_{}_fk",
         table_name, col_name, ref_table, ref_column
     );
 
-    let mut fk = ForeignKey::new(
-        table_name,
-        &fk_name,
+    let mut fk = ForeignKey::from_strings(
+        table_name.to_string(),
+        fk_name,
         vec![col_name],
         ref_table,
         vec![ref_column],
     );
 
-    fk.on_delete = field.on_delete();
-    fk.on_update = field.on_update();
+    fk.on_delete = field.on_delete().map(Cow::Owned);
+    fk.on_update = field.on_update().map(Cow::Owned);
 
     Some(fk)
 }
@@ -275,7 +280,7 @@ fn build_postgres_foreign_key(
     table_name: &str,
     field: &ParsedField,
     ref_target: &str,
-) -> Option<drizzle_migrations::postgres::ForeignKey> {
+) -> Option<drizzle_migrations::postgres::ForeignKey<'static>> {
     use drizzle_migrations::postgres::ForeignKey;
 
     // Parse "Table::column" reference
@@ -284,25 +289,25 @@ fn build_postgres_foreign_key(
         return None;
     }
 
-    let ref_table = to_snake_case(parts[0]);
-    let ref_column = to_snake_case(parts[1]);
-    let col_name = to_snake_case(&field.name);
+    let ref_table = parts[0].to_snake_case();
+    let ref_column = parts[1].to_snake_case();
+    let col_name = field.name.to_snake_case();
     let fk_name = format!(
         "{}_{}_{}_{}_fk",
         table_name, col_name, ref_table, ref_column
     );
 
     Some(ForeignKey {
-        schema: "public".to_string(),
-        table: table_name.to_string(),
-        name: fk_name,
+        schema: Cow::Borrowed("public"),
+        table: Cow::Owned(table_name.to_string()),
+        name: Cow::Owned(fk_name),
         name_explicit: false,
-        columns: vec![col_name],
-        schema_to: "public".to_string(),
-        table_to: ref_table,
-        columns_to: vec![ref_column],
-        on_update: field.on_update(),
-        on_delete: field.on_delete(),
+        columns: Cow::Owned(leak_strings(vec![col_name])),
+        schema_to: Cow::Borrowed("public"),
+        table_to: Cow::Owned(ref_table),
+        columns_to: Cow::Owned(leak_strings(vec![ref_column])),
+        on_update: field.on_update().map(Cow::Owned),
+        on_delete: field.on_delete().map(Cow::Owned),
     })
 }
 
@@ -310,21 +315,22 @@ fn build_postgres_foreign_key(
 fn build_sqlite_index(index: &ParsedIndex) -> drizzle_migrations::sqlite::Index {
     use drizzle_migrations::sqlite::{Index, IndexColumn, IndexOrigin};
 
-    let table_name = index
-        .table_name()
-        .map(|s| to_snake_case(s))
-        .unwrap_or_default();
-    let index_name = to_snake_case(&index.name);
+    let table_name = Cow::Owned(
+        index
+            .table_name()
+            .map(str::to_snake_case)
+            .unwrap_or_default(),
+    );
+    let index_name = Cow::Owned(index.name.to_snake_case());
 
     let columns: Vec<IndexColumn> = index
         .columns
         .iter()
         .filter_map(|c| {
             // Parse "Table::column" and extract just the column
-            c.split("::").last().map(|s| IndexColumn {
-                value: to_snake_case(s),
-                is_expression: false,
-            })
+            c.split("::")
+                .last()
+                .map(|s| IndexColumn::new(s.to_snake_case()))
         })
         .collect();
 
@@ -333,7 +339,7 @@ fn build_sqlite_index(index: &ParsedIndex) -> drizzle_migrations::sqlite::Index 
         name: index_name,
         columns,
         is_unique: index.is_unique(),
-        r#where: None,
+        where_clause: None,
         origin: IndexOrigin::Manual,
     }
 }
@@ -344,34 +350,31 @@ fn build_postgres_index(index: &ParsedIndex) -> drizzle_migrations::postgres::In
 
     let table_name = index
         .table_name()
-        .map(|s| to_snake_case(s))
+        .map(str::to_snake_case)
         .unwrap_or_default();
-    let index_name = to_snake_case(&index.name);
+    let index_name = index.name.to_snake_case();
 
     let columns: Vec<IndexColumn> = index
         .columns
         .iter()
         .filter_map(|c| {
-            c.split("::").last().map(|s| IndexColumn {
-                value: to_snake_case(s),
-                is_expression: false,
-                asc: true,
-                nulls_first: false,
-                opclass: None,
-            })
+            c.split("::")
+                .last()
+                .map(|s| IndexColumn::new(s.to_snake_case()))
         })
         .collect();
 
     Index {
-        schema: "public".to_string(),
-        table: table_name,
-        name: index_name,
+        schema: Cow::Borrowed("public"),
+        table: Cow::Owned(table_name),
+        name: Cow::Owned(index_name),
+        name_explicit: false,
         columns,
         is_unique: index.is_unique(),
-        r#where: None,
+        where_clause: None,
         method: None,
+        with: None,
         concurrently: false,
-        r#with: None,
     }
 }
 
@@ -430,46 +433,9 @@ fn infer_postgres_type(rust_type: &str) -> String {
     }
 }
 
-/// Convert PascalCase or camelCase to snake_case
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    let mut prev_was_upper = false;
-    let mut prev_was_underscore = true;
-
-    for c in s.chars() {
-        if c.is_uppercase() {
-            if !prev_was_underscore && !prev_was_upper {
-                result.push('_');
-            }
-            result.push(c.to_lowercase().next().unwrap_or(c));
-            prev_was_upper = true;
-            prev_was_underscore = false;
-        } else if c == '_' {
-            result.push(c);
-            prev_was_underscore = true;
-            prev_was_upper = false;
-        } else {
-            result.push(c);
-            prev_was_upper = false;
-            prev_was_underscore = false;
-        }
-    }
-
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_to_snake_case() {
-        assert_eq!(to_snake_case("Users"), "users");
-        assert_eq!(to_snake_case("UserPosts"), "user_posts");
-        assert_eq!(to_snake_case("userId"), "user_id");
-        assert_eq!(to_snake_case("user_id"), "user_id");
-        assert_eq!(to_snake_case("HTTPRequest"), "h_t_t_p_request"); // Edge case
-    }
 
     #[test]
     fn test_infer_sqlite_type() {
