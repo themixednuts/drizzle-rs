@@ -1,10 +1,13 @@
 //! TOML configuration parsing for drizzle CLI
 //!
-//! This module handles loading and validating the `drizzle.toml` configuration file.
+//! This module handles loading and validating the `drizzle.config.toml` configuration file.
 //! The config structure matches the drizzle-kit config format.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
+
+/// Default configuration file name
+pub const DEFAULT_CONFIG_FILE: &str = "drizzle.config.toml";
 
 /// Root configuration structure matching `drizzle.config.ts` from drizzle-kit
 ///
@@ -253,9 +256,9 @@ fn default_breakpoints() -> bool {
 }
 
 impl DrizzleConfig {
-    /// Load configuration from the default `drizzle.toml` file
+    /// Load configuration from the default `drizzle.config.toml` file
     pub fn load() -> Result<Self, ConfigError> {
-        Self::load_from(&PathBuf::from("drizzle.toml"))
+        Self::load_from(&PathBuf::from(DEFAULT_CONFIG_FILE))
     }
 
     /// Load configuration from a specific path
@@ -361,13 +364,13 @@ impl DrizzleConfig {
 /// Configuration errors
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("Configuration file not found: {0}")]
+    #[error("Configuration file not found: {}", .0.display())]
     NotFound(PathBuf),
 
-    #[error("Failed to read configuration file {0}: {1}")]
+    #[error("Failed to read configuration file {path}: {msg}", path = .0.display(), msg = .1)]
     IoError(PathBuf, String),
 
-    #[error("Failed to parse configuration file {0}: {1}")]
+    #[error("Failed to parse configuration file {path}: {msg}", path = .0.display(), msg = .1)]
     ParseError(PathBuf, String),
 
     #[error("Invalid credentials: {0}")]

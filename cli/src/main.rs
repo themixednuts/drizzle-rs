@@ -10,13 +10,20 @@ use std::process::ExitCode;
 use drizzle_cli::config::DrizzleConfig;
 use drizzle_cli::error::CliError;
 
+/// Default configuration file name
+const DEFAULT_CONFIG_FILE: &str = "drizzle.config.toml";
+
+/// JSON schema URL for TOML validation
+const SCHEMA_URL: &str =
+    "https://raw.githubusercontent.com/themixednuts/drizzle-rs/master/cli/schema.json";
+
 /// Drizzle - Database migration CLI for drizzle-rs
 #[derive(Parser, Debug)]
 #[command(name = "drizzle")]
 #[command(author, version, about = "Database migration CLI for drizzle-rs", long_about = None)]
 struct Cli {
-    /// Path to config file (default: drizzle.toml)
-    #[arg(short, long, global = true)]
+    /// Path to config file (default: drizzle.config.toml)
+    #[arg(short, long, global = true, value_name = "PATH")]
     config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -109,18 +116,22 @@ fn load_config(custom_path: Option<&std::path::Path>) -> Result<DrizzleConfig, C
     }
 }
 
-/// Initialize a new drizzle.toml file
+/// Initialize a new drizzle.config.toml file
 fn run_init(dialect: &str, _driver: Option<&str>) -> Result<(), CliError> {
-    let config_path = PathBuf::from("drizzle.toml");
+    let config_path = PathBuf::from(DEFAULT_CONFIG_FILE);
 
     if config_path.exists() {
-        return Err(CliError::Other(
-            "drizzle.toml already exists. Delete it first to reinitialize.".to_string(),
-        ));
+        return Err(CliError::Other(format!(
+            "{} already exists. Delete it first to reinitialize.",
+            DEFAULT_CONFIG_FILE
+        )));
     }
 
     let config_content = match dialect.to_lowercase().as_str() {
-        "sqlite" => r#"# Drizzle Configuration
+        "sqlite" => format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
 # See: https://orm.drizzle.team/kit-docs/config-reference
 
 dialect = "sqlite"
@@ -130,9 +141,13 @@ out = "./drizzle"
 
 [dbCredentials]
 url = "./dev.db"
-"#
-        .to_string(),
-        "turso" => r#"# Drizzle Configuration
+"#,
+            SCHEMA_URL
+        ),
+        "turso" => format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
 # See: https://orm.drizzle.team/kit-docs/config-reference
 
 dialect = "turso"
@@ -143,9 +158,13 @@ out = "./drizzle"
 [dbCredentials]
 url = "libsql://your-db.turso.io"
 authToken = "your-token"
-"#
-        .to_string(),
-        "postgresql" | "postgres" => r#"# Drizzle Configuration
+"#,
+            SCHEMA_URL
+        ),
+        "postgresql" | "postgres" => format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
 # See: https://orm.drizzle.team/kit-docs/config-reference
 
 dialect = "postgresql"
@@ -158,12 +177,16 @@ url = "postgres://user:password@localhost:5432/mydb"
 # Or use individual fields:
 # host = "localhost"
 # port = 5432
-# user = "user"  
+# user = "user"
 # password = "password"
 # database = "mydb"
-"#
-        .to_string(),
-        "mysql" => r#"# Drizzle Configuration
+"#,
+            SCHEMA_URL
+        ),
+        "mysql" => format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
 # See: https://orm.drizzle.team/kit-docs/config-reference
 
 dialect = "mysql"
@@ -173,17 +196,24 @@ out = "./drizzle"
 
 [dbCredentials]
 url = "mysql://user:password@localhost:3306/mydb"
-"#
-        .to_string(),
+"#,
+            SCHEMA_URL
+        ),
         _ => return Err(CliError::Other(format!("Unknown dialect: {}", dialect))),
     };
 
     std::fs::write(&config_path, config_content).map_err(|e| CliError::IoError(e.to_string()))?;
 
-    println!("{}", "✅ Created drizzle.toml".bright_green());
+    println!(
+        "{}",
+        format!("✅ Created {}", DEFAULT_CONFIG_FILE).bright_green()
+    );
     println!();
     println!("Next steps:");
-    println!("  1. Edit drizzle.toml with your database credentials");
+    println!(
+        "  1. Edit {} with your database credentials",
+        DEFAULT_CONFIG_FILE
+    );
     println!(
         "  2. Create your schema file at {}",
         "src/schema.rs".bright_cyan()

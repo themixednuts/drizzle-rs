@@ -1,0 +1,384 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/themixednuts/drizzle-rs/master/cli/schema.json",
+  "title": "Drizzle Configuration",
+  "description": "Configuration schema for drizzle-rs CLI tool",
+  "type": "object",
+  "required": ["dialect"],
+  "properties": {
+    "dialect": {
+      "description": "Database dialect",
+      "type": "string",
+      "enum": ["sqlite", "postgresql", "postgres", "mysql", "turso", "singlestore"]
+    },
+    "schema": {
+      "description": "Path or array of paths to schema files (glob patterns supported)",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      ],
+      "default": "src/schema.rs"
+    },
+    "out": {
+      "description": "Output directory for migrations",
+      "type": "string",
+      "default": "./drizzle"
+    },
+    "breakpoints": {
+      "description": "Whether to use SQL breakpoints in generated migrations",
+      "type": "boolean",
+      "default": true
+    },
+    "driver": {
+      "description": "Optional driver for specific database implementations",
+      "type": "string",
+      "enum": [
+        "d1-http",
+        "expo",
+        "durable-sqlite",
+        "sqlite-cloud",
+        "aws-data-api",
+        "pglite"
+      ]
+    },
+    "tablesFilter": {
+      "description": "Table filter for push/introspect commands",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "schemaFilter": {
+      "description": "Schema filter for PostgreSQL",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "verbose": {
+      "description": "Verbose output",
+      "type": "boolean",
+      "default": false
+    },
+    "strict": {
+      "description": "Strict mode for push command",
+      "type": "boolean",
+      "default": false
+    },
+    "casing": {
+      "description": "Casing mode for generated code",
+      "type": "string",
+      "enum": ["camel_case", "snake_case"]
+    },
+    "migrations": {
+      "description": "Migration table configuration",
+      "type": "object",
+      "properties": {
+        "table": {
+          "description": "Custom table name for migrations",
+          "type": "string"
+        },
+        "schema": {
+          "description": "Schema for migrations table (PostgreSQL only)",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "Migration file naming prefix",
+          "type": "string",
+          "enum": ["index", "timestamp", "supabase", "unix", "none"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "dialect": {
+            "const": "sqlite"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "SQLite database credentials",
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": {
+                "description": "Path to SQLite database file",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "dialect": {
+            "const": "turso"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "Turso database credentials",
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": {
+                "description": "Turso database URL (libsql://...)",
+                "type": "string",
+                "pattern": "^libsql://"
+              },
+              "authToken": {
+                "description": "Turso authentication token",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "dialect": {
+            "enum": ["postgresql", "postgres"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "PostgreSQL database credentials",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": {
+                    "description": "PostgreSQL connection URL",
+                    "type": "string",
+                    "pattern": "^postgres(ql)?://"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["host", "database"],
+                "properties": {
+                  "host": {
+                    "description": "Database host",
+                    "type": "string"
+                  },
+                  "port": {
+                    "description": "Database port",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "default": 5432
+                  },
+                  "user": {
+                    "description": "Database user",
+                    "type": "string"
+                  },
+                  "password": {
+                    "description": "Database password",
+                    "type": "string"
+                  },
+                  "database": {
+                    "description": "Database name",
+                    "type": "string"
+                  },
+                  "ssl": {
+                    "description": "SSL configuration",
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "dialect": {
+            "enum": ["mysql", "singlestore"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "MySQL/SingleStore database credentials",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": {
+                    "description": "MySQL connection URL",
+                    "type": "string",
+                    "pattern": "^mysql://"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["host", "database"],
+                "properties": {
+                  "host": {
+                    "description": "Database host",
+                    "type": "string"
+                  },
+                  "port": {
+                    "description": "Database port",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "default": 3306
+                  },
+                  "user": {
+                    "description": "Database user",
+                    "type": "string"
+                  },
+                  "password": {
+                    "description": "Database password",
+                    "type": "string"
+                  },
+                  "database": {
+                    "description": "Database name",
+                    "type": "string"
+                  },
+                  "ssl": {
+                    "description": "SSL configuration",
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "driver": {
+            "const": "d1-http"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "Cloudflare D1 HTTP credentials",
+            "type": "object",
+            "required": ["accountId", "databaseId", "token"],
+            "properties": {
+              "accountId": {
+                "description": "Cloudflare D1 account ID",
+                "type": "string"
+              },
+              "databaseId": {
+                "description": "Cloudflare D1 database ID",
+                "type": "string"
+              },
+              "token": {
+                "description": "Cloudflare API token",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "driver": {
+            "const": "aws-data-api"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "AWS Data API credentials",
+            "type": "object",
+            "required": ["database", "secretArn", "resourceArn"],
+            "properties": {
+              "database": {
+                "description": "Database name",
+                "type": "string"
+              },
+              "secretArn": {
+                "description": "AWS Secrets Manager secret ARN",
+                "type": "string",
+                "pattern": "^arn:aws:secretsmanager:"
+              },
+              "resourceArn": {
+                "description": "AWS RDS resource ARN",
+                "type": "string",
+                "pattern": "^arn:aws:rds:"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
+}
