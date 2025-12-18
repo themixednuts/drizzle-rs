@@ -238,15 +238,15 @@ fn introspect_database(conn: &Connection) -> IntrospectionResult {
     for (table_name, sql) in &table_sql_map {
         let parsed = parse_table_ddl(sql);
         for parsed_unique in parsed.uniques {
-            result
-                .unique_constraints
-                .push(drizzle_migrations::sqlite::ddl::UniqueConstraint::new(
-                    table_name,
+            result.unique_constraints.push(
+                drizzle_migrations::sqlite::ddl::UniqueConstraint::from_strings(
+                    table_name.clone(),
                     parsed_unique.name.unwrap_or_else(|| {
                         format!("{}_{}_unique", table_name, parsed_unique.columns.join("_"))
                     }),
                     parsed_unique.columns,
-                ));
+                ),
+            );
         }
     }
 
@@ -264,11 +264,7 @@ fn test_introspect_and_generate_schema() {
 
     // Verify we got the expected tables
     assert_eq!(introspection.tables.len(), 5, "Should have 5 tables");
-    let table_names: Vec<&str> = introspection
-        .tables
-        .iter()
-        .map(|t| t.name.as_str())
-        .collect();
+    let table_names: Vec<&str> = introspection.tables.iter().map(|t| &*t.name).collect();
     assert!(table_names.contains(&"users"), "Should have users table");
     assert!(table_names.contains(&"posts"), "Should have posts table");
     assert!(
@@ -338,7 +334,7 @@ fn verify_generated_code(generated: &GeneratedSchema) {
 
     // === Header and imports ===
     assert!(
-        code.contains("use drizzle::sqlite::prelude::*;"),
+        code.contains("use drizzle::prelude::*;"),
         "Should have drizzle imports"
     );
 
@@ -698,17 +694,17 @@ fn test_foreign_key_actions() {
         CREATE TABLE parent (
             id INTEGER PRIMARY KEY
         );
-        
+
         CREATE TABLE child_cascade (
             id INTEGER PRIMARY KEY,
             parent_id INTEGER REFERENCES parent(id) ON DELETE CASCADE ON UPDATE CASCADE
         );
-        
+
         CREATE TABLE child_set_null (
             id INTEGER PRIMARY KEY,
             parent_id INTEGER REFERENCES parent(id) ON DELETE SET NULL ON UPDATE SET NULL
         );
-        
+
         CREATE TABLE child_restrict (
             id INTEGER PRIMARY KEY,
             parent_id INTEGER REFERENCES parent(id) ON DELETE RESTRICT ON UPDATE RESTRICT
@@ -813,7 +809,7 @@ fn test_index_generation() {
             email TEXT NOT NULL,
             score INTEGER
         );
-        
+
         CREATE INDEX idx_name ON indexed_table(name);
         CREATE UNIQUE INDEX idx_email ON indexed_table(email);
         CREATE INDEX idx_name_score ON indexed_table(name, score);
@@ -1234,16 +1230,16 @@ fn test_various_index_types() {
             col_b INTEGER,
             col_c REAL
         );
-        
+
         -- Regular index
         CREATE INDEX idx_a ON multi_indexed(col_a);
-        
+
         -- Unique index
         CREATE UNIQUE INDEX idx_b ON multi_indexed(col_b);
-        
+
         -- Multi-column index
         CREATE INDEX idx_ab ON multi_indexed(col_a, col_b);
-        
+
         -- Partial index (WHERE clause)
         CREATE INDEX idx_c_positive ON multi_indexed(col_c) WHERE col_c > 0;
     "#,

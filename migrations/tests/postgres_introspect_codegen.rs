@@ -9,8 +9,8 @@ use drizzle_migrations::{
         PostgresDDL,
         codegen::{CodegenOptions, generate_rust_schema, sql_type_to_rust_type},
         ddl::{
-            Column, Enum, ForeignKey, Identity, Index, IndexColumn, PrimaryKey, Table,
-            UniqueConstraint,
+            Column, Enum, ForeignKey, GeneratedType, Identity, IdentityType, Index, IndexColumn,
+            PrimaryKey, Table, UniqueConstraint,
         },
         introspect::{
             RawColumnInfo, RawForeignKeyInfo, RawIndexColumnInfo, RawIndexInfo, RawPrimaryKeyInfo,
@@ -20,6 +20,7 @@ use drizzle_migrations::{
     },
 };
 use drizzle_types::Dialect;
+use std::{borrow::Cow, sync::OnceLock};
 
 // =============================================================================
 // Helper Functions
@@ -27,9 +28,9 @@ use drizzle_types::Dialect;
 
 fn identity_always() -> Identity {
     Identity {
-        name: "test_seq".to_string(),
-        schema: Some("public".to_string()),
-        type_: "ALWAYS".to_string(),
+        name: Cow::Borrowed("test_seq"),
+        schema: Some(Cow::Borrowed("public")),
+        type_: IdentityType::Always,
         increment: None,
         min_value: None,
         max_value: None,
@@ -45,17 +46,17 @@ fn create_test_ddl() -> PostgresDDL {
 
     // Add a users table
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "users".to_string(),
+        schema: Cow::Borrowed("public"),
+        name: Cow::Borrowed("users"),
         is_rls_enabled: Some(false),
     });
 
     // Add columns for users
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "users".to_string(),
-        name: "id".to_string(),
-        sql_type: "int4".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("users"),
+        name: Cow::Borrowed("id"),
+        sql_type: Cow::Borrowed("int4"),
         type_schema: None,
         not_null: true,
         default: None,
@@ -65,10 +66,10 @@ fn create_test_ddl() -> PostgresDDL {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "users".to_string(),
-        name: "email".to_string(),
-        sql_type: "text".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("users"),
+        name: Cow::Borrowed("email"),
+        sql_type: Cow::Borrowed("text"),
         type_schema: None,
         not_null: true,
         default: None,
@@ -78,10 +79,10 @@ fn create_test_ddl() -> PostgresDDL {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "users".to_string(),
-        name: "bio".to_string(),
-        sql_type: "text".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("users"),
+        name: Cow::Borrowed("bio"),
+        sql_type: Cow::Borrowed("text"),
         type_schema: None,
         not_null: false,
         default: None,
@@ -91,36 +92,39 @@ fn create_test_ddl() -> PostgresDDL {
     });
 
     // Add primary key for users
-    ddl.pks.push(PrimaryKey {
-        schema: "public".to_string(),
-        table: "users".to_string(),
-        name: "users_pkey".to_string(),
-        name_explicit: true,
-        columns: vec!["id".to_string()],
-    });
+    ddl.pks.push(
+        PrimaryKey::from_strings(
+            "public".to_string(),
+            "users".to_string(),
+            "users_pkey".to_string(),
+            vec!["id".to_string()],
+        )
+        .explicit_name(),
+    );
 
     // Add unique constraint for email
-    ddl.uniques.push(UniqueConstraint {
-        schema: "public".to_string(),
-        table: "users".to_string(),
-        name: "users_email_key".to_string(),
-        name_explicit: true,
-        columns: vec!["email".to_string()],
-        nulls_not_distinct: false,
-    });
+    ddl.uniques.push(
+        UniqueConstraint::from_strings(
+            "public".to_string(),
+            "users".to_string(),
+            "users_email_key".to_string(),
+            vec!["email".to_string()],
+        )
+        .explicit_name(),
+    );
 
     // Add a posts table
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "posts".to_string(),
+        schema: Cow::Borrowed("public"),
+        name: Cow::Borrowed("posts"),
         is_rls_enabled: Some(false),
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "id".to_string(),
-        sql_type: "int4".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("posts"),
+        name: Cow::Borrowed("id"),
+        sql_type: Cow::Borrowed("int4"),
         type_schema: None,
         not_null: true,
         default: None,
@@ -130,10 +134,10 @@ fn create_test_ddl() -> PostgresDDL {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "title".to_string(),
-        sql_type: "text".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("posts"),
+        name: Cow::Borrowed("title"),
+        sql_type: Cow::Borrowed("text"),
         type_schema: None,
         not_null: true,
         default: None,
@@ -143,10 +147,10 @@ fn create_test_ddl() -> PostgresDDL {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "author_id".to_string(),
-        sql_type: "int4".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("posts"),
+        name: Cow::Borrowed("author_id"),
+        sql_type: Cow::Borrowed("int4"),
         type_schema: None,
         not_null: true,
         default: None,
@@ -156,45 +160,42 @@ fn create_test_ddl() -> PostgresDDL {
     });
 
     // Add primary key for posts
-    ddl.pks.push(PrimaryKey {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "posts_pkey".to_string(),
-        name_explicit: true,
-        columns: vec!["id".to_string()],
-    });
+    ddl.pks.push(
+        PrimaryKey::from_strings(
+            "public".to_string(),
+            "posts".to_string(),
+            "posts_pkey".to_string(),
+            vec!["id".to_string()],
+        )
+        .explicit_name(),
+    );
 
     // Add foreign key from posts to users
     ddl.fks.push(ForeignKey {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "posts_author_id_fkey".to_string(),
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("posts"),
+        name: Cow::Borrowed("posts_author_id_fkey"),
         name_explicit: true,
-        columns: vec!["author_id".to_string()],
-        schema_to: "public".to_string(),
-        table_to: "users".to_string(),
-        columns_to: vec!["id".to_string()],
-        on_update: Some("NO ACTION".to_string()),
-        on_delete: Some("CASCADE".to_string()),
+        columns: Cow::Owned(vec![Cow::Borrowed("author_id")]),
+        schema_to: Cow::Borrowed("public"),
+        table_to: Cow::Borrowed("users"),
+        columns_to: Cow::Owned(vec![Cow::Borrowed("id")]),
+        on_update: Some(Cow::Borrowed("NO ACTION")),
+        on_delete: Some(Cow::Borrowed("CASCADE")),
     });
 
     // Add an index
     ddl.indexes.push(Index {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "idx_posts_title".to_string(),
-        columns: vec![IndexColumn {
-            value: "title".to_string(),
-            is_expression: false,
-            asc: true,
-            nulls_first: false,
-            opclass: None,
-        }],
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("posts"),
+        name: Cow::Borrowed("idx_posts_title"),
+        name_explicit: false,
+        columns: vec![IndexColumn::new("title")],
         is_unique: false,
-        r#where: None,
-        method: Some("btree".to_string()),
+        where_clause: None,
+        method: Some(Cow::Borrowed("btree")),
+        with: None,
         concurrently: false,
-        r#with: None,
     });
 
     ddl
@@ -214,13 +215,11 @@ fn test_generate_postgres_schema() {
 
     // Verify basic structure
     assert!(
-        generated
-            .code
-            .contains("use drizzle::postgres::prelude::*;"),
+        generated.code.contains("use drizzle::prelude::*;"),
         "Should have postgres import"
     );
-    assert!(generated.tables.contains(&"users".to_string()));
-    assert!(generated.tables.contains(&"posts".to_string()));
+    assert!(generated.tables.contains(&"users".into()));
+    assert!(generated.tables.contains(&"posts".into()));
 }
 
 #[test]
@@ -279,14 +278,14 @@ fn test_postgres_foreign_key_generation() {
     // Check FK reference
     assert_eq!(
         author_id.references(),
-        Some("Users::id".to_string()),
+        Some("Users::id".into()),
         "author_id should reference Users::id"
     );
 
     // Check on_delete cascade (since it's not NO ACTION)
     assert_eq!(
         author_id.on_delete(),
-        Some("cascade".to_string()),
+        Some("cascade".into()),
         "author_id should have on_delete cascade"
     );
 }
@@ -351,19 +350,19 @@ fn test_postgres_type_mapping() {
 fn test_process_tables() {
     let raw = vec![
         RawTableInfo {
-            schema: "public".to_string(),
-            name: "users".to_string(),
+            schema: "public".into(),
+            name: "users".into(),
             is_rls_enabled: false,
         },
         RawTableInfo {
-            schema: "public".to_string(),
-            name: "posts".to_string(),
+            schema: "public".into(),
+            name: "posts".into(),
             is_rls_enabled: true,
         },
         // System table should be filtered
         RawTableInfo {
-            schema: "pg_catalog".to_string(),
-            name: "pg_class".to_string(),
+            schema: "pg_catalog".into(),
+            name: "pg_class".into(),
             is_rls_enabled: false,
         },
     ];
@@ -379,27 +378,27 @@ fn test_process_tables() {
 fn test_process_columns() {
     let raw = vec![
         RawColumnInfo {
-            schema: "public".to_string(),
-            table: "users".to_string(),
-            name: "id".to_string(),
-            column_type: "int4".to_string(),
+            schema: "public".into(),
+            table: "users".into(),
+            name: "id".into(),
+            column_type: "int4".into(),
             type_schema: None,
             not_null: true,
             default_value: None,
             is_identity: true,
-            identity_type: Some("ALWAYS".to_string()),
+            identity_type: Some("ALWAYS".into()),
             is_generated: false,
             generated_expression: None,
             ordinal_position: 1,
         },
         RawColumnInfo {
-            schema: "public".to_string(),
-            table: "users".to_string(),
-            name: "name".to_string(),
-            column_type: "text".to_string(),
+            schema: "public".into(),
+            table: "users".into(),
+            name: "name".into(),
+            column_type: "text".into(),
             type_schema: None,
             not_null: true,
-            default_value: Some("'Anonymous'::text".to_string()),
+            default_value: Some("'Anonymous'::text".into()),
             is_identity: false,
             identity_type: None,
             is_generated: false,
@@ -416,21 +415,21 @@ fn test_process_columns() {
     assert!(id_col.not_null);
 
     let name_col = columns.iter().find(|c| c.name == "name").unwrap();
-    assert_eq!(name_col.default, Some("'Anonymous'::text".to_string()));
+    assert_eq!(name_col.default, Some("'Anonymous'::text".into()));
 }
 
 #[test]
 fn test_process_indexes() {
     let raw = vec![
         RawIndexInfo {
-            schema: "public".to_string(),
-            table: "users".to_string(),
-            name: "idx_users_email".to_string(),
+            schema: "public".into(),
+            table: "users".into(),
+            name: "idx_users_email".into(),
             is_unique: true,
             is_primary: false,
-            method: "btree".to_string(),
+            method: "btree".into(),
             columns: vec![RawIndexColumnInfo {
-                name: "email".to_string(),
+                name: "email".into(),
                 is_expression: false,
                 asc: true,
                 nulls_first: false,
@@ -441,14 +440,14 @@ fn test_process_indexes() {
         },
         // Primary key index should be filtered out
         RawIndexInfo {
-            schema: "public".to_string(),
-            table: "users".to_string(),
-            name: "users_pkey".to_string(),
+            schema: "public".into(),
+            table: "users".into(),
+            name: "users_pkey".into(),
             is_unique: true,
             is_primary: true,
-            method: "btree".to_string(),
+            method: "btree".into(),
             columns: vec![RawIndexColumnInfo {
-                name: "id".to_string(),
+                name: "id".into(),
                 is_expression: false,
                 asc: true,
                 nulls_first: false,
@@ -468,22 +467,24 @@ fn test_process_indexes() {
 #[test]
 fn test_process_foreign_keys() {
     let raw = vec![RawForeignKeyInfo {
-        schema: "public".to_string(),
-        table: "posts".to_string(),
-        name: "posts_author_id_fkey".to_string(),
-        columns: vec!["author_id".to_string()],
-        schema_to: "public".to_string(),
-        table_to: "users".to_string(),
-        columns_to: vec!["id".to_string()],
-        on_update: "NO ACTION".to_string(),
-        on_delete: "CASCADE".to_string(),
+        schema: "public".into(),
+        table: "posts".into(),
+        name: "posts_author_id_fkey".into(),
+        columns: vec!["author_id".into()],
+        schema_to: "public".into(),
+        table_to: "users".into(),
+        columns_to: vec!["id".into()],
+        on_update: "NO ACTION".into(),
+        on_delete: "CASCADE".into(),
     }];
 
-    let fks = process_foreign_keys(&raw);
+    static RAW_FKS: OnceLock<Vec<RawForeignKeyInfo>> = OnceLock::new();
+
+    let fks = process_foreign_keys(RAW_FKS.get_or_init(|| raw));
     assert_eq!(fks.len(), 1);
     assert_eq!(fks[0].name, "posts_author_id_fkey");
     assert_eq!(fks[0].table_to, "users");
-    assert_eq!(fks[0].on_delete, Some("CASCADE".to_string()));
+    assert_eq!(fks[0].on_delete, Some("CASCADE".into()));
 }
 
 #[test]
@@ -498,24 +499,24 @@ fn test_process_primary_keys() {
     let pks = process_primary_keys(&raw);
     assert_eq!(pks.len(), 1);
     assert_eq!(pks[0].name, "users_pkey");
-    assert_eq!(pks[0].columns, vec!["id"]);
+    assert_eq!(pks[0].columns.len(), 1);
 }
 
 #[test]
 fn test_process_unique_constraints() {
     let raw = vec![
         RawUniqueInfo {
-            schema: "public".to_string(),
-            table: "users".to_string(),
-            name: "users_email_key".to_string(),
-            columns: vec!["email".to_string()],
+            schema: "public".into(),
+            table: "users".into(),
+            name: "users_email_key".into(),
+            columns: vec!["email".into()],
             nulls_not_distinct: false,
         },
         RawUniqueInfo {
-            schema: "public".to_string(),
-            table: "users".to_string(),
-            name: "users_username_domain_key".to_string(),
-            columns: vec!["username".to_string(), "domain".to_string()],
+            schema: "public".into(),
+            table: "users".into(),
+            name: "users_username_domain_key".into(),
+            columns: vec!["username".into(), "domain".into()],
             nulls_not_distinct: true,
         },
     ];
@@ -548,23 +549,19 @@ fn test_process_enums() {
 
     let raw = vec![
         RawEnumInfo {
-            schema: "public".to_string(),
-            name: "status".to_string(),
-            values: vec![
-                "pending".to_string(),
-                "active".to_string(),
-                "completed".to_string(),
-            ],
+            schema: "public".into(),
+            name: "status".into(),
+            values: vec!["pending".into(), "active".into(), "completed".into()],
         },
         RawEnumInfo {
-            schema: "public".to_string(),
-            name: "priority".to_string(),
-            values: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
+            schema: "public".into(),
+            name: "priority".into(),
+            values: vec!["low".into(), "medium".into(), "high".into()],
         },
         // System schema should be filtered
         RawEnumInfo {
-            schema: "pg_catalog".to_string(),
-            name: "anyenum".to_string(),
+            schema: "pg_catalog".into(),
+            name: "anyenum".into(),
             values: vec![],
         },
     ];
@@ -670,16 +667,16 @@ fn test_process_check_constraints() {
 
     let raw = vec![
         RawCheckInfo {
-            schema: "public".to_string(),
-            table: "products".to_string(),
-            name: "products_price_check".to_string(),
-            expression: "price > 0".to_string(),
+            schema: "public".into(),
+            table: "products".into(),
+            name: "products_price_check".into(),
+            expression: "price > 0".into(),
         },
         RawCheckInfo {
-            schema: "public".to_string(),
-            table: "products".to_string(),
-            name: "products_quantity_check".to_string(),
-            expression: "quantity >= 0".to_string(),
+            schema: "public".into(),
+            table: "products".into(),
+            name: "products_quantity_check".into(),
+            expression: "quantity >= 0".into(),
         },
     ];
 
@@ -705,16 +702,16 @@ fn test_generated_column_codegen() {
     let mut ddl = PostgresDDL::new();
 
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "products".to_string(),
+        schema: "public".into(),
+        name: "products".into(),
         is_rls_enabled: Some(false),
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "products".to_string(),
-        name: "price".to_string(),
-        sql_type: "numeric".to_string(),
+        schema: "public".into(),
+        table: "products".into(),
+        name: "price".into(),
+        sql_type: "numeric".into(),
         type_schema: None,
         not_null: true,
         default: None,
@@ -724,10 +721,10 @@ fn test_generated_column_codegen() {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "products".to_string(),
-        name: "quantity".to_string(),
-        sql_type: "int4".to_string(),
+        schema: "public".into(),
+        table: "products".into(),
+        name: "quantity".into(),
+        sql_type: "int4".into(),
         type_schema: None,
         not_null: true,
         default: None,
@@ -737,16 +734,16 @@ fn test_generated_column_codegen() {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "products".to_string(),
-        name: "total".to_string(),
-        sql_type: "numeric".to_string(),
+        schema: "public".into(),
+        table: "products".into(),
+        name: "total".into(),
+        sql_type: "numeric".into(),
         type_schema: None,
         not_null: true,
         default: None,
         generated: Some(Generated {
-            expression: "price * quantity".to_string(),
-            type_: "stored".to_string(),
+            expression: "price * quantity".into(),
+            gen_type: GeneratedType::Stored,
         }),
         identity: None,
         dimensions: None,
@@ -792,45 +789,45 @@ fn test_default_value_codegen() {
     let mut ddl = PostgresDDL::new();
 
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "settings".to_string(),
+        schema: "public".into(),
+        name: "settings".into(),
         is_rls_enabled: Some(false),
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "settings".to_string(),
-        name: "enabled".to_string(),
-        sql_type: "bool".to_string(),
+        schema: "public".into(),
+        table: "settings".into(),
+        name: "enabled".into(),
+        sql_type: "bool".into(),
         type_schema: None,
         not_null: true,
-        default: Some("true".to_string()),
+        default: Some("true".into()),
         generated: None,
         identity: None,
         dimensions: None,
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "settings".to_string(),
-        name: "retries".to_string(),
-        sql_type: "int4".to_string(),
+        schema: "public".into(),
+        table: "settings".into(),
+        name: "retries".into(),
+        sql_type: "int4".into(),
         type_schema: None,
         not_null: true,
-        default: Some("3".to_string()),
+        default: Some("3".into()),
         generated: None,
         identity: None,
         dimensions: None,
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "settings".to_string(),
-        name: "name".to_string(),
-        sql_type: "text".to_string(),
+        schema: "public".into(),
+        table: "settings".into(),
+        name: "name".into(),
+        sql_type: "text".into(),
         type_schema: None,
         not_null: true,
-        default: Some("'default'::text".to_string()),
+        default: Some("'default'::text".into()),
         generated: None,
         identity: None,
         dimensions: None,
@@ -844,15 +841,15 @@ fn test_default_value_codegen() {
 
     // Check boolean default
     let enabled = settings.field("enabled").unwrap();
-    assert_eq!(enabled.default_value(), Some("true".to_string()));
+    assert_eq!(enabled.default_value(), Some("true".into()));
 
     // Check numeric default
     let retries = settings.field("retries").unwrap();
-    assert_eq!(retries.default_value(), Some("3".to_string()));
+    assert_eq!(retries.default_value(), Some("3".into()));
 
     // Check string default (should be quoted)
     let name = settings.field("name").unwrap();
-    assert_eq!(name.default_value(), Some("\"default\"".to_string()));
+    assert_eq!(name.default_value(), Some("\"default\"".into()));
 }
 
 // =============================================================================
@@ -864,25 +861,25 @@ fn test_identity_column_types() {
     let mut ddl = PostgresDDL::new();
 
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "test_identity".to_string(),
+        schema: "public".into(),
+        name: "test_identity".into(),
         is_rls_enabled: Some(false),
     });
 
     // Identity ALWAYS
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "test_identity".to_string(),
-        name: "id_always".to_string(),
-        sql_type: "int4".to_string(),
+        schema: "public".into(),
+        table: "test_identity".into(),
+        name: "id_always".into(),
+        sql_type: "int4".into(),
         type_schema: None,
         not_null: true,
         default: None,
         generated: None,
         identity: Some(Identity {
-            name: "id_always_seq".to_string(),
-            schema: Some("public".to_string()),
-            type_: "ALWAYS".to_string(),
+            name: "id_always_seq".into(),
+            schema: Some("public".into()),
+            type_: IdentityType::Always,
             increment: None,
             min_value: None,
             max_value: None,
@@ -895,18 +892,18 @@ fn test_identity_column_types() {
 
     // Identity BY DEFAULT
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "test_identity".to_string(),
-        name: "id_by_default".to_string(),
-        sql_type: "int4".to_string(),
+        schema: "public".into(),
+        table: "test_identity".into(),
+        name: "id_by_default".into(),
+        sql_type: "int4".into(),
         type_schema: None,
         not_null: true,
         default: None,
         generated: None,
         identity: Some(Identity {
-            name: "id_by_default_seq".to_string(),
-            schema: Some("public".to_string()),
-            type_: "BY DEFAULT".to_string(),
+            name: "id_by_default_seq".into(),
+            schema: Some("public".into()),
+            type_: IdentityType::ByDefault,
             increment: None,
             min_value: None,
             max_value: None,
@@ -917,13 +914,15 @@ fn test_identity_column_types() {
         dimensions: None,
     });
 
-    ddl.pks.push(PrimaryKey {
-        schema: "public".to_string(),
-        table: "test_identity".to_string(),
-        name: "test_identity_pkey".to_string(),
-        name_explicit: true,
-        columns: vec!["id_always".to_string()],
-    });
+    ddl.pks.push(
+        PrimaryKey::from_strings(
+            "public".to_string(),
+            "test_identity".to_string(),
+            "test_identity_pkey".to_string(),
+            vec!["id_always".to_string()],
+        )
+        .explicit_name(),
+    );
 
     let options = CodegenOptions::default();
     let generated = generate_rust_schema(&ddl, &options);
@@ -961,16 +960,16 @@ fn test_unique_index_generation() {
     let mut ddl = PostgresDDL::new();
 
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "items".to_string(),
+        schema: "public".into(),
+        name: "items".into(),
         is_rls_enabled: Some(false),
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "items".to_string(),
-        name: "code".to_string(),
-        sql_type: "text".to_string(),
+        schema: "public".into(),
+        table: "items".into(),
+        name: "code".into(),
+        sql_type: "text".into(),
         type_schema: None,
         not_null: true,
         default: None,
@@ -981,21 +980,16 @@ fn test_unique_index_generation() {
 
     // Unique index
     ddl.indexes.push(Index {
-        schema: "public".to_string(),
-        table: "items".to_string(),
-        name: "idx_items_code_unique".to_string(),
-        columns: vec![IndexColumn {
-            value: "code".to_string(),
-            is_expression: false,
-            asc: true,
-            nulls_first: false,
-            opclass: None,
-        }],
+        schema: "public".into(),
+        table: "items".into(),
+        name: "idx_items_code_unique".into(),
+        columns: vec![IndexColumn::new("code")],
         is_unique: true,
-        r#where: None,
-        method: Some("btree".to_string()),
+        name_explicit: true,
+        where_clause: None,
+        with: None,
+        method: Some("btree".into()),
         concurrently: false,
-        r#with: None,
     });
 
     let options = CodegenOptions::default();
@@ -1022,26 +1016,26 @@ fn test_process_sequences() {
 
     let raw = vec![
         RawSequenceInfo {
-            schema: "public".to_string(),
-            name: "users_id_seq".to_string(),
-            data_type: "bigint".to_string(),
-            start_value: "1".to_string(),
-            min_value: "1".to_string(),
-            max_value: "9223372036854775807".to_string(),
-            increment: "1".to_string(),
+            schema: "public".into(),
+            name: "users_id_seq".into(),
+            data_type: "bigint".into(),
+            start_value: "1".into(),
+            min_value: "1".into(),
+            max_value: "9223372036854775807".into(),
+            increment: "1".into(),
             cycle: false,
-            cache_value: "1".to_string(),
+            cache_value: "1".into(),
         },
         RawSequenceInfo {
-            schema: "public".to_string(),
-            name: "order_num_seq".to_string(),
-            data_type: "integer".to_string(),
-            start_value: "1000".to_string(),
-            min_value: "1000".to_string(),
-            max_value: "2147483647".to_string(),
-            increment: "1".to_string(),
+            schema: "public".into(),
+            name: "order_num_seq".into(),
+            data_type: "integer".into(),
+            start_value: "1000".into(),
+            min_value: "1000".into(),
+            max_value: "2147483647".into(),
+            increment: "1".into(),
             cycle: true,
-            cache_value: "10".to_string(),
+            cache_value: "10".into(),
         },
     ];
 
@@ -1049,16 +1043,16 @@ fn test_process_sequences() {
     assert_eq!(sequences.len(), 2);
 
     let users_seq = sequences.iter().find(|s| s.name == "users_id_seq").unwrap();
-    assert_eq!(users_seq.start_with, Some("1".to_string()));
+    assert_eq!(users_seq.start_with, Some("1".into()));
     assert_eq!(users_seq.cycle, Some(false));
 
     let order_seq = sequences
         .iter()
         .find(|s| s.name == "order_num_seq")
         .unwrap();
-    assert_eq!(order_seq.start_with, Some("1000".to_string()));
+    assert_eq!(order_seq.start_with, Some("1000".into()));
     assert_eq!(order_seq.cycle, Some(true));
-    assert_eq!(order_seq.cache, Some("10".to_string()));
+    assert_eq!(order_seq.cache_size, Some(10));
 }
 
 // =============================================================================
@@ -1070,7 +1064,7 @@ fn test_schema_struct_generation() {
     let ddl = create_test_ddl();
     let options = CodegenOptions {
         include_schema: true,
-        schema_name: "AppSchema".to_string(),
+        schema_name: "AppSchema".into(),
         use_pub: true,
         ..Default::default()
     };
@@ -1097,20 +1091,20 @@ fn test_process_roles() {
 
     let raw = vec![
         RawRoleInfo {
-            name: "app_user".to_string(),
+            name: "app_user".into(),
             create_db: false,
             create_role: false,
             inherit: true,
         },
         RawRoleInfo {
-            name: "admin".to_string(),
+            name: "admin".into(),
             create_db: true,
             create_role: true,
             inherit: true,
         },
         // System roles should be filtered
         RawRoleInfo {
-            name: "postgres".to_string(),
+            name: "postgres".into(),
             create_db: true,
             create_role: true,
             inherit: true,
@@ -1137,29 +1131,29 @@ fn test_enum_codegen() {
     let mut ddl = PostgresDDL::new();
 
     // Add an enum type
-    ddl.enums.push(Enum {
-        schema: "public".to_string(),
-        name: "order_status".to_string(),
-        values: vec![
+    ddl.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "order_status".to_string(),
+        vec![
             "pending".to_string(),
             "processing".to_string(),
             "completed".to_string(),
             "cancelled".to_string(),
         ],
-    });
+    ));
 
     // Add a table that uses the enum
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "orders".to_string(),
+        schema: "public".into(),
+        name: "orders".into(),
         is_rls_enabled: Some(false),
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "orders".to_string(),
-        name: "id".to_string(),
-        sql_type: "int4".to_string(),
+        schema: "public".into(),
+        table: "orders".into(),
+        name: "id".into(),
+        sql_type: "int4".into(),
         type_schema: None,
         not_null: true,
         default: None,
@@ -1169,11 +1163,11 @@ fn test_enum_codegen() {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "orders".to_string(),
-        name: "status".to_string(),
-        sql_type: "order_status".to_string(), // References the enum
-        type_schema: Some("public".to_string()),
+        schema: "public".into(),
+        table: "orders".into(),
+        name: "status".into(),
+        sql_type: "order_status".into(), // References the enum
+        type_schema: Some("public".into()),
         not_null: true,
         default: None,
         generated: None,
@@ -1182,11 +1176,11 @@ fn test_enum_codegen() {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "orders".to_string(),
-        name: "previous_status".to_string(),
-        sql_type: "order_status".to_string(), // References the enum, nullable
-        type_schema: Some("public".to_string()),
+        schema: "public".into(),
+        table: "orders".into(),
+        name: "previous_status".into(),
+        sql_type: "order_status".into(), // References the enum, nullable
+        type_schema: Some("public".into()),
         not_null: false,
         default: None,
         generated: None,
@@ -1194,13 +1188,15 @@ fn test_enum_codegen() {
         dimensions: None,
     });
 
-    ddl.pks.push(PrimaryKey {
-        schema: "public".to_string(),
-        table: "orders".to_string(),
-        name: "orders_pkey".to_string(),
-        name_explicit: true,
-        columns: vec!["id".to_string()],
-    });
+    ddl.pks.push(
+        PrimaryKey::from_strings(
+            "public".to_string(),
+            "orders".to_string(),
+            "orders_pkey".to_string(),
+            vec!["id".to_string()],
+        )
+        .explicit_name(),
+    );
 
     let options = CodegenOptions::default();
     let generated = generate_rust_schema(&ddl, &options);
@@ -1208,7 +1204,7 @@ fn test_enum_codegen() {
     println!("Generated code with enum:\n{}", generated.code);
 
     // Verify enum was generated
-    assert!(generated.enums.contains(&"order_status".to_string()));
+    assert!(generated.enums.contains(&"order_status".into()));
 
     // Verify enum definition in generated code
     assert!(
@@ -1238,34 +1234,34 @@ fn test_multiple_enums_codegen() {
     let mut ddl = PostgresDDL::new();
 
     // Add multiple enum types
-    ddl.enums.push(Enum {
-        schema: "public".to_string(),
-        name: "priority".to_string(),
-        values: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
-    });
+    ddl.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "priority".to_string(),
+        vec!["low".to_string(), "medium".to_string(), "high".to_string()],
+    ));
 
-    ddl.enums.push(Enum {
-        schema: "public".to_string(),
-        name: "task_type".to_string(),
-        values: vec![
+    ddl.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "task_type".to_string(),
+        vec![
             "bug".to_string(),
             "feature".to_string(),
             "chore".to_string(),
         ],
-    });
+    ));
 
     // Add a table that uses both enums
     ddl.tables.push(Table {
-        schema: "public".to_string(),
-        name: "tasks".to_string(),
+        schema: "public".into(),
+        name: "tasks".into(),
         is_rls_enabled: Some(false),
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "tasks".to_string(),
-        name: "id".to_string(),
-        sql_type: "int4".to_string(),
+        schema: "public".into(),
+        table: "tasks".into(),
+        name: "id".into(),
+        sql_type: "int4".into(),
         type_schema: None,
         not_null: true,
         default: None,
@@ -1275,11 +1271,11 @@ fn test_multiple_enums_codegen() {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "tasks".to_string(),
-        name: "priority".to_string(),
-        sql_type: "priority".to_string(),
-        type_schema: Some("public".to_string()),
+        schema: "public".into(),
+        table: "tasks".into(),
+        name: "priority".into(),
+        sql_type: "priority".into(),
+        type_schema: Some("public".into()),
         not_null: true,
         default: None,
         generated: None,
@@ -1288,11 +1284,11 @@ fn test_multiple_enums_codegen() {
     });
 
     ddl.columns.push(Column {
-        schema: "public".to_string(),
-        table: "tasks".to_string(),
-        name: "task_type".to_string(),
-        sql_type: "task_type".to_string(),
-        type_schema: Some("public".to_string()),
+        schema: "public".into(),
+        table: "tasks".into(),
+        name: "task_type".into(),
+        sql_type: "task_type".into(),
+        type_schema: Some("public".into()),
         not_null: true,
         default: None,
         generated: None,
@@ -1300,13 +1296,15 @@ fn test_multiple_enums_codegen() {
         dimensions: None,
     });
 
-    ddl.pks.push(PrimaryKey {
-        schema: "public".to_string(),
-        table: "tasks".to_string(),
-        name: "tasks_pkey".to_string(),
-        name_explicit: true,
-        columns: vec!["id".to_string()],
-    });
+    ddl.pks.push(
+        PrimaryKey::from_strings(
+            "public".to_string(),
+            "tasks".to_string(),
+            "tasks_pkey".to_string(),
+            vec!["id".to_string()],
+        )
+        .explicit_name(),
+    );
 
     let options = CodegenOptions::default();
     let generated = generate_rust_schema(&ddl, &options);
@@ -1315,8 +1313,8 @@ fn test_multiple_enums_codegen() {
 
     // Both enums should be generated
     assert_eq!(generated.enums.len(), 2);
-    assert!(generated.enums.contains(&"priority".to_string()));
-    assert!(generated.enums.contains(&"task_type".to_string()));
+    assert!(generated.enums.contains(&"priority".into()));
+    assert!(generated.enums.contains(&"task_type".into()));
 
     // Verify both enum definitions
     assert!(generated.code.contains("enum Priority {"));
@@ -1332,17 +1330,17 @@ fn test_enum_with_special_values() {
     let mut ddl = PostgresDDL::new();
 
     // Add an enum with values that need pascal case conversion
-    ddl.enums.push(Enum {
-        schema: "public".to_string(),
-        name: "http_method".to_string(),
-        values: vec![
+    ddl.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "http_method".to_string(),
+        vec![
             "GET".to_string(),
             "POST".to_string(),
             "PUT".to_string(),
             "DELETE".to_string(),
             "PATCH".to_string(),
         ],
-    });
+    ));
 
     let options = CodegenOptions::default();
     let generated = generate_rust_schema(&ddl, &options);

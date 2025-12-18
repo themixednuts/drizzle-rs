@@ -12,33 +12,16 @@ rust-version.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
-toml = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true, optional = true }
 tempfile = { workspace = true }
-clap = { workspace = true }
 heck = { workspace = true }
 drizzle-types = { workspace = true, features = ["serde"] }
 
-# Driver dependencies for introspection (optional, per-driver)
-rusqlite = { workspace = true, optional = true }
-postgres = { workspace = true, optional = true }
-tokio-postgres = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
-libsql = { workspace = true, optional = true }
-turso = { workspace = true, optional = true }
-
 [dev-dependencies]
-drizzle = { workspace = true }
 rusqlite = { workspace = true }
+postgres = { workspace = true }
 
 [features]
 default = ["std"]
 std = ["regex"]
-
-# Connection driver features - enables actual driver for introspection
-rusqlite = ["dep:rusqlite"]
-libsql = ["dep:libsql"]
-turso = ["dep:turso", "dep:libsql"]
-tokio-postgres = ["dep:tokio-postgres", "dep:tokio", "tokio/rt"]
-postgres-sync = ["dep:postgres"]
