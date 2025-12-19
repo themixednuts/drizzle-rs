@@ -43,7 +43,6 @@ pub(crate) mod prelude {
     pub use hashbrown::HashMap;
 }
 
-pub mod conversions;
 pub mod dialect;
 pub mod error;
 pub mod expressions;
@@ -54,18 +53,16 @@ pub mod placeholder;
 pub mod prepared;
 #[cfg(feature = "profiling")]
 pub mod profiling;
-pub mod query;
 pub mod schema;
 pub mod sql;
 pub mod traits;
 
 // Re-export key types and traits
-pub use conversions::ToSQL;
+pub use traits::ToSQL;
 pub use dialect::{Dialect, DialectExt};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
-pub use query::*;
 pub use schema::OrderBy;
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
 pub use traits::*;
