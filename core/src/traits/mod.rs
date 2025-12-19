@@ -1,5 +1,6 @@
 //! Core traits for SQL generation.
 
+use crate::prelude::*;
 use core::any::Any;
 
 mod column;

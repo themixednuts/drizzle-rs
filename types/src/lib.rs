@@ -24,6 +24,30 @@
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;
 
+// Internal prelude for std/alloc compatibility
+#[allow(unused_imports)]
+pub(crate) mod alloc_prelude {
+    #[cfg(feature = "std")]
+    pub use std::{
+        borrow::Cow,
+        boxed::Box,
+        format,
+        string::{String, ToString},
+        vec,
+        vec::Vec,
+    };
+
+    #[cfg(all(feature = "alloc", not(feature = "std")))]
+    pub use alloc::{
+        borrow::Cow,
+        boxed::Box,
+        format,
+        string::{String, ToString},
+        vec,
+        vec::Vec,
+    };
+}
+
 mod dialect;
 pub mod postgres;
 pub mod serde_helpers;

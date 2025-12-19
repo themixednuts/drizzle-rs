@@ -57,6 +57,8 @@
 //! let table: Table = serde_json::from_str(r#"{"name": "users", "strict": true}"#)?;
 //! ```
 
+use crate::alloc_prelude::*;
+
 mod check_constraint;
 mod column;
 mod foreign_key;

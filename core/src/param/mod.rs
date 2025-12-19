@@ -1,11 +1,7 @@
 mod owned;
 pub use owned::*;
 
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
+use crate::prelude::*;
 use crate::{placeholder::Placeholder, traits::SQLParam};
 
 /// A SQL parameter that associates a value with a placeholder.

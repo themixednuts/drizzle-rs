@@ -2,17 +2,7 @@
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::vec::Vec;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::string::String;
+use crate::alloc_prelude::*;
 
 // =============================================================================
 // Shared Types

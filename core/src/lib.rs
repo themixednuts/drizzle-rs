@@ -19,6 +19,7 @@ extern crate alloc;
 
 // Prelude for std/alloc compatibility
 pub(crate) mod prelude {
+    // Re-export alloc types for std builds too (they're the same underlying types)
     #[cfg(feature = "std")]
     pub use std::{
         borrow::Cow,
@@ -38,7 +39,7 @@ pub(crate) mod prelude {
         vec::Vec,
     };
 
-    // For no_std, use hashbrown with default hasher
+    // For no_std, use hashbrown instead of std::collections::HashMap
     #[cfg(all(feature = "alloc", not(feature = "std")))]
     pub use hashbrown::HashMap;
 }

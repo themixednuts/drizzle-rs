@@ -3,11 +3,8 @@
 //! These helpers allow DDL types to use `Cow<'static, str>` while still
 //! being deserializable from JSON (where strings become `Cow::Owned`).
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
+#[allow(unused_imports)]
+use crate::alloc_prelude::*;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer};
@@ -18,11 +15,7 @@ pub fn cow_from_string<'de, D>(deserializer: D) -> Result<Cow<'static, str>, D::
 where
     D: Deserializer<'de>,
 {
-    #[cfg(feature = "std")]
     let s = String::deserialize(deserializer)?;
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    let s = alloc::string::String::deserialize(deserializer)?;
-
     Ok(Cow::Owned(s))
 }
 
@@ -34,11 +27,7 @@ pub fn cow_option_from_string<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    #[cfg(feature = "std")]
     let opt = Option::<String>::deserialize(deserializer)?;
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    let opt = Option::<alloc::string::String>::deserialize(deserializer)?;
-
     Ok(opt.map(Cow::Owned))
 }
 
@@ -54,11 +43,6 @@ pub fn cow_vec_from_strings<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    use alloc::vec::Vec;
-    #[cfg(feature = "std")]
-    use std::vec::Vec;
-
     let vec: Vec<String> = Vec::deserialize(deserializer)?;
     // Convert to owned Vec and leak to get &'static str
     // This is safe for deserialization as the strings will live for the program lifetime
@@ -77,11 +61,6 @@ pub fn cow_option_vec_from_strings<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    use alloc::vec::Vec;
-    #[cfg(feature = "std")]
-    use std::vec::Vec;
-
     let opt: Option<Vec<String>> = Option::deserialize(deserializer)?;
     Ok(opt.map(|vec| {
         let leaked: Vec<&'static str> = vec
@@ -97,11 +76,6 @@ where
 #[cfg(feature = "serde")]
 pub mod index_column_serde {
     use super::*;
-
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    use alloc::vec::Vec;
-    #[cfg(feature = "std")]
-    use std::vec::Vec;
 
     /// Owned version of OpclassDef for deserialization
     #[derive(serde::Deserialize)]

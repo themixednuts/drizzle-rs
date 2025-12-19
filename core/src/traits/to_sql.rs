@@ -1,10 +1,6 @@
 //! ToSQL trait for converting types to SQL fragments.
 
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
+use crate::prelude::*;
 use crate::{
     sql::{SQL, Token},
     traits::{SQLColumnInfo, SQLParam, SQLTableInfo},

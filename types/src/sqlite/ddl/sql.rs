@@ -3,8 +3,7 @@
 //! This module provides SQL generation methods for DDL types, enabling
 //! unified SQL output from both compile-time and runtime schema definitions.
 
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::{format, string::String, vec::Vec};
+use crate::alloc_prelude::*;
 
 use super::{
     CheckConstraint, Column, ForeignKey, Generated, GeneratedType, Index, IndexColumnDef,
