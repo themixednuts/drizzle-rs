@@ -6,7 +6,7 @@
 ))]
 
 use arrayvec::{ArrayString, ArrayVec};
-use drizzle::core::conditions::*;
+use drizzle::core::expressions::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable, postgres_test};
 

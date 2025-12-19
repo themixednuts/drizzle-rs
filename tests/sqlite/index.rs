@@ -22,7 +22,8 @@ fn test_index() {
     let idx = UserIdx::new();
     let sql = idx.to_sql().sql();
 
-    assert_eq!(sql, r#"CREATE INDEX "user_idx" ON "user" (id)"#);
+    // DDL-based SQL format uses backticks and includes semicolon
+    assert_eq!(sql, "CREATE INDEX `user_idx` ON `user`(`id`);");
 }
 
 #[test]
@@ -30,8 +31,9 @@ fn test_unique_index() {
     let idx = UserEmailUsernameIdx::new();
     let sql = idx.to_sql().sql();
 
+    // DDL-based SQL format uses backticks and includes semicolon
     assert_eq!(
         sql,
-        r#"CREATE UNIQUE INDEX "user_email_username_idx" ON "user" (email, username)"#
+        "CREATE UNIQUE INDEX `user_email_username_idx` ON `user`(`email`, `username`);"
     );
 }

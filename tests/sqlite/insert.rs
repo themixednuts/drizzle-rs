@@ -2,7 +2,7 @@
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, InsertComplex};
 use crate::common::schema::sqlite::{InsertSimple, Role, UserConfig, UserMetadata};
-use drizzle::core::conditions::*;
+use drizzle::core::expressions::*;
 use drizzle::sqlite::builder::Conflict;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;

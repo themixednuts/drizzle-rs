@@ -65,7 +65,7 @@ mod unit_tests {
 ))]
 mod execution {
     use crate::common::schema::postgres::*;
-    use drizzle::core::conditions::*;
+    use drizzle::core::expressions::*;
     use drizzle::postgres::prelude::*;
     use drizzle_macros::postgres_test;
 
