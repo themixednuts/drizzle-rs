@@ -50,8 +50,8 @@ pub enum JsonStatement {
         diff: HashMap<String, serde_json::Value>, // simplified diff structure
     },
     RenameColumn {
-        from: Column,
-        to: Column,
+        from: Box<Column>,
+        to: Box<Column>,
     },
     CreateIndex {
         index: Index,
@@ -251,19 +251,17 @@ impl PostgresGenerator {
             }
 
             // For creates of sub-entities, check if table was created/dropped
-            if d.diff_type == DiffType::Create {
-                if let Some(parent_table) = self.get_parent_table_key(d) {
-                    if created_tables.contains(&parent_table) {
-                        continue; // Handled in CreateTable
-                    }
-                }
+            if d.diff_type == DiffType::Create
+                && let Some(parent_table) = self.get_parent_table_key(d)
+                && created_tables.contains(&parent_table)
+            {
+                continue; // Handled in CreateTable
             }
-            if d.diff_type == DiffType::Drop {
-                if let Some(parent_table) = self.get_parent_table_key(d) {
-                    if dropped_tables.contains(&parent_table) {
-                        continue; // Handled in DropTable (implied CASCADE usually or handled by dropping table)
-                    }
-                }
+            if d.diff_type == DiffType::Drop
+                && let Some(parent_table) = self.get_parent_table_key(d)
+                && dropped_tables.contains(&parent_table)
+            {
+                continue; // Handled in DropTable (implied CASCADE usually or handled by dropping table)
             }
 
             // Process individual statements with full diff context for PK lookups
@@ -402,10 +400,10 @@ impl PostgresGenerator {
         diff.iter()
             .filter(|d| d.diff_type == DiffType::Create && d.kind == kind)
             .filter_map(|d| {
-                if let Some(parent) = self.get_parent_table_key(d) {
-                    if parent == table_key {
-                        return d.right.as_ref().and_then(&extractor);
-                    }
+                if let Some(parent) = self.get_parent_table_key(d)
+                    && parent == table_key
+                {
+                    return d.right.as_ref().and_then(&extractor);
                 }
                 None
             })
@@ -533,16 +531,17 @@ impl PostgresGenerator {
         let table_key = format!("{}.{}", col.schema, col.table);
 
         for d in all_diffs {
-            if d.diff_type == DiffType::Create && d.kind == EntityKind::PrimaryKey {
-                if let Some(PostgresEntity::PrimaryKey(pk)) = &d.right {
-                    let pk_table_key = format!("{}.{}", pk.schema, pk.table);
-                    if pk_table_key == table_key && pk.columns.contains(&col.name) {
-                        let is_composite = pk.columns.len() > 1;
-                        // is_pk is true only for single-column PKs with default naming
-                        let default_pk_name = format!("{}_pkey", col.table);
-                        let is_single_pk = pk.columns.len() == 1 && pk.name == default_pk_name;
-                        return (is_single_pk, is_composite);
-                    }
+            if d.diff_type == DiffType::Create
+                && d.kind == EntityKind::PrimaryKey
+                && let Some(PostgresEntity::PrimaryKey(pk)) = &d.right
+            {
+                let pk_table_key = format!("{}.{}", pk.schema, pk.table);
+                if pk_table_key == table_key && pk.columns.contains(&col.name) {
+                    let is_composite = pk.columns.len() > 1;
+                    // is_pk is true only for single-column PKs with default naming
+                    let default_pk_name = format!("{}_pkey", col.table);
+                    let is_single_pk = pk.columns.len() == 1 && pk.name == default_pk_name;
+                    return (is_single_pk, is_composite);
                 }
             }
         }

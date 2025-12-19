@@ -114,11 +114,11 @@ pub enum NumberMode {
 
 /// Parse type parameters from SQL type like "varchar(255)" or "numeric(10,2)"
 pub fn parse_params(type_str: &str) -> Vec<String> {
-    if let Some(start) = type_str.find('(') {
-        if let Some(end) = type_str.find(')') {
-            let params = &type_str[start + 1..end];
-            return params.split(',').map(|s| s.trim().to_string()).collect();
-        }
+    if let Some(start) = type_str.find('(')
+        && let Some(end) = type_str.find(')')
+    {
+        let params = &type_str[start + 1..end];
+        return params.split(',').map(|s| s.trim().to_string()).collect();
     }
     Vec::new()
 }

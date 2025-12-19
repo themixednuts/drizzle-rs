@@ -430,7 +430,7 @@ pub fn process_indexes(raw_indexes: &[RawIndexInfo]) -> Vec<Index> {
                     is_expression: c.is_expression,
                     asc: c.asc,
                     nulls_first: c.nulls_first,
-                    opclass: c.opclass.clone().map(|s| Opclass::new(s)),
+                    opclass: c.opclass.clone().map(Opclass::new),
                 })
                 .collect();
 

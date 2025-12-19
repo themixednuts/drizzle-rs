@@ -481,18 +481,18 @@ fn diff_entity_type<T: Clone + PartialEq>(
 
     // Find altered (in both, but different)
     for (key, left_entity) in &left_map {
-        if let Some(right_entity) = right_map.get(key) {
-            if *left_entity != *right_entity {
-                diffs.push(EntityDiff {
-                    diff_type: DiffType::Alter,
-                    kind,
-                    table: None,
-                    name: key.clone(),
-                    changes: HashMap::new(), // Field-level comparison available via left/right entities
-                    left: Some(to_entity(left_entity)),
-                    right: Some(to_entity(right_entity)),
-                });
-            }
+        if let Some(right_entity) = right_map.get(key)
+            && *left_entity != *right_entity
+        {
+            diffs.push(EntityDiff {
+                diff_type: DiffType::Alter,
+                kind,
+                table: None,
+                name: key.clone(),
+                changes: HashMap::new(), // Field-level comparison available via left/right entities
+                left: Some(to_entity(left_entity)),
+                right: Some(to_entity(right_entity)),
+            });
         }
     }
 }

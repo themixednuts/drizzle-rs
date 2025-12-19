@@ -196,16 +196,16 @@ impl ParsedField {
         let mut result = HashMap::new();
         for attr in &self.attrs {
             // Extract content inside #[column(...)]
-            if let Some(start) = attr.find('(') {
-                if let Some(end) = attr.rfind(')') {
-                    let content = &attr[start + 1..end];
-                    // Parse key = value pairs
-                    for part in Self::split_attr_parts(content) {
-                        if let Some(eq_pos) = part.find('=') {
-                            let key = part[..eq_pos].trim();
-                            let value = part[eq_pos + 1..].trim();
-                            result.insert(key.to_string(), value.to_string());
-                        }
+            if let Some(start) = attr.find('(')
+                && let Some(end) = attr.rfind(')')
+            {
+                let content = &attr[start + 1..end];
+                // Parse key = value pairs
+                for part in Self::split_attr_parts(content) {
+                    if let Some(eq_pos) = part.find('=') {
+                        let key = part[..eq_pos].trim();
+                        let value = part[eq_pos + 1..].trim();
+                        result.insert(key.to_string(), value.to_string());
                     }
                 }
             }
@@ -550,7 +550,7 @@ impl SchemaParser {
                 // For tuple structs like "IdxPostsTitle(Posts::title);",
                 // we need to split at '(' to get just the struct name
                 let name = full_name
-                    .split(|c| c == '{' || c == '(' || c == ';')
+                    .split(['{', '(', ';'])
                     .next()
                     .unwrap_or(full_name)
                     .trim();

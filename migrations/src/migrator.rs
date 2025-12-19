@@ -416,10 +416,10 @@ fn split_statements(sql: &str) -> Vec<String> {
 /// Parse timestamp from migration tag (format: YYYYMMDDHHMMSS_name)
 fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag
-    if tag.len() >= 14 {
-        if let Ok(ts) = tag[0..14].parse::<i64>() {
-            return ts;
-        }
+    if tag.len() >= 14
+        && let Ok(ts) = tag[0..14].parse::<i64>()
+    {
+        return ts;
     }
     // Fallback: use current time
     std::time::SystemTime::now()

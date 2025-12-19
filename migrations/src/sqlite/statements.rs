@@ -253,7 +253,7 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
     // Column definitions
     for (i, column) in table.columns.iter().enumerate() {
         // Check if this column is the sole PK (inline PRIMARY KEY)
-        let is_column_pk = table.pk.as_ref().map_or(false, |pk| {
+        let is_column_pk = table.pk.as_ref().is_some_and(|pk| {
             pk.columns.len() == 1 && pk.columns[0] == column.name && !pk.name_explicit
         });
 
@@ -316,17 +316,17 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
     }
 
     // Composite PK or explicit named PK
-    if let Some(pk) = &table.pk {
-        if pk.columns.len() > 1 || pk.name_explicit {
-            sql.push_str(",\n\t");
-            let cols = pk
-                .columns
-                .iter()
-                .map(|c| format!("`{}`", c))
-                .collect::<Vec<_>>()
-                .join(", ");
-            sql.push_str(&format!("CONSTRAINT `{}` PRIMARY KEY({})", pk.name, cols));
-        }
+    if let Some(pk) = &table.pk
+        && (pk.columns.len() > 1 || pk.name_explicit)
+    {
+        sql.push_str(",\n\t");
+        let cols = pk
+            .columns
+            .iter()
+            .map(|c| format!("`{}`", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sql.push_str(&format!("CONSTRAINT `{}` PRIMARY KEY({})", pk.name, cols));
     }
 
     // Foreign keys
@@ -504,7 +504,7 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
 
     // 2. Create new table with temp name
     let mut tmp_table = st.to.clone();
-    tmp_table.name = new_table_name.clone().into();
+    tmp_table.name = new_table_name.clone();
     // Update check constraint table references
     for check in &mut tmp_table.checks {
         check.table = new_table_name.clone().into();
@@ -650,7 +650,7 @@ impl SqliteGenerator {
 
         // Process table drops first
         for entity_diff in diff.dropped_tables() {
-            if let Some(name) = entity_diff.name.split(':').last() {
+            if let Some(name) = entity_diff.name.split(':').next_back() {
                 statements.push(convert_drop_table(&DropTableStatement {
                     table_name: name.to_string(),
                 }));
@@ -659,132 +659,130 @@ impl SqliteGenerator {
 
         // Process table creates
         for entity_diff in diff.created_tables() {
-            if let Some(ref right) = entity_diff.right {
-                if let crate::sqlite::ddl::SqliteEntity::Table(table) = right {
-                    // Extract columns for this table
-                    let columns_for_table: Vec<Column> = diff
-                        .by_kind(EntityKind::Column)
-                        .into_iter()
-                        .filter(|d| d.diff_type == DiffType::Create)
-                        .filter_map(|d| d.right.as_ref())
-                        .filter_map(|e| {
-                            if let crate::sqlite::ddl::SqliteEntity::Column(c) = e {
-                                if c.table == table.name {
-                                    Some(c.clone())
-                                } else {
-                                    None
-                                }
+            if let Some(crate::sqlite::ddl::SqliteEntity::Table(table)) = entity_diff.right.as_ref()
+            {
+                // Extract columns for this table
+                let columns_for_table: Vec<Column> = diff
+                    .by_kind(EntityKind::Column)
+                    .into_iter()
+                    .filter(|d| d.diff_type == DiffType::Create)
+                    .filter_map(|d| d.right.as_ref())
+                    .filter_map(|e| {
+                        if let crate::sqlite::ddl::SqliteEntity::Column(c) = e {
+                            if c.table == table.name {
+                                Some(c.clone())
                             } else {
                                 None
                             }
-                        })
-                        .collect();
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                    // Extract pk for this table
-                    let pk = diff
-                        .by_kind(EntityKind::PrimaryKey)
-                        .into_iter()
-                        .filter(|d| d.diff_type == DiffType::Create)
-                        .filter_map(|d| d.right.as_ref())
-                        .find_map(|e| {
-                            if let crate::sqlite::ddl::SqliteEntity::PrimaryKey(p) = e {
-                                if p.table == table.name {
-                                    Some(p.clone())
-                                } else {
-                                    None
-                                }
+                // Extract pk for this table
+                let pk = diff
+                    .by_kind(EntityKind::PrimaryKey)
+                    .into_iter()
+                    .filter(|d| d.diff_type == DiffType::Create)
+                    .filter_map(|d| d.right.as_ref())
+                    .find_map(|e| {
+                        if let crate::sqlite::ddl::SqliteEntity::PrimaryKey(p) = e {
+                            if p.table == table.name {
+                                Some(p.clone())
                             } else {
                                 None
                             }
-                        });
+                        } else {
+                            None
+                        }
+                    });
 
-                    // Extract fks for this table
-                    let fks: Vec<ForeignKey> = diff
-                        .by_kind(EntityKind::ForeignKey)
-                        .into_iter()
-                        .filter(|d| d.diff_type == DiffType::Create)
-                        .filter_map(|d| d.right.as_ref())
-                        .filter_map(|e| {
-                            if let crate::sqlite::ddl::SqliteEntity::ForeignKey(fk) = e {
-                                if fk.table == table.name {
-                                    Some(fk.clone())
-                                } else {
-                                    None
-                                }
+                // Extract fks for this table
+                let fks: Vec<ForeignKey> = diff
+                    .by_kind(EntityKind::ForeignKey)
+                    .into_iter()
+                    .filter(|d| d.diff_type == DiffType::Create)
+                    .filter_map(|d| d.right.as_ref())
+                    .filter_map(|e| {
+                        if let crate::sqlite::ddl::SqliteEntity::ForeignKey(fk) = e {
+                            if fk.table == table.name {
+                                Some(fk.clone())
                             } else {
                                 None
                             }
-                        })
-                        .collect();
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                    // Extract uniques for this table
-                    let uniques: Vec<UniqueConstraint> = diff
-                        .by_kind(EntityKind::UniqueConstraint)
-                        .into_iter()
-                        .filter(|d| d.diff_type == DiffType::Create)
-                        .filter_map(|d| d.right.as_ref())
-                        .filter_map(|e| {
-                            if let crate::sqlite::ddl::SqliteEntity::UniqueConstraint(u) = e {
-                                if u.table == table.name {
-                                    Some(u.clone())
-                                } else {
-                                    None
-                                }
+                // Extract uniques for this table
+                let uniques: Vec<UniqueConstraint> = diff
+                    .by_kind(EntityKind::UniqueConstraint)
+                    .into_iter()
+                    .filter(|d| d.diff_type == DiffType::Create)
+                    .filter_map(|d| d.right.as_ref())
+                    .filter_map(|e| {
+                        if let crate::sqlite::ddl::SqliteEntity::UniqueConstraint(u) = e {
+                            if u.table == table.name {
+                                Some(u.clone())
                             } else {
                                 None
                             }
-                        })
-                        .collect();
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                    // Extract checks for this table
-                    let checks: Vec<CheckConstraint> = diff
-                        .by_kind(EntityKind::CheckConstraint)
-                        .into_iter()
-                        .filter(|d| d.diff_type == DiffType::Create)
-                        .filter_map(|d| d.right.as_ref())
-                        .filter_map(|e| {
-                            if let crate::sqlite::ddl::SqliteEntity::CheckConstraint(c) = e {
-                                if c.table == table.name {
-                                    Some(c.clone())
-                                } else {
-                                    None
-                                }
+                // Extract checks for this table
+                let checks: Vec<CheckConstraint> = diff
+                    .by_kind(EntityKind::CheckConstraint)
+                    .into_iter()
+                    .filter(|d| d.diff_type == DiffType::Create)
+                    .filter_map(|d| d.right.as_ref())
+                    .filter_map(|e| {
+                        if let crate::sqlite::ddl::SqliteEntity::CheckConstraint(c) = e {
+                            if c.table == table.name {
+                                Some(c.clone())
                             } else {
                                 None
                             }
-                        })
-                        .collect();
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                    let table_full = TableFull {
-                        name: table.name.to_string(),
-                        columns: columns_for_table,
-                        pk,
-                        fks,
-                        uniques,
-                        checks,
-                    };
-                    statements.push(convert_create_table(&CreateTableStatement {
-                        table: table_full,
-                    }));
-                }
+                let table_full = TableFull {
+                    name: table.name.to_string(),
+                    columns: columns_for_table,
+                    pk,
+                    fks,
+                    uniques,
+                    checks,
+                };
+                statements.push(convert_create_table(&CreateTableStatement {
+                    table: table_full,
+                }));
             }
         }
 
         // Process column additions (for existing tables)
         for entity_diff in diff.by_kind(EntityKind::Column) {
-            if entity_diff.diff_type == DiffType::Create {
-                if let Some(ref right) = entity_diff.right {
-                    if let crate::sqlite::ddl::SqliteEntity::Column(col) = right {
-                        let table_was_created =
-                            diff.created_tables().iter().any(|t| t.name == col.table);
+            if entity_diff.diff_type == DiffType::Create
+                && let Some(crate::sqlite::ddl::SqliteEntity::Column(col)) =
+                    entity_diff.right.as_ref()
+            {
+                let table_was_created =
+                    diff.created_tables().iter().any(|t| t.name == col.table);
 
-                        if !table_was_created {
-                            statements.push(convert_add_column(&AddColumnStatement {
-                                column: col.clone(),
-                                fk: None,
-                            }));
-                        }
-                    }
+                if !table_was_created {
+                    statements.push(convert_add_column(&AddColumnStatement {
+                        column: col.clone(),
+                        fk: None,
+                    }));
                 }
             }
         }
@@ -793,38 +791,36 @@ impl SqliteGenerator {
         for entity_diff in diff.by_kind(EntityKind::Index) {
             match entity_diff.diff_type {
                 DiffType::Drop => {
-                    if let Some(ref left) = entity_diff.left {
-                        if let crate::sqlite::ddl::SqliteEntity::Index(idx) = left {
-                            statements.push(convert_drop_index(&DropIndexStatement {
-                                index: idx.clone(),
-                            }));
-                        }
+                    if let Some(crate::sqlite::ddl::SqliteEntity::Index(idx)) =
+                        entity_diff.left.as_ref()
+                    {
+                        statements.push(convert_drop_index(&DropIndexStatement {
+                            index: idx.clone(),
+                        }));
                     }
                 }
                 DiffType::Create => {
-                    if let Some(ref right) = entity_diff.right {
-                        if let crate::sqlite::ddl::SqliteEntity::Index(idx) = right {
-                            statements.push(convert_create_index(&CreateIndexStatement {
-                                index: idx.clone(),
-                            }));
-                        }
+                    if let Some(crate::sqlite::ddl::SqliteEntity::Index(idx)) =
+                        entity_diff.right.as_ref()
+                    {
+                        statements.push(convert_create_index(&CreateIndexStatement {
+                            index: idx.clone(),
+                        }));
                     }
                 }
                 DiffType::Alter => {
                     // For index alter: drop old, create new
-                    if let (Some(left), Some(right)) = (&entity_diff.left, &entity_diff.right) {
-                        if let (
-                            crate::sqlite::ddl::SqliteEntity::Index(old),
-                            crate::sqlite::ddl::SqliteEntity::Index(new),
-                        ) = (left, right)
-                        {
-                            statements.push(convert_drop_index(&DropIndexStatement {
-                                index: old.clone(),
-                            }));
-                            statements.push(convert_create_index(&CreateIndexStatement {
-                                index: new.clone(),
-                            }));
-                        }
+                    if let (
+                        Some(crate::sqlite::ddl::SqliteEntity::Index(old)),
+                        Some(crate::sqlite::ddl::SqliteEntity::Index(new)),
+                    ) = (entity_diff.left.as_ref(), entity_diff.right.as_ref())
+                    {
+                        statements.push(convert_drop_index(&DropIndexStatement {
+                            index: old.clone(),
+                        }));
+                        statements.push(convert_create_index(&CreateIndexStatement {
+                            index: new.clone(),
+                        }));
                     }
                 }
             }

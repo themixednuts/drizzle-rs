@@ -408,12 +408,12 @@ pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
 pub fn split_sql_type(sql_type: &str) -> (String, Option<String>) {
     let normalized = sql_type.replace("[]", "");
 
-    if let Some(start) = normalized.find('(') {
-        if let Some(end) = normalized.find(')') {
-            let base = normalized[..start].trim().to_string();
-            let options = normalized[start + 1..end].replace(", ", ",");
-            return (base, Some(options));
-        }
+    if let Some(start) = normalized.find('(')
+        && let Some(end) = normalized.find(')')
+    {
+        let base = normalized[..start].trim().to_string();
+        let options = normalized[start + 1..end].replace(", ", ",");
+        return (base, Some(options));
     }
 
     (normalized.trim().to_string(), None)

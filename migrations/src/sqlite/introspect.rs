@@ -167,7 +167,7 @@ pub fn process_columns(
             let key = format!("{}:{}", c.table, c.name);
             let generated = generated_columns.get(&key).map(|g| super::ddl::Generated {
                 expression: g.expression.clone().into(),
-                gen_type: g.gen_type.clone(),
+                gen_type: g.gen_type,
             });
 
             let is_autoincrement = is_auto_increment(&c.sql, &c.name);
@@ -322,7 +322,7 @@ pub fn create_primary_key(table: &str, pk_columns: Vec<String>) -> PrimaryKey {
 
     let name = super::ddl::name_for_pk(table);
     let columns_cow: Vec<Cow<'static, str>> =
-        pk_columns.into_iter().map(|c| Cow::Owned(c)).collect();
+        pk_columns.into_iter().map(Cow::Owned).collect();
 
     PrimaryKey {
         table: table.to_string().into(),
@@ -342,7 +342,7 @@ pub fn create_unique_constraint(
     use std::borrow::Cow;
 
     let columns_cow: Vec<Cow<'static, str>> =
-        columns.into_iter().map(|c| Cow::Owned(c)).collect();
+        columns.into_iter().map(Cow::Owned).collect();
 
     UniqueConstraint {
         table: Cow::Owned(table.to_string()),
@@ -361,8 +361,7 @@ pub fn process_unique_constraints_from_parsed(
 
     parsed_uniques
         .iter()
-        .enumerate()
-        .map(|(_i, parsed)| {
+        .map(|parsed| {
             let columns_refs: Vec<&str> = parsed.columns.iter().map(|s| s.as_str()).collect();
             let (name, name_explicit) = match &parsed.name {
                 Some(n) => (n.clone(), true),

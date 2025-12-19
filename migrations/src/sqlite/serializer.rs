@@ -158,10 +158,11 @@ pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::p
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.ends_with("_snapshot.json") && name != "_journal.json" {
-                snapshots.push(path);
-            }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with("_snapshot.json")
+            && name != "_journal.json"
+        {
+            snapshots.push(path);
         }
     }
 

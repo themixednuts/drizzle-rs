@@ -10,7 +10,7 @@ use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Result of code generation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GeneratedSchema {
     /// The generated Rust source code
     pub code: String,
@@ -35,18 +35,6 @@ pub struct CodegenOptions {
     pub schema_name: String,
     /// Whether to use public visibility
     pub use_pub: bool,
-}
-
-impl Default for GeneratedSchema {
-    fn default() -> Self {
-        Self {
-            code: String::new(),
-            enums: Vec::new(),
-            tables: Vec::new(),
-            indexes: Vec::new(),
-            warnings: Vec::new(),
-        }
-    }
 }
 
 /// Generate Rust schema code from DDL
@@ -134,16 +122,16 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
         let unique_columns = table_uniques.get(&key);
         let is_composite_pk = pk_columns.map(|pks| pks.len() > 1).unwrap_or(false);
 
-        let table_code = generate_table_struct(
+        let table_code = generate_table_struct(&TableGenContext {
             table,
             columns,
             pk_columns,
             unique_columns,
             is_composite_pk,
-            &fk_map,
-            &enum_map,
-            options.use_pub,
-        );
+            fk_map: &fk_map,
+            enum_map: &enum_map,
+            use_pub: options.use_pub,
+        });
 
         code.push_str(&table_code);
         code.push('\n');
@@ -173,19 +161,22 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
     result
 }
 
-/// Generate a single table struct
-fn generate_table_struct(
-    table: &Table,
-    columns: &[&Column],
-    pk_columns: Option<&HashSet<String>>,
-    unique_columns: Option<&HashSet<String>>,
+/// Context for generating a table struct
+struct TableGenContext<'a> {
+    table: &'a Table,
+    columns: &'a [&'a Column],
+    pk_columns: Option<&'a HashSet<String>>,
+    unique_columns: Option<&'a HashSet<String>>,
     is_composite_pk: bool,
-    fk_map: &HashMap<(String, String, String), (&ForeignKey, usize)>,
-    enum_map: &HashMap<(String, String), String>,
+    fk_map: &'a HashMap<(String, String, String), (&'a ForeignKey, usize)>,
+    enum_map: &'a HashMap<(String, String), String>,
     use_pub: bool,
-) -> String {
-    let struct_name = table.name.to_pascal_case();
-    let vis = if use_pub { "pub " } else { "" };
+}
+
+/// Generate a single table struct
+fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
+    let struct_name = ctx.table.name.to_pascal_case();
+    let vis = if ctx.use_pub { "pub " } else { "" };
 
     let mut code = String::new();
 
@@ -196,19 +187,19 @@ fn generate_table_struct(
     code.push_str(&format!("{vis}struct {struct_name} {{\n"));
 
     // Sort columns by ordinal position if available by sorting alphabetically as fallback
-    let mut sorted_columns: Vec<&&Column> = columns.iter().collect();
+    let mut sorted_columns: Vec<&&Column> = ctx.columns.iter().collect();
     sorted_columns.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Generate fields
     for column in sorted_columns {
         let field_code = generate_column_field(
             column,
-            pk_columns,
-            unique_columns,
-            is_composite_pk,
-            fk_map,
-            enum_map,
-            use_pub,
+            ctx.pk_columns,
+            ctx.unique_columns,
+            ctx.is_composite_pk,
+            ctx.fk_map,
+            ctx.enum_map,
+            ctx.use_pub,
         );
         code.push_str(&field_code);
     }
@@ -279,15 +270,15 @@ fn generate_column_field(
 
         // Build sequence options if any are non-default
         let mut seq_opts: Vec<String> = Vec::new();
-        if let Some(increment) = &identity.increment {
-            if increment != "1" {
-                seq_opts.push(format!("increment = {}", increment));
-            }
+        if let Some(increment) = &identity.increment
+            && increment != "1"
+        {
+            seq_opts.push(format!("increment = {}", increment));
         }
-        if let Some(start) = &identity.start_with {
-            if start != "1" {
-                seq_opts.push(format!("start = {}", start));
-            }
+        if let Some(start) = &identity.start_with
+            && start != "1"
+        {
+            seq_opts.push(format!("start = {}", start));
         }
         if let Some(min) = &identity.min_value {
             seq_opts.push(format!("min_value = {}", min));
@@ -295,10 +286,10 @@ fn generate_column_field(
         if let Some(max) = &identity.max_value {
             seq_opts.push(format!("max_value = {}", max));
         }
-        if let Some(cache) = &identity.cache {
-            if *cache != 1 {
-                seq_opts.push(format!("cache = {}", cache));
-            }
+        if let Some(cache) = &identity.cache
+            && *cache != 1
+        {
+            seq_opts.push(format!("cache = {}", cache));
         }
         if identity.cycle == Some(true) {
             seq_opts.push("cycle".to_string());
@@ -340,12 +331,12 @@ fn generate_column_field(
     }
 
     // Add default if present (but skip nextval for serial columns)
-    if let Some(default) = &column.default {
-        if !is_serial && column.generated.is_none() {
-            if let Some(formatted) = format_default_value(default, &column.sql_type) {
-                attrs.push(format!("default = {formatted}"));
-            }
-        }
+    if let Some(default) = &column.default
+        && !is_serial
+        && column.generated.is_none()
+        && let Some(formatted) = format_default_value(default, &column.sql_type)
+    {
+        attrs.push(format!("default = {formatted}"));
     }
 
     // Add FK reference if present
@@ -355,19 +346,19 @@ fn generate_column_field(
         attrs.push(format!("references = {ref_table}::{ref_column}"));
 
         // Add on_delete if not NO ACTION
-        if let Some(on_delete) = &fk.on_delete {
-            if on_delete != "NO ACTION" {
-                let action = on_delete.to_lowercase().replace(' ', "_");
-                attrs.push(format!("on_delete = {action}"));
-            }
+        if let Some(on_delete) = &fk.on_delete
+            && on_delete != "NO ACTION"
+        {
+            let action = on_delete.to_lowercase().replace(' ', "_");
+            attrs.push(format!("on_delete = {action}"));
         }
 
         // Add on_update if not NO ACTION
-        if let Some(on_update) = &fk.on_update {
-            if on_update != "NO ACTION" {
-                let action = on_update.to_lowercase().replace(' ', "_");
-                attrs.push(format!("on_update = {action}"));
-            }
+        if let Some(on_update) = &fk.on_update
+            && on_update != "NO ACTION"
+        {
+            let action = on_update.to_lowercase().replace(' ', "_");
+            attrs.push(format!("on_update = {action}"));
         }
     }
 

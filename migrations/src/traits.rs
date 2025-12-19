@@ -193,7 +193,7 @@ impl EntityKind {
     }
 
     /// Parse from string (for deserialization)
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "schemas" => Some(Self::Schema),
             "enums" => Some(Self::Enum),
@@ -210,6 +210,14 @@ impl EntityKind {
             "views" => Some(Self::View),
             _ => None,
         }
+    }
+}
+
+impl std::str::FromStr for EntityKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(())
     }
 }
 

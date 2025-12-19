@@ -198,15 +198,15 @@ pub fn diff_collections<E: Entity>(
     // Find altered (in both but different)
     for left_entity in left.iter() {
         let key = left_entity.key();
-        if let Some(right_entity) = right.get(&key) {
-            if left_entity != right_entity {
-                diffs.push(EntityDiff {
-                    diff_type: DiffType::Alter,
-                    key,
-                    left: Some(left_entity.clone()),
-                    right: Some(right_entity.clone()),
-                });
-            }
+        if let Some(right_entity) = right.get(&key)
+            && left_entity != right_entity
+        {
+            diffs.push(EntityDiff {
+                diff_type: DiffType::Alter,
+                key,
+                left: Some(left_entity.clone()),
+                right: Some(right_entity.clone()),
+            });
         }
     }
 

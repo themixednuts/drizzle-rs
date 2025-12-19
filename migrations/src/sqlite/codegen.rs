@@ -11,7 +11,7 @@ use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Result of code generation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GeneratedSchema {
     /// The generated Rust source code
     pub code: String,
@@ -34,17 +34,6 @@ pub struct CodegenOptions {
     pub schema_name: String,
     /// Whether to use public visibility
     pub use_pub: bool,
-}
-
-impl Default for GeneratedSchema {
-    fn default() -> Self {
-        Self {
-            code: String::new(),
-            tables: Vec::new(),
-            indexes: Vec::new(),
-            warnings: Vec::new(),
-        }
-    }
 }
 
 /// Generate Rust schema code from DDL
@@ -257,26 +246,26 @@ fn generate_column_field(
     }
 
     // Check foreign key
-    if let Some((fk, idx)) = fk_map.get(&(column.table.to_string(), column_name.clone())) {
-        if let Some(ref_col) = fk.columns_to.get(*idx) {
-            let ref_table_struct = fk.table_to.to_pascal_case();
-            attrs.push(format!("references = {}::{}", ref_table_struct, ref_col));
+    if let Some((fk, idx)) = fk_map.get(&(column.table.to_string(), column_name.clone()))
+        && let Some(ref_col) = fk.columns_to.get(*idx)
+    {
+        let ref_table_struct = fk.table_to.to_pascal_case();
+        attrs.push(format!("references = {}::{}", ref_table_struct, ref_col));
 
-            // Add ON DELETE if specified
-            if let Some(on_delete) = &fk.on_delete {
-                if !on_delete.eq_ignore_ascii_case("NO ACTION") {
-                    let action = on_delete.replace(' ', "_").to_lowercase();
-                    attrs.push(format!("on_delete = {}", action));
-                }
-            }
+        // Add ON DELETE if specified
+        if let Some(on_delete) = &fk.on_delete
+            && !on_delete.eq_ignore_ascii_case("NO ACTION")
+        {
+            let action = on_delete.replace(' ', "_").to_lowercase();
+            attrs.push(format!("on_delete = {}", action));
+        }
 
-            // Add ON UPDATE if specified
-            if let Some(on_update) = &fk.on_update {
-                if !on_update.eq_ignore_ascii_case("NO ACTION") {
-                    let action = on_update.replace(' ', "_").to_lowercase();
-                    attrs.push(format!("on_update = {}", action));
-                }
-            }
+        // Add ON UPDATE if specified
+        if let Some(on_update) = &fk.on_update
+            && !on_update.eq_ignore_ascii_case("NO ACTION")
+        {
+            let action = on_update.replace(' ', "_").to_lowercase();
+            attrs.push(format!("on_update = {}", action));
         }
     }
 

@@ -138,13 +138,11 @@ fn group_diffs_by_table<'a>(diffs: &[&'a EntityDiff]) -> HashMap<String, Vec<&'a
     for diff in diffs {
         if let Some(table) = &diff.table {
             grouped.entry(table.clone()).or_default().push(*diff);
-        } else {
+        } else if diff.kind == EntityKind::Column
+            && let Some(table) = diff.name.split(':').next()
+        {
             // Extract table from name for columns (format: "table:column")
-            if diff.kind == EntityKind::Column {
-                if let Some(table) = diff.name.split(':').next() {
-                    grouped.entry(table.to_string()).or_default().push(*diff);
-                }
-            }
+            grouped.entry(table.to_string()).or_default().push(*diff);
         }
     }
 
@@ -201,46 +199,45 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
 
     // 2. Add columns (for existing tables only)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
-        if col_diff.diff_type == DiffType::Create {
-            if let Some(SqliteEntity::Column(col)) = &col_diff.right {
-                // Skip columns for newly created tables
-                if !created_table_names.contains(col.table.as_ref()) {
-                    // Find associated FK if any
-                    let fk = cur
-                        .fks
-                        .for_table(&col.table)
-                        .into_iter()
-                        .find(|fk| fk.columns.len() == 1 && fk.columns[0] == col.name)
-                        .cloned();
+        if col_diff.diff_type == DiffType::Create
+            && let Some(SqliteEntity::Column(col)) = &col_diff.right
+            // Skip columns for newly created tables
+            && !created_table_names.contains(col.table.as_ref())
+        {
+            // Find associated FK if any
+            let fk = cur
+                .fks
+                .for_table(&col.table)
+                .into_iter()
+                .find(|fk| fk.columns.len() == 1 && fk.columns[0] == col.name)
+                .cloned();
 
-                    statements.push(JsonStatement::AddColumn(AddColumnStatement {
-                        column: col.clone(),
-                        fk,
-                    }));
-                }
-            }
+            statements.push(JsonStatement::AddColumn(AddColumnStatement {
+                column: col.clone(),
+                fk,
+            }));
         }
     }
 
     // 3. Drop indexes
     for idx_diff in schema_diff.by_kind(EntityKind::Index) {
-        if idx_diff.diff_type == DiffType::Drop {
-            if let Some(SqliteEntity::Index(idx)) = &idx_diff.left {
-                statements.push(JsonStatement::DropIndex(DropIndexStatement {
-                    index: idx.clone(),
-                }));
-            }
+        if idx_diff.diff_type == DiffType::Drop
+            && let Some(SqliteEntity::Index(idx)) = &idx_diff.left
+        {
+            statements.push(JsonStatement::DropIndex(DropIndexStatement {
+                index: idx.clone(),
+            }));
         }
     }
 
     // 4. Create indexes (including for newly created tables)
     for idx_diff in schema_diff.by_kind(EntityKind::Index) {
-        if idx_diff.diff_type == DiffType::Create {
-            if let Some(SqliteEntity::Index(idx)) = &idx_diff.right {
-                statements.push(JsonStatement::CreateIndex(CreateIndexStatement {
-                    index: idx.clone(),
-                }));
-            }
+        if idx_diff.diff_type == DiffType::Create
+            && let Some(SqliteEntity::Index(idx)) = &idx_diff.right
+        {
+            statements.push(JsonStatement::CreateIndex(CreateIndexStatement {
+                index: idx.clone(),
+            }));
         }
     }
 
@@ -262,41 +259,38 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
 
     // 6. Drop columns (for non-dropped tables)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
-        if col_diff.diff_type == DiffType::Drop {
-            if let Some(SqliteEntity::Column(col)) = &col_diff.left {
-                // Skip columns for dropped tables
-                if !dropped_table_names.contains(col.table.as_ref()) {
-                    statements.push(JsonStatement::DropColumn(DropColumnStatement {
-                        column: col.clone(),
-                    }));
-                }
-            }
+        if col_diff.diff_type == DiffType::Drop
+            && let Some(SqliteEntity::Column(col)) = &col_diff.left
+            // Skip columns for dropped tables
+            && !dropped_table_names.contains(col.table.as_ref())
+        {
+            statements.push(JsonStatement::DropColumn(DropColumnStatement {
+                column: col.clone(),
+            }));
         }
     }
 
     // 7. Drop views
     for view_diff in schema_diff.by_kind(EntityKind::View) {
-        if view_diff.diff_type == DiffType::Drop {
-            if let Some(SqliteEntity::View(view)) = &view_diff.left {
-                if !view.is_existing {
-                    statements.push(JsonStatement::DropView(DropViewStatement {
-                        view: view.clone(),
-                    }));
-                }
-            }
+        if view_diff.diff_type == DiffType::Drop
+            && let Some(SqliteEntity::View(view)) = &view_diff.left
+            && !view.is_existing
+        {
+            statements.push(JsonStatement::DropView(DropViewStatement {
+                view: view.clone(),
+            }));
         }
     }
 
     // 8. Create views
     for view_diff in schema_diff.by_kind(EntityKind::View) {
-        if view_diff.diff_type == DiffType::Create {
-            if let Some(SqliteEntity::View(view)) = &view_diff.right {
-                if !view.is_existing {
-                    statements.push(JsonStatement::CreateView(CreateViewStatement {
-                        view: view.clone(),
-                    }));
-                }
-            }
+        if view_diff.diff_type == DiffType::Create
+            && let Some(SqliteEntity::View(view)) = &view_diff.right
+            && !view.is_existing
+        {
+            statements.push(JsonStatement::CreateView(CreateViewStatement {
+                view: view.clone(),
+            }));
         }
     }
 
@@ -326,20 +320,17 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     // Check for column alterations that require table recreation
     // (SQLite doesn't support many ALTER TABLE operations)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
-        if col_diff.diff_type == DiffType::Alter {
-            if let Some(SqliteEntity::Column(col)) = &col_diff.right {
-                if col
-                    .generated
-                    .as_ref()
-                    .map(|g| g.gen_type == super::ddl::GeneratedType::Stored)
-                    .unwrap_or(false)
-                {
-                    warnings.push(format!(
-                        "Column '{}' in table '{}' has STORED generated column which requires table recreation",
-                        col.name, col.table
-                    ));
-                }
-            }
+        if col_diff.diff_type == DiffType::Alter
+            && let Some(SqliteEntity::Column(col)) = &col_diff.right
+            && col
+                .generated
+                .as_ref()
+                .is_some_and(|g| g.gen_type == super::ddl::GeneratedType::Stored)
+        {
+            warnings.push(format!(
+                "Column '{}' in table '{}' has STORED generated column which requires table recreation",
+                col.name, col.table
+            ));
         }
     }
 
