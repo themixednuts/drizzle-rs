@@ -8,6 +8,7 @@
 pub mod attrs;
 pub mod builder;
 pub mod common;
+pub mod expressions;
 pub mod helpers;
 pub mod traits;
 pub mod values;
