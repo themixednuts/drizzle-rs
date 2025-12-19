@@ -90,6 +90,8 @@ pub(crate) fn generate_column_definitions<'a>(
             let column_pascal_case = column_ident.to_string().to_upper_camel_case();
             let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
             quote! {
+                // Const validation that the FK column exists and implements SQLColumnInfo
+                const _: () = { let _ = &#table_ident::#column_ident; };
                 #[allow(non_upper_case_globals)]
                 static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
                 ::std::option::Option::Some(&FK_COLUMN)

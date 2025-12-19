@@ -188,6 +188,8 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             let column_pascal_case = column_ident.to_string().to_upper_camel_case();
             let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
             quote! {
+                // Const validation that the FK column exists and implements the right traits
+                const _: () = { let _ = &#table_ident::#column_ident; };
                 #[allow(non_upper_case_globals)]
                 static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
                 Some(&FK_COLUMN)
