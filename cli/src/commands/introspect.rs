@@ -27,11 +27,7 @@ pub fn run(config: &DrizzleConfig, init_metadata: bool) -> Result<(), CliError> 
     );
 
     if init_metadata {
-        println!(
-            "  {}: {}",
-            "Init metadata".bright_blue(),
-            "enabled"
-        );
+        println!("  {}: enabled", "Init metadata".bright_blue());
     }
     println!();
 

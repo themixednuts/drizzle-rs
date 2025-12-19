@@ -390,10 +390,10 @@ impl Config {
 
     fn validate(&mut self) -> Result<(), Error> {
         // Check driver compatibility
-        if let Some(d) = self.driver {
-            if !d.is_valid_for(self.dialect) {
-                return Err(Error::InvalidDriver { driver: d, dialect: self.dialect });
-            }
+        if let Some(d) = self.driver
+            && !d.is_valid_for(self.dialect)
+        {
+            return Err(Error::InvalidDriver { driver: d, dialect: self.dialect });
         }
 
         // Validate credentials if present

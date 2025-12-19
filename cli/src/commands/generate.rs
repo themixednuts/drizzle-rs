@@ -21,7 +21,7 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
     // Create output directories if they don't exist
     let out_dir = config.migrations_dir();
     let meta_dir = config.meta_dir();
-    std::fs::create_dir_all(&out_dir).map_err(|e| CliError::IoError(e.to_string()))?;
+    std::fs::create_dir_all(out_dir).map_err(|e| CliError::IoError(e.to_string()))?;
     std::fs::create_dir_all(&meta_dir).map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Handle custom migration (empty migration file for manual SQL)
@@ -69,7 +69,7 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
     // Load previous snapshot if exists
     let journal_path = config.journal_path();
     let dialect = config.base_dialect();
-    let prev_snapshot = load_previous_snapshot(&out_dir, &journal_path, dialect)?;
+    let prev_snapshot = load_previous_snapshot(out_dir, &journal_path, dialect)?;
 
     // Generate diff
     let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, config.breakpoints)?;

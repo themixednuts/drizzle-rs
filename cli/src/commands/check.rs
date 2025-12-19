@@ -130,12 +130,12 @@ fn print_credentials(creds: &Credentials) {
 }
 
 fn mask_url(url: &str) -> String {
-    if let Some(at) = url.find('@') {
-        if let Some(colon) = url[..at].rfind(':') {
-            let scheme_end = url.find("://").map(|p| p + 3).unwrap_or(0);
-            if colon > scheme_end {
-                return format!("{}****{}", &url[..colon + 1], &url[at..]);
-            }
+    if let Some(at) = url.find('@')
+        && let Some(colon) = url[..at].rfind(':')
+    {
+        let scheme_end = url.find("://").map(|p| p + 3).unwrap_or(0);
+        if colon > scheme_end {
+            return format!("{}****{}", &url[..colon + 1], &url[at..]);
         }
     }
     url.to_string()
