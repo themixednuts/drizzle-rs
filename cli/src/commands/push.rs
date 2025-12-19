@@ -11,16 +11,16 @@ use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the push command
-pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
+pub fn run(config: &DrizzleConfig, _force: bool) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 
-    println!("{}", "🚀 Pushing schema to database...".bright_cyan());
+    println!("{}", "Pushing schema to database...".bright_cyan());
     println!();
 
     // Parse schema files
     let schema_files = config.schema_files()?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(config.schema_pattern_display()));
+        return Err(CliError::NoSchemaFiles(config.schema_display()));
     }
 
     println!(
@@ -54,10 +54,17 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
     // Build snapshot from parsed schema
     let _code_snapshot = parse_result_to_snapshot(&parse_result);
 
+    // Display verbose output if enabled
+    if config.verbose {
+        println!();
+        println!("{}", "Verbose mode enabled - SQL statements:".bright_blue());
+        // TODO: Generate and display SQL statements
+    }
+
     // Note: Push requires introspecting the database and comparing snapshots
     // This requires driver-specific implementations
     println!();
-    println!("{}", "⚠️  Push requires a database connection.".yellow());
+    println!("{}", "Push requires a database connection.".yellow());
     println!();
     println!("  Use the programmatic API to push schema:");
     println!();
@@ -69,7 +76,15 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
     println!();
     println!("  Tables that would be synced:");
     for table_name in parse_result.tables.keys() {
-        println!("    {} {}", "→".bright_blue(), table_name);
+        println!("    {} {}", "->".bright_blue(), table_name);
+    }
+
+    if config.strict {
+        println!();
+        println!(
+            "  {} Strict mode is enabled. Would require confirmation before execution.",
+            "Note:".yellow()
+        );
     }
 
     Ok(())

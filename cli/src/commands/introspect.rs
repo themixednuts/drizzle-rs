@@ -10,15 +10,28 @@ use crate::config::DrizzleConfig;
 use crate::error::CliError;
 
 /// Run the introspect command
-pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
-    println!("{}", "🔍 Introspecting database...".bright_cyan());
+pub fn run(config: &DrizzleConfig, init_metadata: bool) -> Result<(), CliError> {
+    println!("{}", "Introspecting database...".bright_cyan());
     println!();
 
-    let dialect = config.drizzle_dialect();
+    let dialect = config.base_dialect();
 
-    println!("  {}: {:?}", "Dialect".bright_blue(), config.dialect);
+    println!("  {}: {}", "Dialect".bright_blue(), config.dialect.as_str());
     if let Some(ref driver) = config.driver {
         println!("  {}: {:?}", "Driver".bright_blue(), driver);
+    }
+    println!(
+        "  {}: {}",
+        "Output".bright_blue(),
+        config.out.display()
+    );
+
+    if init_metadata {
+        println!(
+            "  {}: {}",
+            "Init metadata".bright_blue(),
+            "enabled"
+        );
     }
     println!();
 
@@ -26,7 +39,7 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
     // This requires driver-specific implementations
     println!(
         "{}",
-        "⚠️  Introspection requires a database connection.".yellow()
+        "Introspection requires a database connection.".yellow()
     );
     println!();
     println!("  Use the programmatic API to introspect:");
@@ -64,6 +77,15 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
         drizzle_types::Dialect::MySQL => {
             println!("  MySQL introspection not yet supported.");
         }
+    }
+
+    if init_metadata {
+        println!();
+        println!(
+            "  {} The --init flag will create migration metadata after introspection.",
+            "Note:".bright_blue()
+        );
+        println!("  This treats the current database state as the baseline for future migrations.");
     }
 
     Ok(())

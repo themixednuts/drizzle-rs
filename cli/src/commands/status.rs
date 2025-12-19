@@ -77,7 +77,7 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
     println!(
         "  {}: {}",
         "Schema files".bright_black(),
-        config.schema_pattern_display()
+        config.schema_display()
     );
 
     Ok(())

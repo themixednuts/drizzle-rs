@@ -50,7 +50,7 @@
       ]
     },
     "tablesFilter": {
-      "description": "Table filter for push/introspect commands",
+      "description": "Table filter for push/introspect commands (glob patterns supported)",
       "oneOf": [
         {
           "type": "string"
@@ -64,7 +64,21 @@
       ]
     },
     "schemaFilter": {
-      "description": "Schema filter for PostgreSQL",
+      "description": "Schema filter for PostgreSQL (e.g., 'public', '!drizzle')",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "extensionsFilters": {
+      "description": "Extensions filter for PostgreSQL (e.g., 'postgis')",
       "oneOf": [
         {
           "type": "string"
@@ -78,12 +92,12 @@
       ]
     },
     "verbose": {
-      "description": "Verbose output",
+      "description": "Verbose output for push command",
       "type": "boolean",
       "default": false
     },
     "strict": {
-      "description": "Strict mode for push command",
+      "description": "Strict mode for push command (require confirmation)",
       "type": "boolean",
       "default": false
     },
@@ -97,7 +111,7 @@
       "type": "object",
       "properties": {
         "table": {
-          "description": "Custom table name for migrations",
+          "description": "Custom table name for migrations (default: __drizzle_migrations)",
           "type": "string"
         },
         "schema": {
@@ -111,6 +125,58 @@
         }
       },
       "additionalProperties": false
+    },
+    "introspect": {
+      "description": "Introspection configuration",
+      "type": "object",
+      "properties": {
+        "casing": {
+          "description": "Casing for introspected schema names",
+          "type": "string",
+          "enum": ["camel", "preserve"],
+          "default": "camel"
+        }
+      },
+      "additionalProperties": false
+    },
+    "entities": {
+      "description": "Entity configuration (roles, policies, etc.)",
+      "type": "object",
+      "properties": {
+        "roles": {
+          "description": "Role configuration for introspection",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "description": "Role provider (e.g., 'supabase', 'neon')",
+                  "type": "string"
+                },
+                "exclude": {
+                  "description": "Roles to exclude from introspection",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "include": {
+                  "description": "Roles to include in introspection",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -121,6 +187,14 @@
           "dialect": {
             "const": "sqlite"
           }
+        },
+        "not": {
+          "properties": {
+            "driver": {
+              "enum": ["d1-http", "sqlite-cloud"]
+            }
+          },
+          "required": ["driver"]
         }
       },
       "then": {
@@ -156,9 +230,9 @@
             "required": ["url"],
             "properties": {
               "url": {
-                "description": "Turso database URL (libsql://...)",
+                "description": "Turso database URL (libsql://... or http(s)://...)",
                 "type": "string",
-                "pattern": "^libsql://"
+                "pattern": "^(libsql|https?)://"
               },
               "authToken": {
                 "description": "Turso authentication token",
@@ -176,6 +250,14 @@
           "dialect": {
             "enum": ["postgresql", "postgres"]
           }
+        },
+        "not": {
+          "properties": {
+            "driver": {
+              "enum": ["aws-data-api", "pglite"]
+            }
+          },
+          "required": ["driver"]
         }
       },
       "then": {
@@ -229,7 +311,8 @@
                         "type": "boolean"
                       },
                       {
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["require", "allow", "prefer", "verify-full"]
                       }
                     ]
                   }
@@ -318,7 +401,8 @@
           "driver": {
             "const": "d1-http"
           }
-        }
+        },
+        "required": ["driver"]
       },
       "then": {
         "properties": {
@@ -351,7 +435,8 @@
           "driver": {
             "const": "aws-data-api"
           }
-        }
+        },
+        "required": ["driver"]
       },
       "then": {
         "properties": {
@@ -373,6 +458,59 @@
                 "description": "AWS RDS resource ARN",
                 "type": "string",
                 "pattern": "^arn:aws:rds:"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "driver": {
+            "const": "pglite"
+          }
+        },
+        "required": ["driver"]
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "PGlite database credentials",
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": {
+                "description": "Path to PGlite database file",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "driver": {
+            "const": "sqlite-cloud"
+          }
+        },
+        "required": ["driver"]
+      },
+      "then": {
+        "properties": {
+          "dbCredentials": {
+            "description": "SQLite Cloud credentials",
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": {
+                "description": "SQLite Cloud connection URL (sqlitecloud://...)",
+                "type": "string",
+                "pattern": "^sqlitecloud://"
               }
             },
             "additionalProperties": false

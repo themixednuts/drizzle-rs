@@ -1,105 +1,21 @@
-//! TOML configuration parsing for drizzle CLI
+//! Configuration for Drizzle CLI
 //!
-//! This module handles loading and validating the `drizzle.config.toml` configuration file.
-//! The config structure matches the drizzle-kit config format.
+//! Handles loading `drizzle.config.toml` with type-safe credentials.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// Default configuration file name
-pub const DEFAULT_CONFIG_FILE: &str = "drizzle.config.toml";
+pub const CONFIG_FILE: &str = "drizzle.config.toml";
 
-/// Root configuration structure matching `drizzle.config.ts` from drizzle-kit
-///
-/// # Example: SQLite
-/// ```toml
-/// dialect = "sqlite"
-/// schema = "src/schema.rs"
-/// out = "./drizzle"
-///
-/// [dbCredentials]
-/// url = "./dev.db"
-/// ```
-///
-/// # Example: PostgreSQL
-/// ```toml
-/// dialect = "postgresql"
-/// schema = ["src/schema/*.rs"]
-/// out = "./drizzle"
-///
-/// [dbCredentials]
-/// host = "localhost"
-/// port = 5432
-/// user = "postgres"
-/// password = "password"
-/// database = "mydb"
-/// ```
-///
-/// # Example: Turso
-/// ```toml
-/// dialect = "turso"
-/// schema = "src/schema.rs"
-/// out = "./drizzle"
-///
-/// [dbCredentials]
-/// url = "libsql://your-db.turso.io"
-/// authToken = "your-token"
-/// ```
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DrizzleConfig {
-    /// Database dialect: "sqlite", "postgresql", "mysql", "turso"
-    pub dialect: Dialect,
-
-    /// Path or array of paths to schema files (glob patterns supported)
-    #[serde(default)]
-    pub schema: SchemaPath,
-
-    /// Output directory for migrations (default: "./drizzle")
-    #[serde(default = "default_out")]
-    pub out: PathBuf,
-
-    /// Whether to use SQL breakpoints in generated migrations
-    #[serde(default = "default_breakpoints")]
-    pub breakpoints: bool,
-
-    /// Optional driver for specific database implementations
-    #[serde(default)]
-    pub driver: Option<Driver>,
-
-    /// Database credentials
-    #[serde(default)]
-    pub db_credentials: Option<DbCredentials>,
-
-    /// Table filter for push/introspect commands
-    #[serde(default)]
-    pub tables_filter: Option<StringOrArray>,
-
-    /// Schema filter for PostgreSQL
-    #[serde(default)]
-    pub schema_filter: Option<StringOrArray>,
-
-    /// Verbose output
-    #[serde(default)]
-    pub verbose: bool,
-
-    /// Strict mode for push command
-    #[serde(default)]
-    pub strict: bool,
-
-    /// Casing mode for generated code
-    #[serde(default)]
-    pub casing: Option<Casing>,
-
-    /// Migration table configuration
-    #[serde(default)]
-    pub migrations: Option<MigrationsConfig>,
-}
+// ============================================================================
+// Dialect
+// ============================================================================
 
 /// Database dialect
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Dialect {
+    #[default]
     Sqlite,
     #[serde(alias = "postgres")]
     Postgresql,
@@ -108,19 +24,49 @@ pub enum Dialect {
     Singlestore,
 }
 
-impl From<Dialect> for drizzle_types::Dialect {
-    fn from(d: Dialect) -> Self {
-        match d {
-            Dialect::Sqlite | Dialect::Turso => drizzle_types::Dialect::SQLite,
-            Dialect::Postgresql => drizzle_types::Dialect::PostgreSQL,
-            Dialect::Mysql => drizzle_types::Dialect::MySQL,
-            Dialect::Singlestore => drizzle_types::Dialect::MySQL, // SingleStore is MySQL-compatible
+impl Dialect {
+    pub const ALL: &'static [&'static str] = &["sqlite", "postgresql", "mysql", "turso", "singlestore"];
+
+    #[inline]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sqlite => "sqlite",
+            Self::Postgresql => "postgresql",
+            Self::Mysql => "mysql",
+            Self::Turso => "turso",
+            Self::Singlestore => "singlestore",
+        }
+    }
+
+    #[inline]
+    pub const fn to_base(self) -> drizzle_types::Dialect {
+        match self {
+            Self::Sqlite | Self::Turso => drizzle_types::Dialect::SQLite,
+            Self::Postgresql => drizzle_types::Dialect::PostgreSQL,
+            Self::Mysql | Self::Singlestore => drizzle_types::Dialect::MySQL,
         }
     }
 }
 
-/// Optional driver specification
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+impl std::fmt::Display for Dialect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<Dialect> for drizzle_types::Dialect {
+    #[inline]
+    fn from(d: Dialect) -> Self {
+        d.to_base()
+    }
+}
+
+// ============================================================================
+// Driver
+// ============================================================================
+
+/// Database driver for special connection types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Driver {
     D1Http,
@@ -131,49 +77,246 @@ pub enum Driver {
     Pglite,
 }
 
-/// Schema path - can be a single string or array of strings
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum SchemaPath {
-    Single(String),
-    Multiple(Vec<String>),
-}
+impl Driver {
+    pub const ALL: &'static [&'static str] = &[
+        "d1-http", "expo", "durable-sqlite", "sqlite-cloud", "aws-data-api", "pglite"
+    ];
 
-impl Default for SchemaPath {
-    fn default() -> Self {
-        SchemaPath::Single("src/schema.rs".to_string())
+    #[inline]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::D1Http => "d1-http",
+            Self::Expo => "expo",
+            Self::DurableSqlite => "durable-sqlite",
+            Self::SqliteCloud => "sqlite-cloud",
+            Self::AwsDataApi => "aws-data-api",
+            Self::Pglite => "pglite",
+        }
+    }
+
+    pub const fn valid_for(dialect: Dialect) -> &'static [Driver] {
+        match dialect {
+            Dialect::Sqlite => &[Self::D1Http, Self::Expo, Self::DurableSqlite, Self::SqliteCloud],
+            Dialect::Turso => &[Self::D1Http, Self::SqliteCloud],
+            Dialect::Postgresql => &[Self::AwsDataApi, Self::Pglite],
+            Dialect::Mysql | Dialect::Singlestore => &[],
+        }
+    }
+
+    #[inline]
+    pub const fn is_valid_for(self, dialect: Dialect) -> bool {
+        matches!(
+            (self, dialect),
+            (Self::D1Http | Self::Expo | Self::DurableSqlite | Self::SqliteCloud, Dialect::Sqlite)
+            | (Self::D1Http | Self::SqliteCloud, Dialect::Turso)
+            | (Self::AwsDataApi | Self::Pglite, Dialect::Postgresql)
+        )
     }
 }
 
-impl SchemaPath {
-    /// Get all schema paths as a vector
-    pub fn paths(&self) -> Vec<String> {
+impl std::fmt::Display for Driver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ============================================================================
+// Credentials
+// ============================================================================
+
+/// Database credentials - validated and typed
+#[derive(Debug, Clone)]
+pub enum Credentials {
+    /// Local SQLite file
+    Sqlite { path: Box<str> },
+
+    /// Turso/LibSQL
+    Turso { url: Box<str>, auth_token: Option<Box<str>> },
+
+    /// PostgreSQL
+    Postgres(PostgresCreds),
+
+    /// MySQL (also used for SingleStore)
+    Mysql(MysqlCreds),
+
+    /// Cloudflare D1
+    D1 { account_id: Box<str>, database_id: Box<str>, token: Box<str> },
+
+    /// AWS RDS Data API
+    AwsDataApi { database: Box<str>, secret_arn: Box<str>, resource_arn: Box<str> },
+
+    /// PGlite
+    Pglite { path: Box<str> },
+
+    /// SQLite Cloud
+    SqliteCloud { url: Box<str> },
+}
+
+/// PostgreSQL credentials
+#[derive(Debug, Clone)]
+pub enum PostgresCreds {
+    Url(Box<str>),
+    Host {
+        host: Box<str>,
+        port: u16,
+        user: Option<Box<str>>,
+        password: Option<Box<str>>,
+        database: Box<str>,
+        ssl: bool,
+    },
+}
+
+impl PostgresCreds {
+    /// Build connection URL
+    pub fn connection_url(&self) -> String {
         match self {
-            SchemaPath::Single(s) => vec![s.clone()],
-            SchemaPath::Multiple(v) => v.clone(),
+            Self::Url(url) => url.to_string(),
+            Self::Host { host, port, user, password, database, .. } => {
+                let auth = match (user, password) {
+                    (Some(u), Some(p)) => format!("{u}:{p}@"),
+                    (Some(u), None) => format!("{u}@"),
+                    _ => String::new(),
+                };
+                format!("postgres://{auth}{host}:{port}/{database}")
+            }
         }
     }
 }
 
-/// String or array of strings
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum StringOrArray {
-    Single(String),
-    Multiple(Vec<String>),
+/// MySQL credentials
+#[derive(Debug, Clone)]
+pub enum MysqlCreds {
+    Url(Box<str>),
+    Host {
+        host: Box<str>,
+        port: u16,
+        user: Option<Box<str>>,
+        password: Option<Box<str>>,
+        database: Box<str>,
+        ssl: bool,
+    },
 }
 
-/// Database credentials - dialect-specific
+impl MysqlCreds {
+    /// Build connection URL
+    pub fn connection_url(&self) -> String {
+        match self {
+            Self::Url(url) => url.to_string(),
+            Self::Host { host, port, user, password, database, .. } => {
+                let auth = match (user, password) {
+                    (Some(u), Some(p)) => format!("{u}:{p}@"),
+                    (Some(u), None) => format!("{u}@"),
+                    _ => String::new(),
+                };
+                format!("mysql://{auth}{host}:{port}/{database}")
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+/// Main configuration structure
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Config {
+    pub dialect: Dialect,
+
+    #[serde(default = "default_schema")]
+    pub schema: Schema,
+
+    #[serde(default = "default_out")]
+    pub out: PathBuf,
+
+    #[serde(default = "yes")]
+    pub breakpoints: bool,
+
+    #[serde(default)]
+    pub driver: Option<Driver>,
+
+    #[serde(default)]
+    db_credentials: Option<RawCreds>,
+
+    #[serde(default)]
+    pub tables_filter: Option<Filter>,
+
+    #[serde(default)]
+    pub schema_filter: Option<Filter>,
+
+    #[serde(default)]
+    pub verbose: bool,
+
+    #[serde(default)]
+    pub strict: bool,
+
+    #[serde(default)]
+    pub migrations: Option<MigrationsOpts>,
+}
+
+fn default_schema() -> Schema { Schema::One("src/schema.rs".into()) }
+fn default_out() -> PathBuf { PathBuf::from("./drizzle") }
+fn yes() -> bool { true }
+
+/// Schema path(s)
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-pub enum DbCredentials {
-    /// URL-based connection (SQLite file path or connection string)
+pub enum Schema {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Schema {
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        match self {
+            Self::One(s) => std::slice::from_ref(s).iter().map(String::as_str),
+            Self::Many(v) => v.iter().map(String::as_str),
+        }
+    }
+}
+
+/// Filter (single or multiple values)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum Filter {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Filter {
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        match self {
+            Self::One(s) => std::slice::from_ref(s).iter().map(String::as_str),
+            Self::Many(v) => v.iter().map(String::as_str),
+        }
+    }
+}
+
+/// Migration options
+#[derive(Debug, Clone, Deserialize)]
+pub struct MigrationsOpts {
+    pub table: Option<String>,
+    pub schema: Option<String>,
+    pub prefix: Option<MigrationPrefix>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MigrationPrefix { Index, Timestamp, Supabase, Unix, None }
+
+// ============================================================================
+// Raw credentials (serde parsing helper)
+// ============================================================================
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum RawCreds {
     Url {
         url: String,
         #[serde(default, rename = "authToken")]
         auth_token: Option<String>,
     },
-    /// Host-based connection (PostgreSQL, MySQL)
     Host {
         host: String,
         #[serde(default)]
@@ -184,9 +327,8 @@ pub enum DbCredentials {
         password: Option<String>,
         database: String,
         #[serde(default)]
-        ssl: Option<SslConfig>,
+        ssl: Option<SslVal>,
     },
-    /// D1 HTTP credentials
     D1 {
         #[serde(rename = "accountId")]
         account_id: String,
@@ -194,8 +336,7 @@ pub enum DbCredentials {
         database_id: String,
         token: String,
     },
-    /// AWS Data API credentials
-    AwsDataApi {
+    Aws {
         database: String,
         #[serde(rename = "secretArn")]
         secret_arn: String,
@@ -204,291 +345,369 @@ pub enum DbCredentials {
     },
 }
 
-/// SSL configuration
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-pub enum SslConfig {
-    Boolean(bool),
-    Mode(String),
+enum SslVal {
+    Bool(bool),
+    Str(String),
 }
 
-/// Casing mode
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Casing {
-    CamelCase,
-    SnakeCase,
+impl SslVal {
+    fn enabled(&self) -> bool {
+        match self {
+            Self::Bool(b) => *b,
+            Self::Str(s) => !matches!(s.as_str(), "disable" | "false" | "no" | "off"),
+        }
+    }
 }
 
-/// Migration table configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct MigrationsConfig {
-    /// Custom table name for migrations
-    #[serde(default)]
-    pub table: Option<String>,
+// ============================================================================
+// Config implementation
+// ============================================================================
 
-    /// Schema for migrations table (PostgreSQL only)
-    #[serde(default)]
-    pub schema: Option<String>,
-
-    /// Migration naming prefix
-    #[serde(default)]
-    pub prefix: Option<MigrationPrefix>,
-}
-
-/// Migration file naming prefix
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MigrationPrefix {
-    Index,
-    Timestamp,
-    Supabase,
-    Unix,
-    None,
-}
-
-fn default_out() -> PathBuf {
-    PathBuf::from("./drizzle")
-}
-
-fn default_breakpoints() -> bool {
-    true
-}
-
-impl DrizzleConfig {
-    /// Load configuration from the default `drizzle.config.toml` file
-    pub fn load() -> Result<Self, ConfigError> {
-        Self::load_from(&PathBuf::from(DEFAULT_CONFIG_FILE))
+impl Config {
+    /// Load from default config file
+    pub fn load() -> Result<Self, Error> {
+        Self::load_from(Path::new(CONFIG_FILE))
     }
 
-    /// Load configuration from a specific path
-    pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
-        if !path.exists() {
-            return Err(ConfigError::NotFound(path.to_path_buf()));
-        }
+    /// Load from specific path
+    pub fn load_from(path: &Path) -> Result<Self, Error> {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Error::NotFound(path.into())
+            } else {
+                Error::Io(path.into(), e)
+            }
+        })?;
 
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::IoError(path.to_path_buf(), e.to_string()))?;
-
-        let config: DrizzleConfig = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError(path.to_path_buf(), e.to_string()))?;
+        let mut config: Self = toml::from_str(&content)
+            .map_err(|e| Error::Parse(path.into(), e))?;
 
         config.validate()?;
-
         Ok(config)
     }
 
-    /// Validate the configuration
-    fn validate(&self) -> Result<(), ConfigError> {
-        // Validate credentials match dialect
-        if let Some(ref creds) = self.db_credentials {
-            match (&self.dialect, creds) {
-                (Dialect::Postgresql, DbCredentials::Url { .. })
-                | (Dialect::Postgresql, DbCredentials::Host { .. })
-                | (Dialect::Postgresql, DbCredentials::AwsDataApi { .. }) => {}
-                (Dialect::Sqlite, DbCredentials::Url { .. })
-                | (Dialect::Sqlite, DbCredentials::D1 { .. }) => {}
-                (Dialect::Turso, DbCredentials::Url { .. }) => {}
-                (Dialect::Mysql, DbCredentials::Url { .. })
-                | (Dialect::Mysql, DbCredentials::Host { .. }) => {}
-                (Dialect::Singlestore, DbCredentials::Url { .. })
-                | (Dialect::Singlestore, DbCredentials::Host { .. }) => {}
-                (dialect, _) => {
-                    return Err(ConfigError::InvalidCredentials(format!(
-                        "Invalid credentials for dialect {:?}",
-                        dialect
-                    )));
-                }
+    fn validate(&mut self) -> Result<(), Error> {
+        // Check driver compatibility
+        if let Some(d) = self.driver {
+            if !d.is_valid_for(self.dialect) {
+                return Err(Error::InvalidDriver { driver: d, dialect: self.dialect });
             }
         }
+
+        // Validate credentials if present
+        if let Some(ref raw) = self.db_credentials {
+            self.validate_creds(raw)?;
+        }
+
         Ok(())
     }
 
-    /// Get the drizzle_types::Dialect for this config
-    pub fn drizzle_dialect(&self) -> drizzle_types::Dialect {
-        self.dialect.into()
+    fn validate_creds(&self, raw: &RawCreds) -> Result<(), Error> {
+        let err = |msg: &str| Error::InvalidCredentials(msg.into());
+
+        // Driver-specific checks
+        match self.driver {
+            Some(Driver::D1Http) if !matches!(raw, RawCreds::D1 { .. }) => {
+                return Err(err("D1 driver requires accountId, databaseId, and token"));
+            }
+            Some(Driver::AwsDataApi) if !matches!(raw, RawCreds::Aws { .. }) => {
+                return Err(err("AWS Data API requires database, secretArn, and resourceArn"));
+            }
+            _ => {}
+        }
+
+        // Dialect-specific checks
+        match (self.dialect, raw) {
+            (Dialect::Sqlite, RawCreds::Url { auth_token: Some(_), .. }) => {
+                Err(err("SQLite doesn't support authToken (use dialect = \"turso\")"))
+            }
+            (Dialect::Sqlite, RawCreds::Url { url, .. }) if url.starts_with("libsql://") => {
+                Err(err("libsql:// URLs require dialect = \"turso\""))
+            }
+            (Dialect::Turso, RawCreds::Url { url, .. })
+                if !url.starts_with("libsql://") && !url.starts_with("http") => {
+                Err(err("Turso URL must start with libsql:// or http(s)://"))
+            }
+            (Dialect::Postgresql, RawCreds::Url { url, .. })
+                if !url.starts_with("postgres") => {
+                Err(err("PostgreSQL URL must start with postgres://"))
+            }
+            (Dialect::Mysql, RawCreds::Url { url, .. })
+                if !url.starts_with("mysql://") => {
+                Err(err("MySQL URL must start with mysql://"))
+            }
+            (Dialect::Singlestore, RawCreds::Url { url, .. })
+                if !url.starts_with("mysql://") && !url.starts_with("singlestore://") => {
+                Err(err("SingleStore URL must start with mysql:// or singlestore://"))
+            }
+            _ => Ok(()),
+        }
     }
 
-    /// Get the migrations output directory
-    pub fn migrations_dir(&self) -> PathBuf {
-        self.out.clone()
+    /// Get typed credentials
+    pub fn credentials(&self) -> Option<Credentials> {
+        let raw = self.db_credentials.as_ref()?;
+
+        let creds = match (self.dialect, self.driver, raw) {
+            // D1
+            (_, Some(Driver::D1Http), RawCreds::D1 { account_id, database_id, token }) => {
+                Credentials::D1 {
+                    account_id: account_id.as_str().into(),
+                    database_id: database_id.as_str().into(),
+                    token: token.as_str().into(),
+                }
+            }
+            // AWS Data API
+            (_, Some(Driver::AwsDataApi), RawCreds::Aws { database, secret_arn, resource_arn }) => {
+                Credentials::AwsDataApi {
+                    database: database.as_str().into(),
+                    secret_arn: secret_arn.as_str().into(),
+                    resource_arn: resource_arn.as_str().into(),
+                }
+            }
+            // PGlite
+            (_, Some(Driver::Pglite), RawCreds::Url { url, .. }) => {
+                Credentials::Pglite { path: url.as_str().into() }
+            }
+            // SQLite Cloud
+            (_, Some(Driver::SqliteCloud), RawCreds::Url { url, .. }) => {
+                Credentials::SqliteCloud { url: url.as_str().into() }
+            }
+            // SQLite
+            (Dialect::Sqlite, _, RawCreds::Url { url, .. }) => {
+                Credentials::Sqlite { path: url.as_str().into() }
+            }
+            // Turso
+            (Dialect::Turso, _, RawCreds::Url { url, auth_token }) => {
+                Credentials::Turso {
+                    url: url.as_str().into(),
+                    auth_token: auth_token.as_deref().map(Into::into),
+                }
+            }
+            // PostgreSQL URL
+            (Dialect::Postgresql, _, RawCreds::Url { url, .. }) => {
+                Credentials::Postgres(PostgresCreds::Url(url.as_str().into()))
+            }
+            // PostgreSQL Host
+            (Dialect::Postgresql, _, RawCreds::Host { host, port, user, password, database, ssl }) => {
+                Credentials::Postgres(PostgresCreds::Host {
+                    host: host.as_str().into(),
+                    port: port.unwrap_or(5432),
+                    user: user.as_deref().map(Into::into),
+                    password: password.as_deref().map(Into::into),
+                    database: database.as_str().into(),
+                    ssl: ssl.as_ref().map(|s| s.enabled()).unwrap_or(false),
+                })
+            }
+            // MySQL/SingleStore URL
+            (Dialect::Mysql | Dialect::Singlestore, _, RawCreds::Url { url, .. }) => {
+                Credentials::Mysql(MysqlCreds::Url(url.as_str().into()))
+            }
+            // MySQL/SingleStore Host
+            (Dialect::Mysql | Dialect::Singlestore, _, RawCreds::Host { host, port, user, password, database, ssl }) => {
+                Credentials::Mysql(MysqlCreds::Host {
+                    host: host.as_str().into(),
+                    port: port.unwrap_or(3306),
+                    user: user.as_deref().map(Into::into),
+                    password: password.as_deref().map(Into::into),
+                    database: database.as_str().into(),
+                    ssl: ssl.as_ref().map(|s| s.enabled()).unwrap_or(false),
+                })
+            }
+            _ => return None,
+        };
+
+        Some(creds)
     }
 
-    /// Get the meta directory path
+    /// Base dialect for SQL generation
+    #[inline]
+    pub fn base_dialect(&self) -> drizzle_types::Dialect {
+        self.dialect.to_base()
+    }
+
+    /// Migrations output directory
+    #[inline]
+    pub fn migrations_dir(&self) -> &Path {
+        &self.out
+    }
+
+    /// Meta directory (for journal)
+    #[inline]
     pub fn meta_dir(&self) -> PathBuf {
         self.out.join("meta")
     }
 
-    /// Get the journal file path
+    /// Journal file path
+    #[inline]
     pub fn journal_path(&self) -> PathBuf {
         self.meta_dir().join("_journal.json")
     }
 
-    /// Get a display string for the schema pattern(s)
-    pub fn schema_pattern_display(&self) -> String {
-        self.schema.paths().join(", ")
+    /// Schema paths display string
+    pub fn schema_display(&self) -> String {
+        match &self.schema {
+            Schema::One(s) => s.clone(),
+            Schema::Many(v) => v.join(", "),
+        }
     }
 
-    /// Resolve schema file paths (supports globs)
-    pub fn schema_files(&self) -> Result<Vec<PathBuf>, ConfigError> {
-        let mut all_paths = Vec::new();
+    /// Resolve schema files (with glob support)
+    pub fn schema_files(&self) -> Result<Vec<PathBuf>, Error> {
+        let mut files = Vec::new();
 
-        for pattern in self.schema.paths() {
-            let paths: Vec<PathBuf> = glob::glob(&pattern)
-                .map_err(|e| ConfigError::GlobError(pattern.clone(), e.to_string()))?
-                .filter_map(|r| r.ok())
-                .collect();
-
-            if paths.is_empty() {
-                // Try as literal path
-                let path = PathBuf::from(&pattern);
-                if path.exists() {
-                    all_paths.push(path);
+        for pattern in self.schema.iter() {
+            match glob::glob(pattern) {
+                Ok(paths) => {
+                    let matched: Vec<_> = paths.filter_map(Result::ok).collect();
+                    if matched.is_empty() {
+                        let p = PathBuf::from(pattern);
+                        if p.exists() {
+                            files.push(p);
+                        }
+                    } else {
+                        files.extend(matched);
+                    }
                 }
-            } else {
-                all_paths.extend(paths);
+                Err(e) => return Err(Error::Glob(pattern.into(), e)),
             }
         }
 
-        if all_paths.is_empty() {
-            return Err(ConfigError::NoSchemaFiles(format!(
-                "{:?}",
-                self.schema.paths()
-            )));
+        if files.is_empty() {
+            return Err(Error::NoSchemaFiles(self.schema_display()));
         }
 
-        Ok(all_paths)
+        Ok(files)
     }
 }
 
-/// Configuration errors
+// Re-export as DrizzleConfig for compatibility
+pub type DrizzleConfig = Config;
+
+// ============================================================================
+// Errors
+// ============================================================================
+
 #[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("Configuration file not found: {}", .0.display())]
+pub enum Error {
+    #[error("config not found: {}", .0.display())]
     NotFound(PathBuf),
 
-    #[error("Failed to read configuration file {path}: {msg}", path = .0.display(), msg = .1)]
-    IoError(PathBuf, String),
+    #[error("failed to read {}: {}", .0.display(), .1)]
+    Io(PathBuf, #[source] std::io::Error),
 
-    #[error("Failed to parse configuration file {path}: {msg}", path = .0.display(), msg = .1)]
-    ParseError(PathBuf, String),
+    #[error("failed to parse {}: {}", .0.display(), .1)]
+    Parse(PathBuf, #[source] toml::de::Error),
 
-    #[error("Invalid credentials: {0}")]
+    #[error("driver '{driver}' invalid for {dialect} dialect")]
+    InvalidDriver { driver: Driver, dialect: Dialect },
+
+    #[error("invalid credentials: {0}")]
     InvalidCredentials(String),
 
-    #[error("Invalid glob pattern '{0}': {1}")]
-    GlobError(String, String),
+    #[error("invalid glob '{0}': {1}")]
+    Glob(String, #[source] glob::PatternError),
 
-    #[error("No schema files found matching pattern: {0}")]
+    #[error("no schema files found: {0}")]
     NoSchemaFiles(String),
 }
+
+pub type ConfigError = Error;
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_sqlite_config() {
-        let toml = r#"
-dialect = "sqlite"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-url = "./dev.db"
-"#;
-
-        let config: DrizzleConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.dialect, Dialect::Sqlite);
-        assert!(matches!(
-            config.db_credentials,
-            Some(DbCredentials::Url { .. })
-        ));
+    fn sqlite() {
+        let cfg: Config = toml::from_str(r#"
+            dialect = "sqlite"
+            [dbCredentials]
+            url = "./dev.db"
+        "#).unwrap();
+        assert!(matches!(cfg.credentials(), Some(Credentials::Sqlite { .. })));
     }
 
     #[test]
-    fn test_parse_postgresql_url_config() {
-        let toml = r#"
-dialect = "postgresql"
-schema = ["src/schema/*.rs"]
-out = "./migrations"
-
-[dbCredentials]
-url = "postgres://user:pass@localhost:5432/mydb"
-"#;
-
-        let config: DrizzleConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.dialect, Dialect::Postgresql);
+    fn postgres_url() {
+        let cfg: Config = toml::from_str(r#"
+            dialect = "postgresql"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#).unwrap();
+        assert!(matches!(cfg.credentials(), Some(Credentials::Postgres(PostgresCreds::Url(_)))));
     }
 
     #[test]
-    fn test_parse_postgresql_host_config() {
-        let toml = r#"
-dialect = "postgresql"
-schema = "src/schema.rs"
-
-[dbCredentials]
-host = "localhost"
-port = 5432
-user = "postgres"
-password = "secret"
-database = "mydb"
-"#;
-
-        let config: DrizzleConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.dialect, Dialect::Postgresql);
-        if let Some(DbCredentials::Host {
-            host,
-            port,
-            database,
-            ..
-        }) = config.db_credentials
-        {
-            assert_eq!(host, "localhost");
-            assert_eq!(port, Some(5432));
-            assert_eq!(database, "mydb");
+    fn postgres_host() {
+        let cfg: Config = toml::from_str(r#"
+            dialect = "postgresql"
+            [dbCredentials]
+            host = "localhost"
+            database = "mydb"
+            port = 5432
+        "#).unwrap();
+        if let Some(Credentials::Postgres(PostgresCreds::Host { host, port, .. })) = cfg.credentials() {
+            assert_eq!(&*host, "localhost");
+            assert_eq!(port, 5432);
         } else {
-            panic!("Expected Host credentials");
+            panic!("expected postgres host creds");
         }
     }
 
     #[test]
-    fn test_parse_turso_config() {
-        let toml = r#"
-dialect = "turso"
-schema = "src/schema.rs"
-
-[dbCredentials]
-url = "libsql://my-db.turso.io"
-authToken = "my-token"
-"#;
-
-        let config: DrizzleConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.dialect, Dialect::Turso);
+    fn turso() {
+        let cfg: Config = toml::from_str(r#"
+            dialect = "turso"
+            [dbCredentials]
+            url = "libsql://db.turso.io"
+            authToken = "token"
+        "#).unwrap();
+        if let Some(Credentials::Turso { url, auth_token }) = cfg.credentials() {
+            assert_eq!(&*url, "libsql://db.turso.io");
+            assert_eq!(auth_token.as_deref(), Some("token"));
+        } else {
+            panic!("expected turso creds");
+        }
     }
 
     #[test]
-    fn test_default_values() {
-        let toml = r#"
-dialect = "sqlite"
-
-[dbCredentials]
-url = "./dev.db"
-"#;
-
-        let config: DrizzleConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.out, PathBuf::from("./drizzle"));
-        assert!(config.breakpoints);
+    fn d1() {
+        let cfg: Config = toml::from_str(r#"
+            dialect = "sqlite"
+            driver = "d1-http"
+            [dbCredentials]
+            accountId = "acc"
+            databaseId = "db"
+            token = "tok"
+        "#).unwrap();
+        assert!(matches!(cfg.credentials(), Some(Credentials::D1 { .. })));
     }
 
     #[test]
-    fn test_schema_array() {
-        let toml = r#"
-dialect = "sqlite"
-schema = ["src/tables/*.rs", "src/views/*.rs"]
-"#;
+    fn defaults() {
+        let cfg: Config = toml::from_str(r#"dialect = "sqlite""#).unwrap();
+        assert_eq!(cfg.out, PathBuf::from("./drizzle"));
+        assert!(cfg.breakpoints);
+    }
 
-        let config: DrizzleConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.schema.paths().len(), 2);
+    #[test]
+    fn dialect_base() {
+        assert_eq!(Dialect::Sqlite.to_base(), drizzle_types::Dialect::SQLite);
+        assert_eq!(Dialect::Turso.to_base(), drizzle_types::Dialect::SQLite);
+        assert_eq!(Dialect::Postgresql.to_base(), drizzle_types::Dialect::PostgreSQL);
+    }
+
+    #[test]
+    fn driver_compat() {
+        assert!(Driver::D1Http.is_valid_for(Dialect::Sqlite));
+        assert!(!Driver::D1Http.is_valid_for(Dialect::Postgresql));
+        assert!(Driver::AwsDataApi.is_valid_for(Dialect::Postgresql));
     }
 }

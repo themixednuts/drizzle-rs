@@ -48,5 +48,8 @@ pub mod config;
 pub mod error;
 pub mod snapshot;
 
-pub use config::DrizzleConfig;
+pub use config::{Config, Credentials, Dialect, Driver, Error as ConfigError};
 pub use error::CliError;
+
+// Backwards compatibility alias
+pub type DrizzleConfig = Config;

@@ -32,7 +32,7 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
     // Parse schema files
     let schema_files = config.schema_files()?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(config.schema_pattern_display()));
+        return Err(CliError::NoSchemaFiles(config.schema_display()));
     }
 
     println!(
@@ -68,7 +68,7 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
 
     // Load previous snapshot if exists
     let journal_path = config.journal_path();
-    let dialect = config.drizzle_dialect();
+    let dialect = config.base_dialect();
     let prev_snapshot = load_previous_snapshot(&out_dir, &journal_path, dialect)?;
 
     // Generate diff
@@ -131,7 +131,7 @@ fn generate_custom_migration(config: &DrizzleConfig, name: Option<String>) -> Re
 
     let out_dir = config.migrations_dir();
     let journal_path = config.journal_path();
-    let dialect = config.drizzle_dialect();
+    let dialect = config.base_dialect();
 
     let next_idx = load_next_migration_index(&journal_path);
     let migration_name = name.unwrap_or_else(|| "custom".to_string());

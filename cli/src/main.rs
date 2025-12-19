@@ -47,22 +47,58 @@ enum Command {
     /// Run pending migrations
     Migrate,
 
-    /// Push schema changes directly to database (without migration files)
-    Push,
+    /// Apply pending migrations (alias for migrate)
+    Up,
 
-    /// Introspect database and generate snapshot
-    Introspect,
+    /// Push schema changes directly to database (without migration files)
+    Push {
+        /// Show all SQL statements that would be executed
+        #[arg(long)]
+        verbose: bool,
+
+        /// Require confirmation before executing
+        #[arg(long)]
+        strict: bool,
+
+        /// Force execution without warnings
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Introspect database and generate schema
+    Introspect {
+        /// Initialize migration metadata after introspecting
+        #[arg(long, name = "init")]
+        init_metadata: bool,
+    },
+
+    /// Introspect database and generate schema (alias for introspect)
+    Pull {
+        /// Initialize migration metadata after introspecting
+        #[arg(long, name = "init")]
+        init_metadata: bool,
+    },
 
     /// Show migration status
     Status,
 
-    /// Initialize a new drizzle.toml configuration file
+    /// Validate configuration file
+    Check,
+
+    /// Export schema as SQL statements
+    Export {
+        /// Output SQL to a file (default: stdout)
+        #[arg(long)]
+        sql: Option<PathBuf>,
+    },
+
+    /// Initialize a new drizzle.config.toml configuration file
     Init {
-        /// Database dialect (sqlite or postgresql)
+        /// Database dialect (sqlite, postgresql, mysql, turso, singlestore)
         #[arg(short, long, default_value = "sqlite")]
         dialect: String,
 
-        /// Database driver
+        /// Database driver (d1-http, expo, aws-data-api, pglite, sqlite-cloud, durable-sqlite)
         #[arg(short = 'r', long)]
         driver: Option<String>,
     },
@@ -89,21 +125,40 @@ fn run(cli: Cli) -> Result<(), CliError> {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::generate::run(&config, name, custom)
         }
-        Command::Migrate => {
+        Command::Migrate | Command::Up => {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::migrate::run(&config)
         }
-        Command::Push => {
-            let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::push::run(&config)
+        Command::Push {
+            verbose,
+            strict,
+            force,
+        } => {
+            let mut config = load_config(cli.config.as_deref())?;
+            // Override config with CLI flags
+            if verbose {
+                config.verbose = true;
+            }
+            if strict {
+                config.strict = true;
+            }
+            drizzle_cli::commands::push::run(&config, force)
         }
-        Command::Introspect => {
+        Command::Introspect { init_metadata } | Command::Pull { init_metadata } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::introspect::run(&config)
+            drizzle_cli::commands::introspect::run(&config, init_metadata)
         }
         Command::Status => {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::status::run(&config)
+        }
+        Command::Check => {
+            let config = load_config(cli.config.as_deref())?;
+            drizzle_cli::commands::check::run(&config)
+        }
+        Command::Export { sql } => {
+            let config = load_config(cli.config.as_deref())?;
+            drizzle_cli::commands::export::run(&config, sql)
         }
     }
 }
@@ -117,7 +172,7 @@ fn load_config(custom_path: Option<&std::path::Path>) -> Result<DrizzleConfig, C
 }
 
 /// Initialize a new drizzle.config.toml file
-fn run_init(dialect: &str, _driver: Option<&str>) -> Result<(), CliError> {
+fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
     let config_path = PathBuf::from(DEFAULT_CONFIG_FILE);
 
     if config_path.exists() {
@@ -127,80 +182,7 @@ fn run_init(dialect: &str, _driver: Option<&str>) -> Result<(), CliError> {
         )));
     }
 
-    let config_content = match dialect.to_lowercase().as_str() {
-        "sqlite" => format!(
-            r#"#:schema {}
-
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "sqlite"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "./dev.db"
-"#,
-            SCHEMA_URL
-        ),
-        "turso" => format!(
-            r#"#:schema {}
-
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "turso"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "libsql://your-db.turso.io"
-authToken = "your-token"
-"#,
-            SCHEMA_URL
-        ),
-        "postgresql" | "postgres" => format!(
-            r#"#:schema {}
-
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "postgresql"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "postgres://user:password@localhost:5432/mydb"
-# Or use individual fields:
-# host = "localhost"
-# port = 5432
-# user = "user"
-# password = "password"
-# database = "mydb"
-"#,
-            SCHEMA_URL
-        ),
-        "mysql" => format!(
-            r#"#:schema {}
-
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "mysql"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "mysql://user:password@localhost:3306/mydb"
-"#,
-            SCHEMA_URL
-        ),
-        _ => return Err(CliError::Other(format!("Unknown dialect: {}", dialect))),
-    };
+    let config_content = generate_init_config(dialect, driver)?;
 
     std::fs::write(&config_path, config_content).map_err(|e| CliError::IoError(e.to_string()))?;
 
@@ -224,4 +206,233 @@ url = "mysql://user:password@localhost:3306/mydb"
     );
 
     Ok(())
+}
+
+/// Generate the init configuration content based on dialect and driver
+fn generate_init_config(dialect: &str, driver: Option<&str>) -> Result<String, CliError> {
+    // Handle driver-specific configurations
+    if let Some(drv) = driver {
+        return match drv.to_lowercase().as_str() {
+            "d1-http" => Ok(format!(
+                r#"#:schema {}
+
+# Drizzle Configuration - Cloudflare D1
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "sqlite"
+driver = "d1-http"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+accountId = "your-cloudflare-account-id"
+databaseId = "your-d1-database-id"
+token = "your-cloudflare-api-token"
+"#,
+                SCHEMA_URL
+            )),
+            "aws-data-api" => Ok(format!(
+                r#"#:schema {}
+
+# Drizzle Configuration - AWS RDS Data API
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "postgresql"
+driver = "aws-data-api"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+database = "your-database-name"
+secretArn = "arn:aws:secretsmanager:region:account:secret:name"
+resourceArn = "arn:aws:rds:region:account:cluster:name"
+"#,
+                SCHEMA_URL
+            )),
+            "pglite" => Ok(format!(
+                r#"#:schema {}
+
+# Drizzle Configuration - PGlite
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "postgresql"
+driver = "pglite"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+url = "./dev.db"
+"#,
+                SCHEMA_URL
+            )),
+            "sqlite-cloud" => Ok(format!(
+                r#"#:schema {}
+
+# Drizzle Configuration - SQLite Cloud
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "sqlite"
+driver = "sqlite-cloud"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+url = "sqlitecloud://your-host.sqlite.cloud:8860/your-database?apikey=your-api-key"
+"#,
+                SCHEMA_URL
+            )),
+            "expo" => Ok(format!(
+                r#"#:schema {}
+
+# Drizzle Configuration - Expo SQLite
+# See: https://orm.drizzle.team/kit-docs/config-reference
+# Note: Expo driver is for React Native and not supported in drizzle-kit CLI
+
+dialect = "sqlite"
+driver = "expo"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+url = "./dev.db"
+"#,
+                SCHEMA_URL
+            )),
+            "durable-sqlite" => Ok(format!(
+                r#"#:schema {}
+
+# Drizzle Configuration - Cloudflare Durable Objects SQLite
+# See: https://orm.drizzle.team/kit-docs/config-reference
+# Note: Durable SQLite driver is not supported in drizzle-kit CLI
+
+dialect = "sqlite"
+driver = "durable-sqlite"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+url = "./dev.db"
+"#,
+                SCHEMA_URL
+            )),
+            _ => Err(CliError::Other(format!(
+                "Unknown driver: {}. Valid drivers: d1-http, aws-data-api, pglite, sqlite-cloud, expo, durable-sqlite",
+                drv
+            ))),
+        };
+    }
+
+    // Handle dialect-only configurations
+    match dialect.to_lowercase().as_str() {
+        "sqlite" => Ok(format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "sqlite"
+schema = "src/schema.rs"
+out = "./drizzle"
+# breakpoints = true
+
+[dbCredentials]
+url = "./dev.db"
+"#,
+            SCHEMA_URL
+        )),
+        "turso" => Ok(format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "turso"
+schema = "src/schema.rs"
+out = "./drizzle"
+# breakpoints = true
+
+[dbCredentials]
+url = "libsql://your-db.turso.io"
+authToken = "your-auth-token"
+"#,
+            SCHEMA_URL
+        )),
+        "postgresql" | "postgres" => Ok(format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "postgresql"
+schema = "src/schema.rs"
+out = "./drizzle"
+# breakpoints = true
+
+[dbCredentials]
+url = "postgres://user:password@localhost:5432/mydb"
+
+# Or use individual connection fields:
+# [dbCredentials]
+# host = "localhost"
+# port = 5432
+# user = "postgres"
+# password = "password"
+# database = "mydb"
+# ssl = true
+"#,
+            SCHEMA_URL
+        )),
+        "mysql" => Ok(format!(
+            r#"#:schema {}
+
+# Drizzle Configuration
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "mysql"
+schema = "src/schema.rs"
+out = "./drizzle"
+# breakpoints = true
+
+[dbCredentials]
+url = "mysql://user:password@localhost:3306/mydb"
+
+# Or use individual connection fields:
+# [dbCredentials]
+# host = "localhost"
+# port = 3306
+# user = "root"
+# password = "password"
+# database = "mydb"
+"#,
+            SCHEMA_URL
+        )),
+        "singlestore" => Ok(format!(
+            r#"#:schema {}
+
+# Drizzle Configuration - SingleStore
+# See: https://orm.drizzle.team/kit-docs/config-reference
+
+dialect = "singlestore"
+schema = "src/schema.rs"
+out = "./drizzle"
+# breakpoints = true
+
+[dbCredentials]
+url = "mysql://user:password@localhost:3306/mydb"
+
+# Or use individual connection fields:
+# [dbCredentials]
+# host = "localhost"
+# port = 3306
+# user = "root"
+# password = "password"
+# database = "mydb"
+"#,
+            SCHEMA_URL
+        )),
+        _ => Err(CliError::Other(format!(
+            "Unknown dialect: {}. Valid dialects: sqlite, turso, postgresql, mysql, singlestore",
+            dialect
+        ))),
+    }
 }
