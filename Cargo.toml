@@ -161,7 +161,6 @@ rusqlite = [
   "drizzle-sqlite?/rusqlite",
   "drizzle-macros/rusqlite",
   "drizzle-core/rusqlite",
-  "drizzle-migrations/rusqlite",
 ]
 turso = [
   "sqlite",
@@ -169,7 +168,6 @@ turso = [
   "drizzle-core/turso",
   "drizzle-macros/turso",
   "drizzle-sqlite?/turso",
-  "drizzle-migrations/turso",
 ]
 libsql = [
   "sqlite",
@@ -177,7 +175,6 @@ libsql = [
   "drizzle-core/libsql",
   "drizzle-macros/libsql",
   "drizzle-sqlite?/libsql",
-  "drizzle-migrations/libsql",
 ]
 serde = [
   "dep:serde_json",
@@ -232,7 +229,6 @@ postgres-sync = [
   "dep:postgres",
   "drizzle-postgres?/postgres-sync",
   "drizzle-macros/postgres",
-  "drizzle-migrations/postgres-sync",
 ]
 tokio-postgres = [
   "postgres",
@@ -240,7 +236,6 @@ tokio-postgres = [
   "dep:tokio",
   "drizzle-postgres?/tokio-postgres",
   "drizzle-macros/postgres",
-  "drizzle-migrations/tokio-postgres",
 ]
 # sqlx-postgres = [
 #   "postgres",

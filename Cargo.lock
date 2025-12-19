@@ -1423,6 +1423,7 @@ dependencies = [
  "drizzle-migrations",
  "drizzle-types",
  "glob",
+ "heck",
  "libsql",
  "postgres",
  "predicates",
@@ -1491,11 +1492,8 @@ dependencies = [
 name = "drizzle-migrations"
 version = "0.1.3"
 dependencies = [
- "clap",
- "drizzle",
  "drizzle-types",
  "heck",
- "libsql",
  "postgres",
  "regex",
  "rusqlite",
@@ -1503,10 +1501,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",
- "tokio",
- "tokio-postgres",
- "toml",
- "turso",
  "uuid",
 ]
 
@@ -1565,6 +1559,7 @@ name = "drizzle-types"
 version = "0.1.3"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
