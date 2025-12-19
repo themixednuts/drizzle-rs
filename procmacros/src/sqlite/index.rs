@@ -1,8 +1,7 @@
-use crate::paths::{core as core_paths, sqlite as sqlite_paths};
-use heck::ToUpperCamelCase;
+use crate::paths::{core as core_paths, ddl::sqlite as ddl_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, parse::Parse};
+use quote::quote;
+use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 
 /// Attributes for the SQLiteIndex attribute macro
 /// Syntax: #[SQLiteIndex] or #[SQLiteIndex(unique)]
@@ -53,6 +52,10 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
     let to_sql = core_paths::to_sql();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+
+    // DDL type paths
+    let index_def = ddl_paths::index_def();
+    let index_column_def = ddl_paths::index_column_def();
 
     // Extract columns from tuple struct fields: struct UserEmailIdx(User::email);
     let columns = match &input.data {
@@ -129,35 +132,60 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
                 acc
             });
 
-    // Generate SQL for CREATE INDEX
-    let unique_keyword = if is_unique { "UNIQUE " } else { "" };
-
-    let zst_idents = columns
-        .iter()
-        .map(|col| match col {
-            Expr::Path(p) => extract_zst_ident(p),
-            _ => Err(syn::Error::new_spanned(
-                col,
-                "Expected column path like User::id",
-            )),
-        })
-        .collect::<Result<Box<_>>>()?;
-
-    // In the implementation, we'll need to use the actual column constants
-    let column_name_exprs: Vec<_> = columns
+    // Build IndexColumnDef array for DDL using the column's NAME const
+    // Uses a const block to validate that the column path implements SQLSchema
+    // and extracts its NAME - this ensures we use the actual database column name
+    let column_defs: Vec<_> = columns
         .iter()
         .map(|col| {
-            quote! { #col.name() }
+            quote! {
+                #index_column_def::new({
+                    // Const validation that the column implements SQLSchema
+                    const fn column_name<'a, C: #sql_schema<'a, &'static str, #sqlite_value<'a>>>(_: &C) -> &'a str {
+                        C::NAME
+                    }
+                    column_name(&#col)
+                })
+            }
         })
         .collect();
 
+    // Generate optional .unique() call
+    let unique_modifier = if is_unique {
+        quote! { .unique() }
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
-        #[derive(Default, Debug, Clone, PartialEq)]
-        #struct_vis struct #struct_ident(#(#zst_idents),*);
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #struct_vis struct #struct_ident;
 
         impl #struct_ident {
+            /// Const DDL column definitions for the index
+            pub const DDL_COLUMNS: &'static [#index_column_def] = &[#(#column_defs),*];
+
+            /// Const DDL index definition - single source of truth
+            pub const DDL_INDEX: #index_def = #index_def::new(
+                <#table_type as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME,
+                #index_name
+            )
+            .columns(Self::DDL_COLUMNS)
+            #unique_modifier;
+
             pub const fn new() -> Self {
-                Self( #(#zst_idents::new(),)* )
+                Self
+            }
+
+            /// Generate CREATE INDEX SQL using the DDL definition
+            pub fn create_index_sql() -> ::std::string::String {
+                Self::DDL_INDEX.into_index().create_index_sql()
+            }
+        }
+
+        impl Default for #struct_ident {
+            fn default() -> Self {
+                Self::new()
             }
         }
 
@@ -194,18 +222,14 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             const SQL: &'static str = "";
 
             fn sql(&self) -> #sql<'a, #sqlite_value<'a>> {
-                #to_sql::to_sql(self)
+                #sql::raw(Self::create_index_sql())
             }
         }
 
         impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident
         {
             fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
-                let table_name = <#table_type as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME;
-                let column_names = ::std::vec![#(#column_name_exprs),*];
-                let column_list = column_names.join(", ");
-                let sql = ::std::format!("CREATE {}INDEX \"{}\" ON \"{}\" ({})", #unique_keyword, #index_name, table_name, column_list);
-                #sql::raw(sql)
+                #sql::raw(Self::create_index_sql())
             }
         }
     })
@@ -235,22 +259,4 @@ fn extract_table_from_column(column: &Expr) -> Result<Type> {
             "Column must be a path expression",
         ))
     }
-}
-fn extract_zst_ident(expr: &ExprPath) -> syn::Result<Ident> {
-    let segments = &expr.path.segments;
-    if segments.len() != 2 {
-        return Err(syn::Error::new_spanned(
-            &expr.path,
-            "Expected column path like `User::id`",
-        ));
-    }
-
-    let struct_ident = &segments[0].ident;
-    let field_ident = &segments[1].ident;
-
-    // Convert field to PascalCase
-    let field_pascal_case = &field_ident.to_string().to_upper_camel_case();
-
-    // Build ZST ident
-    Ok(format_ident!("{}{}", struct_ident, field_pascal_case))
 }

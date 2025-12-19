@@ -1,0 +1,110 @@
+//! SQLite value types and conversions
+//!
+//! This module contains the core `SQLiteValue` type and all its conversions.
+
+mod conversions;
+mod drivers;
+mod insert;
+pub mod owned;
+
+pub use insert::*;
+pub use owned::*;
+
+use crate::traits::FromSQLiteValue;
+use drizzle_core::{dialect::Dialect, error::DrizzleError, sql::SQL, traits::SQLParam};
+use std::borrow::Cow;
+
+//------------------------------------------------------------------------------
+// SQLiteValue Definition
+//------------------------------------------------------------------------------
+
+/// Represents a SQLite value
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub enum SQLiteValue<'a> {
+    /// Integer value (i64)
+    Integer(i64),
+    /// Real value (f64)
+    Real(f64),
+    /// Text value (borrowed or owned string)
+    Text(Cow<'a, str>),
+    /// Blob value (borrowed or owned binary data)
+    Blob(Cow<'a, [u8]>),
+    /// NULL value
+    #[default]
+    Null,
+}
+
+impl<'a> SQLiteValue<'a> {
+    /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
+    ///
+    /// This provides a unified conversion interface for all types that implement
+    /// `FromSQLiteValue`, including primitives and enum types.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let value = SQLiteValue::Integer(42);
+    /// let num: i64 = value.convert()?;
+    /// ```
+    pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
+        match self {
+            SQLiteValue::Integer(i) => T::from_sqlite_integer(i),
+            SQLiteValue::Text(s) => T::from_sqlite_text(&s),
+            SQLiteValue::Real(r) => T::from_sqlite_real(r),
+            SQLiteValue::Blob(b) => T::from_sqlite_blob(&b),
+            SQLiteValue::Null => T::from_sqlite_null(),
+        }
+    }
+
+    /// Convert a reference to this SQLite value to a Rust type.
+    pub fn convert_ref<T: FromSQLiteValue>(&self) -> Result<T, DrizzleError> {
+        match self {
+            SQLiteValue::Integer(i) => T::from_sqlite_integer(*i),
+            SQLiteValue::Text(s) => T::from_sqlite_text(s),
+            SQLiteValue::Real(r) => T::from_sqlite_real(*r),
+            SQLiteValue::Blob(b) => T::from_sqlite_blob(b),
+            SQLiteValue::Null => T::from_sqlite_null(),
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for SQLiteValue<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            SQLiteValue::Integer(i) => i.to_string(),
+            SQLiteValue::Real(r) => r.to_string(),
+            SQLiteValue::Text(cow) => cow.to_string(),
+            SQLiteValue::Blob(cow) => String::from_utf8_lossy(cow).to_string(),
+            SQLiteValue::Null => String::new(),
+        };
+        write!(f, "{value}")
+    }
+}
+
+// Implement core traits required by Drizzle
+impl<'a> SQLParam for SQLiteValue<'a> {
+    const DIALECT: Dialect = Dialect::SQLite;
+}
+
+impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {
+    fn from(value: SQLiteValue<'a>) -> Self {
+        SQL::param(value)
+    }
+}
+
+impl<'a> From<SQL<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
+    fn from(_value: SQL<'a, SQLiteValue<'a>>) -> Self {
+        unimplemented!()
+    }
+}
+
+impl<'a> FromIterator<OwnedSQLiteValue> for Vec<SQLiteValue<'a>> {
+    fn from_iter<T: IntoIterator<Item = OwnedSQLiteValue>>(iter: T) -> Self {
+        iter.into_iter().map(SQLiteValue::from).collect()
+    }
+}
+
+impl<'a> FromIterator<&'a OwnedSQLiteValue> for Vec<SQLiteValue<'a>> {
+    fn from_iter<T: IntoIterator<Item = &'a OwnedSQLiteValue>>(iter: T) -> Self {
+        iter.into_iter().map(SQLiteValue::from).collect()
+    }
+}

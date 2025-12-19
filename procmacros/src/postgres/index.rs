@@ -1,4 +1,4 @@
-use crate::paths::{core as core_paths, postgres as postgres_paths};
+use crate::paths::{core as core_paths, ddl::postgres as ddl_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, parse::Parse};
@@ -126,6 +126,10 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
 
+    // DDL type paths
+    let index_def = ddl_paths::index_def();
+    let index_column_def = ddl_paths::index_column_def();
+
     // Extract columns from tuple struct fields: struct UserEmailIdx(User::email);
     let columns = match &input.data {
         syn::Data::Struct(data_struct) => {
@@ -166,10 +170,10 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
         }
     };
 
-    // Parse column references
+    // Parse column references (for index name generation)
     let column_info = parse_column_references(&columns)?;
 
-    // Extract table type from first column (similar to SQLite implementation)
+    // Extract table type from first column
     let table_type = if let Some(first_column) = columns.first() {
         extract_table_from_column(first_column)?
     } else {
@@ -179,14 +183,53 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
         ));
     };
 
-    // Set unique flag based on attributes
-    let unique_flag = attr.unique;
-
-    // Generate index name if not provided
+    // Generate index name from struct name
     let index_name = generate_index_name(struct_ident, &column_info);
 
-    // Generate CREATE INDEX SQL
-    let create_index_sql = generate_create_index_sql(&index_name, &column_info, &attr);
+    // Build IndexColumnDef array for DDL using the column's NAME const
+    // Uses a const block to validate that the column path implements SQLSchema
+    // and extracts its NAME - this ensures we use the actual database column name
+    let column_defs: Vec<_> = columns
+        .iter()
+        .map(|col| {
+            quote! {
+                #index_column_def::new({
+                    // Const validation that the column implements SQLSchema
+                    const fn column_name<'a, C: #sql_schema<'a, &'static str, #postgres_value<'a>>>(_: &C) -> &'a str {
+                        C::NAME
+                    }
+                    column_name(&#col)
+                })
+            }
+        })
+        .collect();
+
+    // Generate optional modifiers
+    let unique_modifier = if attr.unique {
+        quote! { .unique() }
+    } else {
+        quote! {}
+    };
+
+    let concurrent_modifier = if attr.concurrent {
+        quote! { .concurrently() }
+    } else {
+        quote! {}
+    };
+
+    let method_modifier = if let Some(ref method) = attr.method {
+        quote! { .method(#method) }
+    } else {
+        quote! {}
+    };
+
+    let where_modifier = if let Some(ref where_clause) = attr.where_clause {
+        quote! { .where_clause(#where_clause) }
+    } else {
+        quote! {}
+    };
+
+    let is_unique = attr.unique;
 
     // Generate the index struct and implementations
     let expanded = quote! {
@@ -194,16 +237,28 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
         #struct_vis struct #struct_ident;
 
         impl #struct_ident {
+            /// Const DDL column definitions for the index
+            pub const DDL_COLUMNS: &'static [#index_column_def] = &[#(#column_defs),*];
+
+            /// Const DDL index definition - single source of truth
+            pub const DDL_INDEX: #index_def = #index_def::new(
+                #table_type::DDL_TABLE.schema,
+                #table_type::DDL_TABLE.name,
+                #index_name,
+                Self::DDL_COLUMNS
+            )
+            #unique_modifier
+            #concurrent_modifier
+            #method_modifier
+            #where_modifier;
+
             pub const fn new() -> Self {
                 Self
             }
 
-            pub fn index_name(&self) -> &'static str {
-                #index_name
-            }
-
-            pub fn create_index_sql(&self) -> &'static str {
-                #create_index_sql
+            /// Generate CREATE INDEX SQL using the DDL definition
+            pub fn create_index_sql() -> ::std::string::String {
+                Self::DDL_INDEX.into_index().create_index_sql()
             }
         }
 
@@ -229,7 +284,7 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             }
 
             fn is_unique(&self) -> bool {
-                #unique_flag
+                #is_unique
             }
         }
 
@@ -243,13 +298,13 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             const SQL: &'static str = "";
 
             fn sql(&self) -> #sql<'a, #postgres_value<'a>> {
-                #to_sql::to_sql(self)
+                #sql::raw(Self::create_index_sql())
             }
         }
 
         impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_ident {
             fn to_sql(&self) -> #sql<'a, #postgres_value<'a>> {
-                #sql::raw(#create_index_sql)
+                #sql::raw(Self::create_index_sql())
             }
         }
     };
@@ -312,58 +367,6 @@ fn generate_index_name(struct_ident: &Ident, columns: &[ColumnReference]) -> Str
     }
 }
 
-/// Generate CREATE INDEX SQL statement
-fn generate_create_index_sql(
-    index_name: &str,
-    columns: &[ColumnReference],
-    attr: &IndexAttributes,
-) -> String {
-    let mut sql = String::new();
-
-    // CREATE INDEX clause
-    sql.push_str("CREATE ");
-    if attr.unique {
-        sql.push_str("UNIQUE ");
-    }
-    sql.push_str("INDEX ");
-    if attr.concurrent {
-        sql.push_str("CONCURRENTLY ");
-    }
-    // Quote index name
-    sql.push_str(&format!("\"{}\"", index_name));
-
-    // Table name (assume all columns are from the same table, quoted)
-    if let Some(first_column) = columns.first() {
-        sql.push_str(&format!(
-            " ON \"{}\"",
-            first_column.table_name.to_lowercase()
-        ));
-    }
-
-    // Index method
-    if let Some(method) = &attr.method {
-        sql.push_str(&format!(" USING {}", method.to_uppercase()));
-    }
-
-    // Column list (quoted)
-    let column_names: Vec<String> = columns
-        .iter()
-        .map(|col| format!("\"{}\"", col.column_name))
-        .collect();
-    sql.push_str(&format!(" ({})", column_names.join(", ")));
-
-    // Tablespace
-    if let Some(tablespace) = &attr.tablespace {
-        sql.push_str(&format!(" TABLESPACE {}", tablespace));
-    }
-
-    // WHERE clause for partial indexes
-    if let Some(where_clause) = &attr.where_clause {
-        sql.push_str(&format!(" WHERE {}", where_clause));
-    }
-
-    sql
-}
 
 /// Extract table type from column expression (similar to SQLite implementation)
 fn extract_table_from_column(column: &Expr) -> Result<Type> {
