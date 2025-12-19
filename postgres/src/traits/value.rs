@@ -560,7 +560,7 @@ mod postgres_row_impl {
         }
     }
 
-    impl<'a> ColumnRef for &'a str {
+    impl ColumnRef for &str {
         fn to_index(&self) -> Option<usize> {
             None
         }
