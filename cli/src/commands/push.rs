@@ -11,16 +11,33 @@ use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the push command
-pub fn run(config: &DrizzleConfig, _force: bool) -> Result<(), CliError> {
+pub fn run(
+    config: &DrizzleConfig,
+    db_name: Option<&str>,
+    cli_verbose: bool,
+    cli_strict: bool,
+    _force: bool,
+) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
+
+    let db = config.database(db_name)?;
+
+    // CLI flags override config
+    let verbose = cli_verbose || db.verbose;
+    let strict = cli_strict || db.strict;
+
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("{} {}", "Database:".bright_blue(), name);
+    }
 
     println!("{}", "Pushing schema to database...".bright_cyan());
     println!();
 
     // Parse schema files
-    let schema_files = config.schema_files()?;
+    let schema_files = db.schema_files()?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(config.schema_display()));
+        return Err(CliError::NoSchemaFiles(db.schema_display()));
     }
 
     println!(
@@ -55,7 +72,7 @@ pub fn run(config: &DrizzleConfig, _force: bool) -> Result<(), CliError> {
     let _code_snapshot = parse_result_to_snapshot(&parse_result);
 
     // Display verbose output if enabled
-    if config.verbose {
+    if verbose {
         println!();
         println!("{}", "Verbose mode enabled - SQL statements:".bright_blue());
         // TODO: Generate and display SQL statements
@@ -79,7 +96,7 @@ pub fn run(config: &DrizzleConfig, _force: bool) -> Result<(), CliError> {
         println!("    {} {}", "->".bright_blue(), table_name);
     }
 
-    if config.strict {
+    if strict {
         println!();
         println!(
             "  {} Strict mode is enabled. Would require confirmation before execution.",

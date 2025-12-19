@@ -3,7 +3,7 @@
 use divan::{AllocProfiler, Bencher, black_box};
 use drizzle::core::{
     SQLSchema,
-    expressions::conditions::eq,
+    expressions::eq,
     expressions::{alias, count},
 };
 use drizzle::sqlite::prelude::*;
@@ -636,7 +636,7 @@ mod rusqlite {
                     .bench_values(|conn| {
                         let mut stmt = conn
                             .prepare(
-                                r#"SELECT "users"."name", "posts"."title" FROM "users" 
+                                r#"SELECT "users"."name", "posts"."title" FROM "users"
                                    INNER JOIN "posts" ON "users"."id" = "posts"."author_id""#,
                             )
                             .unwrap();
@@ -755,7 +755,7 @@ mod rusqlite {
                     .bench_values(|conn| {
                         let mut stmt = conn
                             .prepare(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" 
+                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users"
                                    ORDER BY "users"."name" ASC LIMIT 10 OFFSET 20"#,
                             )
                             .unwrap();

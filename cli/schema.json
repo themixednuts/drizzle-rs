@@ -4,38 +4,28 @@
   "title": "Drizzle Configuration",
   "description": "Configuration schema for drizzle-rs CLI tool",
   "type": "object",
-  "required": ["dialect"],
-  "properties": {
+  "definitions": {
+    "envOr": {
+      "description": "A value that can be a direct string or an environment variable reference",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["env"],
+          "properties": {
+            "env": {
+              "type": "string",
+              "description": "Environment variable name"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "dialect": {
       "description": "Database dialect",
       "type": "string",
       "enum": ["sqlite", "postgresql", "postgres", "mysql", "turso", "singlestore"]
-    },
-    "schema": {
-      "description": "Path or array of paths to schema files (glob patterns supported)",
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1
-        }
-      ],
-      "default": "src/schema.rs"
-    },
-    "out": {
-      "description": "Output directory for migrations",
-      "type": "string",
-      "default": "./drizzle"
-    },
-    "breakpoints": {
-      "description": "Whether to use SQL breakpoints in generated migrations",
-      "type": "boolean",
-      "default": true
     },
     "driver": {
       "description": "Optional driver for specific database implementations",
@@ -49,62 +39,26 @@
         "pglite"
       ]
     },
-    "tablesFilter": {
-      "description": "Table filter for push/introspect commands (glob patterns supported)",
+    "schemaPath": {
+      "description": "Path or array of paths to schema files (glob patterns supported)",
       "oneOf": [
-        {
-          "type": "string"
-        },
+        { "type": "string" },
         {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" },
+          "minItems": 1
         }
-      ]
+      ],
+      "default": "src/schema.rs"
     },
-    "schemaFilter": {
-      "description": "Schema filter for PostgreSQL (e.g., 'public', '!drizzle')",
+    "filter": {
       "oneOf": [
-        {
-          "type": "string"
-        },
+        { "type": "string" },
         {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         }
       ]
-    },
-    "extensionsFilters": {
-      "description": "Extensions filter for PostgreSQL (e.g., 'postgis')",
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "verbose": {
-      "description": "Verbose output for push command",
-      "type": "boolean",
-      "default": false
-    },
-    "strict": {
-      "description": "Strict mode for push command (require confirmation)",
-      "type": "boolean",
-      "default": false
-    },
-    "casing": {
-      "description": "Casing mode for generated code",
-      "type": "string",
-      "enum": ["camel_case", "snake_case"]
     },
     "migrations": {
       "description": "Migration table configuration",
@@ -126,397 +80,200 @@
       },
       "additionalProperties": false
     },
-    "introspect": {
-      "description": "Introspection configuration",
-      "type": "object",
-      "properties": {
-        "casing": {
-          "description": "Casing for introspected schema names",
-          "type": "string",
-          "enum": ["camel", "preserve"],
-          "default": "camel"
-        }
-      },
-      "additionalProperties": false
-    },
-    "entities": {
-      "description": "Entity configuration (roles, policies, etc.)",
-      "type": "object",
-      "properties": {
-        "roles": {
-          "description": "Role configuration for introspection",
-          "oneOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "object",
-              "properties": {
-                "provider": {
-                  "description": "Role provider (e.g., 'supabase', 'neon')",
-                  "type": "string"
-                },
-                "exclude": {
-                  "description": "Roles to exclude from introspection",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "include": {
-                  "description": "Roles to include in introspection",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              },
-              "additionalProperties": false
+    "dbCredentials": {
+      "description": "Database credentials",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "URL-based credentials",
+          "required": ["url"],
+          "properties": {
+            "url": { "$ref": "#/definitions/envOr" },
+            "authToken": { "$ref": "#/definitions/envOr" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Host-based credentials",
+          "required": ["host", "database"],
+          "properties": {
+            "host": { "$ref": "#/definitions/envOr" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "user": { "$ref": "#/definitions/envOr" },
+            "password": { "$ref": "#/definitions/envOr" },
+            "database": { "$ref": "#/definitions/envOr" },
+            "ssl": {
+              "oneOf": [
+                { "type": "boolean" },
+                { "type": "string", "enum": ["require", "allow", "prefer", "verify-full", "disable"] }
+              ]
             }
-          ]
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Cloudflare D1 credentials",
+          "required": ["accountId", "databaseId", "token"],
+          "properties": {
+            "accountId": { "$ref": "#/definitions/envOr" },
+            "databaseId": { "$ref": "#/definitions/envOr" },
+            "token": { "$ref": "#/definitions/envOr" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "AWS Data API credentials",
+          "required": ["database", "secretArn", "resourceArn"],
+          "properties": {
+            "database": { "$ref": "#/definitions/envOr" },
+            "secretArn": { "$ref": "#/definitions/envOr" },
+            "resourceArn": { "$ref": "#/definitions/envOr" }
+          },
+          "additionalProperties": false
         }
+      ]
+    },
+    "databaseConfig": {
+      "description": "Configuration for a single database",
+      "type": "object",
+      "required": ["dialect"],
+      "properties": {
+        "dialect": { "$ref": "#/definitions/dialect" },
+        "driver": { "$ref": "#/definitions/driver" },
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": {
+          "description": "Output directory for migrations",
+          "type": "string"
+        },
+        "breakpoints": {
+          "description": "Whether to use SQL breakpoints in generated migrations",
+          "type": "boolean",
+          "default": true
+        },
+        "tablesFilter": {
+          "description": "Table filter for push/introspect commands",
+          "$ref": "#/definitions/filter"
+        },
+        "schemaFilter": {
+          "description": "Schema filter for PostgreSQL",
+          "$ref": "#/definitions/filter"
+        },
+        "verbose": {
+          "description": "Verbose output",
+          "type": "boolean",
+          "default": false
+        },
+        "strict": {
+          "description": "Strict mode (require confirmation)",
+          "type": "boolean",
+          "default": false
+        },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
     }
   },
-  "additionalProperties": false,
-  "allOf": [
+  "oneOf": [
     {
-      "if": {
-        "properties": {
-          "dialect": {
-            "const": "sqlite"
-          }
+      "description": "Single database configuration (legacy/simple mode)",
+      "type": "object",
+      "required": ["dialect"],
+      "properties": {
+        "dialect": { "$ref": "#/definitions/dialect" },
+        "driver": { "$ref": "#/definitions/driver" },
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": {
+          "description": "Output directory for migrations",
+          "type": "string",
+          "default": "./drizzle"
         },
-        "not": {
+        "breakpoints": {
+          "description": "Whether to use SQL breakpoints in generated migrations",
+          "type": "boolean",
+          "default": true
+        },
+        "tablesFilter": {
+          "description": "Table filter for push/introspect commands",
+          "$ref": "#/definitions/filter"
+        },
+        "schemaFilter": {
+          "description": "Schema filter for PostgreSQL",
+          "$ref": "#/definitions/filter"
+        },
+        "extensionsFilters": {
+          "description": "Extensions filter for PostgreSQL",
+          "$ref": "#/definitions/filter"
+        },
+        "verbose": {
+          "description": "Verbose output for push command",
+          "type": "boolean",
+          "default": false
+        },
+        "strict": {
+          "description": "Strict mode for push command",
+          "type": "boolean",
+          "default": false
+        },
+        "casing": {
+          "description": "Casing mode for generated code",
+          "type": "string",
+          "enum": ["camel_case", "snake_case"]
+        },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "introspect": {
+          "description": "Introspection configuration",
+          "type": "object",
           "properties": {
-            "driver": {
-              "enum": ["d1-http", "sqlite-cloud"]
+            "casing": {
+              "type": "string",
+              "enum": ["camel", "preserve"],
+              "default": "camel"
             }
           },
-          "required": ["driver"]
-        }
-      },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "SQLite database credentials",
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-              "url": {
-                "description": "Path to SQLite database file",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "dialect": {
-            "const": "turso"
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "Turso database credentials",
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-              "url": {
-                "description": "Turso database URL (libsql://... or http(s)://...)",
-                "type": "string",
-                "pattern": "^(libsql|https?)://"
-              },
-              "authToken": {
-                "description": "Turso authentication token",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "dialect": {
-            "enum": ["postgresql", "postgres"]
-          }
+          "additionalProperties": false
         },
-        "not": {
+        "entities": {
+          "description": "Entity configuration (roles, policies, etc.)",
+          "type": "object",
           "properties": {
-            "driver": {
-              "enum": ["aws-data-api", "pglite"]
+            "roles": {
+              "oneOf": [
+                { "type": "boolean" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "type": "string" },
+                    "exclude": { "type": "array", "items": { "type": "string" } },
+                    "include": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "additionalProperties": false
+                }
+              ]
             }
           },
-          "required": ["driver"]
-        }
-      },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "PostgreSQL database credentials",
-            "oneOf": [
-              {
-                "type": "object",
-                "required": ["url"],
-                "properties": {
-                  "url": {
-                    "description": "PostgreSQL connection URL",
-                    "type": "string",
-                    "pattern": "^postgres(ql)?://"
-                  }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["host", "database"],
-                "properties": {
-                  "host": {
-                    "description": "Database host",
-                    "type": "string"
-                  },
-                  "port": {
-                    "description": "Database port",
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 65535,
-                    "default": 5432
-                  },
-                  "user": {
-                    "description": "Database user",
-                    "type": "string"
-                  },
-                  "password": {
-                    "description": "Database password",
-                    "type": "string"
-                  },
-                  "database": {
-                    "description": "Database name",
-                    "type": "string"
-                  },
-                  "ssl": {
-                    "description": "SSL configuration",
-                    "oneOf": [
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["require", "allow", "prefer", "verify-full"]
-                      }
-                    ]
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "dialect": {
-            "enum": ["mysql", "singlestore"]
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "MySQL/SingleStore database credentials",
-            "oneOf": [
-              {
-                "type": "object",
-                "required": ["url"],
-                "properties": {
-                  "url": {
-                    "description": "MySQL connection URL",
-                    "type": "string",
-                    "pattern": "^mysql://"
-                  }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["host", "database"],
-                "properties": {
-                  "host": {
-                    "description": "Database host",
-                    "type": "string"
-                  },
-                  "port": {
-                    "description": "Database port",
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 65535,
-                    "default": 3306
-                  },
-                  "user": {
-                    "description": "Database user",
-                    "type": "string"
-                  },
-                  "password": {
-                    "description": "Database password",
-                    "type": "string"
-                  },
-                  "database": {
-                    "description": "Database name",
-                    "type": "string"
-                  },
-                  "ssl": {
-                    "description": "SSL configuration",
-                    "oneOf": [
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ]
-                  }
-                },
-                "additionalProperties": false
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "driver": {
-            "const": "d1-http"
-          }
+          "additionalProperties": false
         },
-        "required": ["driver"]
+        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "Cloudflare D1 HTTP credentials",
-            "type": "object",
-            "required": ["accountId", "databaseId", "token"],
-            "properties": {
-              "accountId": {
-                "description": "Cloudflare D1 account ID",
-                "type": "string"
-              },
-              "databaseId": {
-                "description": "Cloudflare D1 database ID",
-                "type": "string"
-              },
-              "token": {
-                "description": "Cloudflare API token",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      }
+      "additionalProperties": false
     },
     {
-      "if": {
-        "properties": {
-          "driver": {
-            "const": "aws-data-api"
-          }
-        },
-        "required": ["driver"]
-      },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "AWS Data API credentials",
-            "type": "object",
-            "required": ["database", "secretArn", "resourceArn"],
-            "properties": {
-              "database": {
-                "description": "Database name",
-                "type": "string"
-              },
-              "secretArn": {
-                "description": "AWS Secrets Manager secret ARN",
-                "type": "string",
-                "pattern": "^arn:aws:secretsmanager:"
-              },
-              "resourceArn": {
-                "description": "AWS RDS resource ARN",
-                "type": "string",
-                "pattern": "^arn:aws:rds:"
-              }
-            },
-            "additionalProperties": false
-          }
+      "description": "Multi-database configuration",
+      "type": "object",
+      "required": ["databases"],
+      "properties": {
+        "databases": {
+          "description": "Named database configurations",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/databaseConfig" },
+          "minProperties": 1
         }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "driver": {
-            "const": "pglite"
-          }
-        },
-        "required": ["driver"]
       },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "PGlite database credentials",
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-              "url": {
-                "description": "Path to PGlite database file",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "driver": {
-            "const": "sqlite-cloud"
-          }
-        },
-        "required": ["driver"]
-      },
-      "then": {
-        "properties": {
-          "dbCredentials": {
-            "description": "SQLite Cloud credentials",
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-              "url": {
-                "description": "SQLite Cloud connection URL (sqlitecloud://...)",
-                "type": "string",
-                "pattern": "^sqlitecloud://"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      }
+      "additionalProperties": false
     }
   ]
 }

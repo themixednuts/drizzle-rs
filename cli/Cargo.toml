@@ -34,6 +34,9 @@ glob = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 
+# Environment variables
+dotenvy = "0.15"
+
 # Driver dependencies (optional, per-driver for push/migrate/introspect)
 rusqlite = { workspace = true, optional = true, features = ["bundled"] }
 postgres = { workspace = true, optional = true }
@@ -48,7 +51,7 @@ assert_cmd = { workspace = true }
 predicates = { workspace = true }
 
 [features]
-default = []
+default = ["rusqlite", "postgres-sync", "tokio-postgres", "libsql", "turso"]
 
 # SQLite drivers
 rusqlite = ["dep:rusqlite"]
@@ -58,3 +61,7 @@ turso = ["dep:turso", "dep:libsql", "dep:tokio"]
 # PostgreSQL drivers
 postgres-sync = ["dep:postgres"]
 tokio-postgres = ["dep:tokio-postgres", "dep:tokio"]
+
+# Convenience bundles
+sqlite-all = ["rusqlite", "libsql", "turso"]
+postgres-all = ["postgres-sync", "tokio-postgres"]

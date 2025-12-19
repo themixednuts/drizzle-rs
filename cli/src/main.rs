@@ -26,6 +26,10 @@ struct Cli {
     #[arg(short, long, global = true, value_name = "PATH")]
     config: Option<PathBuf>,
 
+    /// Database name (for multi-database configs)
+    #[arg(long, global = true, value_name = "NAME")]
+    db: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -105,6 +109,9 @@ enum Command {
 }
 
 fn main() -> ExitCode {
+    // Load .env file if present (silently ignore if not found)
+    let _ = dotenvy::dotenv();
+
     let cli = Cli::parse();
 
     let result = run(cli);
@@ -119,46 +126,41 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), CliError> {
+    let db_name = cli.db.as_deref();
+
     match cli.command {
         Command::Init { dialect, driver } => run_init(&dialect, driver.as_deref()),
         Command::Generate { name, custom } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::generate::run(&config, name, custom)
+            drizzle_cli::commands::generate::run(&config, db_name, name, custom)
         }
         Command::Migrate | Command::Up => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::migrate::run(&config)
+            drizzle_cli::commands::migrate::run(&config, db_name)
         }
         Command::Push {
             verbose,
             strict,
             force,
         } => {
-            let mut config = load_config(cli.config.as_deref())?;
-            // Override config with CLI flags
-            if verbose {
-                config.verbose = true;
-            }
-            if strict {
-                config.strict = true;
-            }
-            drizzle_cli::commands::push::run(&config, force)
+            let config = load_config(cli.config.as_deref())?;
+            drizzle_cli::commands::push::run(&config, db_name, verbose, strict, force)
         }
         Command::Introspect { init_metadata } | Command::Pull { init_metadata } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::introspect::run(&config, init_metadata)
+            drizzle_cli::commands::introspect::run(&config, db_name, init_metadata)
         }
         Command::Status => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::status::run(&config)
+            drizzle_cli::commands::status::run(&config, db_name)
         }
         Command::Check => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::check::run(&config)
+            drizzle_cli::commands::check::run(&config, db_name)
         }
         Command::Export { sql } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::export::run(&config, sql)
+            drizzle_cli::commands::export::run(&config, db_name, sql)
         }
     }
 }

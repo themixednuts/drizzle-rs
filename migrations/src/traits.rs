@@ -82,7 +82,7 @@ pub type MysqlLatest = V5;
 /// impl Upgradable<V5, V6> for SqliteSnapshot<V5> {
 ///     type Output = SqliteSnapshot<V6>;
 ///     type Error = UpgradeError;
-///     
+///
 ///     fn upgrade(self) -> Result<Self::Output, Self::Error> {
 ///         // Transform v5 -> v6
 ///     }
@@ -563,6 +563,8 @@ pub enum DiffType {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -588,9 +590,9 @@ mod tests {
 
     #[test]
     fn test_entity_kind_parse() {
-        assert_eq!(EntityKind::from_str("tables"), Some(EntityKind::Table));
-        assert_eq!(EntityKind::from_str("columns"), Some(EntityKind::Column));
-        assert_eq!(EntityKind::from_str("invalid"), None);
+        assert_eq!(EntityKind::from_str("tables"), Ok(EntityKind::Table));
+        assert_eq!(EntityKind::from_str("columns"), Ok(EntityKind::Column));
+        assert_eq!(EntityKind::from_str("invalid"), Err(()));
     }
 
     #[test]

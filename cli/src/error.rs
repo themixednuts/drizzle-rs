@@ -23,6 +23,21 @@ pub enum CliError {
     #[error("Dialect mismatch between previous and current snapshots")]
     DialectMismatch,
 
+    /// Database connection error
+    #[error("Database connection failed: {0}")]
+    ConnectionError(String),
+
+    /// Migration execution error
+    #[error("Migration failed: {0}")]
+    MigrationError(String),
+
+    /// Missing database driver
+    #[error("No driver available for {dialect}. Build with '{feature}' feature enabled.")]
+    MissingDriver {
+        dialect: &'static str,
+        feature: &'static str,
+    },
+
     /// Other errors
     #[error("{0}")]
     Other(String),

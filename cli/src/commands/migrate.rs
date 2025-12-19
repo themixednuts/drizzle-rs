@@ -1,8 +1,6 @@
 //! Migrate command implementation
 //!
 //! Runs pending migrations against the database.
-//! Note: This command requires database connectivity which depends on
-//! driver-specific features being enabled.
 
 use colored::Colorize;
 
@@ -10,14 +8,18 @@ use crate::config::DrizzleConfig;
 use crate::error::CliError;
 
 /// Run the migrate command
-pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
-    use drizzle_migrations::journal::Journal;
+pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError> {
+    let db = config.database(db_name)?;
 
-    println!("{}", "🚀 Running migrations...".bright_cyan());
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("{} {}", "Database:".bright_blue(), name);
+    }
+
+    println!("{}", "Running migrations...".bright_cyan());
     println!();
 
-    let out_dir = config.migrations_dir();
-    let journal_path = config.journal_path();
+    let out_dir = db.migrations_dir();
 
     // Check if migrations directory exists
     if !out_dir.exists() {
@@ -26,69 +28,45 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
         return Ok(());
     }
 
-    // Load journal
-    let journal = if journal_path.exists() {
-        Journal::load(&journal_path).map_err(|e| CliError::IoError(e.to_string()))?
-    } else {
-        println!("  {}", "No migrations journal found.".yellow());
-        println!("  Run 'drizzle generate' to create your first migration.");
-        return Ok(());
+    // Get credentials
+    let credentials = db.credentials()?;
+
+    let credentials = match credentials {
+        Some(c) => c,
+        None => {
+            println!("{}", "No database credentials configured.".yellow());
+            println!();
+            println!("Add credentials to your drizzle.config.toml:");
+            println!();
+            println!("  {}", "[dbCredentials]".bright_black());
+            println!("  {}", "url = \"./dev.db\"".bright_black());
+            println!();
+            println!("Or use an environment variable:");
+            println!();
+            println!("  {}", "[dbCredentials]".bright_black());
+            println!("  {}", "url = { env = \"DATABASE_URL\" }".bright_black());
+            return Ok(());
+        }
     };
 
-    if journal.entries.is_empty() {
-        println!("  {}", "No migrations to run.".yellow());
-        return Ok(());
-    }
+    // Run migrations
+    let result = crate::db::run_migrations(&credentials, db.dialect, out_dir)?;
 
-    // Read all pending migration SQL files
-    let mut migrations_to_run = Vec::new();
-    for entry in &journal.entries {
-        let migration_path = out_dir.join(&entry.tag).join("migration.sql");
-        if migration_path.exists() {
-            let sql = std::fs::read_to_string(&migration_path).map_err(|e| {
-                CliError::IoError(format!(
-                    "Failed to read {}: {}",
-                    migration_path.display(),
-                    e
-                ))
-            })?;
-            migrations_to_run.push((entry.tag.clone(), sql));
-        } else {
-            return Err(CliError::IoError(format!(
-                "Migration file not found: {}",
-                migration_path.display()
-            )));
+    if result.applied_count == 0 {
+        println!("  {}", "No pending migrations.".green());
+    } else {
+        println!(
+            "  {} {} migration(s):",
+            "Applied".green(),
+            result.applied_count
+        );
+        for hash in &result.applied_migrations {
+            println!("    {} {}", "->".bright_blue(), hash);
         }
     }
 
-    println!(
-        "  {} {} migration(s) found",
-        "Found".bright_blue(),
-        migrations_to_run.len()
-    );
     println!();
-
-    // Note: Actual database execution requires driver-specific implementations
-    // This CLI shows what would be executed but actual migration requires
-    // using the programmatic API with a database connection
-    println!(
-        "{}",
-        "⚠️  Database migration requires a connection.".yellow()
-    );
-    println!();
-    println!("  Use the programmatic API to run migrations:");
-    println!();
-    println!(
-        "  {}",
-        "let (db, schema) = Drizzle::new(connection, Schema::new());".bright_black()
-    );
-    println!("  {}", "db.migrate().await?;".bright_black());
-    println!();
-
-    println!("  Migrations that would be applied:");
-    for (tag, _sql) in &migrations_to_run {
-        println!("    {} {}", "→".bright_blue(), tag);
-    }
+    println!("{}", "Migrations complete!".bright_green());
 
     Ok(())
 }

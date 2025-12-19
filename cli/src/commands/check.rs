@@ -5,25 +5,32 @@ use colored::Colorize;
 use crate::config::{Config, Credentials, PostgresCreds, MysqlCreds};
 use crate::error::CliError;
 
-pub fn run(config: &Config) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
+    let db = config.database(db_name)?;
+
     println!("{}", "Checking configuration...".bright_cyan());
     println!();
+
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("  {}: {}", "Database".bright_blue(), name);
+    }
 
     let mut warnings = Vec::new();
     let mut has_errors = false;
 
     // Basic info
-    println!("  {}: {}", "Dialect".bright_blue(), config.dialect);
-    if let Some(driver) = config.driver {
+    println!("  {}: {}", "Dialect".bright_blue(), db.dialect);
+    if let Some(driver) = db.driver {
         println!("  {}: {}", "Driver".bright_blue(), driver);
     }
-    println!("  {}: {}", "Schema".bright_blue(), config.schema_display());
-    println!("  {}: {}", "Output".bright_blue(), config.out.display());
+    println!("  {}: {}", "Schema".bright_blue(), db.schema_display());
+    println!("  {}: {}", "Output".bright_blue(), db.out.display());
 
     // Schema files
     println!();
     print!("  {} Schema files... ", "Checking".bright_blue());
-    match config.schema_files() {
+    match db.schema_files() {
         Ok(files) => {
             println!("{}", "OK".green());
             for f in &files {
@@ -40,10 +47,10 @@ pub fn run(config: &Config) -> Result<(), CliError> {
     // Migrations dir
     println!();
     print!("  {} Migrations... ", "Checking".bright_blue());
-    let dir = config.migrations_dir();
+    let dir = db.migrations_dir();
     if dir.exists() {
         println!("{}", "OK".green());
-        if config.journal_path().exists() {
+        if db.journal_path().exists() {
             println!("    Journal: {}", "found".green());
         } else {
             println!("    Journal: {} (run generate first)", "missing".yellow());
@@ -57,14 +64,19 @@ pub fn run(config: &Config) -> Result<(), CliError> {
     // Credentials
     println!();
     print!("  {} Credentials... ", "Checking".bright_blue());
-    match config.credentials() {
-        Some(creds) => {
+    match db.credentials() {
+        Ok(Some(creds)) => {
             println!("{}", "OK".green());
             print_credentials(&creds);
         }
-        None => {
+        Ok(None) => {
             println!("{}", "NOT SET".yellow());
             warnings.push("No credentials (needed for push/pull/migrate)");
+        }
+        Err(e) => {
+            println!("{}", "ERROR".red());
+            println!("    {}", e);
+            has_errors = true;
         }
     }
 

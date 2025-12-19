@@ -11,28 +11,40 @@ use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the generate command
-pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result<(), CliError> {
+pub fn run(
+    config: &DrizzleConfig,
+    db_name: Option<&str>,
+    name: Option<String>,
+    custom: bool,
+) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::parser::SchemaParser;
     use drizzle_migrations::words::generate_migration_tag;
 
-    println!("{}", "📦 Generating migration...".bright_cyan());
+    let db = config.database(db_name)?;
+
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("{} {}", "Database:".bright_blue(), name);
+    }
+
+    println!("{}", "Generating migration...".bright_cyan());
 
     // Create output directories if they don't exist
-    let out_dir = config.migrations_dir();
-    let meta_dir = config.meta_dir();
+    let out_dir = db.migrations_dir();
+    let meta_dir = db.meta_dir();
     std::fs::create_dir_all(out_dir).map_err(|e| CliError::IoError(e.to_string()))?;
     std::fs::create_dir_all(&meta_dir).map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Handle custom migration (empty migration file for manual SQL)
     if custom {
-        return generate_custom_migration(config, name);
+        return generate_custom_migration(db, name);
     }
 
     // Parse schema files
-    let schema_files = config.schema_files()?;
+    let schema_files = db.schema_files()?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(config.schema_display()));
+        return Err(CliError::NoSchemaFiles(db.schema_display()));
     }
 
     println!(
@@ -67,12 +79,12 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
     let current_snapshot = parse_result_to_snapshot(&parse_result);
 
     // Load previous snapshot if exists
-    let journal_path = config.journal_path();
-    let dialect = config.base_dialect();
+    let journal_path = db.journal_path();
+    let dialect = db.dialect.to_base();
     let prev_snapshot = load_previous_snapshot(out_dir, &journal_path, dialect)?;
 
     // Generate diff
-    let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, config.breakpoints)?;
+    let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, db.breakpoints)?;
 
     if sql_statements.is_empty() {
         println!("{}", "No schema changes detected 😴".yellow());
@@ -111,14 +123,14 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
     // Update journal
     let mut journal = Journal::load_or_create(&journal_path, dialect)
         .map_err(|e| CliError::IoError(e.to_string()))?;
-    journal.add_entry(migration_tag.clone(), config.breakpoints);
+    journal.add_entry(migration_tag.clone(), db.breakpoints);
     journal
         .save(&journal_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     println!(
         "{}",
-        format!("✅ Migration generated: {}", migration_tag).bright_green()
+        format!("Migration generated: {}", migration_tag).bright_green()
     );
     println!("   {}", migration_dir.display());
 
@@ -126,12 +138,15 @@ pub fn run(config: &DrizzleConfig, name: Option<String>, custom: bool) -> Result
 }
 
 /// Generate an empty custom migration for manual SQL
-fn generate_custom_migration(config: &DrizzleConfig, name: Option<String>) -> Result<(), CliError> {
+fn generate_custom_migration(
+    db: &crate::config::DatabaseConfig,
+    name: Option<String>,
+) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
 
-    let out_dir = config.migrations_dir();
-    let journal_path = config.journal_path();
-    let dialect = config.base_dialect();
+    let out_dir = db.migrations_dir();
+    let journal_path = db.journal_path();
+    let dialect = db.dialect.to_base();
 
     let next_idx = load_next_migration_index(&journal_path);
     let migration_name = name.unwrap_or_else(|| "custom".to_string());
@@ -150,7 +165,7 @@ fn generate_custom_migration(config: &DrizzleConfig, name: Option<String>) -> Re
     // Update journal
     let mut journal = Journal::load_or_create(&journal_path, dialect)
         .map_err(|e| CliError::IoError(e.to_string()))?;
-    journal.add_entry(migration_tag.clone(), config.breakpoints);
+    journal.add_entry(migration_tag.clone(), db.breakpoints);
     journal
         .save(&journal_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;

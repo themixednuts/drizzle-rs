@@ -11,16 +11,27 @@ use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the export command
-pub fn run(config: &DrizzleConfig, output_path: Option<PathBuf>) -> Result<(), CliError> {
+pub fn run(
+    config: &DrizzleConfig,
+    db_name: Option<&str>,
+    output_path: Option<PathBuf>,
+) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
+
+    let db = config.database(db_name)?;
+
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("{} {}", "Database:".bright_blue(), name);
+    }
 
     println!("{}", "Exporting schema as SQL...".bright_cyan());
     println!();
 
     // Parse schema files
-    let schema_files = config.schema_files()?;
+    let schema_files = db.schema_files()?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(config.schema_display()));
+        return Err(CliError::NoSchemaFiles(db.schema_display()));
     }
 
     println!(
@@ -55,7 +66,7 @@ pub fn run(config: &DrizzleConfig, output_path: Option<PathBuf>) -> Result<(), C
     let snapshot = parse_result_to_snapshot(&parse_result);
 
     // Generate SQL from snapshot (create statements for all entities)
-    let sql_statements = generate_create_sql(&snapshot, config.breakpoints)?;
+    let sql_statements = generate_create_sql(&snapshot, db.breakpoints)?;
 
     if sql_statements.is_empty() {
         println!("{}", "No SQL statements generated.".yellow());

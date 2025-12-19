@@ -10,20 +10,27 @@ use crate::config::DrizzleConfig;
 use crate::error::CliError;
 
 /// Run the introspect command
-pub fn run(config: &DrizzleConfig, init_metadata: bool) -> Result<(), CliError> {
+pub fn run(config: &DrizzleConfig, db_name: Option<&str>, init_metadata: bool) -> Result<(), CliError> {
+    let db = config.database(db_name)?;
+
     println!("{}", "Introspecting database...".bright_cyan());
     println!();
 
-    let dialect = config.base_dialect();
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("  {}: {}", "Database".bright_blue(), name);
+    }
 
-    println!("  {}: {}", "Dialect".bright_blue(), config.dialect.as_str());
-    if let Some(ref driver) = config.driver {
+    let dialect = db.dialect.to_base();
+
+    println!("  {}: {}", "Dialect".bright_blue(), db.dialect.as_str());
+    if let Some(ref driver) = db.driver {
         println!("  {}: {:?}", "Driver".bright_blue(), driver);
     }
     println!(
         "  {}: {}",
         "Output".bright_blue(),
-        config.out.display()
+        db.out.display()
     );
 
     if init_metadata {

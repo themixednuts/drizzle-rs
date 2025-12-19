@@ -8,14 +8,22 @@ use crate::config::DrizzleConfig;
 use crate::error::CliError;
 
 /// Run the status command
-pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
+pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
 
-    println!("{}", "📋 Migration Status".bright_cyan());
+    let db = config.database(db_name)?;
+
+    println!("{}", "Migration Status".bright_cyan());
     println!();
 
-    let out_dir = config.migrations_dir();
-    let journal_path = config.journal_path();
+    if !config.is_single_database() {
+        let name = db_name.unwrap_or("(default)");
+        println!("  {}: {}", "Database".bright_blue(), name);
+        println!();
+    }
+
+    let out_dir = db.migrations_dir();
+    let journal_path = db.journal_path();
 
     // Check if migrations directory exists
     if !out_dir.exists() {
@@ -77,7 +85,7 @@ pub fn run(config: &DrizzleConfig) -> Result<(), CliError> {
     println!(
         "  {}: {}",
         "Schema files".bright_black(),
-        config.schema_display()
+        db.schema_display()
     );
 
     Ok(())
