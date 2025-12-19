@@ -112,7 +112,11 @@ pub fn run(
 
     // Write {tag}/migration.sql
     let migration_sql_path = migration_dir.join("migration.sql");
-    let sql_content = sql_statements.join("\n\n");
+    let sql_content = if db.breakpoints {
+        sql_statements.join("\n--> statement-breakpoint\n")
+    } else {
+        sql_statements.join("\n\n")
+    };
     std::fs::write(&migration_sql_path, &sql_content)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
