@@ -12,8 +12,11 @@ use heck::ToSnakeCase;
 use std::borrow::Cow;
 
 /// Convert a `ParseResult` into a `Snapshot` for migration diffing
-pub fn parse_result_to_snapshot(result: &ParseResult) -> Snapshot {
-    match result.dialect {
+///
+/// Uses the provided `dialect` from config rather than the parser-detected dialect,
+/// allowing users to have multi-dialect schema files and select which to use via config.
+pub fn parse_result_to_snapshot(result: &ParseResult, dialect: Dialect) -> Snapshot {
+    match dialect {
         Dialect::SQLite => Snapshot::Sqlite(build_sqlite_snapshot(result)),
         Dialect::PostgreSQL => Snapshot::Postgres(build_postgres_snapshot(result)),
         Dialect::MySQL => {
@@ -29,8 +32,12 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
 
     let mut snapshot = SQLiteSnapshot::new();
 
-    // Process tables
-    for table in result.tables.values() {
+    // Process tables (only those matching SQLite dialect)
+    for table in result
+        .tables
+        .values()
+        .filter(|t| t.dialect == Dialect::SQLite)
+    {
         let table_name = table.name.to_snake_case();
 
         // Add table entity
@@ -74,8 +81,12 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
         }
     }
 
-    // Process indexes
-    for index in result.indexes.values() {
+    // Process indexes (only those matching SQLite dialect)
+    for index in result
+        .indexes
+        .values()
+        .filter(|i| i.dialect == Dialect::SQLite)
+    {
         let idx = build_sqlite_index(index);
         snapshot.add_entity(SqliteEntity::Index(idx));
     }
@@ -94,8 +105,12 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
     // Add public schema
     snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
 
-    // Process tables
-    for table in result.tables.values() {
+    // Process tables (only those matching PostgreSQL dialect)
+    for table in result
+        .tables
+        .values()
+        .filter(|t| t.dialect == Dialect::PostgreSQL)
+    {
         let table_name = table.name.to_snake_case();
 
         // Add table entity
@@ -149,8 +164,12 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
         }
     }
 
-    // Process indexes
-    for index in result.indexes.values() {
+    // Process indexes (only those matching PostgreSQL dialect)
+    for index in result
+        .indexes
+        .values()
+        .filter(|i| i.dialect == Dialect::PostgreSQL)
+    {
         let idx = build_postgres_index(index);
         snapshot.add_entity(PostgresEntity::Index(idx));
     }

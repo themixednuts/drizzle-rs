@@ -62,8 +62,9 @@ pub fn run(
         parse_result.indexes.len()
     );
 
-    // Build snapshot from parsed schema
-    let snapshot = parse_result_to_snapshot(&parse_result);
+    // Build snapshot from parsed schema (use config dialect)
+    let dialect = db.dialect.to_base();
+    let snapshot = parse_result_to_snapshot(&parse_result, dialect);
 
     // Generate SQL from snapshot (create statements for all entities)
     let sql_statements = generate_create_sql(&snapshot, db.breakpoints)?;

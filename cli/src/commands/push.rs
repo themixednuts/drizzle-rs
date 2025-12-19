@@ -68,8 +68,9 @@ pub fn run(
         parse_result.indexes.len()
     );
 
-    // Build snapshot from parsed schema
-    let _code_snapshot = parse_result_to_snapshot(&parse_result);
+    // Build snapshot from parsed schema (use config dialect)
+    let dialect = db.dialect.to_base();
+    let _code_snapshot = parse_result_to_snapshot(&parse_result, dialect);
 
     // Display verbose output if enabled
     if verbose {

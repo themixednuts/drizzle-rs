@@ -352,7 +352,9 @@ impl SchemaParser {
                 }
                 if let Some(mut table) = Self::parse_table(&lines, &mut i) {
                     table.dialect = Dialect::SQLite;
-                    result.tables.insert(table.name.clone(), table);
+                    // Use dialect:name as key to allow same table name across dialects
+                    let key = format!("sqlite:{}", table.name);
+                    result.tables.insert(key, table);
                 }
                 continue;
             }
@@ -364,7 +366,9 @@ impl SchemaParser {
                 }
                 if let Some(mut table) = Self::parse_table(&lines, &mut i) {
                     table.dialect = Dialect::PostgreSQL;
-                    result.tables.insert(table.name.clone(), table);
+                    // Use dialect:name as key to allow same table name across dialects
+                    let key = format!("postgres:{}", table.name);
+                    result.tables.insert(key, table);
                 }
                 continue;
             }
@@ -373,7 +377,9 @@ impl SchemaParser {
             if line.starts_with("#[SQLiteIndex") {
                 if let Some(mut index) = Self::parse_index(&lines, &mut i) {
                     index.dialect = Dialect::SQLite;
-                    result.indexes.insert(index.name.clone(), index);
+                    // Use dialect:name as key to allow same index name across dialects
+                    let key = format!("sqlite:{}", index.name);
+                    result.indexes.insert(key, index);
                 }
                 continue;
             }
@@ -382,7 +388,9 @@ impl SchemaParser {
             if line.starts_with("#[PostgresIndex") {
                 if let Some(mut index) = Self::parse_index(&lines, &mut i) {
                     index.dialect = Dialect::PostgreSQL;
-                    result.indexes.insert(index.name.clone(), index);
+                    // Use dialect:name as key to allow same index name across dialects
+                    let key = format!("postgres:{}", index.name);
+                    result.indexes.insert(key, index);
                 }
                 continue;
             }

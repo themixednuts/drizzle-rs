@@ -75,12 +75,14 @@ pub fn run(
         parse_result.indexes.len()
     );
 
-    // Build current snapshot from parsed schema
-    let current_snapshot = parse_result_to_snapshot(&parse_result);
+    // Get dialect from config
+    let dialect = db.dialect.to_base();
+
+    // Build current snapshot from parsed schema (use config dialect, not parser-detected)
+    let current_snapshot = parse_result_to_snapshot(&parse_result, dialect);
 
     // Load previous snapshot if exists
     let journal_path = db.journal_path();
-    let dialect = db.dialect.to_base();
     let prev_snapshot = load_previous_snapshot(out_dir, &journal_path, dialect)?;
 
     // Generate diff
