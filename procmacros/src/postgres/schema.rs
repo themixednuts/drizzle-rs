@@ -138,9 +138,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 let mut snapshot = MigSnapshot::new();
 
                 // Add public schema entity
-                snapshot.add_entity(MigEntity::Schema(MigSchema {
-                    name: "public".to_string(),
-                }));
+                snapshot.add_entity(MigEntity::Schema(MigSchema::new("public")));
 
                 // Iterate through all schema fields and add DDL entities
                 #(
@@ -148,64 +146,54 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                         #postgres_schema_type::Table(table_info) => {
                             // Add table entity
                             let table_name = #sql_table_info::name(table_info);
-                            snapshot.add_entity(MigEntity::Table(MigTable {
-                                schema: "public".to_string(),
-                                name: table_name.to_string(),
-                                is_rls_enabled: ::std::option::Option::None,
-                            }));
+                            snapshot.add_entity(MigEntity::Table(MigTable::new("public", table_name)));
 
                             // Add column entities using PostgresTableInfo::postgres_columns
                             for col in #postgres_table_info::postgres_columns(table_info) {
                                 // col is &dyn PostgresColumnInfo which extends SQLColumnInfo
                                 // Use method syntax since trait object vtable includes supertrait methods
-                                snapshot.add_entity(MigEntity::Column(MigColumn {
-                                    schema: "public".to_string(),
-                                    table: table_name.to_string(),
-                                    name: col.name().to_string(),
-                                    sql_type: col.postgres_type().to_string(),
-                                    type_schema: ::std::option::Option::None,
-                                    not_null: col.is_not_null(),
-                                    default: ::std::option::Option::None, // Default value access would need additional trait method
-                                    generated: ::std::option::Option::None,
-                                    identity: if col.is_generated_identity() || col.is_serial() || col.is_bigserial() {
-                                        ::std::option::Option::Some(MigIdentity {
-                                            name: ::std::format!("{}_{}_seq", table_name, col.name()),
-                                            schema: ::std::option::Option::Some("public".to_string()),
-                                            type_: if col.is_generated_identity() { "always".to_string() } else { "byDefault".to_string() },
-                                            increment: ::std::option::Option::None,
-                                            min_value: ::std::option::Option::None,
-                                            max_value: ::std::option::Option::None,
-                                            start_with: ::std::option::Option::None,
-                                            cache: ::std::option::Option::None,
-                                            cycle: ::std::option::Option::None,
-                                        })
+                                let mut column = MigColumn::new(
+                                    "public",
+                                    table_name,
+                                    col.name(),
+                                    col.postgres_type(),
+                                );
+
+                                if col.is_not_null() {
+                                    column = column.not_null();
+                                }
+
+                                // Handle identity/serial columns
+                                if col.is_generated_identity() || col.is_serial() || col.is_bigserial() {
+                                    let seq_name = ::std::format!("{}_{}_seq", table_name, col.name());
+                                    let identity = if col.is_generated_identity() {
+                                        MigIdentity::always(seq_name).schema("public")
                                     } else {
-                                        ::std::option::Option::None
-                                    },
-                                    dimensions: ::std::option::Option::None,
-                                }));
+                                        MigIdentity::by_default(seq_name).schema("public")
+                                    };
+                                    column = column.identity(identity);
+                                }
+
+                                snapshot.add_entity(MigEntity::Column(column));
 
                                 // Add primary key entity if this is a primary key column
                                 if col.is_primary_key() {
-                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey {
-                                        schema: "public".to_string(),
-                                        table: table_name.to_string(),
-                                        name: ::std::format!("{}_pkey", table_name),
-                                        name_explicit: false,
-                                        columns: ::std::vec![col.name().to_string()],
-                                    }));
+                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
+                                        "public".to_string(),
+                                        table_name.to_string(),
+                                        ::std::format!("{}_pkey", table_name),
+                                        ::std::vec![col.name().to_string()],
+                                    )));
                                 }
 
                                 // Add unique constraint entity if this column is unique
                                 if col.is_unique() {
-                                    snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint {
-                                        schema: "public".to_string(),
-                                        table: table_name.to_string(),
-                                        name: ::std::format!("{}_{}_key", table_name, col.name()),
-                                        name_explicit: false,
-                                        columns: ::std::vec![col.name().to_string()],
-                                        nulls_not_distinct: false,
-                                    }));
+                                    snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
+                                        "public".to_string(),
+                                        table_name.to_string(),
+                                        ::std::format!("{}_{}_key", table_name, col.name()),
+                                        ::std::vec![col.name().to_string()],
+                                    )));
                                 }
                             }
                         }
@@ -213,25 +201,24 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                             // Add index entity
                             // Note: SQLIndexInfo doesn't expose column info directly
                             let table = #sql_index_info::table(index_info);
-                            snapshot.add_entity(MigEntity::Index(MigIndex {
-                                schema: "public".to_string(),
-                                table: #sql_table_info::name(table).to_string(),
-                                name: #sql_index_info::name(index_info).to_string(),
-                                columns: ::std::vec::Vec::new(), // Would need columns from index definition
-                                is_unique: #sql_index_info::is_unique(index_info),
-                                r#where: ::std::option::Option::None,
-                                method: ::std::option::Option::None,
-                                concurrently: false,
-                                r#with: ::std::option::Option::None,
-                            }));
+                            let mut index = MigIndex::new(
+                                "public",
+                                #sql_table_info::name(table),
+                                #sql_index_info::name(index_info),
+                                ::std::vec::Vec::new(), // Would need columns from index definition
+                            );
+                            if #sql_index_info::is_unique(index_info) {
+                                index = index.unique();
+                            }
+                            snapshot.add_entity(MigEntity::Index(index));
                         }
                         #postgres_schema_type::Enum(enum_info) => {
                             // Add enum entity
-                            snapshot.add_entity(MigEntity::Enum(MigEnum {
-                                schema: "public".to_string(),
-                                name: enum_info.name().to_string(),
-                                values: enum_info.variants().iter().map(|v| v.to_string()).collect(),
-                            }));
+                            snapshot.add_entity(MigEntity::Enum(MigEnum::from_strings(
+                                "public".to_string(),
+                                enum_info.name().to_string(),
+                                enum_info.variants().iter().map(|v| v.to_string()).collect(),
+                            )));
                         }
                         #postgres_schema_type::View => {
                             // Views not implemented yet

@@ -11,28 +11,28 @@ use quote::quote;
 use std::borrow::Cow;
 use syn::Ident;
 
-/// Generate the CREATE TABLE SQL string at proc-macro time.
+/// Generate the CREATE TABLE SQL string from raw parameters.
 ///
-/// This is used for tables WITHOUT foreign keys, where all information
-/// is known at macro expansion time. Uses the same DDL types as runtime
-/// generation for consistency.
-pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
-    let table_name = &ctx.table_name;
+/// This is the core implementation that doesn't require a full MacroContext.
+/// Use this before context is fully constructed.
+pub(crate) fn generate_create_table_sql_from_params(
+    table_name: &str,
+    field_infos: &[FieldInfo],
+    is_composite_pk: bool,
+) -> String {
     let schema_name = "public"; // TODO: Add schema attribute support
 
     // Build Table
-    let table = Table::new(schema_name, table_name.clone());
+    let table = Table::new(schema_name, table_name.to_string());
 
     // Build Columns
-    let columns: Vec<Column> = ctx
-        .field_infos
+    let columns: Vec<Column> = field_infos
         .iter()
-        .map(|field| build_column(schema_name, table_name, field, ctx.is_composite_pk))
+        .map(|field| build_column(schema_name, table_name, field, is_composite_pk))
         .collect();
 
     // Build PrimaryKey
-    let pk_columns: Vec<String> = ctx
-        .field_infos
+    let pk_columns: Vec<String> = field_infos
         .iter()
         .filter(|f| f.is_primary)
         .map(|f| f.column_name.clone())
@@ -42,7 +42,7 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
         let pk_name = format!("{}_pkey", table_name);
         Some(PrimaryKey::from_strings(
             schema_name.to_string(),
-            table_name.clone(),
+            table_name.to_string(),
             pk_name,
             pk_columns,
         ))
@@ -51,14 +51,13 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     };
 
     // Build UniqueConstraints (single-column only, non-primary)
-    let unique_constraints: Vec<UniqueConstraint> = ctx
-        .field_infos
+    let unique_constraints: Vec<UniqueConstraint> = field_infos
         .iter()
         .filter(|f| f.is_unique && !f.is_primary)
         .map(|field| {
             UniqueConstraint::from_strings(
                 schema_name.to_string(),
-                table_name.clone(),
+                table_name.to_string(),
                 format!("{}_{}_unique", table_name, field.column_name),
                 vec![field.column_name.clone()],
             )
@@ -72,6 +71,19 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
         .foreign_keys(&[])
         .unique_constraints(&unique_constraints)
         .create_table_sql()
+}
+
+/// Generate the CREATE TABLE SQL string at proc-macro time.
+///
+/// This is used for tables WITHOUT foreign keys, where all information
+/// is known at macro expansion time. Uses the same DDL types as runtime
+/// generation for consistency.
+pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
+    generate_create_table_sql_from_params(
+        &ctx.table_name,
+        ctx.field_infos,
+        ctx.is_composite_pk,
+    )
 }
 
 /// Build a Column from FieldInfo
@@ -148,7 +160,6 @@ pub(crate) fn generate_const_ddl(
     let unique_constraint_def = ddl_paths::unique_constraint_def();
     let index_def = ddl_paths::index_def();
     let identity_def = ddl_paths::identity_def();
-    let identity_type = ddl_paths::identity_type();
     let table_sql = ddl_paths::table_sql();
     let referential_action = ddl_paths::referential_action();
 

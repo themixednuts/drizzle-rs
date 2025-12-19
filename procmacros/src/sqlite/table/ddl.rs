@@ -25,29 +25,30 @@ fn referential_action_token(action: &str, referential_action: &TokenStream) -> T
     }
 }
 
-/// Generate the CREATE TABLE SQL string at proc-macro time.
+/// Generate the CREATE TABLE SQL string from raw parameters.
 ///
-/// This is used for tables WITHOUT foreign keys, where all information
-/// is known at macro expansion time. Uses the same DDL types as runtime
-/// generation for consistency.
-pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
-    let table_name = &ctx.table_name;
-
+/// This is the core implementation that doesn't require a full MacroContext.
+/// Use this before context is fully constructed.
+pub(crate) fn generate_create_table_sql_from_params(
+    table_name: &str,
+    field_infos: &[FieldInfo],
+    is_composite_pk: bool,
+    strict: bool,
+    without_rowid: bool,
+) -> String {
     // Build Table
-    let mut table = Table::new(table_name.clone());
-    table.strict = ctx.attrs.strict;
-    table.without_rowid = ctx.attrs.without_rowid;
+    let mut table = Table::new(table_name.to_string());
+    table.strict = strict;
+    table.without_rowid = without_rowid;
 
     // Build Columns
-    let columns: Vec<Column> = ctx
-        .field_infos
+    let columns: Vec<Column> = field_infos
         .iter()
-        .map(|field| build_column(table_name, field, ctx.is_composite_pk))
+        .map(|field| build_column(table_name, field, is_composite_pk))
         .collect();
 
     // Build PrimaryKey
-    let pk_columns: Vec<String> = ctx
-        .field_infos
+    let pk_columns: Vec<String> = field_infos
         .iter()
         .filter(|f| f.is_primary)
         .map(|f| f.column_name.clone())
@@ -56,7 +57,7 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     let primary_key = if !pk_columns.is_empty() {
         let pk_name = format!("{}_pkey", table_name);
         Some(PrimaryKey::from_strings(
-            table_name.clone(),
+            table_name.to_string(),
             pk_name,
             pk_columns,
         ))
@@ -65,13 +66,12 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     };
 
     // Build UniqueConstraints (single-column only, non-primary)
-    let unique_constraints: Vec<UniqueConstraint> = ctx
-        .field_infos
+    let unique_constraints: Vec<UniqueConstraint> = field_infos
         .iter()
         .filter(|f| f.is_unique && !f.is_primary)
         .map(|field| {
             UniqueConstraint::from_strings(
-                table_name.clone(),
+                table_name.to_string(),
                 format!("{}_{}_unique", table_name, field.column_name),
                 vec![field.column_name.clone()],
             )
@@ -85,6 +85,59 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
         .foreign_keys(&[])
         .unique_constraints(&unique_constraints)
         .create_table_sql()
+}
+
+/// Generate the CREATE TABLE SQL string at proc-macro time.
+///
+/// This is used for tables WITHOUT foreign keys, where all information
+/// is known at macro expansion time. Uses the same DDL types as runtime
+/// generation for consistency.
+pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
+    generate_create_table_sql_from_params(
+        &ctx.table_name,
+        ctx.field_infos,
+        ctx.is_composite_pk,
+        ctx.attrs.strict,
+        ctx.attrs.without_rowid,
+    )
+}
+
+/// Parameters for SQL generation (used before full context is available)
+pub(crate) struct SqlGenParams<'a> {
+    pub table_name: &'a str,
+    pub field_infos: &'a [FieldInfo<'a>],
+    pub is_composite_pk: bool,
+    pub strict: bool,
+    pub without_rowid: bool,
+}
+
+impl<'a> SqlGenParams<'a> {
+    /// Generate the CREATE TABLE SQL
+    pub fn generate_sql(&self) -> String {
+        generate_create_table_sql_from_params(
+            self.table_name,
+            self.field_infos,
+            self.is_composite_pk,
+            self.strict,
+            self.without_rowid,
+        )
+    }
+}
+
+/// Build UniqueConstraints from field infos (single-column only, non-primary)
+#[allow(dead_code)]
+fn build_unique_constraints(table_name: &str, field_infos: &[FieldInfo]) -> Vec<UniqueConstraint> {
+    field_infos
+        .iter()
+        .filter(|f| f.is_unique && !f.is_primary)
+        .map(|field| {
+            UniqueConstraint::from_strings(
+                table_name.to_string(),
+                format!("{}_{}_unique", table_name, field.column_name),
+                vec![field.column_name.clone()],
+            )
+        })
+        .collect()
 }
 
 /// Build a Column from FieldInfo

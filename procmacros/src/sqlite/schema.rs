@@ -161,8 +161,8 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
 
                                 // Add primary key entity if this is a primary key column
                                 if col.is_primary_key() {
-                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::new(
-                                        table_name,
+                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
+                                        table_name.to_string(),
                                         ::std::format!("{}_pk", table_name),
                                         ::std::vec![col.name().to_string()],
                                     )));
@@ -170,8 +170,8 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
 
                                 // Add unique constraint entity if this column is unique
                                 if col.is_unique() {
-                                    snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::new(
-                                        table_name,
+                                    snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
+                                        table_name.to_string(),
                                         ::std::format!("{}_{}_unique", table_name, col.name()),
                                         ::std::vec![col.name().to_string()],
                                     )));

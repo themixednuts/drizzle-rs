@@ -198,6 +198,99 @@ pub mod sqlite {
 }
 
 // =============================================================================
+// DDL TYPES (from drizzle_types)
+// =============================================================================
+
+/// DDL type paths - these point directly to drizzle_types DDL modules
+pub mod ddl {
+    pub mod sqlite {
+        use proc_macro2::TokenStream;
+        use quote::quote;
+
+        pub fn table_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::TableDef)
+        }
+
+        pub fn column_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::ColumnDef)
+        }
+
+        pub fn primary_key_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::PrimaryKeyDef)
+        }
+
+        pub fn foreign_key_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::ForeignKeyDef)
+        }
+
+        pub fn unique_constraint_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::UniqueConstraintDef)
+        }
+
+        pub fn index_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::IndexDef)
+        }
+
+        pub fn index_column_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::IndexColumnDef)
+        }
+
+        pub fn referential_action() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::ReferentialAction)
+        }
+
+        pub fn table_sql() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::sql::TableSql)
+        }
+    }
+
+    pub mod postgres {
+        use proc_macro2::TokenStream;
+        use quote::quote;
+
+        pub fn table_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::TableDef)
+        }
+
+        pub fn column_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ColumnDef)
+        }
+
+        pub fn primary_key_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::PrimaryKeyDef)
+        }
+
+        pub fn foreign_key_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ForeignKeyDef)
+        }
+
+        pub fn unique_constraint_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::UniqueConstraintDef)
+        }
+
+        pub fn index_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::IndexDef)
+        }
+
+        pub fn index_column_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::IndexColumnDef)
+        }
+
+        pub fn identity_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::IdentityDef)
+        }
+
+        pub fn referential_action() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ReferentialAction)
+        }
+
+        pub fn table_sql() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::sql::TableSql)
+        }
+    }
+}
+
+// =============================================================================
 // MIGRATIONS TYPES AND TRAITS
 // =============================================================================
 
@@ -216,7 +309,7 @@ pub mod migrations {
         quote!(drizzle::migrations::Snapshot)
     }
 
-    // SQLite DDL types
+    // SQLite DDL types (from drizzle_types)
     pub mod sqlite {
         use super::*;
 
@@ -225,43 +318,79 @@ pub mod migrations {
         }
 
         pub fn entity() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::SqliteEntity)
+            quote!(drizzle::types::sqlite::ddl::SqliteEntity)
         }
 
         pub fn table() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::Table)
+            quote!(drizzle::types::sqlite::ddl::Table)
+        }
+
+        pub fn table_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::TableDef)
         }
 
         pub fn column() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::Column)
+            quote!(drizzle::types::sqlite::ddl::Column)
+        }
+
+        pub fn column_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::ColumnDef)
         }
 
         pub fn index() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::Index)
+            quote!(drizzle::types::sqlite::ddl::Index)
+        }
+
+        pub fn index_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::IndexDef)
         }
 
         pub fn index_column() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::IndexColumn)
+            quote!(drizzle::types::sqlite::ddl::IndexColumn)
+        }
+
+        pub fn index_column_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::IndexColumnDef)
         }
 
         pub fn index_origin() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::IndexOrigin)
+            quote!(drizzle::types::sqlite::ddl::IndexOrigin)
         }
 
         pub fn primary_key() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::PrimaryKey)
+            quote!(drizzle::types::sqlite::ddl::PrimaryKey)
+        }
+
+        pub fn primary_key_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::PrimaryKeyDef)
         }
 
         pub fn unique_constraint() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ddl::UniqueConstraint)
+            quote!(drizzle::types::sqlite::ddl::UniqueConstraint)
+        }
+
+        pub fn unique_constraint_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::UniqueConstraintDef)
         }
 
         pub fn foreign_key() -> TokenStream {
-            quote!(drizzle::migrations::sqlite::ForeignKey)
+            quote!(drizzle::types::sqlite::ddl::ForeignKey)
+        }
+
+        pub fn foreign_key_def() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::ForeignKeyDef)
+        }
+
+        pub fn referential_action() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::ReferentialAction)
+        }
+
+        pub fn table_sql() -> TokenStream {
+            quote!(drizzle::types::sqlite::ddl::TableSql)
         }
     }
 
-    // PostgreSQL DDL types
+    // PostgreSQL DDL types (from drizzle_types)
     pub mod postgres {
         use super::*;
 
@@ -270,39 +399,79 @@ pub mod migrations {
         }
 
         pub fn entity() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::PostgresEntity)
+            quote!(drizzle::types::postgres::ddl::PostgresEntity)
         }
 
         pub fn schema_entity() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::Schema)
+            quote!(drizzle::types::postgres::ddl::Schema)
         }
 
         pub fn table() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::Table)
+            quote!(drizzle::types::postgres::ddl::Table)
+        }
+
+        pub fn table_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::TableDef)
         }
 
         pub fn column() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::Column)
+            quote!(drizzle::types::postgres::ddl::Column)
+        }
+
+        pub fn column_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ColumnDef)
         }
 
         pub fn identity() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::Identity)
+            quote!(drizzle::types::postgres::ddl::Identity)
+        }
+
+        pub fn identity_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::IdentityDef)
         }
 
         pub fn index() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::Index)
+            quote!(drizzle::types::postgres::ddl::Index)
+        }
+
+        pub fn index_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::IndexDef)
         }
 
         pub fn primary_key() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::PrimaryKey)
+            quote!(drizzle::types::postgres::ddl::PrimaryKey)
+        }
+
+        pub fn primary_key_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::PrimaryKeyDef)
         }
 
         pub fn unique_constraint() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::UniqueConstraint)
+            quote!(drizzle::types::postgres::ddl::UniqueConstraint)
+        }
+
+        pub fn unique_constraint_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::UniqueConstraintDef)
+        }
+
+        pub fn foreign_key() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ForeignKey)
+        }
+
+        pub fn foreign_key_def() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ForeignKeyDef)
         }
 
         pub fn enum_type() -> TokenStream {
-            quote!(drizzle::migrations::postgres::ddl::Enum)
+            quote!(drizzle::types::postgres::ddl::Enum)
+        }
+
+        pub fn referential_action() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::ReferentialAction)
+        }
+
+        pub fn table_sql() -> TokenStream {
+            quote!(drizzle::types::postgres::ddl::TableSql)
         }
     }
 }

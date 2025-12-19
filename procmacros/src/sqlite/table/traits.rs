@@ -36,17 +36,13 @@ pub(crate) fn generate_table_impls(
 
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
-        if let Some(ref runtime_sql) = ctx.create_table_sql_runtime {
-            (
-                quote! { "" }, // Empty const, use runtime method
-                Some(quote! {
-                    #sql::raw(#runtime_sql)
-                }),
-            )
-        } else {
-            // Use static SQL
-            (quote! { #create_table_sql }, None)
-        }
+        // Call create_table_sql() which includes FK constraints via the DDL definitions
+        (
+            quote! { "" }, // Empty const, use runtime method
+            Some(quote! {
+                #sql::raw(Self::create_table_sql())
+            }),
+        )
     } else {
         // Use static SQL for tables without foreign keys
         (quote! { #create_table_sql }, None)

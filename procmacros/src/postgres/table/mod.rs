@@ -20,7 +20,7 @@ use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
 use context::MacroContext;
-use ddl::{generate_const_ddl, generate_create_table_sql};
+use ddl::{generate_const_ddl, generate_create_table_sql, generate_create_table_sql_from_params};
 use heck::ToSnakeCase;
 use models::generate_model_definitions;
 use proc_macro2::TokenStream;
@@ -66,15 +66,31 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
         .collect::<Result<Vec<_>>>()?;
 
+    // Calculate has_foreign_keys before creating context
+    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some());
+
+    // Generate CREATE TABLE SQL (only for tables without foreign keys)
+    let create_table_sql = if has_foreign_keys {
+        String::new()
+    } else {
+        generate_create_table_sql_from_params(
+            &table_name,
+            &field_infos,
+            is_composite_pk,
+        )
+    };
+
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
         table_name,
+        create_table_sql,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
+        has_foreign_keys,
         is_composite_pk,
         attrs: &attrs,
     };
@@ -92,20 +108,10 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
     let column_accessors = generate_column_accessors(&ctx, &column_zst_idents)?;
 
-    // Generate compile-time SQL for tables WITHOUT foreign keys
-    // Tables with foreign keys need runtime generation because referenced table names
-    // are resolved via `<RefTable>::TABLE_NAME`
-    let compile_time_sql = if !ctx.has_foreign_keys() {
-        Some(generate_create_table_sql(&ctx))
-    } else {
-        None
-    };
-
     let table_impls = generate_table_impls(
         &ctx,
         &column_zst_idents,
         &required_fields_pattern,
-        compile_time_sql.as_deref(),
     )?;
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;

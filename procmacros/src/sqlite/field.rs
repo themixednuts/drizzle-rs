@@ -893,10 +893,10 @@ impl<'a> FieldInfo<'a> {
     ///
     /// Uses the actual schema types for type-safe construction,
     /// ensuring consistency with drizzle-kit format.
-    pub(crate) fn to_column_meta(&self, table_name: &str) -> drizzle_migrations::sqlite::Column {
-        let mut col = drizzle_migrations::sqlite::Column::new(
-            table_name,
-            &self.column_name,
+    pub(crate) fn to_column_meta(&self, table_name: &str) -> drizzle_types::sqlite::ddl::Column {
+        let mut col = drizzle_types::sqlite::ddl::Column::new(
+            table_name.to_string(),
+            self.column_name.clone(),
             self.column_type.to_sql_type().to_lowercase(),
         );
 
@@ -923,7 +923,7 @@ impl<'a> FieldInfo<'a> {
     pub(crate) fn to_foreign_key_meta(
         &self,
         table_name: &str,
-    ) -> Option<drizzle_migrations::sqlite::ForeignKey> {
+    ) -> Option<drizzle_types::sqlite::ddl::ForeignKey> {
         let fk_ref = self.foreign_key.as_ref()?;
 
         let table_to = fk_ref.table_ident.to_string();
@@ -933,15 +933,22 @@ impl<'a> FieldInfo<'a> {
             table_name, self.column_name, table_to, column_to
         );
 
-        let mut fk = drizzle_migrations::sqlite::ForeignKey::new(
-            table_name,
-            &fk_name,
-            vec![self.column_name.clone()],
-            table_to,
-            vec![column_to],
-        );
-        fk.on_update = fk_ref.on_update.clone();
-        fk.on_delete = fk_ref.on_delete.clone();
+        use std::borrow::Cow;
+
+        // Convert Vec<String> to Cow<'static, [Cow<'static, str>]>
+        let columns: Vec<Cow<'static, str>> = vec![Cow::Owned(self.column_name.clone())];
+        let columns_to: Vec<Cow<'static, str>> = vec![Cow::Owned(column_to)];
+
+        let mut fk = drizzle_types::sqlite::ddl::ForeignKey {
+            table: Cow::Owned(table_name.to_string()),
+            name: Cow::Owned(fk_name),
+            name_explicit: false,
+            columns: Cow::Owned(columns),
+            table_to: Cow::Owned(table_to),
+            columns_to: Cow::Owned(columns_to),
+            on_update: fk_ref.on_update.clone().map(Cow::Owned),
+            on_delete: fk_ref.on_delete.clone().map(Cow::Owned),
+        };
 
         Some(fk)
     }
@@ -959,13 +966,13 @@ pub(crate) fn generate_table_meta_json(
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
 ) -> String {
-    use drizzle_migrations::sqlite::{Column, ForeignKey, PrimaryKey, SqliteEntity, Table};
+    use drizzle_types::sqlite::ddl::{Column, ForeignKey, PrimaryKey, SqliteEntity, Table};
 
     // Collect all entities
     let mut entities: Vec<SqliteEntity> = Vec::new();
 
     // Add Table entity
-    entities.push(SqliteEntity::Table(Table::new(table_name)));
+    entities.push(SqliteEntity::Table(Table::new(table_name.to_string())));
 
     // Add columns
     for field in field_infos {
@@ -989,7 +996,7 @@ pub(crate) fn generate_table_meta_json(
 
         if pk_columns.len() > 1 {
             let pk_name = format!("{}_pk", table_name);
-            let pk = PrimaryKey::new(table_name, &pk_name, pk_columns);
+            let pk = PrimaryKey::from_strings(table_name.to_string(), pk_name, pk_columns);
             entities.push(SqliteEntity::PrimaryKey(pk));
         }
     }
