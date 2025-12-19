@@ -339,17 +339,17 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
 
     let select_field_inits: Vec<_> = field_infos
         .iter()
-        .map(|info| generate_select_field_conversion(info))
+        .map(generate_select_field_conversion)
         .collect();
 
     let partial_field_inits: Vec<_> = field_infos
         .iter()
-        .map(|info| generate_partial_field_conversion(info))
+        .map(generate_partial_field_conversion)
         .collect();
 
     let update_field_inits: Vec<_> = field_infos
         .iter()
-        .map(|info| generate_update_field_conversion(info))
+        .map(generate_update_field_conversion)
         .collect();
 
     // Generate implementation using drizzle_postgres::Row which re-exports

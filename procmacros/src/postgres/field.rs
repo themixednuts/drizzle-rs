@@ -212,7 +212,7 @@ impl TypeCategory {
 
     /// Infer the PostgreSQL type from this category.
     /// Returns None for Unknown types (should trigger compile error).
-    pub(crate) fn to_postgres_type(&self) -> Option<PostgreSQLType> {
+    pub(crate) fn to_postgres_type(self) -> Option<PostgreSQLType> {
         match self {
             // Numeric types
             TypeCategory::I16 => Some(PostgreSQLType::Smallint),
@@ -1034,16 +1034,16 @@ impl FieldInfo {
         let column_name = name.to_string().to_snake_case();
 
         // Build SQL definition for this column
-        let sql_definition = build_sql_definition(
-            &column_name,
-            &column_type,
-            is_primary && !is_composite_pk,
-            !is_nullable,
+        let sql_definition = build_sql_definition(SqlDefinitionContext {
+            column_name: &column_name,
+            column_type: &column_type,
+            is_primary_single: is_primary && !is_composite_pk,
+            is_not_null: !is_nullable,
             is_unique,
-            is_serial || is_bigserial,
-            &default,
-            &check_constraint,
-        );
+            is_serial: is_serial || is_bigserial,
+            default: &default,
+            check_constraint: &check_constraint,
+        });
 
         Ok(FieldInfo {
             ident: name,
@@ -1485,36 +1485,39 @@ impl FieldInfo {
     }
 }
 
-/// Build SQL column definition string for PostgreSQL
-fn build_sql_definition(
-    column_name: &str,
-    column_type: &PostgreSQLType,
+/// Context for building a SQL column definition
+struct SqlDefinitionContext<'a> {
+    column_name: &'a str,
+    column_type: &'a PostgreSQLType,
     is_primary_single: bool,
     is_not_null: bool,
     is_unique: bool,
     is_serial: bool,
-    default: &Option<PostgreSQLDefault>,
-    check_constraint: &Option<String>,
-) -> String {
-    let mut sql = format!("{} {}", column_name, column_type.to_sql_type());
+    default: &'a Option<PostgreSQLDefault>,
+    check_constraint: &'a Option<String>,
+}
+
+/// Build SQL column definition string for PostgreSQL
+fn build_sql_definition(ctx: SqlDefinitionContext<'_>) -> String {
+    let mut sql = format!("{} {}", ctx.column_name, ctx.column_type.to_sql_type());
 
     // Handle primary key
-    if is_primary_single {
+    if ctx.is_primary_single {
         sql.push_str(" PRIMARY KEY");
     }
 
     // Add NOT NULL constraint (serial types are implicitly NOT NULL)
-    if is_not_null && !is_serial {
+    if ctx.is_not_null && !ctx.is_serial {
         sql.push_str(" NOT NULL");
     }
 
     // Add UNIQUE constraint
-    if is_unique && !is_primary_single {
+    if ctx.is_unique && !ctx.is_primary_single {
         sql.push_str(" UNIQUE");
     }
 
     // Add DEFAULT value if present
-    if let Some(default_value) = default {
+    if let Some(default_value) = ctx.default {
         match default_value {
             PostgreSQLDefault::Literal(lit) => {
                 sql.push_str(&format!(" DEFAULT {}", lit));
@@ -1529,7 +1532,7 @@ fn build_sql_definition(
     }
 
     // Add CHECK constraint
-    if let Some(check) = check_constraint {
+    if let Some(check) = ctx.check_constraint {
         sql.push_str(&format!(" CHECK ({})", check));
     }
 

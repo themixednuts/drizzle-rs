@@ -405,37 +405,37 @@ impl<'a> FieldInfo<'a> {
                                 .push(Self::make_uppercase_path(param, "REFERENCES"));
                         }
                         "ON_DELETE" => {
-                            if let Expr::Path(action_path) = &*assign.right {
-                                if let Some(action_ident) = action_path.path.get_ident() {
-                                    let action_upper =
-                                        action_ident.to_string().to_ascii_uppercase();
-                                    args.on_delete =
-                                        Self::validate_referential_action(action_ident).ok();
-                                    args.marker_exprs
-                                        .push(Self::make_uppercase_path(param, "ON_DELETE"));
-                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                    args.marker_exprs.push(Self::make_uppercase_path(
-                                        action_ident,
-                                        &action_upper,
-                                    ));
-                                }
+                            if let Expr::Path(action_path) = &*assign.right
+                                && let Some(action_ident) = action_path.path.get_ident()
+                            {
+                                let action_upper =
+                                    action_ident.to_string().to_ascii_uppercase();
+                                args.on_delete =
+                                    Self::validate_referential_action(action_ident).ok();
+                                args.marker_exprs
+                                    .push(Self::make_uppercase_path(param, "ON_DELETE"));
+                                // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                args.marker_exprs.push(Self::make_uppercase_path(
+                                    action_ident,
+                                    &action_upper,
+                                ));
                             }
                         }
                         "ON_UPDATE" => {
-                            if let Expr::Path(action_path) = &*assign.right {
-                                if let Some(action_ident) = action_path.path.get_ident() {
-                                    let action_upper =
-                                        action_ident.to_string().to_ascii_uppercase();
-                                    args.on_update =
-                                        Self::validate_referential_action(action_ident).ok();
-                                    args.marker_exprs
-                                        .push(Self::make_uppercase_path(param, "ON_UPDATE"));
-                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                    args.marker_exprs.push(Self::make_uppercase_path(
-                                        action_ident,
-                                        &action_upper,
-                                    ));
-                                }
+                            if let Expr::Path(action_path) = &*assign.right
+                                && let Some(action_ident) = action_path.path.get_ident()
+                            {
+                                let action_upper =
+                                    action_ident.to_string().to_ascii_uppercase();
+                                args.on_update =
+                                    Self::validate_referential_action(action_ident).ok();
+                                args.marker_exprs
+                                    .push(Self::make_uppercase_path(param, "ON_UPDATE"));
+                                // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                args.marker_exprs.push(Self::make_uppercase_path(
+                                    action_ident,
+                                    &action_upper,
+                                ));
                             }
                         }
                         "NAME" => {
@@ -625,11 +625,11 @@ impl<'a> FieldInfo<'a> {
             attrs.column_type.clone()
         } else {
             // Infer from Rust type
-            type_category_to_sqlite(&type_category).unwrap_or_else(|| {
+            type_category_to_sqlite(&type_category).unwrap_or(
                 // If we can't infer, default to ANY (flexible SQLite type)
                 // This allows unknown types to work but may cause runtime issues
-                SQLiteType::Any
-            })
+                SQLiteType::Any,
+            )
         };
 
         Self::validate_constraints(
