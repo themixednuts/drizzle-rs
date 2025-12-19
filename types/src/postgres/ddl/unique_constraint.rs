@@ -81,7 +81,7 @@ impl UniqueConstraintDef {
 
     /// Convert to runtime [`UniqueConstraint`] type
     #[must_use]
-    pub const fn into_unique_constraint(self) -> UniqueConstraint<'static> {
+    pub const fn into_unique_constraint(self) -> UniqueConstraint {
         UniqueConstraint {
             schema: Cow::Borrowed(self.schema),
             table: Cow::Borrowed(self.table),
@@ -105,37 +105,38 @@ impl Default for UniqueConstraintDef {
 
 /// Runtime unique constraint entity
 ///
-/// The lifetime parameter allows this type to work with both static (const) data
-/// and owned (runtime) data.
+/// Uses `Cow<'static, str>` for all string fields, which works with both:
+/// - Borrowed data from const definitions (`Cow::Borrowed`)
+/// - Owned data from deserialization/introspection (`Cow::Owned`)
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UniqueConstraint<'a> {
+pub struct UniqueConstraint {
     /// Schema name
-    pub schema: Cow<'a, str>,
+    pub schema: Cow<'static, str>,
 
     /// Parent table name
-    pub table: Cow<'a, str>,
+    pub table: Cow<'static, str>,
 
     /// Constraint name
-    pub name: Cow<'a, str>,
+    pub name: Cow<'static, str>,
 
     /// Whether the constraint name was explicitly specified
     pub name_explicit: bool,
 
     /// Columns in the unique constraint
-    pub columns: Cow<'a, [Cow<'a, str>]>,
+    pub columns: Cow<'static, [Cow<'static, str>]>,
 
     /// NULLS NOT DISTINCT flag (PostgreSQL 15+)
     pub nulls_not_distinct: bool,
 }
 
-impl<'a> UniqueConstraint<'a> {
+impl UniqueConstraint {
     /// Create a new unique constraint
     #[must_use]
     pub fn new(
-        schema: impl Into<Cow<'a, str>>,
-        table: impl Into<Cow<'a, str>>,
-        name: impl Into<Cow<'a, str>>,
-        columns: impl Into<Cow<'a, [Cow<'a, str>]>>,
+        schema: impl Into<Cow<'static, str>>,
+        table: impl Into<Cow<'static, str>>,
+        name: impl Into<Cow<'static, str>>,
+        columns: impl Into<Cow<'static, [Cow<'static, str>]>>,
     ) -> Self {
         Self {
             schema: schema.into(),
@@ -155,7 +156,7 @@ impl<'a> UniqueConstraint<'a> {
         table: String,
         name: String,
         columns: Vec<String>,
-    ) -> UniqueConstraint<'static> {
+    ) -> UniqueConstraint {
         UniqueConstraint {
             schema: Cow::Owned(schema),
             table: Cow::Owned(table),
@@ -193,35 +194,15 @@ impl<'a> UniqueConstraint<'a> {
         self.name_explicit = true;
         self
     }
-
-    /// Convert to a static lifetime version by converting to owned data
-    #[cfg(feature = "std")]
-    #[must_use]
-    pub fn into_static(self) -> UniqueConstraint<'static> {
-        UniqueConstraint {
-            schema: Cow::Owned(self.schema.into_owned()),
-            table: Cow::Owned(self.table.into_owned()),
-            name: Cow::Owned(self.name.into_owned()),
-            columns: Cow::Owned(
-                self.columns
-                    .into_owned()
-                    .into_iter()
-                    .map(|c| Cow::Owned(c.into_owned()))
-                    .collect(),
-            ),
-            name_explicit: self.name_explicit,
-            nulls_not_distinct: self.nulls_not_distinct,
-        }
-    }
 }
 
-impl Default for UniqueConstraint<'static> {
+impl Default for UniqueConstraint {
     fn default() -> Self {
         Self::new("public", "", "", &[] as &[Cow<'static, str>])
     }
 }
 
-impl From<UniqueConstraintDef> for UniqueConstraint<'static> {
+impl From<UniqueConstraintDef> for UniqueConstraint {
     fn from(def: UniqueConstraintDef) -> Self {
         def.into_unique_constraint()
     }
@@ -236,7 +217,7 @@ mod serde_impl {
     use super::*;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    impl Serialize for UniqueConstraint<'_> {
+    impl Serialize for UniqueConstraint {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -255,7 +236,7 @@ mod serde_impl {
         }
     }
 
-    impl<'de> Deserialize<'de> for UniqueConstraint<'static> {
+    impl<'de> Deserialize<'de> for UniqueConstraint {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: Deserializer<'de>,
@@ -321,7 +302,7 @@ mod tests {
         const COLS: &[Cow<'static, str>] = &[Cow::Borrowed("email")];
         const DEF: UniqueConstraintDef =
             UniqueConstraintDef::new("public", "users", "uq_email").columns(COLS);
-        const UNIQ: UniqueConstraint<'static> = DEF.into_unique_constraint();
+        const UNIQ: UniqueConstraint = DEF.into_unique_constraint();
 
         assert_eq!(&*UNIQ.name, "uq_email");
         assert_eq!(UNIQ.columns.len(), 1);

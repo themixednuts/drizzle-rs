@@ -6,6 +6,7 @@
 //! - [`TypeCategory`] - Rust type classification for PostgreSQL mapping
 //! - [`PgTypeCategory`] - SQL type categories for parsing
 
+pub mod ddl;
 mod sql_type;
 mod type_category;
 

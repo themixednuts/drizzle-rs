@@ -6,6 +6,7 @@
 //! - [`TypeCategory`] - Rust type classification for SQLite mapping
 //! - [`SqlTypeCategory`] - SQL type affinity categories for parsing
 
+pub mod ddl;
 mod sql_type;
 mod type_category;
 

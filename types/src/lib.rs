@@ -26,6 +26,7 @@ extern crate alloc;
 
 mod dialect;
 pub mod postgres;
+pub mod serde_helpers;
 pub mod sqlite;
 
 pub use dialect::{Dialect, DialectParseError};

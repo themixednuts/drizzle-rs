@@ -139,7 +139,7 @@ pub enum PostgresEntity {
     #[cfg_attr(feature = "serde", serde(rename = "schemas"))]
     Schema(Schema),
     #[cfg_attr(feature = "serde", serde(rename = "enums"))]
-    Enum(Enum<'static>),
+    Enum(Enum),
     #[cfg_attr(feature = "serde", serde(rename = "sequences"))]
     Sequence(Sequence),
     #[cfg_attr(feature = "serde", serde(rename = "roles"))]
@@ -155,11 +155,11 @@ pub enum PostgresEntity {
     #[cfg_attr(feature = "serde", serde(rename = "indexes"))]
     Index(Index),
     #[cfg_attr(feature = "serde", serde(rename = "fks"))]
-    ForeignKey(ForeignKey<'static>),
+    ForeignKey(ForeignKey),
     #[cfg_attr(feature = "serde", serde(rename = "pks"))]
-    PrimaryKey(PrimaryKey<'static>),
+    PrimaryKey(PrimaryKey),
     #[cfg_attr(feature = "serde", serde(rename = "uniques"))]
-    UniqueConstraint(UniqueConstraint<'static>),
+    UniqueConstraint(UniqueConstraint),
     #[cfg_attr(feature = "serde", serde(rename = "checks"))]
     CheckConstraint(CheckConstraint),
     #[cfg_attr(feature = "serde", serde(rename = "views"))]

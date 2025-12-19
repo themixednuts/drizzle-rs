@@ -178,7 +178,7 @@ impl ForeignKeyDef {
 
     /// Convert to runtime [`ForeignKey`] type
     #[must_use]
-    pub const fn into_foreign_key(self) -> ForeignKey<'static> {
+    pub const fn into_foreign_key(self) -> ForeignKey {
         ForeignKey {
             schema: Cow::Borrowed(self.schema),
             table: Cow::Borrowed(self.table),
@@ -212,48 +212,49 @@ impl Default for ForeignKeyDef {
 
 /// Runtime foreign key constraint entity
 ///
-/// The lifetime parameter allows this type to work with both static (const) data
-/// and owned (runtime) data.
+/// Uses `Cow<'static, str>` for all string fields, which works with both:
+/// - Borrowed data from const definitions (`Cow::Borrowed`)
+/// - Owned data from deserialization/introspection (`Cow::Owned`)
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ForeignKey<'a> {
+pub struct ForeignKey {
     /// Schema name
-    pub schema: Cow<'a, str>,
+    pub schema: Cow<'static, str>,
 
     /// Parent table name
-    pub table: Cow<'a, str>,
+    pub table: Cow<'static, str>,
 
     /// Constraint name
-    pub name: Cow<'a, str>,
+    pub name: Cow<'static, str>,
 
     /// Whether the constraint name was explicitly specified
     pub name_explicit: bool,
 
     /// Source columns
-    pub columns: Cow<'a, [Cow<'a, str>]>,
+    pub columns: Cow<'static, [Cow<'static, str>]>,
 
     /// Referenced schema name
-    pub schema_to: Cow<'a, str>,
+    pub schema_to: Cow<'static, str>,
 
     /// Referenced table name
-    pub table_to: Cow<'a, str>,
+    pub table_to: Cow<'static, str>,
 
     /// Referenced columns
-    pub columns_to: Cow<'a, [Cow<'a, str>]>,
+    pub columns_to: Cow<'static, [Cow<'static, str>]>,
 
     /// ON UPDATE action
-    pub on_update: Option<Cow<'a, str>>,
+    pub on_update: Option<Cow<'static, str>>,
 
     /// ON DELETE action
-    pub on_delete: Option<Cow<'a, str>>,
+    pub on_delete: Option<Cow<'static, str>>,
 }
 
-impl<'a> ForeignKey<'a> {
+impl ForeignKey {
     /// Create a new foreign key
     #[must_use]
     pub fn new(
-        schema: impl Into<Cow<'a, str>>,
-        table: impl Into<Cow<'a, str>>,
-        name: impl Into<Cow<'a, str>>,
+        schema: impl Into<Cow<'static, str>>,
+        table: impl Into<Cow<'static, str>>,
+        name: impl Into<Cow<'static, str>>,
     ) -> Self {
         Self {
             schema: schema.into(),
@@ -280,7 +281,7 @@ impl<'a> ForeignKey<'a> {
         schema_to: String,
         table_to: String,
         columns_to: Vec<String>,
-    ) -> ForeignKey<'static> {
+    ) -> ForeignKey {
         ForeignKey {
             schema: Cow::Owned(schema),
             table: Cow::Owned(table),
@@ -297,14 +298,14 @@ impl<'a> ForeignKey<'a> {
 
     /// Set ON DELETE action
     #[must_use]
-    pub fn on_delete(mut self, action: impl Into<Cow<'a, str>>) -> Self {
+    pub fn on_delete(mut self, action: impl Into<Cow<'static, str>>) -> Self {
         self.on_delete = Some(action.into());
         self
     }
 
     /// Set ON UPDATE action
     #[must_use]
-    pub fn on_update(mut self, action: impl Into<Cow<'a, str>>) -> Self {
+    pub fn on_update(mut self, action: impl Into<Cow<'static, str>>) -> Self {
         self.on_update = Some(action.into());
         self
     }
@@ -343,45 +344,15 @@ impl<'a> ForeignKey<'a> {
     pub fn schema_to(&self) -> &str {
         &self.schema_to
     }
-
-    /// Convert to a static lifetime version by converting to owned data
-    #[cfg(feature = "std")]
-    #[must_use]
-    pub fn into_static(self) -> ForeignKey<'static> {
-        ForeignKey {
-            schema: Cow::Owned(self.schema.into_owned()),
-            table: Cow::Owned(self.table.into_owned()),
-            name: Cow::Owned(self.name.into_owned()),
-            name_explicit: self.name_explicit,
-            columns: Cow::Owned(
-                self.columns
-                    .into_owned()
-                    .into_iter()
-                    .map(|c| Cow::Owned(c.into_owned()))
-                    .collect(),
-            ),
-            schema_to: Cow::Owned(self.schema_to.into_owned()),
-            table_to: Cow::Owned(self.table_to.into_owned()),
-            columns_to: Cow::Owned(
-                self.columns_to
-                    .into_owned()
-                    .into_iter()
-                    .map(|c| Cow::Owned(c.into_owned()))
-                    .collect(),
-            ),
-            on_update: self.on_update.map(|c| Cow::Owned(c.into_owned())),
-            on_delete: self.on_delete.map(|c| Cow::Owned(c.into_owned())),
-        }
-    }
 }
 
-impl Default for ForeignKey<'static> {
+impl Default for ForeignKey {
     fn default() -> Self {
         Self::new("public", "", "")
     }
 }
 
-impl From<ForeignKeyDef> for ForeignKey<'static> {
+impl From<ForeignKeyDef> for ForeignKey {
     fn from(def: ForeignKeyDef) -> Self {
         def.into_foreign_key()
     }
@@ -396,7 +367,7 @@ mod serde_impl {
     use super::*;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    impl Serialize for ForeignKey<'_> {
+    impl Serialize for ForeignKey {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -423,7 +394,7 @@ mod serde_impl {
         }
     }
 
-    impl<'de> Deserialize<'de> for ForeignKey<'static> {
+    impl<'de> Deserialize<'de> for ForeignKey {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: Deserializer<'de>,
@@ -506,7 +477,7 @@ mod tests {
         const DEF: ForeignKeyDef = ForeignKeyDef::new("public", "posts", "fk_posts_user")
             .columns(COLS)
             .references("public", "users", REFS);
-        const FK: ForeignKey<'static> = DEF.into_foreign_key();
+        const FK: ForeignKey = DEF.into_foreign_key();
 
         assert_eq!(&*FK.name, "fk_posts_user");
         assert_eq!(FK.columns.len(), 1);

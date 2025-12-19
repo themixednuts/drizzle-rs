@@ -42,7 +42,7 @@ impl EnumDef {
 
     /// Convert to runtime [`Enum`] type
     #[must_use]
-    pub const fn into_enum(self) -> Enum<'static> {
+    pub const fn into_enum(self) -> Enum {
         Enum {
             schema: Cow::Borrowed(self.schema),
             name: Cow::Borrowed(self.name),
@@ -57,27 +57,28 @@ impl EnumDef {
 
 /// Runtime enum entity for serde serialization.
 ///
-/// The lifetime parameter allows this type to work with both static (const) data
-/// and owned (runtime) data.
+/// Uses `Cow<'static, str>` for all string fields, which works with both:
+/// - Borrowed data from const definitions (`Cow::Borrowed`)
+/// - Owned data from deserialization/introspection (`Cow::Owned`)
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Enum<'a> {
+pub struct Enum {
     /// Schema name
-    pub schema: Cow<'a, str>,
+    pub schema: Cow<'static, str>,
 
     /// Enum name
-    pub name: Cow<'a, str>,
+    pub name: Cow<'static, str>,
 
     /// Enum values
-    pub values: Cow<'a, [Cow<'a, str>]>,
+    pub values: Cow<'static, [Cow<'static, str>]>,
 }
 
-impl<'a> Enum<'a> {
+impl Enum {
     /// Create a new enum (runtime)
     #[must_use]
     pub fn new(
-        schema: impl Into<Cow<'a, str>>,
-        name: impl Into<Cow<'a, str>>,
-        values: impl Into<Cow<'a, [Cow<'a, str>]>>,
+        schema: impl Into<Cow<'static, str>>,
+        name: impl Into<Cow<'static, str>>,
+        values: impl Into<Cow<'static, [Cow<'static, str>]>>,
     ) -> Self {
         Self {
             schema: schema.into(),
@@ -89,7 +90,7 @@ impl<'a> Enum<'a> {
     /// Create a new enum from owned strings (convenience for runtime construction)
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn from_strings(schema: String, name: String, values: Vec<String>) -> Enum<'static> {
+    pub fn from_strings(schema: String, name: String, values: Vec<String>) -> Enum {
         Enum {
             schema: Cow::Owned(schema),
             name: Cow::Owned(name),
@@ -110,32 +111,15 @@ impl<'a> Enum<'a> {
     pub fn name(&self) -> &str {
         &self.name
     }
-
-    /// Convert to a static lifetime version by converting to owned data
-    #[cfg(feature = "std")]
-    #[must_use]
-    pub fn into_static(self) -> Enum<'static> {
-        Enum {
-            schema: Cow::Owned(self.schema.into_owned()),
-            name: Cow::Owned(self.name.into_owned()),
-            values: Cow::Owned(
-                self.values
-                    .into_owned()
-                    .into_iter()
-                    .map(|c| Cow::Owned(c.into_owned()))
-                    .collect(),
-            ),
-        }
-    }
 }
 
-impl Default for Enum<'static> {
+impl Default for Enum {
     fn default() -> Self {
         Self::new("public", "", &[] as &[Cow<'static, str>])
     }
 }
 
-impl From<EnumDef> for Enum<'static> {
+impl From<EnumDef> for Enum {
     fn from(def: EnumDef) -> Self {
         def.into_enum()
     }
@@ -150,7 +134,7 @@ mod serde_impl {
     use super::*;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    impl Serialize for Enum<'_> {
+    impl Serialize for Enum {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -166,7 +150,7 @@ mod serde_impl {
         }
     }
 
-    impl<'de> Deserialize<'de> for Enum<'static> {
+    impl<'de> Deserialize<'de> for Enum {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: Deserializer<'de>,

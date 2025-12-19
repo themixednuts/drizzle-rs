@@ -30,3 +30,6 @@ bit-vec = []
 serde = { workspace = true, optional = true, default-features = false, features = [
     "derive",
 ] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -132,11 +132,11 @@ pub enum SqliteEntity {
     #[cfg_attr(feature = "serde", serde(rename = "indexes"))]
     Index(Index),
     #[cfg_attr(feature = "serde", serde(rename = "fks"))]
-    ForeignKey(ForeignKey<'static>),
+    ForeignKey(ForeignKey),
     #[cfg_attr(feature = "serde", serde(rename = "pks"))]
-    PrimaryKey(PrimaryKey<'static>),
+    PrimaryKey(PrimaryKey),
     #[cfg_attr(feature = "serde", serde(rename = "uniques"))]
-    UniqueConstraint(UniqueConstraint<'static>),
+    UniqueConstraint(UniqueConstraint),
     #[cfg_attr(feature = "serde", serde(rename = "checks"))]
     CheckConstraint(CheckConstraint),
     #[cfg_attr(feature = "serde", serde(rename = "views"))]

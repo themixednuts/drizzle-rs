@@ -16,23 +16,19 @@ use super::{
 // =============================================================================
 
 /// A complete table definition with all related entities for SQL generation
-///
-/// Uses two lifetime parameters:
-/// - `'a` for slice/reference lifetimes
-/// - `'b` for inner Cow data lifetimes (allows locally-created values)
 #[derive(Clone, Debug)]
-pub struct TableSql<'a, 'b> {
+pub struct TableSql<'a> {
     pub table: &'a Table,
     pub columns: &'a [Column],
-    pub primary_key: Option<&'a PrimaryKey<'b>>,
-    pub foreign_keys: &'a [ForeignKey<'b>],
-    pub unique_constraints: &'a [UniqueConstraint<'b>],
+    pub primary_key: Option<&'a PrimaryKey>,
+    pub foreign_keys: &'a [ForeignKey],
+    pub unique_constraints: &'a [UniqueConstraint],
     pub check_constraints: &'a [CheckConstraint],
     pub indexes: &'a [Index],
     pub policies: &'a [Policy],
 }
 
-impl<'a, 'b> TableSql<'a, 'b> {
+impl<'a> TableSql<'a> {
     /// Create a new TableSql for SQL generation
     pub fn new(table: &'a Table) -> Self {
         Self {
@@ -54,19 +50,19 @@ impl<'a, 'b> TableSql<'a, 'b> {
     }
 
     /// Set primary key
-    pub fn primary_key(mut self, pk: Option<&'a PrimaryKey<'b>>) -> Self {
+    pub fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
         self.primary_key = pk;
         self
     }
 
     /// Set foreign keys
-    pub fn foreign_keys(mut self, fks: &'a [ForeignKey<'b>]) -> Self {
+    pub fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
         self.foreign_keys = fks;
         self
     }
 
     /// Set unique constraints
-    pub fn unique_constraints(mut self, uniques: &'a [UniqueConstraint<'b>]) -> Self {
+    pub fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
         self.unique_constraints = uniques;
         self
     }
@@ -329,7 +325,7 @@ impl Generated {
 // Foreign Key SQL Generation
 // =============================================================================
 
-impl ForeignKey<'_> {
+impl ForeignKey {
     /// Generate the CONSTRAINT ... FOREIGN KEY clause SQL
     pub fn to_constraint_sql(&self) -> String {
         let from_cols = self
@@ -501,7 +497,7 @@ impl IndexColumnDef {
 // Enum SQL Generation
 // =============================================================================
 
-impl Enum<'_> {
+impl Enum {
     /// Generate CREATE TYPE ... AS ENUM SQL
     pub fn create_enum_sql(&self) -> String {
         let schema_prefix = if self.schema() != "public" {
@@ -770,7 +766,7 @@ impl Table {
 // Primary Key SQL Generation
 // =============================================================================
 
-impl PrimaryKey<'_> {
+impl PrimaryKey {
     /// Generate the PRIMARY KEY constraint clause
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
@@ -818,7 +814,7 @@ impl PrimaryKey<'_> {
 // Unique Constraint SQL Generation
 // =============================================================================
 
-impl UniqueConstraint<'_> {
+impl UniqueConstraint {
     /// Generate the UNIQUE constraint clause
     pub fn to_constraint_sql(&self) -> String {
         let cols = self

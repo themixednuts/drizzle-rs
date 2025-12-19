@@ -69,7 +69,7 @@ impl PrimaryKeyDef {
 
     /// Convert to runtime [`PrimaryKey`] type
     #[must_use]
-    pub const fn into_primary_key(self) -> PrimaryKey<'static> {
+    pub const fn into_primary_key(self) -> PrimaryKey {
         PrimaryKey {
             schema: Cow::Borrowed(self.schema),
             table: Cow::Borrowed(self.table),
@@ -92,34 +92,35 @@ impl Default for PrimaryKeyDef {
 
 /// Runtime primary key constraint entity
 ///
-/// The lifetime parameter allows this type to work with both static (const) data
-/// and owned (runtime) data.
+/// Uses `Cow<'static, str>` for all string fields, which works with both:
+/// - Borrowed data from const definitions (`Cow::Borrowed`)
+/// - Owned data from deserialization/introspection (`Cow::Owned`)
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PrimaryKey<'a> {
+pub struct PrimaryKey {
     /// Schema name
-    pub schema: Cow<'a, str>,
+    pub schema: Cow<'static, str>,
 
     /// Parent table name
-    pub table: Cow<'a, str>,
+    pub table: Cow<'static, str>,
 
     /// Constraint name
-    pub name: Cow<'a, str>,
+    pub name: Cow<'static, str>,
 
     /// Whether the constraint name was explicitly specified
     pub name_explicit: bool,
 
     /// Columns in the primary key
-    pub columns: Cow<'a, [Cow<'a, str>]>,
+    pub columns: Cow<'static, [Cow<'static, str>]>,
 }
 
-impl<'a> PrimaryKey<'a> {
+impl PrimaryKey {
     /// Create a new primary key
     #[must_use]
     pub fn new(
-        schema: impl Into<Cow<'a, str>>,
-        table: impl Into<Cow<'a, str>>,
-        name: impl Into<Cow<'a, str>>,
-        columns: impl Into<Cow<'a, [Cow<'a, str>]>>,
+        schema: impl Into<Cow<'static, str>>,
+        table: impl Into<Cow<'static, str>>,
+        name: impl Into<Cow<'static, str>>,
+        columns: impl Into<Cow<'static, [Cow<'static, str>]>>,
     ) -> Self {
         Self {
             schema: schema.into(),
@@ -138,7 +139,7 @@ impl<'a> PrimaryKey<'a> {
         table: String,
         name: String,
         columns: Vec<String>,
-    ) -> PrimaryKey<'static> {
+    ) -> PrimaryKey {
         PrimaryKey {
             schema: Cow::Owned(schema),
             table: Cow::Owned(table),
@@ -175,34 +176,15 @@ impl<'a> PrimaryKey<'a> {
         self.name_explicit = true;
         self
     }
-
-    /// Convert to a static lifetime version by converting to owned data
-    #[cfg(feature = "std")]
-    #[must_use]
-    pub fn into_static(self) -> PrimaryKey<'static> {
-        PrimaryKey {
-            schema: Cow::Owned(self.schema.into_owned()),
-            table: Cow::Owned(self.table.into_owned()),
-            name: Cow::Owned(self.name.into_owned()),
-            columns: Cow::Owned(
-                self.columns
-                    .into_owned()
-                    .into_iter()
-                    .map(|c| Cow::Owned(c.into_owned()))
-                    .collect(),
-            ),
-            name_explicit: self.name_explicit,
-        }
-    }
 }
 
-impl Default for PrimaryKey<'static> {
+impl Default for PrimaryKey {
     fn default() -> Self {
         Self::new("public", "", "", &[] as &[Cow<'static, str>])
     }
 }
 
-impl From<PrimaryKeyDef> for PrimaryKey<'static> {
+impl From<PrimaryKeyDef> for PrimaryKey {
     fn from(def: PrimaryKeyDef) -> Self {
         def.into_primary_key()
     }
@@ -217,7 +199,7 @@ mod serde_impl {
     use super::*;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    impl Serialize for PrimaryKey<'_> {
+    impl Serialize for PrimaryKey {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -235,7 +217,7 @@ mod serde_impl {
         }
     }
 
-    impl<'de> Deserialize<'de> for PrimaryKey<'static> {
+    impl<'de> Deserialize<'de> for PrimaryKey {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: Deserializer<'de>,
@@ -294,7 +276,7 @@ mod tests {
         const COLS: &[Cow<'static, str>] = &[Cow::Borrowed("user_id"), Cow::Borrowed("role_id")];
         const DEF: PrimaryKeyDef =
             PrimaryKeyDef::new("public", "user_roles", "pk_user_roles").columns(COLS);
-        const PK: PrimaryKey<'static> = DEF.into_primary_key();
+        const PK: PrimaryKey = DEF.into_primary_key();
 
         assert_eq!(&*PK.name, "pk_user_roles");
         assert_eq!(PK.columns.len(), 2);
