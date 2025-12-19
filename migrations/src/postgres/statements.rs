@@ -376,8 +376,8 @@ impl PostgresGenerator {
         let pk = pk_list.into_iter().next();
 
         RichTable {
-            name: table.name.clone(),
-            schema: table.schema.clone(),
+            name: table.name.to_string(),
+            schema: table.schema.to_string(),
             is_rls_enabled: table.is_rls_enabled,
             columns,
             indexes,
@@ -422,7 +422,7 @@ impl PostgresGenerator {
         match d.diff_type {
             DiffType::Create => match d.right.as_ref()? {
                 PostgresEntity::Schema(s) => Some(JsonStatement::CreateSchema {
-                    name: s.name.clone(),
+                    name: s.name.to_string(),
                 }),
                 PostgresEntity::Enum(e) => Some(JsonStatement::CreateEnum { enum_: e.clone() }),
                 PostgresEntity::Sequence(s) => Some(JsonStatement::CreateSequence {
@@ -452,10 +452,11 @@ impl PostgresGenerator {
                     Some(JsonStatement::CreatePolicy { policy: p.clone() })
                 }
                 PostgresEntity::Table(_) => None, // Handled separately in CreateTable
+                PostgresEntity::Privilege(_) => None, // Privileges not yet tracked
             },
             DiffType::Drop => match d.left.as_ref()? {
                 PostgresEntity::Schema(s) => Some(JsonStatement::DropSchema {
-                    name: s.name.clone(),
+                    name: s.name.to_string(),
                 }),
                 PostgresEntity::Enum(e) => Some(JsonStatement::DropEnum { enum_: e.clone() }),
                 PostgresEntity::Sequence(s) => Some(JsonStatement::DropSequence {
@@ -478,17 +479,18 @@ impl PostgresGenerator {
                     Some(JsonStatement::DropCheck { check: c.clone() })
                 }
                 PostgresEntity::Policy(p) => Some(JsonStatement::DropPolicy { policy: p.clone() }),
+                PostgresEntity::Privilege(_) => None, // Privileges not yet tracked
             },
             DiffType::Alter => {
                 match (d.left.as_ref(), d.right.as_ref()) {
                     (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) => {
                         // Find new values added to the enum
                         let mut diffs = Vec::new();
-                        for val in &new.values {
-                            if !old.values.contains(val) {
+                        for val in new.values.iter() {
+                            if !old.values.iter().any(|v| v == val) {
                                 diffs.push(EnumDiff {
                                     r#type: "added".to_string(),
-                                    value: val.clone(),
+                                    value: val.to_string(),
                                     before_value: None,
                                 });
                             }
@@ -657,19 +659,19 @@ impl PostgresGenerator {
                     String::new()
                 };
                 let mut sql = format!("CREATE SEQUENCE {}\"{}\"", schema_prefix, s.name);
-                if let Some(inc) = s.increment {
+                if let Some(ref inc) = s.increment_by {
                     sql.push_str(&format!(" INCREMENT BY {}", inc));
                 }
-                if let Some(min) = s.min_value {
+                if let Some(ref min) = s.min_value {
                     sql.push_str(&format!(" MINVALUE {}", min));
                 }
-                if let Some(max) = s.max_value {
+                if let Some(ref max) = s.max_value {
                     sql.push_str(&format!(" MAXVALUE {}", max));
                 }
-                if let Some(start) = s.start_with {
+                if let Some(ref start) = s.start_with {
                     sql.push_str(&format!(" START WITH {}", start));
                 }
-                if let Some(cache) = s.cache {
+                if let Some(cache) = s.cache_size {
                     sql.push_str(&format!(" CACHE {}", cache));
                 }
                 if s.cycle.unwrap_or(false) {
@@ -795,7 +797,7 @@ impl PostgresGenerator {
                     .iter()
                     .map(|c| {
                         let val = if c.is_expression {
-                            c.value.clone()
+                            c.value.to_string()
                         } else {
                             format!("\"{}\"", c.value)
                         };
@@ -906,10 +908,10 @@ impl PostgresGenerator {
         }
 
         if let Some(id) = &col.identity {
-            let type_str = if id.type_ == "always" {
-                "ALWAYS"
-            } else {
-                "BY DEFAULT"
+            use super::ddl::IdentityType;
+            let type_str = match id.type_ {
+                IdentityType::Always => "ALWAYS",
+                IdentityType::ByDefault => "BY DEFAULT",
             };
             def.push_str(&format!(" GENERATED {} AS IDENTITY", type_str));
         }

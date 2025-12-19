@@ -166,19 +166,21 @@ pub fn process_columns(
         .map(|c| {
             let key = format!("{}:{}", c.table, c.name);
             let generated = generated_columns.get(&key).map(|g| super::ddl::Generated {
-                expression: g.expression.clone(),
+                expression: g.expression.clone().into(),
                 gen_type: g.gen_type.clone(),
             });
 
             let is_autoincrement = is_auto_increment(&c.sql, &c.name);
 
             Column {
-                table: c.table.clone(),
-                name: c.name.clone(),
-                sql_type: normalize_sql_type(&c.column_type),
+                table: c.table.clone().into(),
+                name: c.name.clone().into(),
+                sql_type: normalize_sql_type(&c.column_type).into(),
                 not_null: c.not_null,
                 autoincrement: if is_autoincrement { Some(true) } else { None },
-                default: c.default_value.clone(),
+                primary_key: None, // Handled via PrimaryKey entity
+                unique: None,      // Handled via UniqueConstraint entity
+                default: c.default_value.clone().map(|s| s.into()),
                 generated,
             }
         })
@@ -200,10 +202,10 @@ pub fn process_columns(
         .map(|(table, cols)| {
             let name = super::ddl::name_for_pk(&table);
             PrimaryKey {
-                table,
-                name,
+                table: table.into(),
+                name: name.into(),
                 name_explicit: false,
-                columns: cols,
+                columns: cols.into_iter().map(|c| c.into()).collect(),
             }
         })
         .collect();
@@ -246,18 +248,18 @@ pub fn process_indexes(
                 .filter(|c| c.index_name == idx.name && c.key)
                 .filter_map(|c| {
                     c.name.clone().map(|name| IndexColumn {
-                        value: name,
+                        value: name.into(),
                         is_expression: false,
                     })
                 })
                 .collect();
 
             Index {
-                table: idx.table.clone(),
-                name: idx.name.clone(),
+                table: idx.table.clone().into(),
+                name: idx.name.clone().into(),
                 columns,
                 is_unique: idx.unique,
-                r#where: None,
+                where_clause: None,
                 origin: IndexOrigin::Manual,
             }
         })
@@ -266,6 +268,8 @@ pub fn process_indexes(
 
 /// Process raw foreign key info into ForeignKey entities
 pub fn process_foreign_keys(raw_fks: &[RawForeignKey]) -> Vec<ForeignKey> {
+    use std::borrow::Cow;
+
     // Group by table and id
     let mut grouped: std::collections::HashMap<(String, i32), Vec<&RawForeignKey>> =
         std::collections::HashMap::new();
@@ -283,21 +287,27 @@ pub fn process_foreign_keys(raw_fks: &[RawForeignKey]) -> Vec<ForeignKey> {
             let mut fks = fks;
             fks.sort_by_key(|f| f.seq);
 
-            let columns: Vec<String> = fks.iter().map(|f| f.from_column.clone()).collect();
-            let columns_to: Vec<String> = fks.iter().map(|f| f.to_column.clone()).collect();
+            let columns: Vec<&str> = fks.iter().map(|f| f.from_column.as_str()).collect();
+            let columns_to: Vec<&str> = fks.iter().map(|f| f.to_column.as_str()).collect();
             let first = fks.first().unwrap();
 
             let name = super::ddl::name_for_fk(&table, &columns, &first.to_table, &columns_to);
 
+            // Convert columns to Cow
+            let columns_cow: Vec<Cow<'static, str>> =
+                fks.iter().map(|f| Cow::Owned(f.from_column.clone())).collect();
+            let columns_to_cow: Vec<Cow<'static, str>> =
+                fks.iter().map(|f| Cow::Owned(f.to_column.clone())).collect();
+
             ForeignKey {
-                table,
-                name,
+                table: table.into(),
+                name: name.into(),
                 name_explicit: false,
-                columns,
-                table_to: first.to_table.clone(),
-                columns_to,
-                on_update: Some(first.on_update.clone()),
-                on_delete: Some(first.on_delete.clone()),
+                columns: Cow::Owned(columns_cow),
+                table_to: first.to_table.clone().into(),
+                columns_to: Cow::Owned(columns_to_cow),
+                on_update: Some(first.on_update.clone().into()),
+                on_delete: Some(first.on_delete.clone().into()),
             }
         })
         .collect()
@@ -308,13 +318,17 @@ pub fn process_foreign_keys(raw_fks: &[RawForeignKey]) -> Vec<ForeignKey> {
 /// Note: Primary keys are now extracted directly in process_columns() along with columns
 /// since the raw column info contains pk field
 pub fn create_primary_key(table: &str, pk_columns: Vec<String>) -> PrimaryKey {
+    use std::borrow::Cow;
+
     let name = super::ddl::name_for_pk(table);
+    let columns_cow: Vec<Cow<'static, str>> =
+        pk_columns.into_iter().map(|c| Cow::Owned(c)).collect();
 
     PrimaryKey {
-        table: table.to_string(),
-        name,
+        table: table.to_string().into(),
+        name: name.into(),
         name_explicit: false,
-        columns: pk_columns,
+        columns: Cow::Owned(columns_cow),
     }
 }
 
@@ -325,11 +339,16 @@ pub fn create_unique_constraint(
     columns: Vec<String>,
     name_explicit: bool,
 ) -> UniqueConstraint {
+    use std::borrow::Cow;
+
+    let columns_cow: Vec<Cow<'static, str>> =
+        columns.into_iter().map(|c| Cow::Owned(c)).collect();
+
     UniqueConstraint {
-        table: table.to_string(),
-        name: name.to_string(),
+        table: Cow::Owned(table.to_string()),
+        name: Cow::Owned(name.to_string()),
         name_explicit,
-        columns,
+        columns: Cow::Owned(columns_cow),
     }
 }
 
@@ -338,19 +357,25 @@ pub fn process_unique_constraints_from_parsed(
     table: &str,
     parsed_uniques: &[super::ddl::ParsedUnique],
 ) -> Vec<UniqueConstraint> {
+    use std::borrow::Cow;
+
     parsed_uniques
         .iter()
         .enumerate()
         .map(|(_i, parsed)| {
+            let columns_refs: Vec<&str> = parsed.columns.iter().map(|s| s.as_str()).collect();
             let (name, name_explicit) = match &parsed.name {
                 Some(n) => (n.clone(), true),
-                None => (super::ddl::name_for_unique(table, &parsed.columns), false),
+                None => (super::ddl::name_for_unique(table, &columns_refs), false),
             };
+            let columns_cow: Vec<Cow<'static, str>> =
+                parsed.columns.iter().map(|c| Cow::Owned(c.clone())).collect();
+
             UniqueConstraint {
-                table: table.to_string(),
-                name,
+                table: table.to_string().into(),
+                name: name.into(),
                 name_explicit,
-                columns: parsed.columns.clone(),
+                columns: Cow::Owned(columns_cow),
             }
         })
         .collect()

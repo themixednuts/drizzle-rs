@@ -277,6 +277,7 @@ impl PostgresDDL {
             PostgresEntity::UniqueConstraint(u) => self.uniques.push(u),
             PostgresEntity::CheckConstraint(c) => self.checks.push(c),
             PostgresEntity::View(v) => self.views.push(v),
+            PostgresEntity::Privilege(_) => true // Privileges are not yet tracked in the DDL collection
         };
     }
 
@@ -366,7 +367,7 @@ pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.schemas.list(),
         right.schemas.list(),
-        |e| e.name.clone(),
+        |e| e.name.to_string(),
         |e| PostgresEntity::Schema(e.clone()),
         EntityKind::Schema,
         &mut diffs,
@@ -396,7 +397,7 @@ pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.roles.list(),
         right.roles.list(),
-        |e| e.name.clone(),
+        |e| e.name.to_string(),
         |e| PostgresEntity::Role(e.clone()),
         EntityKind::Role,
         &mut diffs,

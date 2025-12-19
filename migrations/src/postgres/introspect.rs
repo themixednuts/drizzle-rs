@@ -318,8 +318,8 @@ pub fn process_tables(raw_tables: &[RawTableInfo]) -> Vec<Table> {
         .iter()
         .filter(|t| !is_system_namespace(&t.schema))
         .map(|t| Table {
-            schema: t.schema.clone(),
-            name: t.name.clone(),
+            schema: t.schema.clone().into(),
+            name: t.name.clone().into(),
             is_rls_enabled: Some(t.is_rls_enabled),
         })
         .collect()
@@ -327,6 +327,8 @@ pub fn process_tables(raw_tables: &[RawTableInfo]) -> Vec<Table> {
 
 /// Process raw column info into Column entities
 pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
+    use super::ddl::{GeneratedType, IdentityType};
+
     raw_columns
         .iter()
         .filter(|c| !is_system_namespace(&c.schema))
@@ -335,37 +337,44 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                 c.generated_expression
                     .as_ref()
                     .map(|expr| super::ddl::Generated {
-                        expression: expr.clone(),
-                        type_: "stored".to_string(),
+                        expression: expr.clone().into(),
+                        gen_type: GeneratedType::Stored,
                     })
             } else {
                 None
             };
 
             let identity = if c.is_identity {
-                c.identity_type.as_ref().map(|t| super::ddl::Identity {
-                    name: format!("{}_{}_seq", c.table, c.name),
-                    schema: Some(c.schema.clone()),
-                    type_: t.clone(),
-                    increment: None,
-                    min_value: None,
-                    max_value: None,
-                    start_with: None,
-                    cache: None,
-                    cycle: None,
+                c.identity_type.as_ref().map(|t| {
+                    let identity_type = if t.eq_ignore_ascii_case("always") {
+                        IdentityType::Always
+                    } else {
+                        IdentityType::ByDefault
+                    };
+                    super::ddl::Identity {
+                        name: format!("{}_{}_seq", c.table, c.name).into(),
+                        schema: Some(c.schema.clone().into()),
+                        type_: identity_type,
+                        increment: None,
+                        min_value: None,
+                        max_value: None,
+                        start_with: None,
+                        cache: None,
+                        cycle: None,
+                    }
                 })
             } else {
                 None
             };
 
             Column {
-                schema: c.schema.clone(),
-                table: c.table.clone(),
-                name: c.name.clone(),
-                sql_type: c.column_type.clone(),
-                type_schema: c.type_schema.clone(),
+                schema: c.schema.clone().into(),
+                table: c.table.clone().into(),
+                name: c.name.clone().into(),
+                sql_type: c.column_type.clone().into(),
+                type_schema: c.type_schema.clone().map(|s| s.into()),
                 not_null: c.not_null,
-                default: c.default_value.clone(),
+                default: c.default_value.clone().map(|s| s.into()),
                 generated,
                 identity,
                 dimensions: None,
@@ -380,9 +389,9 @@ pub fn process_enums(raw_enums: &[RawEnumInfo]) -> Vec<Enum> {
         .iter()
         .filter(|e| !is_system_namespace(&e.schema))
         .map(|e| Enum {
-            schema: e.schema.clone(),
-            name: e.name.clone(),
-            values: e.values.clone(),
+            schema: e.schema.clone().into(),
+            name: e.name.clone().into(),
+            values: e.values.iter().map(|v| v.clone().into()).collect(),
         })
         .collect()
 }
@@ -393,13 +402,13 @@ pub fn process_sequences(raw_sequences: &[RawSequenceInfo]) -> Vec<Sequence> {
         .iter()
         .filter(|s| !is_system_namespace(&s.schema))
         .map(|s| Sequence {
-            schema: s.schema.clone(),
-            name: s.name.clone(),
-            increment: Some(s.increment.clone()),
-            min_value: Some(s.min_value.clone()),
-            max_value: Some(s.max_value.clone()),
-            start_with: Some(s.start_value.clone()),
-            cache: Some(s.cache_value.clone()),
+            schema: s.schema.clone().into(),
+            name: s.name.clone().into(),
+            increment_by: Some(s.increment.clone().into()),
+            min_value: Some(s.min_value.clone().into()),
+            max_value: Some(s.max_value.clone().into()),
+            start_with: Some(s.start_value.clone().into()),
+            cache_size: s.cache_value.parse().ok(),
             cycle: Some(s.cycle),
         })
         .collect()
@@ -407,6 +416,8 @@ pub fn process_sequences(raw_sequences: &[RawSequenceInfo]) -> Vec<Sequence> {
 
 /// Process raw index info into Index entities
 pub fn process_indexes(raw_indexes: &[RawIndexInfo]) -> Vec<Index> {
+    use super::ddl::Opclass;
+
     raw_indexes
         .iter()
         .filter(|i| !is_system_namespace(&i.schema) && !i.is_primary)
@@ -415,22 +426,23 @@ pub fn process_indexes(raw_indexes: &[RawIndexInfo]) -> Vec<Index> {
                 .columns
                 .iter()
                 .map(|c| IndexColumn {
-                    value: c.name.clone(),
+                    value: c.name.clone().into(),
                     is_expression: c.is_expression,
                     asc: c.asc,
                     nulls_first: c.nulls_first,
-                    opclass: c.opclass.clone(),
+                    opclass: c.opclass.clone().map(|s| Opclass::new(s)),
                 })
                 .collect();
 
             Index {
-                schema: i.schema.clone(),
-                table: i.table.clone(),
-                name: i.name.clone(),
+                schema: i.schema.clone().into(),
+                table: i.table.clone().into(),
+                name: i.name.clone().into(),
+                name_explicit: true,
                 columns,
                 is_unique: i.is_unique,
-                r#where: i.where_clause.clone(),
-                method: Some(i.method.clone()),
+                where_clause: i.where_clause.clone().map(|s| s.into()),
+                method: Some(i.method.clone().into()),
                 concurrently: i.concurrent,
                 r#with: None,
             }
@@ -444,16 +456,16 @@ pub fn process_foreign_keys(raw_fks: &[RawForeignKeyInfo]) -> Vec<ForeignKey> {
         .iter()
         .filter(|f| !is_system_namespace(&f.schema))
         .map(|f| ForeignKey {
-            schema: f.schema.clone(),
-            table: f.table.clone(),
-            name: f.name.clone(),
+            schema: f.schema.clone().into(),
+            table: f.table.clone().into(),
+            name: f.name.clone().into(),
             name_explicit: true,
-            columns: f.columns.clone(),
-            schema_to: f.schema_to.clone(),
-            table_to: f.table_to.clone(),
-            columns_to: f.columns_to.clone(),
-            on_update: Some(f.on_update.clone()),
-            on_delete: Some(f.on_delete.clone()),
+            columns: f.columns.iter().map(|c| c.clone().into()).collect(),
+            schema_to: f.schema_to.clone().into(),
+            table_to: f.table_to.clone().into(),
+            columns_to: f.columns_to.iter().map(|c| c.clone().into()).collect(),
+            on_update: Some(f.on_update.clone().into()),
+            on_delete: Some(f.on_delete.clone().into()),
         })
         .collect()
 }
@@ -464,11 +476,11 @@ pub fn process_primary_keys(raw_pks: &[RawPrimaryKeyInfo]) -> Vec<PrimaryKey> {
         .iter()
         .filter(|p| !is_system_namespace(&p.schema))
         .map(|p| PrimaryKey {
-            schema: p.schema.clone(),
-            table: p.table.clone(),
-            name: p.name.clone(),
+            schema: p.schema.clone().into(),
+            table: p.table.clone().into(),
+            name: p.name.clone().into(),
             name_explicit: true,
-            columns: p.columns.clone(),
+            columns: p.columns.iter().map(|c| c.clone().into()).collect(),
         })
         .collect()
 }
@@ -479,11 +491,11 @@ pub fn process_unique_constraints(raw_uniques: &[RawUniqueInfo]) -> Vec<UniqueCo
         .iter()
         .filter(|u| !is_system_namespace(&u.schema))
         .map(|u| UniqueConstraint {
-            schema: u.schema.clone(),
-            table: u.table.clone(),
-            name: u.name.clone(),
+            schema: u.schema.clone().into(),
+            table: u.table.clone().into(),
+            name: u.name.clone().into(),
             name_explicit: true,
-            columns: u.columns.clone(),
+            columns: u.columns.iter().map(|c| c.clone().into()).collect(),
             nulls_not_distinct: u.nulls_not_distinct,
         })
         .collect()
@@ -495,10 +507,10 @@ pub fn process_check_constraints(raw_checks: &[RawCheckInfo]) -> Vec<CheckConstr
         .iter()
         .filter(|c| !is_system_namespace(&c.schema))
         .map(|c| CheckConstraint {
-            schema: c.schema.clone(),
-            table: c.table.clone(),
-            name: c.name.clone(),
-            value: c.expression.clone(),
+            schema: c.schema.clone().into(),
+            table: c.table.clone().into(),
+            name: c.name.clone().into(),
+            value: c.expression.clone().into(),
         })
         .collect()
 }
@@ -509,9 +521,9 @@ pub fn process_views(raw_views: &[RawViewInfo]) -> Vec<View> {
         .iter()
         .filter(|v| !is_system_namespace(&v.schema))
         .map(|v| View {
-            schema: v.schema.clone(),
-            name: v.name.clone(),
-            definition: Some(v.definition.clone()),
+            schema: v.schema.clone().into(),
+            name: v.name.clone().into(),
+            definition: Some(v.definition.clone().into()),
             materialized: v.is_materialized,
             r#with: None,
             is_existing: false,
@@ -524,18 +536,30 @@ pub fn process_views(raw_views: &[RawViewInfo]) -> Vec<View> {
 
 /// Process raw policy info into Policy entities
 pub fn process_policies(raw_policies: &[RawPolicyInfo]) -> Vec<Policy> {
+    use std::borrow::Cow;
+
     raw_policies
         .iter()
         .filter(|p| !is_system_namespace(&p.schema))
-        .map(|p| Policy {
-            schema: p.schema.clone(),
-            table: p.table.clone(),
-            name: p.name.clone(),
-            as_clause: Some(p.as_clause.clone()),
-            for_clause: Some(p.for_clause.clone()),
-            to: Some(p.to.clone()),
-            using: p.using.clone(),
-            with_check: p.with_check.clone(),
+        .map(|p| {
+            // Convert Vec<String> to Vec<&'static str> by leaking the strings
+            // This is acceptable for migration tooling which runs once
+            let roles: Vec<&'static str> = p
+                .to
+                .iter()
+                .map(|s| Box::leak(s.clone().into_boxed_str()) as &'static str)
+                .collect();
+
+            Policy {
+                schema: p.schema.clone().into(),
+                table: p.table.clone().into(),
+                name: p.name.clone().into(),
+                as_clause: Some(p.as_clause.clone().into()),
+                for_clause: Some(p.for_clause.clone().into()),
+                to: Some(Cow::Owned(roles)),
+                using: p.using.clone().map(|s| s.into()),
+                with_check: p.with_check.clone().map(|s| s.into()),
+            }
         })
         .collect()
 }
@@ -546,10 +570,17 @@ pub fn process_roles(raw_roles: &[RawRoleInfo]) -> Vec<Role> {
         .iter()
         .filter(|r| !is_system_role(&r.name))
         .map(|r| Role {
-            name: r.name.clone(),
+            name: r.name.clone().into(),
+            superuser: None,
             create_db: Some(r.create_db),
             create_role: Some(r.create_role),
             inherit: Some(r.inherit),
+            can_login: None,
+            replication: None,
+            bypass_rls: None,
+            conn_limit: None,
+            password: None,
+            valid_until: None,
         })
         .collect()
 }
@@ -685,12 +716,10 @@ mod tests {
     #[test]
     fn test_introspection_result_to_snapshot() {
         let mut result = IntrospectionResult::default();
-        result.schemas.push(Schema {
-            name: "public".to_string(),
-        });
+        result.schemas.push(Schema::new("public"));
         result.tables.push(Table {
-            schema: "public".to_string(),
-            name: "users".to_string(),
+            schema: "public".into(),
+            name: "users".into(),
             is_rls_enabled: None,
         });
 

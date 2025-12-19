@@ -57,7 +57,7 @@ fn table(name: &str) -> Table {
 }
 
 /// Helper to create a primary key
-fn primary_key(table_name: &str, columns: Vec<&str>) -> PrimaryKey<'static> {
+fn primary_key(table_name: &str, columns: Vec<&str>) -> PrimaryKey {
     let pk_name = format!("{}_pkey", table_name);
     PrimaryKey::from_strings(
         "public".to_string(),
@@ -74,7 +74,7 @@ fn foreign_key(
     columns: Vec<&str>,
     ref_table: &str,
     ref_columns: Vec<&str>,
-) -> ForeignKey<'static> {
+) -> ForeignKey {
     ForeignKey::from_strings(
         "public".to_string(),
         table_name.to_string(),
@@ -124,7 +124,7 @@ fn unique_constraint(
     table_name: &str,
     name: &str,
     columns: Vec<&str>,
-) -> UniqueConstraint<'static> {
+) -> UniqueConstraint {
     UniqueConstraint::from_strings(
         "public".to_string(),
         table_name.to_string(),

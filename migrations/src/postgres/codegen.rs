@@ -73,7 +73,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
     let mut enum_map: HashMap<(String, String), String> = HashMap::new();
     for e in ddl.enums.list() {
         let type_name = e.name.to_pascal_case();
-        enum_map.insert((e.schema.clone(), e.name.clone()), type_name);
+        enum_map.insert((e.schema.to_string(), e.name.to_string()), type_name);
     }
 
     // Generate enum definitions
@@ -81,14 +81,14 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
         let enum_code = generate_enum_struct(e, options.use_pub);
         code.push_str(&enum_code);
         code.push('\n');
-        result.enums.push(e.name.clone());
+        result.enums.push(e.name.to_string());
     }
 
     // Build a map of (schema, table) -> columns
     let mut table_columns: HashMap<(String, String), Vec<&Column>> = HashMap::new();
     for column in ddl.columns.list() {
         table_columns
-            .entry((column.schema.clone(), column.table.clone()))
+            .entry((column.schema.to_string(), column.table.to_string()))
             .or_default()
             .push(column);
     }
@@ -96,11 +96,11 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
     // Build a map of (schema, table) -> primary key columns
     let mut table_pks: HashMap<(String, String), HashSet<String>> = HashMap::new();
     for pk in ddl.pks.list() {
-        for col in &pk.columns {
+        for col in pk.columns.iter() {
             table_pks
-                .entry((pk.schema.clone(), pk.table.clone()))
+                .entry((pk.schema.to_string(), pk.table.to_string()))
                 .or_default()
-                .insert(col.clone());
+                .insert(col.to_string());
         }
     }
 
@@ -109,9 +109,9 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
     for unique in ddl.uniques.list() {
         if unique.columns.len() == 1 {
             table_uniques
-                .entry((unique.schema.clone(), unique.table.clone()))
+                .entry((unique.schema.to_string(), unique.table.to_string()))
                 .or_default()
-                .insert(unique.columns[0].clone());
+                .insert(unique.columns[0].to_string());
         }
     }
 
@@ -120,7 +120,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
     for fk in ddl.fks.list() {
         for (idx, col) in fk.columns.iter().enumerate() {
             fk_map.insert(
-                (fk.schema.clone(), fk.table.clone(), col.clone()),
+                (fk.schema.to_string(), fk.table.to_string(), col.to_string()),
                 (fk, idx),
             );
         }
@@ -128,7 +128,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
 
     // Generate table structs
     for table in ddl.tables.list() {
-        let key = (table.schema.clone(), table.name.clone());
+        let key = (table.schema.to_string(), table.name.to_string());
         let columns = table_columns.get(&key).map(|c| c.as_slice()).unwrap_or(&[]);
         let pk_columns = table_pks.get(&key);
         let unique_columns = table_uniques.get(&key);
@@ -147,7 +147,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
 
         code.push_str(&table_code);
         code.push('\n');
-        result.tables.push(table.name.clone());
+        result.tables.push(table.name.to_string());
     }
 
     // Generate index structs
@@ -155,7 +155,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
         let index_code = generate_index_struct(index, options.use_pub);
         code.push_str(&index_code);
         code.push('\n');
-        result.indexes.push(index.name.clone());
+        result.indexes.push(index.name.to_string());
     }
 
     // Generate schema struct if requested
@@ -230,11 +230,12 @@ fn generate_column_field(
     let field_name = column.name.to_snake_case();
     let vis = if use_pub { "pub " } else { "" };
 
+    let col_name_str = column.name.to_string();
     let is_pk = pk_columns
-        .map(|pks| pks.contains(&column.name))
+        .map(|pks| pks.contains(&col_name_str))
         .unwrap_or(false);
     let is_unique = unique_columns
-        .map(|uqs| uqs.contains(&column.name))
+        .map(|uqs| uqs.contains(&col_name_str))
         .unwrap_or(false);
 
     // For single-column PKs, add primary. For composite, skip (handled at table level)
@@ -250,14 +251,14 @@ fn generate_column_field(
 
     // Get FK info if present
     let fk_info = fk_map.get(&(
-        column.schema.clone(),
-        column.table.clone(),
-        column.name.clone(),
+        column.schema.to_string(),
+        column.table.to_string(),
+        col_name_str.clone(),
     ));
 
     // Check if this column uses an enum type
     let type_schema = column.type_schema.as_deref().unwrap_or(&column.schema);
-    let enum_type = enum_map.get(&(type_schema.to_string(), column.sql_type.clone()));
+    let enum_type = enum_map.get(&(type_schema.to_string(), column.sql_type.to_string()));
 
     // Build column attributes
     let mut attrs = Vec::new();
@@ -270,10 +271,10 @@ fn generate_column_field(
     // For GENERATED IDENTITY columns, use identity(always) or identity(by_default)
     // with optional sequence options
     if let Some(identity) = &column.identity {
-        let identity_type = if identity.type_.eq_ignore_ascii_case("always") {
-            "always"
-        } else {
-            "by_default"
+        use super::ddl::IdentityType;
+        let identity_type = match identity.type_ {
+            IdentityType::Always => "always",
+            IdentityType::ByDefault => "by_default",
         };
 
         // Build sequence options if any are non-default
@@ -329,10 +330,9 @@ fn generate_column_field(
 
     // Add generated column attribute for GENERATED AS columns
     if let Some(generated) = &column.generated {
-        let gen_type = if generated.type_.eq_ignore_ascii_case("virtual") {
-            "virtual"
-        } else {
-            "stored"
+        use super::ddl::GeneratedType;
+        let gen_type = match generated.gen_type {
+            GeneratedType::Stored => "stored",
         };
         // Escape quotes in expression
         let expr = generated.expression.replace('"', "\\\"");

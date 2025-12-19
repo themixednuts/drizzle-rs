@@ -7,6 +7,30 @@ pub use drizzle_types::sqlite::ddl::*;
 // Parsing Types - Used during introspection to parse CREATE TABLE statements
 // =============================================================================
 
+/// Parsed table options from CREATE TABLE SQL
+#[derive(Debug, Clone, Default)]
+pub struct ParsedTable {
+    /// Whether the table has STRICT mode enabled
+    pub strict: bool,
+    /// Whether the table is WITHOUT ROWID
+    pub without_rowid: bool,
+    /// Unique constraints parsed from the DDL
+    pub uniques: Vec<ParsedUnique>,
+}
+
+/// Parse table options from CREATE TABLE SQL
+///
+/// This is a simple parser that extracts basic table options.
+/// For full constraint parsing, use the more complete introspection methods.
+pub fn parse_table_ddl(sql: &str) -> ParsedTable {
+    let sql_upper = sql.to_uppercase();
+    ParsedTable {
+        strict: sql_upper.contains(" STRICT"),
+        without_rowid: sql_upper.contains("WITHOUT ROWID"),
+        uniques: Vec::new(), // Unique constraints are parsed separately via pragma
+    }
+}
+
 /// Parsed generated column information from CREATE TABLE SQL
 #[derive(Debug, Clone)]
 pub struct ParsedGenerated {

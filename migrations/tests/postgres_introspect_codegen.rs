@@ -215,7 +215,7 @@ fn test_generate_postgres_schema() {
 
     // Verify basic structure
     assert!(
-        generated.code.contains("use drizzle::prelude::*;"),
+        generated.code.contains("use drizzle::postgres::prelude::*;"),
         "Should have postgres import"
     );
     assert!(generated.tables.contains(&"users".into()));

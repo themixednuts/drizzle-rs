@@ -121,14 +121,12 @@ mod tests {
     fn test_add_entity() {
         let mut snapshot = PostgresSnapshot::new();
 
-        let schema = Schema {
-            name: "public".to_string(),
-        };
+        let schema = Schema::new("public");
         snapshot.add_entity(PostgresEntity::Schema(schema));
 
         let table = Table {
-            schema: "public".to_string(),
-            name: "users".to_string(),
+            schema: "public".into(),
+            name: "users".into(),
             is_rls_enabled: None,
         };
         snapshot.add_entity(PostgresEntity::Table(table));

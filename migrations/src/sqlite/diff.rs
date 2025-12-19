@@ -204,7 +204,7 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
         if col_diff.diff_type == DiffType::Create {
             if let Some(SqliteEntity::Column(col)) = &col_diff.right {
                 // Skip columns for newly created tables
-                if !created_table_names.contains(&col.table) {
+                if !created_table_names.contains(col.table.as_ref()) {
                     // Find associated FK if any
                     let fk = cur
                         .fks
@@ -265,7 +265,7 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
         if col_diff.diff_type == DiffType::Drop {
             if let Some(SqliteEntity::Column(col)) = &col_diff.left {
                 // Skip columns for dropped tables
-                if !dropped_table_names.contains(&col.table) {
+                if !dropped_table_names.contains(col.table.as_ref()) {
                     statements.push(JsonStatement::DropColumn(DropColumnStatement {
                         column: col.clone(),
                     }));
@@ -375,10 +375,7 @@ pub fn prepare_migration_renames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sqlite::{
-        SqliteEntity,
-        ddl::{Column, Table},
-    };
+    use crate::sqlite::ddl::{Column, SqliteEntity, Table};
 
     #[test]
     fn test_empty_diff() {

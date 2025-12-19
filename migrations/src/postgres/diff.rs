@@ -215,9 +215,7 @@ mod tests {
     #[test]
     fn test_schema_creation() {
         let prev = Vec::new();
-        let cur = vec![PostgresEntity::Schema(Schema {
-            name: "myschema".to_string(),
-        })];
+        let cur = vec![PostgresEntity::Schema(Schema::new("myschema"))];
 
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes());
@@ -228,19 +226,17 @@ mod tests {
     fn test_table_creation() {
         let prev = Vec::new();
         let cur = vec![
-            PostgresEntity::Schema(Schema {
-                name: "public".to_string(),
-            }),
+            PostgresEntity::Schema(Schema::new("public")),
             PostgresEntity::Table(Table {
-                schema: "public".to_string(),
-                name: "users".to_string(),
+                schema: "public".into(),
+                name: "users".into(),
                 is_rls_enabled: None,
             }),
             PostgresEntity::Column(Column {
-                schema: "public".to_string(),
-                table: "users".to_string(),
-                name: "id".to_string(),
-                sql_type: "integer".to_string(),
+                schema: "public".into(),
+                table: "users".into(),
+                name: "id".into(),
+                sql_type: "integer".into(),
                 type_schema: None,
                 not_null: true,
                 default: None,

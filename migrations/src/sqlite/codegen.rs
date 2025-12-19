@@ -5,7 +5,8 @@
 //! that is the current recommended style.
 
 use super::collection::SQLiteDDL;
-use super::ddl::{Column, ForeignKey, Index, SqlTypeCategory, Table};
+use super::ddl::{Column, ForeignKey, Index, Table};
+use drizzle_types::sqlite::SqlTypeCategory;
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
@@ -70,7 +71,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
     let mut table_columns: HashMap<String, Vec<&Column>> = HashMap::new();
     for column in ddl.columns.list() {
         table_columns
-            .entry(column.table.clone())
+            .entry(column.table.to_string())
             .or_default()
             .push(column);
     }
@@ -78,11 +79,11 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
     // Build a map of table name -> primary key columns
     let mut table_pks: HashMap<String, HashSet<String>> = HashMap::new();
     for pk in ddl.pks.list() {
-        for col in &pk.columns {
+        for col in pk.columns.iter() {
             table_pks
-                .entry(pk.table.clone())
+                .entry(pk.table.to_string())
                 .or_default()
-                .insert(col.clone());
+                .insert(col.to_string());
         }
     }
 
@@ -91,9 +92,9 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
     for unique in ddl.uniques.list() {
         if unique.columns.len() == 1 {
             table_uniques
-                .entry(unique.table.clone())
+                .entry(unique.table.to_string())
                 .or_default()
-                .insert(unique.columns[0].clone());
+                .insert(unique.columns[0].to_string());
         }
     }
 
@@ -101,18 +102,19 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
     let mut fk_map: HashMap<(String, String), (&ForeignKey, usize)> = HashMap::new();
     for fk in ddl.fks.list() {
         for (idx, col) in fk.columns.iter().enumerate() {
-            fk_map.insert((fk.table.clone(), col.clone()), (fk, idx));
+            fk_map.insert((fk.table.to_string(), col.to_string()), (fk, idx));
         }
     }
 
     // Generate table structs
     for table in ddl.tables.list() {
+        let table_name = table.name.to_string();
         let columns = table_columns
-            .get(&table.name)
+            .get(&table_name)
             .map(|c| c.as_slice())
             .unwrap_or(&[]);
-        let pk_columns = table_pks.get(&table.name);
-        let unique_columns = table_uniques.get(&table.name);
+        let pk_columns = table_pks.get(&table_name);
+        let unique_columns = table_uniques.get(&table_name);
         let is_composite_pk = pk_columns.map(|pks| pks.len() > 1).unwrap_or(false);
 
         let table_code = generate_table_struct(
@@ -127,7 +129,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
 
         code.push_str(&table_code);
         code.push('\n');
-        result.tables.push(table.name.clone());
+        result.tables.push(table_name);
     }
 
     // Generate index structs
@@ -135,7 +137,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         let index_code = generate_index_struct(index, options.use_pub);
         code.push_str(&index_code);
         code.push('\n');
-        result.indexes.push(index.name.clone());
+        result.indexes.push(index.name.to_string());
     }
 
     // Generate schema struct if requested
@@ -224,9 +226,10 @@ fn generate_column_field(
 
     // Determine column attributes
     let mut attrs = Vec::new();
+    let column_name = column.name.to_string();
 
     // Check if primary key
-    let is_pk = pk_columns.is_some_and(|pks| pks.contains(&column.name));
+    let is_pk = pk_columns.is_some_and(|pks| pks.contains(&column_name));
 
     // Only add primary if it's a single-column PK (not composite)
     if is_pk && !is_composite_pk {
@@ -239,7 +242,7 @@ fn generate_column_field(
     }
 
     // Check unique (only for single-column constraints)
-    let is_unique = unique_columns.is_some_and(|uniques| uniques.contains(&column.name));
+    let is_unique = unique_columns.is_some_and(|uniques| uniques.contains(&column_name));
     if is_unique {
         attrs.push("unique".to_string());
     }
@@ -254,7 +257,7 @@ fn generate_column_field(
     }
 
     // Check foreign key
-    if let Some((fk, idx)) = fk_map.get(&(column.table.clone(), column.name.clone())) {
+    if let Some((fk, idx)) = fk_map.get(&(column.table.to_string(), column_name.clone())) {
         if let Some(ref_col) = fk.columns_to.get(*idx) {
             let ref_table_struct = fk.table_to.to_pascal_case();
             attrs.push(format!("references = {}::{}", ref_table_struct, ref_col));
@@ -442,8 +445,11 @@ mod tests {
         ddl.columns
             .push(Column::new("users", "name", "text").not_null());
         ddl.columns.push(Column::new("users", "email", "text"));
-        ddl.pks
-            .push(PrimaryKey::new("users", "users_pk", vec!["id".to_string()]));
+        ddl.pks.push(PrimaryKey::from_strings(
+            "users".to_string(),
+            "users_pk".to_string(),
+            vec!["id".to_string()],
+        ));
 
         let options = CodegenOptions {
             include_schema: false,
@@ -471,9 +477,9 @@ mod tests {
             .push(Column::new("accounts", "id", "integer").not_null());
         ddl.columns
             .push(Column::new("accounts", "email", "text").not_null());
-        ddl.uniques.push(UniqueConstraint::new(
-            "accounts",
-            "accounts_email_unique",
+        ddl.uniques.push(UniqueConstraint::from_strings(
+            "accounts".to_string(),
+            "accounts_email_unique".to_string(),
             vec!["email".to_string()],
         ));
 
@@ -492,11 +498,11 @@ mod tests {
         ddl.columns
             .push(Column::new("posts", "author_id", "integer").not_null());
 
-        let fk = ForeignKey::new(
-            "posts",
-            "fk_posts_author",
+        let fk = ForeignKey::from_strings(
+            "posts".to_string(),
+            "fk_posts_author".to_string(),
             vec!["author_id".to_string()],
-            "users",
+            "users".to_string(),
             vec!["id".to_string()],
         );
         ddl.fks.push(fk);
@@ -519,7 +525,7 @@ mod tests {
                 "users",
                 "users_email_idx",
                 vec![IndexColumn {
-                    value: "email".to_string(),
+                    value: "email".into(),
                     is_expression: false,
                 }],
             )

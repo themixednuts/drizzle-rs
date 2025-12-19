@@ -504,10 +504,10 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
 
     // 2. Create new table with temp name
     let mut tmp_table = st.to.clone();
-    tmp_table.name = new_table_name.clone();
+    tmp_table.name = new_table_name.clone().into();
     // Update check constraint table references
     for check in &mut tmp_table.checks {
-        check.table = new_table_name.clone();
+        check.table = new_table_name.clone().into();
     }
     statements.push(convert_create_table(&CreateTableStatement {
         table: tmp_table,
@@ -543,7 +543,7 @@ fn convert_create_index(st: &CreateIndexStatement) -> String {
         .iter()
         .map(|c| {
             if c.is_expression {
-                c.value.clone()
+                c.value.to_string()
             } else {
                 format!("`{}`", c.value)
             }
@@ -552,7 +552,7 @@ fn convert_create_index(st: &CreateIndexStatement) -> String {
         .join(",");
 
     let where_clause = index
-        .r#where
+        .where_clause
         .as_ref()
         .map(|w| format!(" WHERE {}", w))
         .unwrap_or_default();
@@ -568,10 +568,11 @@ fn convert_drop_index(st: &DropIndexStatement) -> String {
 }
 
 fn convert_create_view(st: &CreateViewStatement) -> String {
+    let default_def = std::borrow::Cow::Borrowed("");
     format!(
         "CREATE VIEW `{}` AS {};",
         st.view.name,
-        st.view.definition.as_ref().unwrap_or(&String::new())
+        st.view.definition.as_ref().unwrap_or(&default_def)
     )
 }
 
@@ -580,12 +581,13 @@ fn convert_drop_view(st: &DropViewStatement) -> String {
 }
 
 fn convert_rename_view(st: &RenameViewStatement) -> String {
+    let default_def = std::borrow::Cow::Borrowed("");
     // SQLite doesn't support RENAME VIEW, so we drop and recreate
     format!(
         "DROP VIEW IF EXISTS `{}`;\nCREATE VIEW `{}` AS {};",
         st.from.name,
         st.to.name,
-        st.to.definition.as_ref().unwrap_or(&String::new())
+        st.to.definition.as_ref().unwrap_or(&default_def)
     )
 }
 
@@ -754,7 +756,7 @@ impl SqliteGenerator {
                         .collect();
 
                     let table_full = TableFull {
-                        name: table.name.clone(),
+                        name: table.name.to_string(),
                         columns: columns_for_table,
                         pk,
                         fks,
@@ -871,12 +873,11 @@ mod tests {
         let table = TableFull {
             name: "users".to_string(),
             columns: vec![Column::new("users", "id", "integer")],
-            pk: Some(PrimaryKey {
-                name: "users_pk".to_string(),
-                table: "users".to_string(),
-                columns: vec!["id".to_string()],
-                name_explicit: false,
-            }),
+            pk: Some(PrimaryKey::from_strings(
+                "users".to_string(),
+                "users_pk".to_string(),
+                vec!["id".to_string()],
+            )),
             fks: Vec::new(),
             uniques: Vec::new(),
             checks: Vec::new(),
@@ -909,7 +910,7 @@ mod tests {
             "users",
             "idx_users_email",
             vec![IndexColumn {
-                value: "email".to_string(),
+                value: "email".into(),
                 is_expression: false,
             }],
         )

@@ -358,7 +358,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.tables.list(),
         right.tables.list(),
-        |t| t.name.clone(),
+        |t| t.name.to_string(),
         |t| SqliteEntity::Table(t.clone()),
         EntityKind::Table,
         &mut diffs,
@@ -378,7 +378,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.indexes.list(),
         right.indexes.list(),
-        |i| i.name.clone(),
+        |i| i.name.to_string(),
         |i| SqliteEntity::Index(i.clone()),
         EntityKind::Index,
         &mut diffs,
@@ -388,7 +388,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.fks.list(),
         right.fks.list(),
-        |f| f.name.clone(),
+        |f| f.name.to_string(),
         |f| SqliteEntity::ForeignKey(f.clone()),
         EntityKind::ForeignKey,
         &mut diffs,
@@ -398,7 +398,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.pks.list(),
         right.pks.list(),
-        |p| p.table.clone(),
+        |p| p.table.to_string(),
         |p| SqliteEntity::PrimaryKey(p.clone()),
         EntityKind::PrimaryKey,
         &mut diffs,
@@ -408,7 +408,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.uniques.list(),
         right.uniques.list(),
-        |u| u.name.clone(),
+        |u| u.name.to_string(),
         |u| SqliteEntity::UniqueConstraint(u.clone()),
         EntityKind::UniqueConstraint,
         &mut diffs,
@@ -418,7 +418,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.checks.list(),
         right.checks.list(),
-        |c| c.name.clone(),
+        |c| c.name.to_string(),
         |c| SqliteEntity::CheckConstraint(c.clone()),
         EntityKind::CheckConstraint,
         &mut diffs,
@@ -428,7 +428,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     diff_entity_type(
         left.views.list(),
         right.views.list(),
-        |v| v.name.clone(),
+        |v| v.name.to_string(),
         |v| SqliteEntity::View(v.clone()),
         EntityKind::View,
         &mut diffs,
