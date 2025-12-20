@@ -26,6 +26,12 @@ pub struct TableFull {
     pub fks: Vec<ForeignKey>,
     pub uniques: Vec<UniqueConstraint>,
     pub checks: Vec<CheckConstraint>,
+    /// Whether the table has STRICT mode enabled
+    #[serde(default)]
+    pub strict: bool,
+    /// Whether the table is WITHOUT ROWID
+    #[serde(default)]
+    pub without_rowid: bool,
 }
 
 impl TableFull {
@@ -37,6 +43,8 @@ impl TableFull {
             fks: Vec::new(),
             uniques: Vec::new(),
             checks: Vec::new(),
+            strict: false,
+            without_rowid: false,
         }
     }
 }
@@ -385,7 +393,17 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
         ));
     }
 
-    sql.push_str("\n);\n");
+    sql.push_str("\n)");
+
+    // Add table options
+    if table.without_rowid {
+        sql.push_str(" WITHOUT ROWID");
+    }
+    if table.strict {
+        sql.push_str(" STRICT");
+    }
+
+    sql.push_str(";\n");
     sql
 }
 
@@ -623,13 +641,24 @@ use crate::sqlite::collection::{DiffType, EntityDiff};
 use crate::traits::EntityKind;
 use std::collections::{HashMap, HashSet};
 
+/// Result of topological sorting with circular dependency detection
+pub struct TopologicalSortResult<'a> {
+    /// Sorted tables
+    pub tables: Vec<&'a EntityDiff>,
+    /// Whether circular dependencies were detected
+    pub has_circular_deps: bool,
+}
+
 /// Topological sort tables for CREATE: referenced tables come first
 fn topological_sort_tables_for_create<'a>(
     tables: &[&'a EntityDiff],
     diff: &SchemaDiff,
-) -> Vec<&'a EntityDiff> {
+) -> TopologicalSortResult<'a> {
     if tables.len() <= 1 {
-        return tables.to_vec();
+        return TopologicalSortResult {
+            tables: tables.to_vec(),
+            has_circular_deps: false,
+        };
     }
 
     // Build a map of table name -> entity diff
@@ -667,6 +696,7 @@ fn topological_sort_tables_for_create<'a>(
     let mut result = Vec::new();
     let mut remaining: HashSet<String> = table_map.keys().cloned().collect();
     let mut satisfied: HashSet<String> = HashSet::new();
+    let mut has_circular_deps = false;
 
     while !remaining.is_empty() {
         // Find tables whose dependencies are all satisfied
@@ -682,7 +712,8 @@ fn topological_sort_tables_for_create<'a>(
             .collect();
 
         if ready.is_empty() {
-            // Circular dependency - just add remaining in any order
+            // Circular dependency detected - add remaining in any order
+            has_circular_deps = true;
             for t in &remaining {
                 if let Some(entity) = table_map.get(t) {
                     result.push(*entity);
@@ -700,17 +731,23 @@ fn topological_sort_tables_for_create<'a>(
         }
     }
 
-    result
+    TopologicalSortResult {
+        tables: result,
+        has_circular_deps,
+    }
 }
 
 /// Topological sort tables for DROP: tables with FKs come first (reverse of create)
 fn topological_sort_tables_for_drop<'a>(
     tables: &[&'a EntityDiff],
     diff: &SchemaDiff,
-) -> Vec<&'a EntityDiff> {
+) -> TopologicalSortResult<'a> {
     // For drops, reverse the create order: tables that reference others drop first
-    let create_order = topological_sort_tables_for_create(tables, diff);
-    create_order.into_iter().rev().collect()
+    let create_result = topological_sort_tables_for_create(tables, diff);
+    TopologicalSortResult {
+        tables: create_result.tables.into_iter().rev().collect(),
+        has_circular_deps: create_result.has_circular_deps,
+    }
 }
 
 // =============================================================================
@@ -751,19 +788,35 @@ impl SqliteGenerator {
 
         // Process table drops first (in reverse dependency order - tables with FKs first)
         let dropped_tables = diff.dropped_tables();
-        let sorted_drops = topological_sort_tables_for_drop(&dropped_tables, diff);
-        for entity_diff in sorted_drops {
+        let drop_result = topological_sort_tables_for_drop(&dropped_tables, diff);
+        
+        // If there are circular dependencies in drops, wrap with PRAGMA
+        if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
+            statements.push("PRAGMA foreign_keys=OFF;".to_string());
+        }
+        
+        for entity_diff in &drop_result.tables {
             if let Some(name) = entity_diff.name.split(':').next_back() {
                 statements.push(convert_drop_table(&DropTableStatement {
                     table_name: name.to_string(),
                 }));
             }
         }
+        
+        if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
+            statements.push("PRAGMA foreign_keys=ON;".to_string());
+        }
 
         // Process table creates (in dependency order - referenced tables first)
         let created_tables = diff.created_tables();
-        let sorted_creates = topological_sort_tables_for_create(&created_tables, diff);
-        for entity_diff in sorted_creates {
+        let create_result = topological_sort_tables_for_create(&created_tables, diff);
+        
+        // If there are circular dependencies, wrap creates with PRAGMA to allow out-of-order creation
+        if create_result.has_circular_deps && !create_result.tables.is_empty() {
+            statements.push("PRAGMA foreign_keys=OFF;".to_string());
+        }
+        
+        for entity_diff in &create_result.tables {
             if let Some(crate::sqlite::ddl::SqliteEntity::Table(table)) = entity_diff.right.as_ref()
             {
                 // Extract columns for this table
@@ -867,11 +920,18 @@ impl SqliteGenerator {
                     fks,
                     uniques,
                     checks,
+                    strict: table.strict,
+                    without_rowid: table.without_rowid,
                 };
                 statements.push(convert_create_table(&CreateTableStatement {
                     table: table_full,
                 }));
             }
+        }
+        
+        // Re-enable foreign keys if we disabled them for circular dependencies
+        if create_result.has_circular_deps && !create_result.tables.is_empty() {
+            statements.push("PRAGMA foreign_keys=ON;".to_string());
         }
 
         // Process column additions (for existing tables)
@@ -960,6 +1020,8 @@ mod tests {
             fks: Vec::new(),
             uniques: Vec::new(),
             checks: Vec::new(),
+            strict: false,
+            without_rowid: false,
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
@@ -981,6 +1043,8 @@ mod tests {
             fks: Vec::new(),
             uniques: Vec::new(),
             checks: Vec::new(),
+            strict: false,
+            without_rowid: false,
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
@@ -1019,5 +1083,74 @@ mod tests {
         let sql = convert_create_index(&CreateIndexStatement { index });
         assert!(sql.contains("CREATE UNIQUE INDEX"));
         assert!(sql.contains("`idx_users_email`"));
+    }
+
+    #[test]
+    fn test_create_table_strict() {
+        let table = TableFull {
+            name: "data".to_string(),
+            columns: vec![
+                Column::new("data", "id", "integer").not_null(),
+                Column::new("data", "value", "text").not_null(),
+            ],
+            pk: None,
+            fks: Vec::new(),
+            uniques: Vec::new(),
+            checks: Vec::new(),
+            strict: true,
+            without_rowid: false,
+        };
+
+        let sql = convert_create_table(&CreateTableStatement { table });
+        assert!(sql.contains("CREATE TABLE `data`"));
+        assert!(sql.contains(") STRICT;"), "Expected STRICT suffix, got: {}", sql);
+    }
+
+    #[test]
+    fn test_create_table_without_rowid() {
+        let table = TableFull {
+            name: "kv".to_string(),
+            columns: vec![
+                Column::new("kv", "key", "text").not_null(),
+                Column::new("kv", "value", "blob"),
+            ],
+            pk: Some(PrimaryKey::from_strings(
+                "kv".to_string(),
+                "kv_pk".to_string(),
+                vec!["key".to_string()],
+            )),
+            fks: Vec::new(),
+            uniques: Vec::new(),
+            checks: Vec::new(),
+            strict: false,
+            without_rowid: true,
+        };
+
+        let sql = convert_create_table(&CreateTableStatement { table });
+        assert!(sql.contains("WITHOUT ROWID"), "Expected WITHOUT ROWID, got: {}", sql);
+    }
+
+    #[test]
+    fn test_create_table_strict_without_rowid() {
+        let table = TableFull {
+            name: "cache".to_string(),
+            columns: vec![
+                Column::new("cache", "key", "text").not_null(),
+                Column::new("cache", "data", "blob"),
+            ],
+            pk: Some(PrimaryKey::from_strings(
+                "cache".to_string(),
+                "cache_pk".to_string(),
+                vec!["key".to_string()],
+            )),
+            fks: Vec::new(),
+            uniques: Vec::new(),
+            checks: Vec::new(),
+            strict: true,
+            without_rowid: true,
+        };
+
+        let sql = convert_create_table(&CreateTableStatement { table });
+        assert!(sql.contains("WITHOUT ROWID STRICT"), "Expected 'WITHOUT ROWID STRICT', got: {}", sql);
     }
 }

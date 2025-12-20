@@ -567,19 +567,15 @@ fn test_strict_table() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // Note: STRICT may not be rendered by current generator
-    // For now, verify the table is created
     assert!(
         sql[0].contains("CREATE TABLE") && sql[0].contains("`settings`"),
         "Expected CREATE TABLE `settings`, got: {}",
         sql[0]
     );
-    // TODO: Once STRICT support is added, uncomment:
-    // assert!(sql[0].contains("STRICT"), "Expected STRICT option");
+    assert!(sql[0].contains("STRICT"), "Expected STRICT option, got: {}", sql[0]);
 }
 
 /// Test WITHOUT ROWID table option
-/// Note: WITHOUT ROWID table option generation may not be fully implemented yet
 #[test]
 fn test_without_rowid_table() {
     let mut to = SQLiteDDL::default();
@@ -595,13 +591,87 @@ fn test_without_rowid_table() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // Note: WITHOUT ROWID may not be rendered by current generator
-    // For now, verify the table is created
     assert!(
         sql[0].contains("CREATE TABLE") && sql[0].contains("`settings`"),
         "Expected CREATE TABLE `settings`, got: {}",
         sql[0]
     );
-    // TODO: Once WITHOUT ROWID support is added, uncomment:
-    // assert!(sql[0].contains("WITHOUT ROWID"), "Expected WITHOUT ROWID option");
+    assert!(sql[0].contains("WITHOUT ROWID"), "Expected WITHOUT ROWID option, got: {}", sql[0]);
+}
+
+/// Test circular foreign key dependencies generates PRAGMA foreign_keys=OFF/ON
+#[test]
+fn test_circular_fk_dependencies() {
+    let mut to = SQLiteDDL::default();
+
+    // Table A references Table B
+    to.tables.push(TableDef::new("table_a").into_table());
+    to.columns.push(
+        ColumnDef::new("table_a", "id", "integer")
+            .primary_key()
+            .into_column(),
+    );
+    to.columns.push(
+        ColumnDef::new("table_a", "b_id", "integer")
+            .into_column(),
+    );
+
+    // Table B references Table A (circular)
+    to.tables.push(TableDef::new("table_b").into_table());
+    to.columns.push(
+        ColumnDef::new("table_b", "id", "integer")
+            .primary_key()
+            .into_column(),
+    );
+    to.columns.push(
+        ColumnDef::new("table_b", "a_id", "integer")
+            .into_column(),
+    );
+
+    // FK: table_a.b_id -> table_b.id
+    const FK_A_COLS: &[Cow<'static, str>] = &[Cow::Borrowed("b_id")];
+    const FK_A_REFS: &[Cow<'static, str>] = &[Cow::Borrowed("id")];
+    to.fks.push(
+        ForeignKeyDef::new("table_a", "fk_a_to_b")
+            .columns(FK_A_COLS)
+            .references("table_b", FK_A_REFS)
+            .into_foreign_key(),
+    );
+
+    // FK: table_b.a_id -> table_a.id
+    const FK_B_COLS: &[Cow<'static, str>] = &[Cow::Borrowed("a_id")];
+    const FK_B_REFS: &[Cow<'static, str>] = &[Cow::Borrowed("id")];
+    to.fks.push(
+        ForeignKeyDef::new("table_b", "fk_b_to_a")
+            .columns(FK_B_COLS)
+            .references("table_a", FK_B_REFS)
+            .into_foreign_key(),
+    );
+
+    let sql = diff_to_sql(&SQLiteDDL::default(), &to);
+    let all_sql = sql.join("\n");
+
+    // Should have PRAGMA statements wrapping the circular FK tables
+    assert!(
+        all_sql.contains("PRAGMA foreign_keys=OFF"),
+        "Expected PRAGMA foreign_keys=OFF for circular dependencies, got:\n{}",
+        all_sql
+    );
+    assert!(
+        all_sql.contains("PRAGMA foreign_keys=ON"),
+        "Expected PRAGMA foreign_keys=ON after circular dependencies, got:\n{}",
+        all_sql
+    );
+
+    // Both tables should be created
+    assert!(
+        all_sql.contains("CREATE TABLE `table_a`"),
+        "Expected CREATE TABLE `table_a`, got:\n{}",
+        all_sql
+    );
+    assert!(
+        all_sql.contains("CREATE TABLE `table_b`"),
+        "Expected CREATE TABLE `table_b`, got:\n{}",
+        all_sql
+    );
 }
