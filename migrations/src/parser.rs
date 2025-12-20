@@ -8,6 +8,7 @@
 //!
 //! ```rust,ignore
 //! use drizzle_migrations::parser::SchemaParser;
+//! use drizzle_types::Dialect;
 //!
 //! let code = r#"
 //! #[SQLiteTable]
@@ -19,7 +20,7 @@
 //! "#;
 //!
 //! let result = SchemaParser::parse(code);
-//! let users = result.table("Users").unwrap();
+//! let users = result.table("Users", Dialect::SQLite).unwrap();
 //! assert!(users.field("id").unwrap().has_attr("primary"));
 //! ```
 
@@ -306,24 +307,59 @@ impl ParsedField {
 }
 
 impl ParseResult {
-    /// Get a table by name
-    pub fn table(&self, name: &str) -> Option<&ParsedTable> {
-        self.tables.get(name)
+    /// Get a table by name and dialect
+    pub fn table(&self, name: &str, dialect: Dialect) -> Option<&ParsedTable> {
+        let key = format!("{}:{}", dialect_key(dialect), name);
+        self.tables.get(&key)
     }
 
-    /// Get an index by name
-    pub fn index(&self, name: &str) -> Option<&ParsedIndex> {
-        self.indexes.get(name)
+    /// Get an index by name and dialect
+    pub fn index(&self, name: &str, dialect: Dialect) -> Option<&ParsedIndex> {
+        let key = format!("{}:{}", dialect_key(dialect), name);
+        self.indexes.get(&key)
     }
 
-    /// Get all table names
+    /// Get all tables for a specific dialect
+    pub fn tables_for_dialect(&self, dialect: Dialect) -> impl Iterator<Item = &ParsedTable> {
+        let prefix = format!("{}:", dialect_key(dialect));
+        self.tables
+            .iter()
+            .filter(move |(k, _)| k.starts_with(&prefix))
+            .map(|(_, v)| v)
+    }
+
+    /// Get all indexes for a specific dialect
+    pub fn indexes_for_dialect(&self, dialect: Dialect) -> impl Iterator<Item = &ParsedIndex> {
+        let prefix = format!("{}:", dialect_key(dialect));
+        self.indexes
+            .iter()
+            .filter(move |(k, _)| k.starts_with(&prefix))
+            .map(|(_, v)| v)
+    }
+
+    /// Get all table names (without dialect prefix)
     pub fn table_names(&self) -> Vec<&str> {
-        self.tables.keys().map(|s| s.as_str()).collect()
+        self.tables
+            .keys()
+            .filter_map(|s| s.split(':').nth(1))
+            .collect()
     }
 
-    /// Get all index names
+    /// Get all index names (without dialect prefix)
     pub fn index_names(&self) -> Vec<&str> {
-        self.indexes.keys().map(|s| s.as_str()).collect()
+        self.indexes
+            .keys()
+            .filter_map(|s| s.split(':').nth(1))
+            .collect()
+    }
+}
+
+/// Get the key prefix for a dialect
+fn dialect_key(dialect: Dialect) -> &'static str {
+    match dialect {
+        Dialect::SQLite => "sqlite",
+        Dialect::PostgreSQL => "postgres",
+        Dialect::MySQL => "mysql",
     }
 }
 
@@ -616,7 +652,7 @@ struct Users {
 "#;
 
         let result = SchemaParser::parse(code);
-        let users = result.table("Users").unwrap();
+        let users = result.table("Users", Dialect::SQLite).unwrap();
 
         assert_eq!(users.name, "Users");
         assert_eq!(users.attr, "#[SQLiteTable]");
@@ -644,7 +680,7 @@ struct Settings {
 "#;
 
         let result = SchemaParser::parse(code);
-        let settings = result.table("Settings").unwrap();
+        let settings = result.table("Settings", Dialect::SQLite).unwrap();
 
         assert!(settings.has_table_attr("strict"));
         assert!(settings.has_table_attr("without_rowid"));
@@ -662,12 +698,12 @@ struct IdxUsersNameAge(Users::name, Users::age);
 
         let result = SchemaParser::parse(code);
 
-        let email_idx = result.index("IdxUsersEmail").unwrap();
+        let email_idx = result.index("IdxUsersEmail", Dialect::SQLite).unwrap();
         assert!(email_idx.is_unique());
         assert_eq!(email_idx.columns, vec!["Users::email"]);
         assert_eq!(email_idx.table_name(), Some("Users"));
 
-        let name_age_idx = result.index("IdxUsersNameAge").unwrap();
+        let name_age_idx = result.index("IdxUsersNameAge", Dialect::SQLite).unwrap();
         assert!(!name_age_idx.is_unique());
         assert_eq!(name_age_idx.columns, vec!["Users::name", "Users::age"]);
     }
@@ -701,7 +737,7 @@ struct Posts {
 "#;
 
         let result = SchemaParser::parse(code);
-        let posts = result.table("Posts").unwrap();
+        let posts = result.table("Posts", Dialect::SQLite).unwrap();
         let author_id = posts.field("author_id").unwrap();
 
         // Test has_attr (substring matching)
@@ -742,7 +778,7 @@ struct Settings {
 "#;
 
         let result = SchemaParser::parse(code);
-        let settings = result.table("Settings").unwrap();
+        let settings = result.table("Settings", Dialect::SQLite).unwrap();
 
         // id has primary but no default
         let id = settings.field("id").unwrap();
@@ -785,7 +821,7 @@ struct Users {
         let result = SchemaParser::parse(code);
         assert_eq!(result.dialect, Dialect::PostgreSQL);
 
-        let users = result.table("Users").unwrap();
+        let users = result.table("Users", Dialect::PostgreSQL).unwrap();
         assert_eq!(users.name, "Users");
         assert_eq!(users.attr, "#[PostgresTable]");
         assert_eq!(users.dialect, Dialect::PostgreSQL);
@@ -832,7 +868,7 @@ struct IdxUsersEmail(Users::email);
 
         let result = SchemaParser::parse(code);
 
-        let idx = result.index("IdxUsersEmail").unwrap();
+        let idx = result.index("IdxUsersEmail", Dialect::PostgreSQL).unwrap();
         assert_eq!(idx.dialect, Dialect::PostgreSQL);
         assert!(idx.is_unique());
         assert_eq!(idx.columns, vec!["Users::email"]);
@@ -855,5 +891,44 @@ struct Users { id: i32, }
 "#;
         let postgres_result = SchemaParser::parse(postgres_code);
         assert_eq!(postgres_result.dialect, Dialect::PostgreSQL);
+    }
+
+    #[test]
+    fn test_multi_dialect_schema() {
+        // Schema with both SQLite and PostgreSQL tables
+        let code = r#"
+#[SQLiteTable]
+struct User {
+    #[column(primary)]
+    id: i64,
+    name: String,
+}
+
+#[PostgresTable]
+struct User {
+    #[column(primary)]
+    id: i32,
+    name: String,
+    email: String,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+
+        // Both should be accessible via explicit dialect
+        let sqlite_user = result.table("User", Dialect::SQLite).unwrap();
+        assert_eq!(sqlite_user.dialect, Dialect::SQLite);
+        assert_eq!(sqlite_user.fields.len(), 2);
+
+        let postgres_user = result.table("User", Dialect::PostgreSQL).unwrap();
+        assert_eq!(postgres_user.dialect, Dialect::PostgreSQL);
+        assert_eq!(postgres_user.fields.len(), 3);
+
+        // Test tables_for_dialect
+        let sqlite_tables: Vec<_> = result.tables_for_dialect(Dialect::SQLite).collect();
+        assert_eq!(sqlite_tables.len(), 1);
+
+        let postgres_tables: Vec<_> = result.tables_for_dialect(Dialect::PostgreSQL).collect();
+        assert_eq!(postgres_tables.len(), 1);
     }
 }

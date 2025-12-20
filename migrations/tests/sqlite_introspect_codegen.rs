@@ -16,6 +16,7 @@ use drizzle_migrations::{
         },
     },
 };
+use drizzle_types::Dialect;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
@@ -339,7 +340,9 @@ fn verify_generated_code(generated: &GeneratedSchema) {
     );
 
     // === Users table - precise field-level checks ===
-    let users = parsed.table("Users").expect("Should have Users struct");
+    let users = parsed
+        .table("Users", Dialect::SQLite)
+        .expect("Should have Users struct");
     assert_eq!(
         users.attr, "#[SQLiteTable]",
         "Users should have plain SQLiteTable attr"
@@ -429,7 +432,9 @@ fn verify_generated_code(generated: &GeneratedSchema) {
     );
 
     // === Posts table - foreign key check ===
-    let posts = parsed.table("Posts").expect("Should have Posts struct");
+    let posts = parsed
+        .table("Posts", Dialect::SQLite)
+        .expect("Should have Posts struct");
 
     // Posts.author_id: INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
     let author_id_field = posts
@@ -452,7 +457,7 @@ fn verify_generated_code(generated: &GeneratedSchema) {
 
     // === Categories table - self-referencing FK ===
     let categories = parsed
-        .table("Categories")
+        .table("Categories", Dialect::SQLite)
         .expect("Should have Categories struct");
 
     // Categories.parent_id: REFERENCES categories(id) ON DELETE SET NULL
@@ -476,7 +481,7 @@ fn verify_generated_code(generated: &GeneratedSchema) {
 
     // === PostCategories - composite PK table ===
     let post_categories = parsed
-        .table("PostCategories")
+        .table("PostCategories", Dialect::SQLite)
         .expect("Should have PostCategories struct");
 
     // Composite PK columns should NOT have individual primary attributes
@@ -499,7 +504,7 @@ fn verify_generated_code(generated: &GeneratedSchema) {
 
     // === Settings table - various defaults ===
     let settings = parsed
-        .table("Settings")
+        .table("Settings", Dialect::SQLite)
         .expect("Should have Settings struct");
 
     let key_field = settings
@@ -878,7 +883,7 @@ fn test_strict_table() {
     // Parse and verify exact struct attributes
     let parsed = SchemaParser::parse(&generated.code);
     let strict_table = parsed
-        .table("StrictExample")
+        .table("StrictExample", Dialect::SQLite)
         .expect("Should have StrictExample struct");
 
     // Verify the table has strict attribute
@@ -941,7 +946,7 @@ fn test_without_rowid_table() {
     // Parse and verify exact struct attributes
     let parsed = SchemaParser::parse(&generated.code);
     let rowid_table = parsed
-        .table("WithoutRowidExample")
+        .table("WithoutRowidExample", Dialect::SQLite)
         .expect("Should have WithoutRowidExample struct");
 
     // Verify the table has without_rowid attribute
@@ -997,7 +1002,7 @@ fn test_strict_without_rowid_combined() {
     // Parse and verify exact struct attributes
     let parsed = SchemaParser::parse(&generated.code);
     let combo_table = parsed
-        .table("StrictAndRowid")
+        .table("StrictAndRowid", Dialect::SQLite)
         .expect("Should have StrictAndRowid struct");
 
     // Verify the table has BOTH strict and without_rowid attributes
@@ -1094,7 +1099,7 @@ fn test_text_primary_key_nullable() {
     // Parse and verify exact field type
     let parsed = SchemaParser::parse(&generated.code);
     let table = parsed
-        .table("TextPkTable")
+        .table("TextPkTable", Dialect::SQLite)
         .expect("Should have TextPkTable struct");
 
     // TEXT PRIMARY KEY should be Option<String> since SQLite allows NULLs
@@ -1146,7 +1151,7 @@ fn test_integer_primary_key_not_null() {
     // Parse and verify exact field type
     let parsed = SchemaParser::parse(&generated.code);
     let table = parsed
-        .table("IntPkTable")
+        .table("IntPkTable", Dialect::SQLite)
         .expect("Should have IntPkTable struct");
 
     // INTEGER PRIMARY KEY should be i64 (non-optional) since SQLite

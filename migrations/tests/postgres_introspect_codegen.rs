@@ -241,7 +241,9 @@ fn test_parse_generated_postgres_code() {
     );
 
     // Verify Users table
-    let users = parsed.table("Users").expect("Should have Users struct");
+    let users = parsed
+        .table("Users", Dialect::PostgreSQL)
+        .expect("Should have Users struct");
     assert_eq!(users.attr, "#[PostgresTable]");
 
     let id = users.field("id").expect("Users should have id field");
@@ -269,7 +271,9 @@ fn test_postgres_foreign_key_generation() {
 
     let parsed = SchemaParser::parse(&generated.code);
 
-    let posts = parsed.table("Posts").expect("Should have Posts struct");
+    let posts = parsed
+        .table("Posts", Dialect::PostgreSQL)
+        .expect("Should have Posts struct");
 
     let author_id = posts
         .field("author_id")
@@ -306,7 +310,7 @@ fn test_postgres_index_generation() {
 
     // The index name uses to_pascal_case on "idx_posts_title" which produces "IdxPostsTitle"
     let idx = parsed
-        .index("IdxPostsTitle")
+        .index("IdxPostsTitle", Dialect::PostgreSQL)
         .expect("Should have IdxPostsTitle index");
 
     assert!(!idx.is_unique(), "Index should not be unique");
@@ -755,7 +759,7 @@ fn test_generated_column_codegen() {
 
     // Verify table exists
     let table = parsed
-        .table("Products")
+        .table("Products", Dialect::PostgreSQL)
         .expect("Should have Products table");
 
     // Regular columns should be present without generated attribute
@@ -837,7 +841,9 @@ fn test_default_value_codegen() {
     let generated = generate_rust_schema(&ddl, &options);
     let parsed = SchemaParser::parse(&generated.code);
 
-    let settings = parsed.table("Settings").expect("Should have Settings");
+    let settings = parsed
+        .table("Settings", Dialect::PostgreSQL)
+        .expect("Should have Settings");
 
     // Check boolean default
     let enabled = settings.field("enabled").unwrap();
@@ -929,7 +935,7 @@ fn test_identity_column_types() {
     let parsed = SchemaParser::parse(&generated.code);
 
     let table = parsed
-        .table("TestIdentity")
+        .table("TestIdentity", Dialect::PostgreSQL)
         .expect("Should have TestIdentity");
 
     // ALWAYS should generate identity(always)
@@ -997,7 +1003,7 @@ fn test_unique_index_generation() {
     let parsed = SchemaParser::parse(&generated.code);
 
     let idx = parsed
-        .index("IdxItemsCodeUnique")
+        .index("IdxItemsCodeUnique", Dialect::PostgreSQL)
         .expect("Should have unique index");
     assert!(idx.is_unique(), "Index should be unique");
     assert!(

@@ -615,14 +615,115 @@ pub fn prepare_add_columns(columns: &[Column], fks: &[ForeignKey]) -> Vec<AddCol
 }
 
 // =============================================================================
-// Legacy SqliteGenerator (for backwards compat with existing code)
+// Topological Sorting for Table Dependencies
 // =============================================================================
 
 use crate::sqlite::SchemaDiff;
-use crate::sqlite::collection::DiffType;
+use crate::sqlite::collection::{DiffType, EntityDiff};
 use crate::traits::EntityKind;
+use std::collections::{HashMap, HashSet};
 
-/// SQLite SQL generator for v7 DDL format
+/// Topological sort tables for CREATE: referenced tables come first
+fn topological_sort_tables_for_create<'a>(
+    tables: &[&'a EntityDiff],
+    diff: &SchemaDiff,
+) -> Vec<&'a EntityDiff> {
+    if tables.len() <= 1 {
+        return tables.to_vec();
+    }
+
+    // Build a map of table name -> entity diff
+    let mut table_map: HashMap<String, &EntityDiff> = HashMap::new();
+    for t in tables {
+        if let Some(name) = t.name.split(':').next_back() {
+            table_map.insert(name.to_string(), *t);
+        }
+    }
+
+    // Build dependency graph: table -> tables it depends on (via FKs)
+    let mut dependencies: HashMap<String, HashSet<String>> = HashMap::new();
+    for table_name in table_map.keys() {
+        dependencies.insert(table_name.clone(), HashSet::new());
+    }
+
+    // Find FK dependencies
+    for fk_diff in diff.by_kind(EntityKind::ForeignKey) {
+        if fk_diff.diff_type == DiffType::Create
+            && let Some(crate::sqlite::ddl::SqliteEntity::ForeignKey(fk)) = fk_diff.right.as_ref()
+        {
+            let from_table = fk.table.to_string();
+            let to_table = fk.table_to.to_string();
+            // from_table depends on to_table (to_table must be created first)
+            if table_map.contains_key(&from_table)
+                && table_map.contains_key(&to_table)
+                && let Some(deps) = dependencies.get_mut(&from_table)
+            {
+                deps.insert(to_table);
+            }
+        }
+    }
+
+    // Tables with no dependencies come first, then tables that depend on them, etc.
+    let mut result = Vec::new();
+    let mut remaining: HashSet<String> = table_map.keys().cloned().collect();
+    let mut satisfied: HashSet<String> = HashSet::new();
+
+    while !remaining.is_empty() {
+        // Find tables whose dependencies are all satisfied
+        let ready: Vec<String> = remaining
+            .iter()
+            .filter(|t| {
+                dependencies
+                    .get(*t)
+                    .map(|deps| deps.iter().all(|d| satisfied.contains(d)))
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+
+        if ready.is_empty() {
+            // Circular dependency - just add remaining in any order
+            for t in &remaining {
+                if let Some(entity) = table_map.get(t) {
+                    result.push(*entity);
+                }
+            }
+            break;
+        }
+
+        for t in ready {
+            remaining.remove(&t);
+            satisfied.insert(t.clone());
+            if let Some(entity) = table_map.get(&t) {
+                result.push(*entity);
+            }
+        }
+    }
+
+    result
+}
+
+/// Topological sort tables for DROP: tables with FKs come first (reverse of create)
+fn topological_sort_tables_for_drop<'a>(
+    tables: &[&'a EntityDiff],
+    diff: &SchemaDiff,
+) -> Vec<&'a EntityDiff> {
+    // For drops, reverse the create order: tables that reference others drop first
+    let create_order = topological_sort_tables_for_create(tables, diff);
+    create_order.into_iter().rev().collect()
+}
+
+// =============================================================================
+// SQLite SQL Generator
+// =============================================================================
+
+/// SQLite SQL generator for migration diffs
+///
+/// Generates SQL statements from schema diffs with proper ordering:
+/// 1. Table drops (reverse dependency order)
+/// 2. Table creates (dependency order - referenced tables first)
+/// 3. Column additions for existing tables
+/// 4. Index operations
 pub struct SqliteGenerator {
     /// Whether to include statement breakpoints
     pub breakpoints: bool,
@@ -648,8 +749,10 @@ impl SqliteGenerator {
     pub fn generate_migration(&self, diff: &SchemaDiff) -> Vec<String> {
         let mut statements = Vec::new();
 
-        // Process table drops first
-        for entity_diff in diff.dropped_tables() {
+        // Process table drops first (in reverse dependency order - tables with FKs first)
+        let dropped_tables = diff.dropped_tables();
+        let sorted_drops = topological_sort_tables_for_drop(&dropped_tables, diff);
+        for entity_diff in sorted_drops {
             if let Some(name) = entity_diff.name.split(':').next_back() {
                 statements.push(convert_drop_table(&DropTableStatement {
                     table_name: name.to_string(),
@@ -657,8 +760,10 @@ impl SqliteGenerator {
             }
         }
 
-        // Process table creates
-        for entity_diff in diff.created_tables() {
+        // Process table creates (in dependency order - referenced tables first)
+        let created_tables = diff.created_tables();
+        let sorted_creates = topological_sort_tables_for_create(&created_tables, diff);
+        for entity_diff in sorted_creates {
             if let Some(crate::sqlite::ddl::SqliteEntity::Table(table)) = entity_diff.right.as_ref()
             {
                 // Extract columns for this table

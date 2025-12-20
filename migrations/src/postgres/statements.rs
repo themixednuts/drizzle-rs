@@ -7,7 +7,7 @@ use super::ddl::{
 };
 use crate::traits::EntityKind;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
 
@@ -222,11 +222,24 @@ impl PostgresGenerator {
             }
         }
 
-        // 6. Process Table creations (Rich tables)
-        for table_key in &created_tables {
+        // 6. Process Table drops first (in reverse dependency order - tables with FKs first)
+        let sorted_drops = topological_sort_tables_for_drop(&dropped_tables, diff);
+        for table_key in &sorted_drops {
+            if let Some(table_diff) = diff
+                .iter()
+                .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
+                && let Some(stmt) = self.diff_to_statement_with_context(table_diff, diff)
+            {
+                sqls.push(self.statement_to_sql(stmt));
+            }
+        }
+
+        // 7. Process Table creations (Rich tables) in dependency order
+        let sorted_creates = topological_sort_tables_for_create(&created_tables, diff);
+        for table_key in &sorted_creates {
             let table_diff = diff
                 .iter()
-                .find(|d| d.name == *table_key && d.kind == EntityKind::Table)
+                .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
                 .unwrap();
             if let Some(PostgresEntity::Table(table)) = &table_diff.right {
                 let rich_table = self.build_rich_table(table, diff);
@@ -235,7 +248,7 @@ impl PostgresGenerator {
             }
         }
 
-        // 7. Process other entities
+        // 8. Process other entities
         for d in diff {
             // Skip if handled above
             if d.kind == EntityKind::Schema
@@ -245,8 +258,8 @@ impl PostgresGenerator {
                 continue;
             }
 
-            // Skip table create (handled)
-            if d.kind == EntityKind::Table && d.diff_type == DiffType::Create {
+            // Skip table create/drop (already handled with topo sort)
+            if d.kind == EntityKind::Table {
                 continue;
             }
 
@@ -950,4 +963,86 @@ impl PostgresGenerator {
         }
         def
     }
+}
+
+// =============================================================================
+// Topological Sort for Table Dependencies
+// =============================================================================
+
+/// Topological sort tables for CREATE: referenced tables come first
+fn topological_sort_tables_for_create(
+    table_keys: &[String],
+    diff: &[EntityDiff],
+) -> Vec<String> {
+    if table_keys.len() <= 1 {
+        return table_keys.to_vec();
+    }
+
+    // Build a set of table keys for quick lookup
+    let table_set: HashSet<&String> = table_keys.iter().collect();
+
+    // Build dependency graph: table -> tables it depends on (via FKs)
+    let mut dependencies: HashMap<String, HashSet<String>> = HashMap::new();
+    for table_key in table_keys {
+        dependencies.insert(table_key.clone(), HashSet::new());
+    }
+
+    // Find FK dependencies from created FKs
+    for d in diff
+        .iter()
+        .filter(|d| d.kind == EntityKind::ForeignKey && d.diff_type == DiffType::Create)
+    {
+        if let Some(PostgresEntity::ForeignKey(fk)) = &d.right {
+            let from_table = format!("{}.{}", fk.schema, fk.table);
+            let to_table = format!("{}.{}", fk.schema_to, fk.table_to);
+
+            // from_table depends on to_table (to_table must be created first)
+            if table_set.contains(&from_table)
+                && table_set.contains(&to_table)
+                && let Some(deps) = dependencies.get_mut(&from_table)
+            {
+                deps.insert(to_table);
+            }
+        }
+    }
+
+    // Tables with no dependencies come first, then tables that depend on them, etc.
+    let mut result = Vec::new();
+    let mut remaining: HashSet<String> = table_keys.iter().cloned().collect();
+    let mut satisfied: HashSet<String> = HashSet::new();
+
+    while !remaining.is_empty() {
+        // Find tables whose dependencies are all satisfied
+        let ready: Vec<String> = remaining
+            .iter()
+            .filter(|t| {
+                dependencies
+                    .get(*t)
+                    .map(|deps| deps.iter().all(|d| satisfied.contains(d)))
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+
+        if ready.is_empty() {
+            // Circular dependency - just add remaining in any order
+            result.extend(remaining.into_iter());
+            break;
+        }
+
+        for t in ready {
+            remaining.remove(&t);
+            satisfied.insert(t.clone());
+            result.push(t);
+        }
+    }
+
+    result
+}
+
+/// Topological sort tables for DROP: tables with FKs come first (reverse of create)
+fn topological_sort_tables_for_drop(table_keys: &[String], diff: &[EntityDiff]) -> Vec<String> {
+    // For drops, reverse the create order: tables that reference others drop first
+    let create_order = topological_sort_tables_for_create(table_keys, diff);
+    create_order.into_iter().rev().collect()
 }

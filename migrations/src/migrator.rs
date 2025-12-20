@@ -402,15 +402,55 @@ fn compute_hash(sql: &str) -> String {
 /// Split SQL content into individual statements
 fn split_statements(sql: &str) -> Vec<String> {
     if sql.contains("--> statement-breakpoint") {
+        // Use explicit breakpoint markers
         sql.split("--> statement-breakpoint")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect()
     } else {
-        // For SQL without breakpoints, keep as single statement
-        // (more complex splitting would need a proper SQL parser)
-        vec![sql.trim().to_string()]
+        // Fall back to splitting on semicolons
+        // This is a simple approach - a full SQL parser would handle edge cases
+        // like semicolons in strings, but this works for typical DDL statements
+        split_on_semicolons(sql)
     }
+}
+
+/// Split SQL on semicolons, handling basic cases
+fn split_on_semicolons(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut in_string = false;
+    let mut string_char = ' ';
+
+    for ch in sql.chars() {
+        match ch {
+            '\'' | '"' if !in_string => {
+                in_string = true;
+                string_char = ch;
+                current.push(ch);
+            }
+            c if in_string && c == string_char => {
+                in_string = false;
+                current.push(ch);
+            }
+            ';' if !in_string => {
+                let stmt = current.trim().to_string();
+                if !stmt.is_empty() {
+                    statements.push(stmt);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    // Don't forget the last statement (might not end with ;)
+    let stmt = current.trim().to_string();
+    if !stmt.is_empty() {
+        statements.push(stmt);
+    }
+
+    statements
 }
 
 /// Parse timestamp from migration tag (format: YYYYMMDDHHMMSS_name)
