@@ -130,6 +130,11 @@ pub enum JsonStatement {
     DropPolicy {
         policy: Policy,
     },
+    /// Recreate column by dropping and re-adding (for generated columns, type changes, etc.)
+    RecreateColumn {
+        old_column: Column,
+        new_column: Column,
+    },
     // Missing some less common ones for brevity but covering core DDL
 }
 
@@ -517,17 +522,28 @@ impl PostgresGenerator {
                         }
                     }
                     (Some(PostgresEntity::Column(old)), Some(PostgresEntity::Column(new))) => {
-                        // Build a granular diff structure for column alterations
-                        let diff = self.build_column_diff(old, new);
-                        let was_enum = old.type_schema.is_some();
-                        let is_enum = new.type_schema.is_some();
+                        // Check if this requires a column recreation (adding generated expression)
+                        // PostgreSQL doesn't support ALTER COLUMN ... ADD GENERATED AS
+                        let needs_recreate = old.generated.is_none() && new.generated.is_some();
+                        
+                        if needs_recreate {
+                            Some(JsonStatement::RecreateColumn {
+                                old_column: old.clone(),
+                                new_column: new.clone(),
+                            })
+                        } else {
+                            // Build a granular diff structure for column alterations
+                            let diff = self.build_column_diff(old, new);
+                            let was_enum = old.type_schema.is_some();
+                            let is_enum = new.type_schema.is_some();
 
-                        Some(JsonStatement::AlterColumn {
-                            to: new.clone(),
-                            was_enum,
-                            is_enum,
-                            diff,
-                        })
+                            Some(JsonStatement::AlterColumn {
+                                to: new.clone(),
+                                was_enum,
+                                is_enum,
+                                diff,
+                            })
+                        }
                     }
                     _ => None,
                 }
@@ -898,8 +914,277 @@ impl PostgresGenerator {
                 };
                 format!("DROP {}VIEW {}\"{}\";", mat, schema_prefix, view.name)
             }
-            // Implement others as needed
-            _ => format!("-- Unimplemented statement: {:?}", stmt),
+            JsonStatement::RenameTable { schema, from, to } => {
+                let schema_prefix = if schema != "public" {
+                    format!("\"{}\".", schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "ALTER TABLE {}\"{}\" RENAME TO \"{}\";",
+                    schema_prefix, from, to
+                )
+            }
+            JsonStatement::RenameColumn { from, to } => {
+                let schema_prefix = if from.schema != "public" {
+                    format!("\"{}\".", from.schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "ALTER TABLE {}\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
+                    schema_prefix, from.table, from.name, to.name
+                )
+            }
+            JsonStatement::RenameSchema { from, to } => {
+                format!("ALTER SCHEMA \"{}\" RENAME TO \"{}\";", from.name, to.name)
+            }
+            JsonStatement::AlterColumn { to, diff, .. } => {
+                let schema_prefix = if to.schema != "public" {
+                    format!("\"{}\".", to.schema)
+                } else {
+                    String::new()
+                };
+                let table_key = format!("{}\"{}\"", schema_prefix, to.table);
+                let mut stmts = Vec::new();
+
+                // Handle type change
+                if diff.contains_key("type") {
+                    let using_clause = format!(" USING \"{}\"::{}",
+                        to.name,
+                        to.sql_type
+                    );
+                    stmts.push(format!(
+                        "ALTER TABLE {} ALTER COLUMN \"{}\" SET DATA TYPE {}{};",
+                        table_key, to.name, to.sql_type, using_clause
+                    ));
+                }
+
+                // Handle NOT NULL change
+                if diff.contains_key("notNull") {
+                    if to.not_null {
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" SET NOT NULL;",
+                            table_key, to.name
+                        ));
+                    } else {
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP NOT NULL;",
+                            table_key, to.name
+                        ));
+                    }
+                }
+
+                // Handle default change
+                if diff.contains_key("default") {
+                    if let Some(default) = &to.default {
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" SET DEFAULT {};",
+                            table_key, to.name, default
+                        ));
+                    } else {
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP DEFAULT;",
+                            table_key, to.name
+                        ));
+                    }
+                }
+
+                // Handle generated column change (drop expression)
+                if diff.contains_key("generated") {
+                    if to.generated.is_none() {
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP EXPRESSION;",
+                            table_key, to.name
+                        ));
+                    }
+                    // Note: Adding generated column requires drop + add (recreate_column)
+                }
+
+                // Handle identity change
+                if diff.contains_key("identity") {
+                    if let Some(id) = &to.identity {
+                        use super::ddl::IdentityType;
+                        let type_str = match id.type_ {
+                            IdentityType::Always => "ALWAYS",
+                            IdentityType::ByDefault => "BY DEFAULT",
+                        };
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" ADD GENERATED {} AS IDENTITY;",
+                            table_key, to.name, type_str
+                        ));
+                    } else {
+                        stmts.push(format!(
+                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP IDENTITY;",
+                            table_key, to.name
+                        ));
+                    }
+                }
+
+                if stmts.is_empty() {
+                    format!("-- No column changes for {}.{}", to.table, to.name)
+                } else {
+                    stmts.join("\n")
+                }
+            }
+            JsonStatement::AddPk { pk } => {
+                let schema_prefix = if pk.schema != "public" {
+                    format!("\"{}\".", pk.schema)
+                } else {
+                    String::new()
+                };
+                let cols = pk
+                    .columns
+                    .iter()
+                    .map(|c| format!("\"{}\"", c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" PRIMARY KEY ({});",
+                    schema_prefix, pk.table, pk.name, cols
+                )
+            }
+            JsonStatement::DropPk { pk } => {
+                let schema_prefix = if pk.schema != "public" {
+                    format!("\"{}\".", pk.schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
+                    schema_prefix, pk.table, pk.name
+                )
+            }
+            JsonStatement::AddUnique { unique } => {
+                let schema_prefix = if unique.schema != "public" {
+                    format!("\"{}\".", unique.schema)
+                } else {
+                    String::new()
+                };
+                let cols = unique
+                    .columns
+                    .iter()
+                    .map(|c| format!("\"{}\"", c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" UNIQUE ({});",
+                    schema_prefix, unique.table, unique.name, cols
+                )
+            }
+            JsonStatement::DropUnique { unique } => {
+                let schema_prefix = if unique.schema != "public" {
+                    format!("\"{}\".", unique.schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
+                    schema_prefix, unique.table, unique.name
+                )
+            }
+            JsonStatement::AddCheck { check } => {
+                let schema_prefix = if check.schema != "public" {
+                    format!("\"{}\".", check.schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" CHECK ({});",
+                    schema_prefix, check.table, check.name, check.value
+                )
+            }
+            JsonStatement::DropCheck { check } => {
+                let schema_prefix = if check.schema != "public" {
+                    format!("\"{}\".", check.schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
+                    schema_prefix, check.table, check.name
+                )
+            }
+            JsonStatement::CreateRole { role } => {
+                let mut sql = format!("CREATE ROLE \"{}\"", role.name);
+                if role.create_db.unwrap_or(false) {
+                    sql.push_str(" CREATEDB");
+                }
+                if role.create_role.unwrap_or(false) {
+                    sql.push_str(" CREATEROLE");
+                }
+                if role.inherit.unwrap_or(true) {
+                    sql.push_str(" INHERIT");
+                } else {
+                    sql.push_str(" NOINHERIT");
+                }
+                sql.push(';');
+                sql
+            }
+            JsonStatement::DropRole { role } => {
+                format!("DROP ROLE \"{}\";", role.name)
+            }
+            JsonStatement::CreatePolicy { policy } => {
+                let schema_prefix = if policy.schema != "public" {
+                    format!("\"{}\".", policy.schema)
+                } else {
+                    String::new()
+                };
+                let mut sql = format!(
+                    "CREATE POLICY \"{}\" ON {}\"{}\"",
+                    policy.name, schema_prefix, policy.table
+                );
+                if let Some(as_clause) = &policy.as_clause {
+                    sql.push_str(&format!(" AS {}", as_clause));
+                }
+                if let Some(for_clause) = &policy.for_clause {
+                    sql.push_str(&format!(" FOR {}", for_clause));
+                }
+                if let Some(to) = &policy.to {
+                    let to_list: Vec<&str> = to.iter().copied().collect();
+                    sql.push_str(&format!(" TO {}", to_list.join(", ")));
+                }
+                if let Some(using) = &policy.using {
+                    sql.push_str(&format!(" USING ({})", using));
+                }
+                if let Some(with_check) = &policy.with_check {
+                    sql.push_str(&format!(" WITH CHECK ({})", with_check));
+                }
+                sql.push(';');
+                sql
+            }
+            JsonStatement::DropPolicy { policy } => {
+                let schema_prefix = if policy.schema != "public" {
+                    format!("\"{}\".", policy.schema)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "DROP POLICY \"{}\" ON \"{}\"{}\";",
+                    policy.name, schema_prefix, policy.table
+                )
+            }
+            JsonStatement::RecreateColumn { old_column, new_column } => {
+                // Recreate column by dropping and adding
+                // Used for adding generated expressions, which PostgreSQL doesn't support via ALTER
+                let schema_prefix = if new_column.schema != "public" {
+                    format!("\"{}\".", new_column.schema)
+                } else {
+                    String::new()
+                };
+                let table_key = format!("{}\"{}\"", schema_prefix, new_column.table);
+                
+                let drop_sql = format!(
+                    "ALTER TABLE {} DROP COLUMN \"{}\";",
+                    table_key, old_column.name
+                );
+                let add_sql = format!(
+                    "ALTER TABLE {} ADD COLUMN {};",
+                    table_key, self.column_def(&new_column)
+                );
+                
+                format!("{}\n{}", drop_sql, add_sql)
+            }
         }
     }
 

@@ -25,6 +25,7 @@ pub use crate::traits::{Entity, EntityKey, EntityKind};
 
 // Re-export commonly used DDL types at the postgres module level
 pub use ddl::{
-    CheckConstraint, Column, Enum, ForeignKey, Identity, Index, IndexColumn, Policy,
-    PostgresEntity, PrimaryKey, Role, Schema, Sequence, Table, UniqueConstraint, View,
+    CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Identity, Index,
+    IndexColumn, Policy, PostgresEntity, PrimaryKey, Role, Schema, Sequence, Table,
+    UniqueConstraint, View,
 };

@@ -7,7 +7,7 @@
 use drizzle_migrations::postgres::{
     PostgresDDL,
     collection::diff_ddl,
-    ddl::{Column, Enum, ForeignKey, Index, IndexColumn, PrimaryKey, Table, UniqueConstraint},
+    ddl::{Column, Enum, ForeignKey, Index, IndexColumn, PrimaryKey, Table, UniqueConstraint, Generated, GeneratedType},
     statements::PostgresGenerator,
 };
 use std::borrow::Cow;
@@ -666,4 +666,58 @@ fn test_self_referencing_fk() {
 
     assert_eq!(sql.len(), 1);
     assert!(sql[0].contains("REFERENCES \"categories\"(\"id\")"));
+}
+
+// =============================================================================
+// Generated Column Tests
+// =============================================================================
+
+/// Test adding a generated expression to an existing column uses RecreateColumn
+#[test]
+fn test_add_generated_column_expression() {
+    let mut from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    // From: table with a regular column
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.columns.push(column("users", "first_name", "text"));
+    from.columns.push(column("users", "last_name", "text"));
+    from.columns.push(column("users", "full_name", "text")); // Regular column
+    from.pks.push(primary_key("users", vec!["id"]));
+
+    // To: same table but full_name is now a generated column
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.columns.push(column("users", "first_name", "text"));
+    to.columns.push(column("users", "last_name", "text"));
+    
+    // full_name as generated column
+    let mut full_name_col = column("users", "full_name", "text");
+    full_name_col.generated = Some(Generated {
+        expression: Cow::Borrowed("first_name || ' ' || last_name"),
+        gen_type: GeneratedType::Stored,
+    });
+    to.columns.push(full_name_col);
+    to.pks.push(primary_key("users", vec!["id"]));
+
+    let sql = diff_to_sql(&from, &to);
+    let all_sql = sql.join("\n");
+
+    // Should have DROP COLUMN and ADD COLUMN for the recreate
+    assert!(
+        all_sql.contains("DROP COLUMN \"full_name\""),
+        "Expected DROP COLUMN for recreating generated column, got:\n{}",
+        all_sql
+    );
+    assert!(
+        all_sql.contains("ADD COLUMN \"full_name\""),
+        "Expected ADD COLUMN for recreating generated column, got:\n{}",
+        all_sql
+    );
+    assert!(
+        all_sql.contains("GENERATED ALWAYS AS"),
+        "Expected GENERATED ALWAYS AS in the new column definition, got:\n{}",
+        all_sql
+    );
 }
