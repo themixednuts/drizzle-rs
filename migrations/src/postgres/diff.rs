@@ -202,6 +202,7 @@ pub fn prepare_migration_renames(
 mod tests {
     use super::*;
     use crate::postgres::ddl::{Column, Schema, Table};
+    use crate::postgres::collection::PostgresDDL;
 
     #[test]
     fn test_empty_diff() {
@@ -249,5 +250,158 @@ mod tests {
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes());
         assert_eq!(diff.created_tables().len(), 1);
+    }
+
+    #[test]
+    fn test_column_not_null_change_generates_sql() {
+        // Test that changing nullable to not null generates ALTER COLUMN SQL
+        let mut prev_ddl = PostgresDDL::new();
+        prev_ddl.tables.push(Table {
+            schema: "public".into(),
+            name: "users".into(),
+            is_rls_enabled: None,
+        });
+        prev_ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "users".into(),
+            name: "email".into(),
+            sql_type: "text".into(),
+            type_schema: None,
+            not_null: false, // nullable
+            default: None,
+            generated: None,
+            identity: None,
+            dimensions: None,
+        });
+
+        let mut cur_ddl = PostgresDDL::new();
+        cur_ddl.tables.push(Table {
+            schema: "public".into(),
+            name: "users".into(),
+            is_rls_enabled: None,
+        });
+        cur_ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "users".into(),
+            name: "email".into(),
+            sql_type: "text".into(),
+            type_schema: None,
+            not_null: true, // not null
+            default: None,
+            generated: None,
+            identity: None,
+            dimensions: None,
+        });
+
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+
+        // Should have generated SQL statements
+        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
+        
+        // Check the SQL contains SET NOT NULL
+        let sql = migration.sql_statements.join("\n");
+        assert!(sql.contains("SET NOT NULL"), "Should contain SET NOT NULL: {}", sql);
+    }
+
+    #[test]
+    fn test_column_type_change_generates_sql() {
+        // Test that changing column type generates ALTER COLUMN SQL
+        let mut prev_ddl = PostgresDDL::new();
+        prev_ddl.tables.push(Table {
+            schema: "public".into(),
+            name: "users".into(),
+            is_rls_enabled: None,
+        });
+        prev_ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "users".into(),
+            name: "age".into(),
+            sql_type: "text".into(), // text
+            type_schema: None,
+            not_null: false,
+            default: None,
+            generated: None,
+            identity: None,
+            dimensions: None,
+        });
+
+        let mut cur_ddl = PostgresDDL::new();
+        cur_ddl.tables.push(Table {
+            schema: "public".into(),
+            name: "users".into(),
+            is_rls_enabled: None,
+        });
+        cur_ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "users".into(),
+            name: "age".into(),
+            sql_type: "integer".into(), // integer
+            type_schema: None,
+            not_null: false,
+            default: None,
+            generated: None,
+            identity: None,
+            dimensions: None,
+        });
+
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+
+        // Should have generated SQL statements
+        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
+        
+        // Check the SQL contains SET DATA TYPE
+        let sql = migration.sql_statements.join("\n");
+        assert!(sql.contains("SET DATA TYPE"), "Should contain SET DATA TYPE: {}", sql);
+    }
+
+    #[test]
+    fn test_column_default_change_generates_sql() {
+        // Test that changing column default generates ALTER COLUMN SQL
+        let mut prev_ddl = PostgresDDL::new();
+        prev_ddl.tables.push(Table {
+            schema: "public".into(),
+            name: "users".into(),
+            is_rls_enabled: None,
+        });
+        prev_ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "users".into(),
+            name: "status".into(),
+            sql_type: "text".into(),
+            type_schema: None,
+            not_null: false,
+            default: None, // no default
+            generated: None,
+            identity: None,
+            dimensions: None,
+        });
+
+        let mut cur_ddl = PostgresDDL::new();
+        cur_ddl.tables.push(Table {
+            schema: "public".into(),
+            name: "users".into(),
+            is_rls_enabled: None,
+        });
+        cur_ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "users".into(),
+            name: "status".into(),
+            sql_type: "text".into(),
+            type_schema: None,
+            not_null: false,
+            default: Some("'active'".into()), // has default
+            generated: None,
+            identity: None,
+            dimensions: None,
+        });
+
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+
+        // Should have generated SQL statements
+        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
+        
+        // Check the SQL contains SET DEFAULT
+        let sql = migration.sql_statements.join("\n");
+        assert!(sql.contains("SET DEFAULT"), "Should contain SET DEFAULT: {}", sql);
     }
 }
