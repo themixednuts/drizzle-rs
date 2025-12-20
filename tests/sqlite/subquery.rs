@@ -32,9 +32,9 @@ sqlite_test!(test_one_level_subquery, SimpleSchema, {
             .all()
     );
 
-    assert_eq!(results.len(), 2); // Should exclude the minimum (id=1)
-    assert!(results.iter().any(|r| r.name == "bob"));
-    assert!(results.iter().any(|r| r.name == "charlie"));
+    drizzle_assert_eq!(2, results.len()); // Should exclude the minimum (id=1)
+    drizzle_assert!(results.iter().any(|r| r.name == "bob"));
+    drizzle_assert!(results.iter().any(|r| r.name == "charlie"));
 });
 
 // Note: Turso doesn't support nested subqueries in AVG() - turso variant will fail
@@ -49,7 +49,7 @@ sqlite_test!(test_two_level_subquery, SimpleSchema, {
         InsertSimple::new("user4").with_id(4),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test two level subquery: find records where id is greater than the average of ids greater than 1
     let inner_subquery = db.select(simple.id).from(simple).r#where(gt(simple.id, 1));
@@ -58,13 +58,12 @@ sqlite_test!(test_two_level_subquery, SimpleSchema, {
     let results: Vec<SubqueryResult> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
-            .r#where(gt(simple.id, avg_subquery))
-            .all()
+            .r#where(gt(simple.id, avg_subquery)) => all
     );
 
     // Should find records with id > average of (2,3,4) = 3, so only id=4
-    assert!(results.len() >= 1);
-    assert!(results.iter().any(|r| r.name == "user4"));
+    drizzle_assert!(results.len() >= 1);
+    drizzle_assert!(results.iter().any(|r| r.name == "user4"));
 });
 
 sqlite_test!(test_three_level_subquery, SimpleSchema, {
@@ -95,6 +94,6 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
     );
 
     // Average of (30,40,50) = 40, so should return records with id > 40 (just epsilon with id=50)
-    assert!(results.len() >= 1);
-    assert!(results.iter().any(|r| r.name == "epsilon"));
+    drizzle_assert!(results.len() >= 1);
+    drizzle_assert!(results.iter().any(|r| r.name == "epsilon"));
 });

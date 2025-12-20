@@ -348,8 +348,8 @@ sqlite_test!(test_cascade_deletes_children, FkCascadeSchema, {
 
     // Verify child exists
     let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade).all());
-    assert_eq!(children.len(), 1);
-    assert_eq!(children[0].parent_id, Some(parent_id));
+    drizzle_assert_eq!(1, children.len(), "Child should exist after insert");
+    drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
     // Delete parent - should cascade delete child
     drizzle_exec!(
@@ -360,7 +360,7 @@ sqlite_test!(test_cascade_deletes_children, FkCascadeSchema, {
 
     // Verify child was deleted by cascade
     let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade).all());
-    assert_eq!(children.len(), 0, "Child should be deleted by CASCADE");
+    drizzle_assert_eq!(0, children.len(), "Child should be deleted by CASCADE");
 });
 
 sqlite_test!(test_set_null_nullifies_children, FkSetNullSchema, {
@@ -389,8 +389,8 @@ sqlite_test!(test_set_null_nullifies_children, FkSetNullSchema, {
 
     // Verify child exists with parent_id set
     let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null).all());
-    assert_eq!(children.len(), 1);
-    assert_eq!(children[0].parent_id, Some(parent_id));
+    drizzle_assert_eq!(1, children.len());
+    drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
     // Delete parent - should set child's parent_id to NULL
     drizzle_exec!(
@@ -401,9 +401,9 @@ sqlite_test!(test_set_null_nullifies_children, FkSetNullSchema, {
 
     // Verify child still exists but parent_id is NULL
     let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null).all());
-    assert_eq!(children.len(), 1, "Child should still exist");
-    assert_eq!(
-        children[0].parent_id, None,
+    drizzle_assert_eq!(1, children.len(), "Child should still exist");
+    drizzle_assert_eq!(
+        None::<i32>, children[0].parent_id,
         "Parent ID should be NULL after SET NULL"
     );
 });
@@ -446,8 +446,8 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
 
     // Verify child has parent_id = parent_id
     let children: Vec<ChildDefaultResult> = drizzle_exec!(db.select(()).from(fk_set_default).all());
-    assert_eq!(children.len(), 1);
-    assert_eq!(children[0].parent_id, parent_id);
+    drizzle_assert_eq!(1, children.len());
+    drizzle_assert_eq!(parent_id, children[0].parent_id);
 
     // Delete the parent - should set child's parent_id to default (0)
     drizzle_exec!(
@@ -458,9 +458,9 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
 
     // Verify child's parent_id is now the default value (0)
     let children: Vec<ChildDefaultResult> = drizzle_exec!(db.select(()).from(fk_set_default).all());
-    assert_eq!(children.len(), 1, "Child should still exist");
-    assert_eq!(
-        children[0].parent_id, 0,
+    drizzle_assert_eq!(1, children.len(), "Child should still exist");
+    drizzle_assert_eq!(
+        0, children[0].parent_id,
         "Parent ID should be default (0) after SET DEFAULT"
     );
 });
@@ -499,8 +499,8 @@ sqlite_test!(
 
         // Verify child has the parent_id
         let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade).all());
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].parent_id, Some(parent_id));
+        drizzle_assert_eq!(1, children.len());
+        drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
         // Update parent's id to 100 - should cascade update child
         drizzle_exec!(
@@ -512,10 +512,9 @@ sqlite_test!(
 
         // Verify child's parent_id was cascaded to 100
         let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade).all());
-        assert_eq!(children.len(), 1);
-        assert_eq!(
-            children[0].parent_id,
-            Some(100),
+        drizzle_assert_eq!(1, children.len());
+        drizzle_assert_eq!(
+            Some(100), children[0].parent_id,
             "Child's parent_id should be updated by CASCADE"
         );
     }
@@ -551,8 +550,8 @@ sqlite_test!(
         // Verify child has the parent_id
         let children: Vec<ChildResult> =
             drizzle_exec!(db.select(()).from(fk_update_set_null).all());
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].parent_id, Some(parent_id));
+        drizzle_assert_eq!(1, children.len());
+        drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
         // Update parent's id to 100 - should set child's parent_id to NULL
         drizzle_exec!(
@@ -565,9 +564,9 @@ sqlite_test!(
         // Verify child's parent_id is now NULL
         let children: Vec<ChildResult> =
             drizzle_exec!(db.select(()).from(fk_update_set_null).all());
-        assert_eq!(children.len(), 1);
-        assert_eq!(
-            children[0].parent_id, None,
+        drizzle_assert_eq!(1, children.len());
+        drizzle_assert_eq!(
+            None::<i32>, children[0].parent_id,
             "Child's parent_id should be NULL after ON UPDATE SET NULL"
         );
     }
@@ -626,8 +625,8 @@ sqlite_test!(
                 .r#where(eq(fk_both_actions.value, "Child1"))
                 .all()
         );
-        assert_eq!(
-            children[0].parent_id, None,
+        drizzle_assert_eq!(
+            None::<i32>, children[0].parent_id,
             "ON UPDATE SET NULL should nullify parent_id"
         );
 
@@ -645,11 +644,11 @@ sqlite_test!(
                 .r#where(eq(fk_both_actions.value, "Child2"))
                 .all()
         );
-        assert_eq!(children.len(), 0, "ON DELETE CASCADE should delete child2");
+        drizzle_assert_eq!(0, children.len(), "ON DELETE CASCADE should delete child2");
 
         // Child1 should still exist (parent was updated, not deleted)
         let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_both_actions).all());
-        assert_eq!(children.len(), 1, "Child1 should still exist");
+        drizzle_assert_eq!(1, children.len(), "Child1 should still exist");
     }
 );
 
@@ -689,5 +688,5 @@ sqlite_test!(test_foreign_key_impl, ComplexPostSchema, {
             .get()
     );
 
-    assert_eq!(row.author_id, Some(id));
+    drizzle_assert_eq!(Some(id), row.author_id);
 });

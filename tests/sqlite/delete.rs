@@ -105,7 +105,7 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
             .from(complex)
             .all()
     );
-    assert_eq!(initial_results.len(), 2);
+    drizzle_assert_eq!(2, initial_results.len());
 
     // Delete specific record using UUID primary key
     let delete_result = drizzle_exec!(
@@ -113,7 +113,7 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
             .r#where(eq(complex.id, test_id_1))
             .execute()
     );
-    assert_eq!(delete_result, 1);
+    drizzle_assert_eq!(1, delete_result);
 
     // Verify deletion - should only have keep_user left
     let remaining_results: Vec<ComplexResult> = drizzle_exec!(
@@ -122,9 +122,9 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
             .all()
     );
 
-    assert_eq!(remaining_results.len(), 1);
-    assert_eq!(remaining_results[0].name, "keep_user");
-    assert_eq!(remaining_results[0].id, test_id_2);
+    drizzle_assert_eq!(1, remaining_results.len());
+    drizzle_assert_eq!("keep_user", remaining_results[0].name.as_str());
+    drizzle_assert_eq!(test_id_2, remaining_results[0].id);
 
     // Verify specific UUID record is gone
     let deleted_results: Vec<ComplexResult> = drizzle_exec!(
@@ -134,5 +134,5 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
             .all()
     );
 
-    assert_eq!(deleted_results.len(), 0);
+    drizzle_assert_eq!(0, deleted_results.len());
 });
