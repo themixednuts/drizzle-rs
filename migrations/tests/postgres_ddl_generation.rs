@@ -7,7 +7,10 @@
 use drizzle_migrations::postgres::{
     PostgresDDL,
     collection::diff_ddl,
-    ddl::{Column, Enum, ForeignKey, Index, IndexColumn, PrimaryKey, Table, UniqueConstraint, Generated, GeneratedType},
+    ddl::{
+        Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn, PrimaryKey, Table,
+        UniqueConstraint,
+    },
     statements::PostgresGenerator,
 };
 use std::borrow::Cow;
@@ -691,7 +694,7 @@ fn test_add_generated_column_expression() {
     to.columns.push(column_not_null("users", "id", "integer"));
     to.columns.push(column("users", "first_name", "text"));
     to.columns.push(column("users", "last_name", "text"));
-    
+
     // full_name as generated column
     let mut full_name_col = column("users", "full_name", "text");
     full_name_col.generated = Some(Generated {

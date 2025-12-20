@@ -525,7 +525,7 @@ impl PostgresGenerator {
                         // Check if this requires a column recreation (adding generated expression)
                         // PostgreSQL doesn't support ALTER COLUMN ... ADD GENERATED AS
                         let needs_recreate = old.generated.is_none() && new.generated.is_some();
-                        
+
                         if needs_recreate {
                             Some(JsonStatement::RecreateColumn {
                                 old_column: old.clone(),
@@ -950,10 +950,7 @@ impl PostgresGenerator {
 
                 // Handle type change
                 if diff.contains_key("type") {
-                    let using_clause = format!(" USING \"{}\"::{}",
-                        to.name,
-                        to.sql_type
-                    );
+                    let using_clause = format!(" USING \"{}\"::{}", to.name, to.sql_type);
                     stmts.push(format!(
                         "ALTER TABLE {} ALTER COLUMN \"{}\" SET DATA TYPE {}{};",
                         table_key, to.name, to.sql_type, using_clause
@@ -1164,7 +1161,10 @@ impl PostgresGenerator {
                     policy.name, schema_prefix, policy.table
                 )
             }
-            JsonStatement::RecreateColumn { old_column, new_column } => {
+            JsonStatement::RecreateColumn {
+                old_column,
+                new_column,
+            } => {
                 // Recreate column by dropping and adding
                 // Used for adding generated expressions, which PostgreSQL doesn't support via ALTER
                 let schema_prefix = if new_column.schema != "public" {
@@ -1173,16 +1173,17 @@ impl PostgresGenerator {
                     String::new()
                 };
                 let table_key = format!("{}\"{}\"", schema_prefix, new_column.table);
-                
+
                 let drop_sql = format!(
                     "ALTER TABLE {} DROP COLUMN \"{}\";",
                     table_key, old_column.name
                 );
                 let add_sql = format!(
                     "ALTER TABLE {} ADD COLUMN {};",
-                    table_key, self.column_def(&new_column)
+                    table_key,
+                    self.column_def(&new_column)
                 );
-                
+
                 format!("{}\n{}", drop_sql, add_sql)
             }
         }

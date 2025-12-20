@@ -201,8 +201,8 @@ pub fn prepare_migration_renames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::ddl::{Column, Schema, Table};
     use crate::postgres::collection::PostgresDDL;
+    use crate::postgres::ddl::{Column, Schema, Table};
 
     #[test]
     fn test_empty_diff() {
@@ -296,11 +296,18 @@ mod tests {
         let migration = compute_migration(&prev_ddl, &cur_ddl);
 
         // Should have generated SQL statements
-        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
-        
+        assert!(
+            !migration.sql_statements.is_empty(),
+            "Should generate SQL statements"
+        );
+
         // Check the SQL contains SET NOT NULL
         let sql = migration.sql_statements.join("\n");
-        assert!(sql.contains("SET NOT NULL"), "Should contain SET NOT NULL: {}", sql);
+        assert!(
+            sql.contains("SET NOT NULL"),
+            "Should contain SET NOT NULL: {}",
+            sql
+        );
     }
 
     #[test]
@@ -347,11 +354,18 @@ mod tests {
         let migration = compute_migration(&prev_ddl, &cur_ddl);
 
         // Should have generated SQL statements
-        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
-        
+        assert!(
+            !migration.sql_statements.is_empty(),
+            "Should generate SQL statements"
+        );
+
         // Check the SQL contains SET DATA TYPE
         let sql = migration.sql_statements.join("\n");
-        assert!(sql.contains("SET DATA TYPE"), "Should contain SET DATA TYPE: {}", sql);
+        assert!(
+            sql.contains("SET DATA TYPE"),
+            "Should contain SET DATA TYPE: {}",
+            sql
+        );
     }
 
     #[test]
@@ -398,10 +412,17 @@ mod tests {
         let migration = compute_migration(&prev_ddl, &cur_ddl);
 
         // Should have generated SQL statements
-        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
-        
+        assert!(
+            !migration.sql_statements.is_empty(),
+            "Should generate SQL statements"
+        );
+
         // Check the SQL contains SET DEFAULT
         let sql = migration.sql_statements.join("\n");
-        assert!(sql.contains("SET DEFAULT"), "Should contain SET DEFAULT: {}", sql);
+        assert!(
+            sql.contains("SET DEFAULT"),
+            "Should contain SET DEFAULT: {}",
+            sql
+        );
     }
 }

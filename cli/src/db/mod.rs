@@ -9,8 +9,8 @@ use std::path::Path;
 use crate::config::PostgresCreds;
 use crate::config::{Credentials, Dialect};
 use crate::error::CliError;
-use drizzle_migrations::schema::Snapshot;
 use drizzle_migrations::MigrationSet;
+use drizzle_migrations::schema::Snapshot;
 
 /// Result of a migration run
 #[derive(Debug)]
@@ -720,9 +720,9 @@ pub fn run_introspection(
 
     // Update journal
     journal.add_entry(tag.clone(), true); // Default to breakpoints=true for now
-    journal.save(&journal_path).map_err(|e| {
-        CliError::Other(format!("Failed to save journal: {}", e))
-    })?;
+    journal
+        .save(&journal_path)
+        .map_err(|e| CliError::Other(format!("Failed to save journal: {}", e)))?;
 
     Ok(result)
 }
@@ -787,9 +787,7 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
         }
 
         #[cfg(feature = "turso")]
-        Credentials::Turso { url, auth_token } => {
-            introspect_turso(url, auth_token.as_deref())
-        }
+        Credentials::Turso { url, auth_token } => introspect_turso(url, auth_token.as_deref()),
 
         #[cfg(all(not(feature = "turso"), not(feature = "libsql")))]
         Credentials::Turso { .. } => Err(CliError::MissingDriver {
@@ -837,12 +835,12 @@ fn introspect_postgres_dialect(credentials: &Credentials) -> Result<IntrospectRe
 #[cfg(feature = "rusqlite")]
 fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
     use drizzle_migrations::sqlite::{
-        codegen::{generate_rust_schema, CodegenOptions},
-        introspect::{
-            process_columns, process_foreign_keys, process_indexes, queries, RawColumnInfo,
-            RawForeignKey, RawIndexColumn, RawIndexInfo,
-        },
         SQLiteDDL, Table,
+        codegen::{CodegenOptions, generate_rust_schema},
+        introspect::{
+            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, process_columns,
+            process_foreign_keys, process_indexes, queries,
+        },
     };
     use std::collections::{HashMap, HashSet};
 
@@ -1043,12 +1041,12 @@ async fn introspect_libsql_inner(
     _auth_token: Option<&str>,
 ) -> Result<IntrospectResult, CliError> {
     use drizzle_migrations::sqlite::{
-        codegen::{generate_rust_schema, CodegenOptions},
-        introspect::{
-            process_columns, process_foreign_keys, process_indexes, queries, RawColumnInfo,
-            RawForeignKey, RawIndexColumn, RawIndexInfo,
-        },
         SQLiteDDL, Table,
+        codegen::{CodegenOptions, generate_rust_schema},
+        introspect::{
+            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, process_columns,
+            process_foreign_keys, process_indexes, queries,
+        },
     };
     use std::collections::{HashMap, HashSet};
 
@@ -1119,7 +1117,8 @@ async fn introspect_libsql_inner(
                 };
 
                 // Index columns
-                if let Ok(mut col_rows) = conn.query(&queries::index_info_query(&idx.name), ()).await
+                if let Ok(mut col_rows) =
+                    conn.query(&queries::index_info_query(&idx.name), ()).await
                 {
                     while let Ok(Some(col_row)) = col_rows.next().await {
                         all_index_columns.push(RawIndexColumn {
@@ -1139,7 +1138,10 @@ async fn introspect_libsql_inner(
         }
 
         // Foreign keys
-        if let Ok(mut fk_rows) = conn.query(&queries::foreign_keys_query(table_name), ()).await {
+        if let Ok(mut fk_rows) = conn
+            .query(&queries::foreign_keys_query(table_name), ())
+            .await
+        {
             while let Ok(Some(row)) = fk_rows.next().await {
                 all_fks.push(RawForeignKey {
                     table: table_name.clone(),
@@ -1240,12 +1242,12 @@ async fn introspect_turso_inner(
     auth_token: Option<&str>,
 ) -> Result<IntrospectResult, CliError> {
     use drizzle_migrations::sqlite::{
-        codegen::{generate_rust_schema, CodegenOptions},
-        introspect::{
-            process_columns, process_foreign_keys, process_indexes, queries, RawColumnInfo,
-            RawForeignKey, RawIndexColumn, RawIndexInfo,
-        },
         SQLiteDDL, Table,
+        codegen::{CodegenOptions, generate_rust_schema},
+        introspect::{
+            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, process_columns,
+            process_foreign_keys, process_indexes, queries,
+        },
     };
     use std::collections::{HashMap, HashSet};
 
@@ -1316,7 +1318,8 @@ async fn introspect_turso_inner(
                 };
 
                 // Index columns
-                if let Ok(mut col_rows) = conn.query(&queries::index_info_query(&idx.name), ()).await
+                if let Ok(mut col_rows) =
+                    conn.query(&queries::index_info_query(&idx.name), ()).await
                 {
                     while let Ok(Some(col_row)) = col_rows.next().await {
                         all_index_columns.push(RawIndexColumn {
@@ -1336,7 +1339,10 @@ async fn introspect_turso_inner(
         }
 
         // Foreign keys
-        if let Ok(mut fk_rows) = conn.query(&queries::foreign_keys_query(table_name), ()).await {
+        if let Ok(mut fk_rows) = conn
+            .query(&queries::foreign_keys_query(table_name), ())
+            .await
+        {
             while let Ok(Some(row)) = fk_rows.next().await {
                 all_fks.push(RawForeignKey {
                     table: table_name.clone(),

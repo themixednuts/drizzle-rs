@@ -197,7 +197,10 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
 
     // Also check for FK, PK, unique, check constraint changes that require recreation
     for diff in schema_diff.by_kind(EntityKind::ForeignKey) {
-        if diff.diff_type == DiffType::Create || diff.diff_type == DiffType::Drop || diff.diff_type == DiffType::Alter {
+        if diff.diff_type == DiffType::Create
+            || diff.diff_type == DiffType::Drop
+            || diff.diff_type == DiffType::Alter
+        {
             if let Some(table) = &diff.table {
                 if !created_table_names.contains(table) && !dropped_table_names.contains(table) {
                     tables_to_recreate.insert(table.clone());
@@ -217,7 +220,10 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     }
 
     for diff in schema_diff.by_kind(EntityKind::UniqueConstraint) {
-        if diff.diff_type == DiffType::Create || diff.diff_type == DiffType::Drop || diff.diff_type == DiffType::Alter {
+        if diff.diff_type == DiffType::Create
+            || diff.diff_type == DiffType::Drop
+            || diff.diff_type == DiffType::Alter
+        {
             if let Some(table) = &diff.table {
                 if !created_table_names.contains(table) && !dropped_table_names.contains(table) {
                     tables_to_recreate.insert(table.clone());
@@ -227,7 +233,10 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     }
 
     for diff in schema_diff.by_kind(EntityKind::CheckConstraint) {
-        if diff.diff_type == DiffType::Create || diff.diff_type == DiffType::Drop || diff.diff_type == DiffType::Alter {
+        if diff.diff_type == DiffType::Create
+            || diff.diff_type == DiffType::Drop
+            || diff.diff_type == DiffType::Alter
+        {
             if let Some(table) = &diff.table {
                 if !created_table_names.contains(table) && !dropped_table_names.contains(table) {
                     tables_to_recreate.insert(table.clone());
@@ -481,11 +490,13 @@ mod tests {
 
         let mut cur = SQLiteSnapshot::new();
         cur.add_entity(SqliteEntity::Table(Table::new("users")));
-        cur.add_entity(SqliteEntity::Column(Column::new("users", "email", "text").not_null())); // not null
+        cur.add_entity(SqliteEntity::Column(
+            Column::new("users", "email", "text").not_null(),
+        )); // not null
 
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes(), "Should detect nullable change");
-        
+
         // Should be an Alter diff for the column
         let altered = diff.altered();
         assert_eq!(altered.len(), 1, "Should have one altered entity");
@@ -498,7 +509,9 @@ mod tests {
         // Test that changing String to Option<String> (not null to nullable) is detected
         let mut prev = SQLiteSnapshot::new();
         prev.add_entity(SqliteEntity::Table(Table::new("users")));
-        prev.add_entity(SqliteEntity::Column(Column::new("users", "email", "text").not_null())); // not null
+        prev.add_entity(SqliteEntity::Column(
+            Column::new("users", "email", "text").not_null(),
+        )); // not null
 
         let mut cur = SQLiteSnapshot::new();
         cur.add_entity(SqliteEntity::Table(Table::new("users")));
@@ -506,7 +519,7 @@ mod tests {
 
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes(), "Should detect nullable change");
-        
+
         // Should be an Alter diff for the column
         let altered = diff.altered();
         assert_eq!(altered.len(), 1, "Should have one altered entity");
@@ -518,32 +531,51 @@ mod tests {
         // Test that changing nullable to not null generates RecreateTable SQL
         let mut prev_ddl = SQLiteDDL::new();
         prev_ddl.tables.push(Table::new("users"));
-        prev_ddl.columns.push(Column::new("users", "id", "integer").not_null());
+        prev_ddl
+            .columns
+            .push(Column::new("users", "id", "integer").not_null());
         prev_ddl.columns.push(Column::new("users", "email", "text")); // nullable
 
         let mut cur_ddl = SQLiteDDL::new();
         cur_ddl.tables.push(Table::new("users"));
-        cur_ddl.columns.push(Column::new("users", "id", "integer").not_null());
-        cur_ddl.columns.push(Column::new("users", "email", "text").not_null()); // not null
+        cur_ddl
+            .columns
+            .push(Column::new("users", "id", "integer").not_null());
+        cur_ddl
+            .columns
+            .push(Column::new("users", "email", "text").not_null()); // not null
 
         let migration = compute_migration(&prev_ddl, &cur_ddl);
 
         // Should have generated SQL statements
-        assert!(!migration.sql_statements.is_empty(), "Should generate SQL statements");
-        
+        assert!(
+            !migration.sql_statements.is_empty(),
+            "Should generate SQL statements"
+        );
+
         // Should have a RecreateTable statement
-        let has_recreate = migration.statements.iter().any(|s| {
-            matches!(s, JsonStatement::RecreateTable(_))
-        });
-        assert!(has_recreate, "Should have RecreateTable statement for column alteration");
+        let has_recreate = migration
+            .statements
+            .iter()
+            .any(|s| matches!(s, JsonStatement::RecreateTable(_)));
+        assert!(
+            has_recreate,
+            "Should have RecreateTable statement for column alteration"
+        );
 
         // SQL should contain table recreation pattern
         let sql = migration.sql_statements.join("\n");
-        assert!(sql.contains("PRAGMA foreign_keys=OFF"), "Should disable foreign keys");
+        assert!(
+            sql.contains("PRAGMA foreign_keys=OFF"),
+            "Should disable foreign keys"
+        );
         assert!(sql.contains("__new_users"), "Should create temp table");
         assert!(sql.contains("DROP TABLE"), "Should drop old table");
         assert!(sql.contains("RENAME TO"), "Should rename temp table");
-        assert!(sql.contains("NOT NULL"), "New table should have NOT NULL column");
+        assert!(
+            sql.contains("NOT NULL"),
+            "New table should have NOT NULL column"
+        );
     }
 
     #[test]
@@ -560,9 +592,13 @@ mod tests {
         let migration = compute_migration(&prev_ddl, &cur_ddl);
 
         // Should have a RecreateTable statement
-        let has_recreate = migration.statements.iter().any(|s| {
-            matches!(s, JsonStatement::RecreateTable(_))
-        });
-        assert!(has_recreate, "Should have RecreateTable statement for type change");
+        let has_recreate = migration
+            .statements
+            .iter()
+            .any(|s| matches!(s, JsonStatement::RecreateTable(_)));
+        assert!(
+            has_recreate,
+            "Should have RecreateTable statement for type change"
+        );
     }
 }

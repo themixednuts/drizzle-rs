@@ -1489,7 +1489,11 @@ mod tests {
         let underscore_pos = suffix.find('_').expect("suffix should contain underscore");
         let adjective = &suffix[..underscore_pos];
         let hero = &suffix[underscore_pos + 1..];
-        assert!(ADJECTIVES.contains(&adjective), "adjective '{}' not found", adjective);
+        assert!(
+            ADJECTIVES.contains(&adjective),
+            "adjective '{}' not found",
+            adjective
+        );
         assert!(HEROES.contains(&hero), "hero '{}' not found", hero);
     }
 
@@ -1499,14 +1503,21 @@ mod tests {
         // Format: YYYYMMDDHHMMSS_adjective_hero (hero may contain underscores)
         assert!(tag.len() > 14, "tag should be longer than timestamp");
         let timestamp = &tag[0..14];
-        assert!(timestamp.chars().all(|c| c.is_ascii_digit()), "first 14 chars should be digits");
+        assert!(
+            timestamp.chars().all(|c| c.is_ascii_digit()),
+            "first 14 chars should be digits"
+        );
         assert_eq!(&tag[14..15], "_", "underscore after timestamp");
-        
+
         let suffix = &tag[15..];
         let underscore_pos = suffix.find('_').expect("suffix should contain underscore");
         let adjective = &suffix[..underscore_pos];
         let hero = &suffix[underscore_pos + 1..];
-        assert!(ADJECTIVES.contains(&adjective), "adjective '{}' not found", adjective);
+        assert!(
+            ADJECTIVES.contains(&adjective),
+            "adjective '{}' not found",
+            adjective
+        );
         assert!(HEROES.contains(&hero), "hero '{}' not found", hero);
     }
 

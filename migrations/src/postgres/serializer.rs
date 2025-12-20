@@ -229,4 +229,3 @@ mod tests {
         assert_eq!(snapshots.len(), 2);
     }
 }
-

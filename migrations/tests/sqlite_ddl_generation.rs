@@ -572,7 +572,11 @@ fn test_strict_table() {
         "Expected CREATE TABLE `settings`, got: {}",
         sql[0]
     );
-    assert!(sql[0].contains("STRICT"), "Expected STRICT option, got: {}", sql[0]);
+    assert!(
+        sql[0].contains("STRICT"),
+        "Expected STRICT option, got: {}",
+        sql[0]
+    );
 }
 
 /// Test WITHOUT ROWID table option
@@ -596,7 +600,11 @@ fn test_without_rowid_table() {
         "Expected CREATE TABLE `settings`, got: {}",
         sql[0]
     );
-    assert!(sql[0].contains("WITHOUT ROWID"), "Expected WITHOUT ROWID option, got: {}", sql[0]);
+    assert!(
+        sql[0].contains("WITHOUT ROWID"),
+        "Expected WITHOUT ROWID option, got: {}",
+        sql[0]
+    );
 }
 
 /// Test circular foreign key dependencies generates PRAGMA foreign_keys=OFF/ON
@@ -611,10 +619,8 @@ fn test_circular_fk_dependencies() {
             .primary_key()
             .into_column(),
     );
-    to.columns.push(
-        ColumnDef::new("table_a", "b_id", "integer")
-            .into_column(),
-    );
+    to.columns
+        .push(ColumnDef::new("table_a", "b_id", "integer").into_column());
 
     // Table B references Table A (circular)
     to.tables.push(TableDef::new("table_b").into_table());
@@ -623,10 +629,8 @@ fn test_circular_fk_dependencies() {
             .primary_key()
             .into_column(),
     );
-    to.columns.push(
-        ColumnDef::new("table_b", "a_id", "integer")
-            .into_column(),
-    );
+    to.columns
+        .push(ColumnDef::new("table_b", "a_id", "integer").into_column());
 
     // FK: table_a.b_id -> table_b.id
     const FK_A_COLS: &[Cow<'static, str>] = &[Cow::Borrowed("b_id")];

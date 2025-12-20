@@ -23,7 +23,8 @@ fn identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(
         take_while1(|c: char| c.is_alphabetic() || c == '_'),
         take_while(|c: char| c.is_alphanumeric() || c == '_'),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 /// Parse content inside balanced delimiters, handling nesting
@@ -60,7 +61,8 @@ fn parse_attribute(input: &str) -> IResult<&str, &str> {
         take_while1(|c: char| c.is_alphanumeric() || c == '_'),
         opt(delimited(char('('), balanced_content('(', ')'), char(')'))),
         char(']'),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 /// Parse a Rust type (handles generics like Option<String>, Vec<u8>)
@@ -68,7 +70,8 @@ fn parse_type(input: &str) -> IResult<&str, &str> {
     recognize(pair(
         identifier,
         opt(delimited(char('<'), balanced_content('<', '>'), char('>'))),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 // =============================================================================
@@ -276,7 +279,10 @@ pub fn parse_schema_struct(input: &str) -> IResult<&str, ParsedSchema> {
             continue;
         }
         if let Some(colon) = line.find(':') {
-            let name_part = line[..colon].trim().strip_prefix("pub ").unwrap_or(line[..colon].trim());
+            let name_part = line[..colon]
+                .trim()
+                .strip_prefix("pub ")
+                .unwrap_or(line[..colon].trim());
             let type_part = line[colon + 1..].trim();
             members.insert(name_part.to_string(), type_part.to_string());
         }

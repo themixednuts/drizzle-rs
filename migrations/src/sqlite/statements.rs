@@ -789,12 +789,12 @@ impl SqliteGenerator {
         // Process table drops first (in reverse dependency order - tables with FKs first)
         let dropped_tables = diff.dropped_tables();
         let drop_result = topological_sort_tables_for_drop(&dropped_tables, diff);
-        
+
         // If there are circular dependencies in drops, wrap with PRAGMA
         if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
             statements.push("PRAGMA foreign_keys=OFF;".to_string());
         }
-        
+
         for entity_diff in &drop_result.tables {
             if let Some(name) = entity_diff.name.split(':').next_back() {
                 statements.push(convert_drop_table(&DropTableStatement {
@@ -802,7 +802,7 @@ impl SqliteGenerator {
                 }));
             }
         }
-        
+
         if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
             statements.push("PRAGMA foreign_keys=ON;".to_string());
         }
@@ -810,12 +810,12 @@ impl SqliteGenerator {
         // Process table creates (in dependency order - referenced tables first)
         let created_tables = diff.created_tables();
         let create_result = topological_sort_tables_for_create(&created_tables, diff);
-        
+
         // If there are circular dependencies, wrap creates with PRAGMA to allow out-of-order creation
         if create_result.has_circular_deps && !create_result.tables.is_empty() {
             statements.push("PRAGMA foreign_keys=OFF;".to_string());
         }
-        
+
         for entity_diff in &create_result.tables {
             if let Some(crate::sqlite::ddl::SqliteEntity::Table(table)) = entity_diff.right.as_ref()
             {
@@ -928,7 +928,7 @@ impl SqliteGenerator {
                 }));
             }
         }
-        
+
         // Re-enable foreign keys if we disabled them for circular dependencies
         if create_result.has_circular_deps && !create_result.tables.is_empty() {
             statements.push("PRAGMA foreign_keys=ON;".to_string());
@@ -1103,7 +1103,11 @@ mod tests {
 
         let sql = convert_create_table(&CreateTableStatement { table });
         assert!(sql.contains("CREATE TABLE `data`"));
-        assert!(sql.contains(") STRICT;"), "Expected STRICT suffix, got: {}", sql);
+        assert!(
+            sql.contains(") STRICT;"),
+            "Expected STRICT suffix, got: {}",
+            sql
+        );
     }
 
     #[test]
@@ -1127,7 +1131,11 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(sql.contains("WITHOUT ROWID"), "Expected WITHOUT ROWID, got: {}", sql);
+        assert!(
+            sql.contains("WITHOUT ROWID"),
+            "Expected WITHOUT ROWID, got: {}",
+            sql
+        );
     }
 
     #[test]
@@ -1151,6 +1159,10 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(sql.contains("WITHOUT ROWID STRICT"), "Expected 'WITHOUT ROWID STRICT', got: {}", sql);
+        assert!(
+            sql.contains("WITHOUT ROWID STRICT"),
+            "Expected 'WITHOUT ROWID STRICT', got: {}",
+            sql
+        );
     }
 }
