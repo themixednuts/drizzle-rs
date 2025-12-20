@@ -89,6 +89,7 @@ fn generate_rusqlite_test(
 ) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_rusqlite", test_name), test_name.span());
     let test_name_str = test_name.to_string();
+    let driver_name = "rusqlite";
     quote! {
         #[cfg(feature = "rusqlite")]
         mod #test_fn_name {
@@ -97,16 +98,75 @@ fn generate_rusqlite_test(
             fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::rusqlite_setup;
                 let (mut db, schema) = rusqlite_setup::setup_db::<#schema_type>();
-
-                // Debug prints
-                println!("🔧 RUSQLITE Driver: Test {} starting", #test_name_str);
-                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                let __test_name = #test_name_str;
+                let __driver_name = #driver_name;
 
                 // Driver-specific macros for rusqlite
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    ($operation:expr) => { $operation.unwrap() };
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL
+                    ($builder:expr => all) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.all() {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.get() {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => execute) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.execute() {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Old pattern: drizzle_exec!(operation) - uses stringify
+                    ($operation:expr) => {{
+                        let __op_str = stringify!($operation);
+                        match $operation {
+                            Ok(v) => {
+                                db.record(__op_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(__op_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_try {
@@ -119,6 +179,48 @@ fn generate_rusqlite_test(
                     };
                 }
                 #[allow(unused_macros)]
+                macro_rules! drizzle_assert_eq {
+                    ($expected:expr, $actual:expr) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!("assertion failed: `(left == right)`"),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!($($msg)+),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert {
+                    ($cond:expr) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
+                        }
+                    };
+                    ($cond:expr, $($msg:tt)+) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!($($msg)+), None, None);
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_fail {
+                    ($($msg:tt)+) => {
+                        db.fail(__test_name, &format!($($msg)+), None, None);
+                    };
+                }
+                #[allow(unused_macros)]
                 macro_rules! drizzle_catch_unwind {
                     ($operation:expr) => {
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $operation))
@@ -128,7 +230,6 @@ fn generate_rusqlite_test(
 
                 #test_body
 
-                println!("✅ RUSQLITE Driver: Test {} completed", #test_name_str);
                 Ok(())
             }
         }
@@ -138,6 +239,7 @@ fn generate_rusqlite_test(
 fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_libsql", test_name), test_name.span());
     let test_name_str = test_name.to_string();
+    let driver_name = "libsql";
     quote! {
         #[cfg(feature = "libsql")]
         mod #test_fn_name {
@@ -146,16 +248,75 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
             async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::libsql_setup;
                 let (mut db, schema) = libsql_setup::setup_db::<#schema_type>().await;
-
-                // Debug prints
-                println!("🔧 LIBSQL Driver: Test {} starting", #test_name_str);
-                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                let __test_name = #test_name_str;
+                let __driver_name = #driver_name;
 
                 // Driver-specific macros for libsql
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    ($operation:expr) => { $operation.await.unwrap() };
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL
+                    ($builder:expr => all) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.all().await {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.get().await {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => execute) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.execute().await {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Old pattern: drizzle_exec!(operation) - uses stringify
+                    ($operation:expr) => {{
+                        let __op_str = stringify!($operation);
+                        match $operation.await {
+                            Ok(v) => {
+                                db.record(__op_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(__op_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_try {
@@ -165,6 +326,48 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
                         Box::pin(async move $body)
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert_eq {
+                    ($expected:expr, $actual:expr) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!("assertion failed: `(left == right)`"),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!($($msg)+),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert {
+                    ($cond:expr) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
+                        }
+                    };
+                    ($cond:expr, $($msg:tt)+) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!($($msg)+), None, None);
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_fail {
+                    ($($msg:tt)+) => {
+                        db.fail(__test_name, &format!($($msg)+), None, None);
                     };
                 }
                 #[allow(unused_macros)]
@@ -179,7 +382,6 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
 
                 #test_body
 
-                println!("✅ LIBSQL Driver: Test {} completed", #test_name_str);
                 Ok(())
             }
         }
@@ -189,6 +391,7 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
 fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_turso", test_name), test_name.span());
     let test_name_str = test_name.to_string();
+    let driver_name = "turso";
     quote! {
         #[cfg(feature = "turso")]
         mod #test_fn_name {
@@ -197,16 +400,127 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
             async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::turso_setup;
                 let (mut db, schema) = turso_setup::setup_db::<#schema_type>().await;
-
-                // Debug prints
-                println!("🔧 TURSO Driver: Test {} starting", #test_name_str);
-                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                let __test_name = #test_name_str;
+                let __driver_name = #driver_name;
 
                 // Driver-specific macros for turso
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    ($operation:expr) => { $operation.await.unwrap() };
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL
+                    ($builder:expr => all) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.all().await {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.get().await {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => execute) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        match __builder.execute().await {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Old pattern: drizzle_exec!(operation) - uses stringify
+                    ($operation:expr) => {{
+                        let __op_str = stringify!($operation);
+                        match $operation.await {
+                            Ok(v) => {
+                                db.record(__op_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(__op_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                }
+                /// Execute a query with SQL capture: drizzle_sql!(builder, all) or drizzle_sql!(builder, execute)
+                #[allow(unused_macros)]
+                macro_rules! drizzle_sql {
+                    ($builder:expr, all) => {{
+                        use drizzle::core::ToSQL;
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __op = __builder.all().await;
+                        match __op {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, &__sql_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr, get) => {{
+                        use drizzle::core::ToSQL;
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __op = __builder.get().await;
+                        match __op {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, &__sql_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr, execute) => {{
+                        use drizzle::core::ToSQL;
+                        let __builder = $builder;
+                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __op = __builder.execute().await;
+                        match __op {
+                            Ok(v) => {
+                                db.record(&__sql_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, &__sql_str);
+                            }
+                        }
+                    }};
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_try {
@@ -216,6 +530,48 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
                         Box::pin(async move $body)
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert_eq {
+                    ($expected:expr, $actual:expr) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!("assertion failed: `(left == right)`"),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!($($msg)+),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert {
+                    ($cond:expr) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
+                        }
+                    };
+                    ($cond:expr, $($msg:tt)+) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!($($msg)+), None, None);
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_fail {
+                    ($($msg:tt)+) => {
+                        db.fail(__test_name, &format!($($msg)+), None, None);
                     };
                 }
                 #[allow(unused_macros)]
@@ -230,7 +586,6 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
 
                 #test_body
 
-                println!("✅ TURSO Driver: Test {} completed", #test_name_str);
                 Ok(())
             }
         }
@@ -244,6 +599,7 @@ fn generate_postgres_sync_test(
 ) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_postgres_sync", test_name), test_name.span());
     let test_name_str = test_name.to_string();
+    let driver_name = "postgres-sync";
     quote! {
         #[cfg(feature = "postgres-sync")]
         mod #test_fn_name {
@@ -252,16 +608,26 @@ fn generate_postgres_sync_test(
             fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::postgres_sync_setup;
                 let (mut db, schema) = postgres_sync_setup::setup_db::<#schema_type>();
-
-                // Debug prints
-                println!("🔧 POSTGRES-SYNC Driver: Test {} starting", #test_name_str);
-                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                let __test_name = #test_name_str;
+                let __driver_name = #driver_name;
 
                 // Driver-specific macros for postgres-sync
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    ($operation:expr) => { $operation.unwrap() };
+                    ($operation:expr) => {{
+                        let __op_str = stringify!($operation);
+                        let __op = $operation;
+                        match __op {
+                            Ok(v) => {
+                                db.record(__op_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(__op_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_try {
@@ -271,6 +637,48 @@ fn generate_postgres_sync_test(
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
                         $body
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert_eq {
+                    ($expected:expr, $actual:expr) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!("assertion failed: `(left == right)`"),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!($($msg)+),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert {
+                    ($cond:expr) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
+                        }
+                    };
+                    ($cond:expr, $($msg:tt)+) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!($($msg)+), None, None);
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_fail {
+                    ($($msg:tt)+) => {
+                        db.fail(__test_name, &format!($($msg)+), None, None);
                     };
                 }
                 #[allow(unused_macros)]
@@ -287,7 +695,6 @@ fn generate_postgres_sync_test(
 
                 #test_body
 
-                println!("✅ POSTGRES-SYNC Driver: Test {} completed", #test_name_str);
                 Ok(())
             }
         }
@@ -301,6 +708,7 @@ fn generate_tokio_postgres_test(
 ) -> TokenStream2 {
     let test_fn_name = syn::Ident::new(&format!("{}_tokio_postgres", test_name), test_name.span());
     let test_name_str = test_name.to_string();
+    let driver_name = "tokio-postgres";
     quote! {
         #[cfg(feature = "tokio-postgres")]
         mod #test_fn_name {
@@ -309,16 +717,26 @@ fn generate_tokio_postgres_test(
             async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::tokio_postgres_setup;
                 let (mut db, schema) = tokio_postgres_setup::setup_db::<#schema_type>().await;
-
-                // Debug prints
-                println!("🔧 TOKIO-POSTGRES Driver: Test {} starting", #test_name_str);
-                println!("   DB type: {:?}", std::any::type_name_of_val(&db));
-                println!("   Schema type: {:?}", std::any::type_name_of_val(&schema));
+                let __test_name = #test_name_str;
+                let __driver_name = #driver_name;
 
                 // Driver-specific macros for tokio-postgres
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    ($operation:expr) => { $operation.await.unwrap() };
+                    ($operation:expr) => {{
+                        let __op_str = stringify!($operation);
+                        let __op = $operation.await;
+                        match __op {
+                            Ok(v) => {
+                                db.record(__op_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record(__op_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_try {
@@ -328,6 +746,48 @@ fn generate_tokio_postgres_test(
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
                         Box::pin(async move $body)
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert_eq {
+                    ($expected:expr, $actual:expr) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!("assertion failed: `(left == right)`"),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
+                        if $expected != $actual {
+                            db.fail(
+                                __test_name,
+                                &format!($($msg)+),
+                                Some(&format!("{:#?}", $expected)),
+                                Some(&format!("{:#?}", $actual)),
+                            );
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_assert {
+                    ($cond:expr) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
+                        }
+                    };
+                    ($cond:expr, $($msg:tt)+) => {
+                        if !$cond {
+                            db.fail(__test_name, &format!($($msg)+), None, None);
+                        }
+                    };
+                }
+                #[allow(unused_macros)]
+                macro_rules! drizzle_fail {
+                    ($($msg:tt)+) => {
+                        db.fail(__test_name, &format!($($msg)+), None, None);
                     };
                 }
                 #[allow(unused_macros)]
@@ -346,7 +806,6 @@ fn generate_tokio_postgres_test(
 
                 #test_body
 
-                println!("✅ TOKIO-POSTGRES Driver: Test {} completed", #test_name_str);
                 Ok(())
             }
         }
