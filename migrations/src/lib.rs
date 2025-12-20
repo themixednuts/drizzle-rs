@@ -80,6 +80,8 @@ pub mod writer;
 // Core migration types
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{Migration, MigrationSet, MigratorError};
+pub use words::PrefixMode;
+pub use writer::{MigrationError, MigrationWriter};
 
 // Version constants
 pub use version::{

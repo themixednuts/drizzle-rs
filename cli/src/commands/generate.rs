@@ -99,12 +99,8 @@ pub fn run(
         sql_statements.len()
     );
 
-    // Write migration files
-    let next_idx = load_next_migration_index(&journal_path);
-    let migration_tag = match name {
-        Some(custom_name) => format!("{:04}_{}", next_idx, custom_name),
-        None => generate_migration_tag(next_idx),
-    };
+    // Write migration files (V3 format: timestamp-based tags)
+    let migration_tag = generate_migration_tag(name.as_deref());
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -149,14 +145,15 @@ fn generate_custom_migration(
     name: Option<String>,
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
+    use drizzle_migrations::words::generate_migration_tag;
 
     let out_dir = db.migrations_dir();
     let journal_path = db.journal_path();
     let dialect = db.dialect.to_base();
 
-    let next_idx = load_next_migration_index(&journal_path);
-    let migration_name = name.unwrap_or_else(|| "custom".to_string());
-    let migration_tag = format!("{:04}_{}", next_idx, migration_name);
+    // V3 format: timestamp-based tags
+    let custom_name = name.unwrap_or_else(|| "custom".to_string());
+    let migration_tag = generate_migration_tag(Some(&custom_name));
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -241,13 +238,4 @@ fn generate_diff(
         }
         _ => Err(CliError::DialectMismatch),
     }
-}
-
-/// Load the next migration index from journal
-fn load_next_migration_index(journal_path: &Path) -> u32 {
-    use drizzle_migrations::journal::Journal;
-
-    Journal::load(journal_path)
-        .map(|j| j.entries.len() as u32)
-        .unwrap_or(0)
 }

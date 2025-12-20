@@ -16,8 +16,8 @@
 //! use drizzle_types::Dialect;
 //!
 //! const MIGRATIONS: &[Migration] = &[
-//!     Migration::new("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
-//!     Migration::new("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
+//!     Migration::new("20231220143052_init", include_str!("../drizzle/20231220143052_init/migration.sql")),
+//!     Migration::new("20231221093015_users", include_str!("../drizzle/20231221093015_users/migration.sql")),
 //! ];
 //!
 //! async fn run_migrations(db: &Database) -> Result<(), MigratorError> {
@@ -45,7 +45,11 @@
 //! ```ignore
 //! use drizzle_migrations::MigrationSet;
 //!
+//! // V3 format (folder-based, recommended)
 //! let set = MigrationSet::from_dir("./drizzle", Dialect::SQLite)?;
+//!
+//! // Legacy format (journal-based)
+//! let set = MigrationSet::from_dir_legacy("./drizzle", Dialect::SQLite)?;
 //! ```
 
 use drizzle_types::Dialect;
@@ -57,7 +61,9 @@ use std::path::Path;
 /// The `hash` field is used to track which migrations have been applied.
 #[derive(Debug, Clone)]
 pub struct Migration {
-    /// Unique hash identifying this migration (typically SHA-256 of the SQL)
+    /// Migration tag (folder name)
+    tag: String,
+    /// Unique hash identifying this migration (computed from SQL content)
     hash: String,
     /// Timestamp or folder millis for ordering
     created_at: i64,
@@ -76,6 +82,7 @@ impl Migration {
         let statements = split_statements(sql);
 
         Self {
+            tag: tag.to_string(),
             hash,
             created_at,
             sql: statements,
@@ -83,12 +90,24 @@ impl Migration {
     }
 
     /// Create a migration with explicit hash and timestamp
-    pub fn with_hash(hash: impl Into<String>, created_at: i64, sql: Vec<String>) -> Self {
+    pub fn with_hash(
+        tag: impl Into<String>,
+        hash: impl Into<String>,
+        created_at: i64,
+        sql: Vec<String>,
+    ) -> Self {
         Self {
+            tag: tag.into(),
             hash: hash.into(),
             created_at,
             sql,
         }
+    }
+
+    /// Get the migration tag (folder name)
+    #[inline]
+    pub fn tag(&self) -> &str {
+        &self.tag
     }
 
     /// Get the migration hash (used for tracking)
@@ -160,11 +179,37 @@ impl MigrationSet {
         self
     }
 
-    /// Load migrations from a filesystem directory
+    /// Load migrations from a filesystem directory (V3 folder-based format)
     ///
-    /// Reads the journal and migration files from disk.
-    /// Uses the new folder structure: `{migrations_dir}/{tag}/migration.sql`
+    /// V3 format discovers migrations by scanning for folders containing `snapshot.json`.
+    /// Each migration folder contains:
+    /// - `migration.sql` - the SQL statements
+    /// - `snapshot.json` - the schema snapshot
+    ///
+    /// Folders are sorted alphabetically (timestamp prefix ensures correct order).
     pub fn from_dir(dir: impl AsRef<Path>, dialect: Dialect) -> Result<Self, MigratorError> {
+        let dir = dir.as_ref();
+
+        if !dir.exists() {
+            return Ok(Self::empty(dialect));
+        }
+
+        // First try V3 format (folder-based)
+        let v3_migrations = discover_v3_migrations(dir)?;
+        if !v3_migrations.is_empty() {
+            return Ok(Self::new(v3_migrations, dialect));
+        }
+
+        // Fall back to legacy format (journal-based)
+        Self::from_dir_legacy(dir, dialect)
+    }
+
+    /// Load migrations from a filesystem directory (legacy journal-based format)
+    ///
+    /// Legacy format uses:
+    /// - `meta/_journal.json` - list of migrations
+    /// - `{tag}.sql` or `{tag}/migration.sql` - SQL files
+    pub fn from_dir_legacy(dir: impl AsRef<Path>, dialect: Dialect) -> Result<Self, MigratorError> {
         use crate::journal::Journal;
         use std::fs;
 
@@ -182,9 +227,9 @@ impl MigrationSet {
         let mut migrations = Vec::with_capacity(journal.entries.len());
 
         for entry in &journal.entries {
-            // Try folder/migration.sql first (new format)
+            // Try folder/migration.sql first (hybrid format)
             let folder_path = dir.join(&entry.tag).join("migration.sql");
-            // Fall back to {tag}.sql (old format)
+            // Fall back to {tag}.sql (old flat format)
             let flat_path = dir.join(format!("{}.sql", entry.tag));
 
             let sql_path = if folder_path.exists() {
@@ -202,6 +247,7 @@ impl MigrationSet {
             let statements = split_statements(&sql_content);
 
             migrations.push(Migration {
+                tag: entry.tag.clone(),
                 hash,
                 created_at: entry.when as i64,
                 sql: statements,
@@ -242,7 +288,7 @@ impl MigrationSet {
     /// Get the full table identifier (with schema for PostgreSQL)
     fn table_ident(&self) -> String {
         match (&self.dialect, &self.schema) {
-            (Dialect::PostgreSQL, Some(schema)) => format!("\"{}\".\"{}\"", schema, self.table),
+            (Dialect::PostgreSQL, Some(schema)) => format!("\"{}\".\"{}\",", schema, self.table),
             (Dialect::MySQL, _) => format!("`{}`", self.table),
             _ => format!("\"{}\"", self.table),
         }
@@ -368,6 +414,62 @@ impl MigrationSet {
     }
 }
 
+// =============================================================================
+// V3 Migration Discovery
+// =============================================================================
+
+/// Discover migrations in V3 folder-based format
+///
+/// Scans for directories containing `snapshot.json` and reads `migration.sql`
+fn discover_v3_migrations(dir: &Path) -> Result<Vec<Migration>, MigratorError> {
+    use std::fs;
+
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries: Vec<_> = fs::read_dir(dir)
+        .map_err(|e| MigratorError::IoError(e.to_string()))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|entry| {
+            let folder_name = entry.file_name().to_string_lossy().to_string();
+            let snapshot_path = entry.path().join("snapshot.json");
+            let migration_path = entry.path().join("migration.sql");
+
+            // Must have both snapshot.json and migration.sql
+            if snapshot_path.exists() && migration_path.exists() {
+                Some((folder_name, migration_path))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Sort by folder name (timestamp prefix ensures correct order)
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut migrations = Vec::with_capacity(entries.len());
+
+    for (tag, sql_path) in entries {
+        let sql_content =
+            fs::read_to_string(&sql_path).map_err(|e| MigratorError::IoError(e.to_string()))?;
+
+        let hash = compute_hash(&sql_content);
+        let created_at = parse_timestamp_from_tag(&tag);
+        let statements = split_statements(&sql_content);
+
+        migrations.push(Migration {
+            tag,
+            hash,
+            created_at,
+            sql: statements,
+        });
+    }
+
+    Ok(migrations)
+}
+
 /// Errors that can occur during migration
 #[derive(Debug, thiserror::Error)]
 pub enum MigratorError {
@@ -388,7 +490,7 @@ pub enum MigratorError {
 // Helper Functions
 // =============================================================================
 
-/// Compute SHA-256 hash of the SQL content
+/// Compute hash of the SQL content
 fn compute_hash(sql: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -453,14 +555,25 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
     statements
 }
 
-/// Parse timestamp from migration tag (format: YYYYMMDDHHMMSS_name)
+/// Parse timestamp from migration tag
+///
+/// Supports both V3 format (YYYYMMDDHHMMSS_name) and legacy format (0000_name)
 fn parse_timestamp_from_tag(tag: &str) -> i64 {
-    // Try to extract timestamp from beginning of tag
-    if tag.len() >= 14
-        && let Ok(ts) = tag[0..14].parse::<i64>()
-    {
-        return ts;
+    // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
+    if tag.len() >= 14 {
+        if let Ok(ts) = tag[0..14].parse::<i64>() {
+            return ts;
+        }
     }
+
+    // Try legacy format (0000)
+    if tag.len() >= 4 {
+        if let Ok(idx) = tag[0..4].parse::<i64>() {
+            // Convert index to a pseudo-timestamp for ordering
+            return idx;
+        }
+    }
+
     // Fallback: use current time
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -478,8 +591,8 @@ fn parse_timestamp_from_tag(tag: &str) -> i64 {
 /// use drizzle_migrations::migrations;
 ///
 /// let my_migrations = migrations![
-///     ("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
-///     ("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
+///     ("20231220143052_init", include_str!("../drizzle/20231220143052_init/migration.sql")),
+///     ("20231221093015_users", include_str!("../drizzle/20231221093015_users/migration.sql")),
 /// ];
 /// ```
 #[macro_export]
