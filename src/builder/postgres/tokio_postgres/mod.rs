@@ -3,9 +3,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use drizzle::postgres::attrs::*;
+//! use drizzle::postgres::prelude::*;
 //! use drizzle::tokio_postgres::Drizzle;
-//! use drizzle::prelude::*;
 //!
 //! #[PostgresTable]
 //! struct User {

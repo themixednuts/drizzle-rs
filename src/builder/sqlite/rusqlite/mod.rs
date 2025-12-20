@@ -4,8 +4,7 @@
 //!
 //! ```no_run
 //! use drizzle::rusqlite::Drizzle;
-//! use drizzle::sqlite::attrs::*;
-//! use drizzle::prelude::*;
+//! use drizzle::sqlite::prelude::*;
 //!
 //! #[SQLiteTable]
 //! struct User {
