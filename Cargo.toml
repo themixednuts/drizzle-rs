@@ -80,6 +80,7 @@ tokio-postgres = { version = "0.7.15", default-features = false, features = [
 ] }
 heck = { version = "0.5" }
 postgres-types = { version = "0.2" }
+nom = { version = "8.0" }
 
 # CLI-specific dependencies
 colored = { version = "3.0" }

@@ -29,8 +29,6 @@ mod types;
 
 pub use types::*;
 
-use std::collections::HashMap;
-
 use drizzle_types::Dialect;
 
 use combinators::{parse_index_struct, parse_schema_struct, parse_table_struct};

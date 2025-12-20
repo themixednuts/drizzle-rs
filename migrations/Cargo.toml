@@ -16,6 +16,7 @@ thiserror = { workspace = true }
 regex = { workspace = true, optional = true }
 tempfile = { workspace = true }
 heck = { workspace = true }
+nom = { workspace = true }
 drizzle-types = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
