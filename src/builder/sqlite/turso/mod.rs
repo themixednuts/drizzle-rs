@@ -500,7 +500,15 @@ where
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let sql_str = self.builder.sql.sql();
         let params: Vec<turso::Value> = self.builder.sql.params().map(|p| p.into()).collect();
-        Ok(self.drizzle.conn.execute(&sql_str, params).await?)
+        self.drizzle
+            .conn
+            .execute(&sql_str, params)
+            .await
+            .map_err(|e| {
+                drizzle_core::error::DrizzleError::ExecutionError(
+                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                )
+            })
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -513,9 +521,22 @@ where
         let sql_str = self.builder.sql.sql();
         let params: Vec<turso::Value> = self.builder.sql.params().map(|p| p.into()).collect();
 
-        let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
+        let mut rows = self
+            .drizzle
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| {
+                drizzle_core::error::DrizzleError::ExecutionError(
+                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                )
+            })?;
         let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
+        while let Some(row) = rows.next().await.map_err(|e| {
+            drizzle_core::error::DrizzleError::ExecutionError(
+                format!("{}\n\nSQL: {}", e, sql_str).into(),
+            )
+        })? {
             let converted = R::try_from(&row).map_err(Into::into)?;
             results.push(converted);
         }
@@ -531,8 +552,21 @@ where
         let sql_str = self.builder.sql.sql();
         let params: Vec<turso::Value> = self.builder.sql.params().map(|p| p.into()).collect();
 
-        let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
-        if let Some(row) = rows.next().await? {
+        let mut rows = self
+            .drizzle
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| {
+                drizzle_core::error::DrizzleError::ExecutionError(
+                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                )
+            })?;
+        if let Some(row) = rows.next().await.map_err(|e| {
+            drizzle_core::error::DrizzleError::ExecutionError(
+                format!("{}\n\nSQL: {}", e, sql_str).into(),
+            )
+        })? {
             R::try_from(&row).map_err(Into::into)
         } else {
             Err(drizzle_core::error::DrizzleError::NotFound)
