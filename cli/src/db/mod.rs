@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
-use crate::config::{Credentials, Dialect, PostgresCreds};
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+use crate::config::PostgresCreds;
+use crate::config::{Credentials, Dialect};
 use crate::error::CliError;
 use drizzle_migrations::MigrationSet;
 

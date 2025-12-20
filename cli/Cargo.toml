@@ -51,7 +51,7 @@ assert_cmd = { workspace = true }
 predicates = { workspace = true }
 
 [features]
-default = ["rusqlite", "postgres-sync", "tokio-postgres", "libsql", "turso"]
+default = []
 
 # SQLite drivers
 rusqlite = ["dep:rusqlite"]
