@@ -17,7 +17,7 @@ fn display_width(s: &str) -> usize {
     s.chars()
         .map(|c| {
             match c {
-                '\t' => 4, // Tabs count as 4 spaces
+                '\t' => 4,      // Tabs count as 4 spaces
                 '✓' | '✗' => 1, // These are rendered as single width in most terminals
                 _ if c.is_ascii() => 1,
                 _ => 2, // Assume non-ASCII chars are double-width (conservative)
@@ -35,22 +35,22 @@ fn expand_tabs(s: &str) -> String {
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let text = expand_tabs(text);
     let mut lines = Vec::new();
-    
+
     for line in text.lines() {
         if line.is_empty() {
             lines.push(String::new());
             continue;
         }
-        
+
         if display_width(line) <= width {
             lines.push(line.to_string());
         } else {
             let mut current_line = String::new();
             let mut current_width = 0;
-            
+
             for word in line.split_inclusive(' ') {
                 let word_width = display_width(word);
-                
+
                 if current_width + word_width <= width {
                     current_line.push_str(word);
                     current_width += word_width;
@@ -61,7 +61,13 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
                         let mut chunk = String::new();
                         let mut chunk_width = 0;
                         while let Some(&c) = chars.peek() {
-                            let c_width = if c == '\t' { 4 } else if c.is_ascii() { 1 } else { 2 };
+                            let c_width = if c == '\t' {
+                                4
+                            } else if c.is_ascii() {
+                                1
+                            } else {
+                                2
+                            };
                             if chunk_width + c_width > width {
                                 break;
                             }
@@ -78,17 +84,17 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
                     current_width = word_width;
                 }
             }
-            
+
             if !current_line.is_empty() {
                 lines.push(current_line.trim_end().to_string());
             }
         }
     }
-    
+
     if lines.is_empty() {
         lines.push(String::new());
     }
-    
+
     lines
 }
 
@@ -360,7 +366,10 @@ pub mod test_db {
             error: &dyn std::fmt::Display,
             failed_operation: &str,
         ) -> ! {
-            panic!("{}", self.report(test_name, error, None, None, Some(failed_operation)));
+            panic!(
+                "{}",
+                self.report(test_name, error, None, None, Some(failed_operation))
+            );
         }
     }
 }
@@ -383,7 +392,12 @@ pub mod rusqlite_setup {
 
         if let Err(e) = db.create() {
             let test_db = TestDb::new(db, "rusqlite", schema_ddl);
-            test_db.fail("schema_creation", &e, Some("Schema created successfully"), None);
+            test_db.fail(
+                "schema_creation",
+                &e,
+                Some("Schema created successfully"),
+                None,
+            );
         }
 
         let test_db = TestDb::new(db, "rusqlite", schema_ddl);
@@ -409,7 +423,12 @@ pub mod libsql_setup {
 
         if let Err(e) = db.create().await {
             let test_db = TestDb::new(db, "libsql", schema_ddl);
-            test_db.fail("schema_creation", &e, Some("Schema created successfully"), None);
+            test_db.fail(
+                "schema_creation",
+                &e,
+                Some("Schema created successfully"),
+                None,
+            );
         }
 
         let test_db = TestDb::new(db, "libsql", schema_ddl);
@@ -435,7 +454,12 @@ pub mod turso_setup {
 
         if let Err(e) = db.create().await {
             let test_db = TestDb::new(db, "turso", schema_ddl);
-            test_db.fail("schema_creation", &e, Some("Schema created successfully"), None);
+            test_db.fail(
+                "schema_creation",
+                &e,
+                Some("Schema created successfully"),
+                None,
+            );
         }
 
         let test_db = TestDb::new(db, "turso", schema_ddl);
@@ -581,7 +605,10 @@ pub mod postgres_sync_setup {
             error: &dyn std::fmt::Display,
             failed_operation: &str,
         ) -> ! {
-            panic!("{}", self.report(test_name, error, None, None, Some(failed_operation)));
+            panic!(
+                "{}",
+                self.report(test_name, error, None, None, Some(failed_operation))
+            );
         }
     }
 
@@ -635,7 +662,12 @@ pub mod postgres_sync_setup {
                 schema_ddl,
                 statements: RefCell::new(ddl_statements),
             };
-            test_db.fail("schema_creation", &e, Some("Schema created successfully"), None);
+            test_db.fail(
+                "schema_creation",
+                &e,
+                Some("Schema created successfully"),
+                None,
+            );
         }
 
         let test_db = TestDb {
@@ -796,7 +828,10 @@ pub mod tokio_postgres_setup {
             error: &dyn std::fmt::Display,
             failed_operation: &str,
         ) -> ! {
-            panic!("{}", self.report(test_name, error, None, None, Some(failed_operation)));
+            panic!(
+                "{}",
+                self.report(test_name, error, None, None, Some(failed_operation))
+            );
         }
     }
 
@@ -876,7 +911,12 @@ pub mod tokio_postgres_setup {
                 schema_ddl,
                 statements: RefCell::new(ddl_statements),
             };
-            test_db.fail("schema_creation", &e, Some("Schema created successfully"), None);
+            test_db.fail(
+                "schema_creation",
+                &e,
+                Some("Schema created successfully"),
+                None,
+            );
         }
 
         let test_db = TestDb {

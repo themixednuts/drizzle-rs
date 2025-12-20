@@ -403,7 +403,8 @@ sqlite_test!(test_set_null_nullifies_children, FkSetNullSchema, {
     let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null).all());
     drizzle_assert_eq!(1, children.len(), "Child should still exist");
     drizzle_assert_eq!(
-        None::<i32>, children[0].parent_id,
+        None::<i32>,
+        children[0].parent_id,
         "Parent ID should be NULL after SET NULL"
     );
 });
@@ -460,7 +461,8 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
     let children: Vec<ChildDefaultResult> = drizzle_exec!(db.select(()).from(fk_set_default).all());
     drizzle_assert_eq!(1, children.len(), "Child should still exist");
     drizzle_assert_eq!(
-        0, children[0].parent_id,
+        0,
+        children[0].parent_id,
         "Parent ID should be default (0) after SET DEFAULT"
     );
 });
@@ -514,7 +516,8 @@ sqlite_test!(
         let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade).all());
         drizzle_assert_eq!(1, children.len());
         drizzle_assert_eq!(
-            Some(100), children[0].parent_id,
+            Some(100),
+            children[0].parent_id,
             "Child's parent_id should be updated by CASCADE"
         );
     }
@@ -566,7 +569,8 @@ sqlite_test!(
             drizzle_exec!(db.select(()).from(fk_update_set_null).all());
         drizzle_assert_eq!(1, children.len());
         drizzle_assert_eq!(
-            None::<i32>, children[0].parent_id,
+            None::<i32>,
+            children[0].parent_id,
             "Child's parent_id should be NULL after ON UPDATE SET NULL"
         );
     }
@@ -626,7 +630,8 @@ sqlite_test!(
                 .all()
         );
         drizzle_assert_eq!(
-            None::<i32>, children[0].parent_id,
+            None::<i32>,
+            children[0].parent_id,
             "ON UPDATE SET NULL should nullify parent_id"
         );
 
