@@ -1,5 +1,3 @@
-#![cfg(feature = "turso")]
-
 use crate::common::schema::sqlite::{Category, Complex, Post, PostCategory, Role, Simple};
 use drizzle_core::SQLSchema;
 use rand::seq::IndexedRandom;

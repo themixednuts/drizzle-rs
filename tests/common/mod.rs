@@ -10,7 +10,7 @@ mod rusqlite;
 #[cfg(feature = "rusqlite")]
 pub use rusqlite::*;
 
-#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[cfg(feature = "turso")]
 mod turso;
 #[cfg(feature = "turso")]
 pub use turso::setup_db;
