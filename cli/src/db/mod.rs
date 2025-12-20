@@ -695,6 +695,26 @@ pub fn run_introspection(
         ))
     })?;
 
+    // Generate initial migration SQL by diffing against empty snapshot
+    let base_dialect = dialect.to_base();
+    let empty_snapshot = Snapshot::empty(base_dialect);
+    let sql_statements = generate_introspect_migration(&empty_snapshot, &result.snapshot, true)?;
+
+    // Write migration.sql: {out}/{tag}/migration.sql
+    let migration_sql_path = migration_dir.join("migration.sql");
+    let sql_content = if sql_statements.is_empty() {
+        "-- No tables to create (empty database)\n".to_string()
+    } else {
+        sql_statements.join("\n--> statement-breakpoint\n")
+    };
+    std::fs::write(&migration_sql_path, &sql_content).map_err(|e| {
+        CliError::Other(format!(
+            "Failed to write migration file '{}': {}",
+            migration_sql_path.display(),
+            e
+        ))
+    })?;
+
     // Update result with path
     result.snapshot_path = snapshot_path;
 
@@ -705,6 +725,33 @@ pub fn run_introspection(
     })?;
 
     Ok(result)
+}
+
+/// Generate migration SQL from snapshot diff (for introspection)
+fn generate_introspect_migration(
+    prev: &Snapshot,
+    current: &Snapshot,
+    _breakpoints: bool,
+) -> Result<Vec<String>, CliError> {
+    match (prev, current) {
+        (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
+            use drizzle_migrations::sqlite::diff_snapshots;
+            use drizzle_migrations::sqlite::statements::SqliteGenerator;
+
+            let diff = diff_snapshots(prev_snap, curr_snap);
+            let generator = SqliteGenerator::new().with_breakpoints(true);
+            Ok(generator.generate_migration(&diff))
+        }
+        (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
+            use drizzle_migrations::postgres::diff_full_snapshots;
+            use drizzle_migrations::postgres::statements::PostgresGenerator;
+
+            let diff = diff_full_snapshots(prev_snap, curr_snap);
+            let generator = PostgresGenerator::new().with_breakpoints(true);
+            Ok(generator.generate(&diff.diffs))
+        }
+        _ => Err(CliError::DialectMismatch),
+    }
 }
 
 /// Introspect a database and generate schema code
