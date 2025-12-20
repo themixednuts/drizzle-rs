@@ -29,48 +29,7 @@ serde = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
-drizzle = { workspace = true, features = [
-    "rusqlite",
-    "libsql",
-    "turso",
-    "sqlite",
-    "postgres",
-    "postgres-sync",
-    "tokio-postgres",
-    "uuid",
-    "serde",
-] }
-drizzle-core = { workspace = true, features = [
-    "rusqlite",
-    "libsql",
-    "turso",
-    "postgres-sync",
-    "tokio-postgres",
-    "uuid",
-    "serde",
-] }
-drizzle-sqlite = { workspace = true, features = [
-    "rusqlite",
-    "libsql",
-    "turso",
-    "uuid",
-    "serde",
-] }
-drizzle-postgres = { workspace = true, features = [
-    "postgres-sync",
-    "tokio-postgres",
-    "uuid",
-    "serde",
-] }
-rusqlite = { workspace = true }
-libsql = { workspace = true }
-turso = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-uuid = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-postgres = { workspace = true }
-tokio-postgres = { workspace = true }
 [features]
 default = []
 serde = []
