@@ -1,8 +1,6 @@
 //! Introspect command implementation
 //!
 //! Introspects an existing database and generates a snapshot/schema.
-//! Note: This command requires database connectivity which depends on
-//! driver-specific features being enabled.
 
 use colored::Colorize;
 
@@ -25,8 +23,6 @@ pub fn run(
         println!("  {}: {}", "Database".bright_blue(), name);
     }
 
-    let dialect = db.dialect.to_base();
-
     println!("  {}: {}", "Dialect".bright_blue(), db.dialect.as_str());
     if let Some(ref driver) = db.driver {
         println!("  {}: {:?}", "Driver".bright_blue(), driver);
@@ -38,57 +34,72 @@ pub fn run(
     }
     println!();
 
-    // Note: Introspection requires connecting to the database
-    // This requires driver-specific implementations
-    println!(
-        "{}",
-        "Introspection requires a database connection.".yellow()
-    );
-    println!();
-    println!("  Use the programmatic API to introspect:");
-    println!();
+    // Get credentials
+    let credentials = db.credentials()?;
 
-    match dialect {
-        drizzle_types::Dialect::SQLite => {
-            println!(
-                "  {}",
-                "let config = RusqliteConfigBuilder::new(\"./dev.db\")".bright_black()
-            );
-            println!("  {}", "    .schema::<AppSchema>()".bright_black());
-            println!("  {}", "    .out(\"./drizzle\")".bright_black());
-            println!("  {}", "    .build();".bright_black());
-            println!(
-                "  {}",
-                "config.run_cli(); // then: cargo run --bin drizzle -- introspect".bright_black()
-            );
+    let credentials = match credentials {
+        Some(c) => c,
+        None => {
+            println!("{}", "No database credentials configured.".yellow());
+            println!();
+            println!("Add credentials to your drizzle.config.toml:");
+            println!();
+            println!("  {}", "[dbCredentials]".bright_black());
+            match db.dialect.to_base() {
+                drizzle_types::Dialect::SQLite => {
+                    println!("  {}", "url = \"./dev.db\"".bright_black());
+                }
+                drizzle_types::Dialect::PostgreSQL => {
+                    println!(
+                        "  {}",
+                        "url = \"postgres://user:pass@localhost:5432/db\"".bright_black()
+                    );
+                }
+                drizzle_types::Dialect::MySQL => {
+                    println!(
+                        "  {}",
+                        "url = \"mysql://user:pass@localhost:3306/db\"".bright_black()
+                    );
+                }
+            }
+            println!();
+            println!("Or use an environment variable:");
+            println!();
+            println!("  {}", "[dbCredentials]".bright_black());
+            println!("  {}", "url = { env = \"DATABASE_URL\" }".bright_black());
+            return Ok(());
         }
-        drizzle_types::Dialect::PostgreSQL => {
-            println!(
-                "  {}",
-                "let config = TokioPostgresConfigBuilder::new(host, port, user, pass, db)"
-                    .bright_black()
-            );
-            println!("  {}", "    .schema::<AppSchema>()".bright_black());
-            println!("  {}", "    .out(\"./drizzle\")".bright_black());
-            println!("  {}", "    .build();".bright_black());
-            println!(
-                "  {}",
-                "config.run_cli().await; // then: cargo run --bin drizzle -- introspect"
-                    .bright_black()
-            );
-        }
-        drizzle_types::Dialect::MySQL => {
-            println!("  MySQL introspection not yet supported.");
-        }
+    };
+
+    // Run introspection
+    let result = crate::db::run_introspection(&credentials, db.dialect, &db.out)?;
+
+    println!();
+    println!(
+        "  {} {} table(s), {} index(es)",
+        "Found".green(),
+        result.table_count,
+        result.index_count
+    );
+
+    if result.view_count > 0 {
+        println!("  {} {} view(s)", "Found".green(), result.view_count);
     }
+
+    println!();
+    println!(
+        "{} Snapshot saved to {}",
+        "Done!".bright_green(),
+        result.snapshot_path.display()
+    );
 
     if init_metadata {
         println!();
         println!(
-            "  {} The --init flag will create migration metadata after introspection.",
+            "  {} Migration metadata initialized.",
             "Note:".bright_blue()
         );
-        println!("  This treats the current database state as the baseline for future migrations.");
+        println!("  The current database state is now the baseline for future migrations.");
     }
 
     Ok(())
