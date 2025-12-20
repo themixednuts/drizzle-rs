@@ -970,10 +970,7 @@ impl PostgresGenerator {
 // =============================================================================
 
 /// Topological sort tables for CREATE: referenced tables come first
-fn topological_sort_tables_for_create(
-    table_keys: &[String],
-    diff: &[EntityDiff],
-) -> Vec<String> {
+fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]) -> Vec<String> {
     if table_keys.len() <= 1 {
         return table_keys.to_vec();
     }

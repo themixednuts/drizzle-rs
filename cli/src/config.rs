@@ -3,8 +3,8 @@
 //! Handles loading `drizzle.config.toml` with type-safe credentials.
 //! Supports both single-database (legacy) and multi-database configurations.
 
-use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
+use serde::de::{self, Deserializer, MapAccess, Visitor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -926,7 +926,9 @@ impl Config {
 
     /// Get dialect (for single-db mode backwards compat)
     pub fn dialect(&self) -> Dialect {
-        self.default_database().map(|d| d.dialect).unwrap_or_default()
+        self.default_database()
+            .map(|d| d.dialect)
+            .unwrap_or_default()
     }
 
     /// Get credentials (for single-db mode backwards compat)

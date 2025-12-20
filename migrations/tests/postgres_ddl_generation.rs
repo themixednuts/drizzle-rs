@@ -120,11 +120,7 @@ fn unique_index(table_name: &str, name: &str, columns: Vec<&str>) -> Index {
 }
 
 /// Helper to create a unique constraint
-fn unique_constraint(
-    table_name: &str,
-    name: &str,
-    columns: Vec<&str>,
-) -> UniqueConstraint {
+fn unique_constraint(table_name: &str, name: &str, columns: Vec<&str>) -> UniqueConstraint {
     UniqueConstraint::from_strings(
         "public".to_string(),
         table_name.to_string(),

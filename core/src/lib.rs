@@ -59,13 +59,13 @@ pub mod sql;
 pub mod traits;
 
 // Re-export key types and traits
-pub use traits::ToSQL;
 pub use dialect::{Dialect, DialectExt};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
 pub use schema::OrderBy;
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
+pub use traits::ToSQL;
 pub use traits::*;
 
 // =============================================================================

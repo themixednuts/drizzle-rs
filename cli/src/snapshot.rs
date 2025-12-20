@@ -60,7 +60,11 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
                 let col_name = field.name.to_snake_case();
                 let constraint_name = format!("{}_{}_unique", table_name, col_name);
                 snapshot.add_entity(SqliteEntity::UniqueConstraint(
-                    UniqueConstraint::from_strings(table_name.clone(), constraint_name, vec![col_name]),
+                    UniqueConstraint::from_strings(
+                        table_name.clone(),
+                        constraint_name,
+                        vec![col_name],
+                    ),
                 ));
             }
 

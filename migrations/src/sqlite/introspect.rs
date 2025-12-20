@@ -294,10 +294,14 @@ pub fn process_foreign_keys(raw_fks: &[RawForeignKey]) -> Vec<ForeignKey> {
             let name = super::ddl::name_for_fk(&table, &columns, &first.to_table, &columns_to);
 
             // Convert columns to Cow
-            let columns_cow: Vec<Cow<'static, str>> =
-                fks.iter().map(|f| Cow::Owned(f.from_column.clone())).collect();
-            let columns_to_cow: Vec<Cow<'static, str>> =
-                fks.iter().map(|f| Cow::Owned(f.to_column.clone())).collect();
+            let columns_cow: Vec<Cow<'static, str>> = fks
+                .iter()
+                .map(|f| Cow::Owned(f.from_column.clone()))
+                .collect();
+            let columns_to_cow: Vec<Cow<'static, str>> = fks
+                .iter()
+                .map(|f| Cow::Owned(f.to_column.clone()))
+                .collect();
 
             ForeignKey {
                 table: table.into(),
@@ -321,8 +325,7 @@ pub fn create_primary_key(table: &str, pk_columns: Vec<String>) -> PrimaryKey {
     use std::borrow::Cow;
 
     let name = super::ddl::name_for_pk(table);
-    let columns_cow: Vec<Cow<'static, str>> =
-        pk_columns.into_iter().map(Cow::Owned).collect();
+    let columns_cow: Vec<Cow<'static, str>> = pk_columns.into_iter().map(Cow::Owned).collect();
 
     PrimaryKey {
         table: table.to_string().into(),
@@ -341,8 +344,7 @@ pub fn create_unique_constraint(
 ) -> UniqueConstraint {
     use std::borrow::Cow;
 
-    let columns_cow: Vec<Cow<'static, str>> =
-        columns.into_iter().map(Cow::Owned).collect();
+    let columns_cow: Vec<Cow<'static, str>> = columns.into_iter().map(Cow::Owned).collect();
 
     UniqueConstraint {
         table: Cow::Owned(table.to_string()),
@@ -367,8 +369,11 @@ pub fn process_unique_constraints_from_parsed(
                 Some(n) => (n.clone(), true),
                 None => (super::ddl::name_for_unique(table, &columns_refs), false),
             };
-            let columns_cow: Vec<Cow<'static, str>> =
-                parsed.columns.iter().map(|c| Cow::Owned(c.clone())).collect();
+            let columns_cow: Vec<Cow<'static, str>> = parsed
+                .columns
+                .iter()
+                .map(|c| Cow::Owned(c.clone()))
+                .collect();
 
             UniqueConstraint {
                 table: table.to_string().into(),

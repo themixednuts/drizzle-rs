@@ -134,11 +134,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
     let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
     let column_accessors = generate_column_accessors(&ctx, &column_zst_idents)?;
-    let table_impls = generate_table_impls(
-        &ctx,
-        &column_zst_idents,
-        &required_fields_pattern,
-    )?;
+    let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let json_impls = generate_json_impls(&ctx)?;

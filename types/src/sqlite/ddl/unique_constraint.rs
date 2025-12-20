@@ -127,11 +127,7 @@ impl UniqueConstraint {
     /// Create a new unique constraint from owned strings (convenience for runtime construction)
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn from_strings(
-        table: String,
-        name: String,
-        columns: Vec<String>,
-    ) -> UniqueConstraint {
+    pub fn from_strings(table: String, name: String, columns: Vec<String>) -> UniqueConstraint {
         UniqueConstraint {
             table: Cow::Owned(table),
             name: Cow::Owned(name),

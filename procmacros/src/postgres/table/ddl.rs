@@ -79,11 +79,7 @@ pub(crate) fn generate_create_table_sql_from_params(
 /// is known at macro expansion time. Uses the same DDL types as runtime
 /// generation for consistency.
 pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
-    generate_create_table_sql_from_params(
-        &ctx.table_name,
-        ctx.field_infos,
-        ctx.is_composite_pk,
-    )
+    generate_create_table_sql_from_params(&ctx.table_name, ctx.field_infos, ctx.is_composite_pk)
 }
 
 /// Build a Column from FieldInfo

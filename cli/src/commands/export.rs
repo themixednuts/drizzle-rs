@@ -79,13 +79,18 @@ pub fn run(
     // Output to file or stdout
     match output_path {
         Some(path) => {
-            std::fs::write(&path, &sql_content)
-                .map_err(|e| CliError::IoError(format!("Failed to write {}: {}", path.display(), e)))?;
+            std::fs::write(&path, &sql_content).map_err(|e| {
+                CliError::IoError(format!("Failed to write {}: {}", path.display(), e))
+            })?;
             println!();
             println!(
                 "{}",
-                format!("Exported {} SQL statement(s) to {}", sql_statements.len(), path.display())
-                    .bright_green()
+                format!(
+                    "Exported {} SQL statement(s) to {}",
+                    sql_statements.len(),
+                    path.display()
+                )
+                .bright_green()
             );
         }
         None => {
@@ -110,9 +115,9 @@ fn generate_create_sql(
 
     match snapshot {
         Snapshot::Sqlite(snap) => {
+            use drizzle_migrations::sqlite::SQLiteSnapshot;
             use drizzle_migrations::sqlite::diff_snapshots;
             use drizzle_migrations::sqlite::statements::SqliteGenerator;
-            use drizzle_migrations::sqlite::SQLiteSnapshot;
 
             // Diff against empty snapshot to get all CREATE statements
             let empty = SQLiteSnapshot::new();
@@ -121,9 +126,9 @@ fn generate_create_sql(
             Ok(generator.generate_migration(&diff))
         }
         Snapshot::Postgres(snap) => {
+            use drizzle_migrations::postgres::PostgresSnapshot;
             use drizzle_migrations::postgres::diff_full_snapshots;
             use drizzle_migrations::postgres::statements::PostgresGenerator;
-            use drizzle_migrations::postgres::PostgresSnapshot;
 
             // Diff against empty snapshot to get all CREATE statements
             let empty = PostgresSnapshot::new();

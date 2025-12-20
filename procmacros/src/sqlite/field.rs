@@ -408,34 +408,28 @@ impl<'a> FieldInfo<'a> {
                             if let Expr::Path(action_path) = &*assign.right
                                 && let Some(action_ident) = action_path.path.get_ident()
                             {
-                                let action_upper =
-                                    action_ident.to_string().to_ascii_uppercase();
+                                let action_upper = action_ident.to_string().to_ascii_uppercase();
                                 args.on_delete =
                                     Self::validate_referential_action(action_ident).ok();
                                 args.marker_exprs
                                     .push(Self::make_uppercase_path(param, "ON_DELETE"));
                                 // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                args.marker_exprs.push(Self::make_uppercase_path(
-                                    action_ident,
-                                    &action_upper,
-                                ));
+                                args.marker_exprs
+                                    .push(Self::make_uppercase_path(action_ident, &action_upper));
                             }
                         }
                         "ON_UPDATE" => {
                             if let Expr::Path(action_path) = &*assign.right
                                 && let Some(action_ident) = action_path.path.get_ident()
                             {
-                                let action_upper =
-                                    action_ident.to_string().to_ascii_uppercase();
+                                let action_upper = action_ident.to_string().to_ascii_uppercase();
                                 args.on_update =
                                     Self::validate_referential_action(action_ident).ok();
                                 args.marker_exprs
                                     .push(Self::make_uppercase_path(param, "ON_UPDATE"));
                                 // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                args.marker_exprs.push(Self::make_uppercase_path(
-                                    action_ident,
-                                    &action_upper,
-                                ));
+                                args.marker_exprs
+                                    .push(Self::make_uppercase_path(action_ident, &action_upper));
                             }
                         }
                         "NAME" => {

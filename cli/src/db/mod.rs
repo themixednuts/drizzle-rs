@@ -95,7 +95,10 @@ pub fn run_migrations(
 /// Check if a Turso URL is a local libsql database
 #[allow(dead_code)]
 fn is_local_libsql(url: &str) -> bool {
-    url.starts_with("file:") || url.starts_with("./") || url.starts_with("/") || !url.contains("://")
+    url.starts_with("file:")
+        || url.starts_with("./")
+        || url.starts_with("/")
+        || !url.contains("://")
 }
 
 // ============================================================================
@@ -104,12 +107,14 @@ fn is_local_libsql(url: &str) -> bool {
 
 #[cfg(feature = "rusqlite")]
 fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResult, CliError> {
-    let conn = rusqlite::Connection::open(path)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e)))?;
+    let conn = rusqlite::Connection::open(path).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+    })?;
 
     // Create migrations table
-    conn.execute(&set.create_table_sql(), [])
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {}", e)))?;
+    conn.execute(&set.create_table_sql(), []).map_err(|e| {
+        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+    })?;
 
     // Query applied hashes
     let applied_hashes = query_applied_hashes_sqlite(&conn, set)?;
@@ -189,8 +194,9 @@ fn run_postgres_sync_migrations(
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
     let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e)))?;
+    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+    })?;
 
     // Create schema if needed
     if let Some(schema_sql) = set.create_schema_sql() {
@@ -229,7 +235,11 @@ fn run_postgres_sync_migrations(
         for stmt in migration.statements() {
             if !stmt.trim().is_empty() {
                 tx.execute(stmt, &[]).map_err(|e| {
-                    CliError::MigrationError(format!("Migration '{}' failed: {}", migration.hash(), e))
+                    CliError::MigrationError(format!(
+                        "Migration '{}' failed: {}",
+                        migration.hash(),
+                        e
+                    ))
                 })?;
             }
         }
@@ -277,7 +287,9 @@ async fn run_postgres_async_inner(
     let url = creds.connection_url();
     let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e)))?;
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+        })?;
 
     // Spawn connection handler
     tokio::spawn(async move {
@@ -327,7 +339,11 @@ async fn run_postgres_async_inner(
         for stmt in migration.statements() {
             if !stmt.trim().is_empty() {
                 tx.execute(stmt, &[]).await.map_err(|e| {
-                    CliError::MigrationError(format!("Migration '{}' failed: {}", migration.hash(), e))
+                    CliError::MigrationError(format!(
+                        "Migration '{}' failed: {}",
+                        migration.hash(),
+                        e
+                    ))
                 })?;
             }
         }
@@ -355,7 +371,10 @@ async fn run_postgres_async_inner(
 // ============================================================================
 
 #[cfg(feature = "libsql")]
-fn run_libsql_local_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResult, CliError> {
+fn run_libsql_local_migrations(
+    set: &MigrationSet,
+    path: &str,
+) -> Result<MigrationResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -365,11 +384,16 @@ fn run_libsql_local_migrations(set: &MigrationSet, path: &str) -> Result<Migrati
 }
 
 #[cfg(feature = "libsql")]
-async fn run_libsql_local_inner(set: &MigrationSet, path: &str) -> Result<MigrationResult, CliError> {
+async fn run_libsql_local_inner(
+    set: &MigrationSet,
+    path: &str,
+) -> Result<MigrationResult, CliError> {
     let db = libsql::Builder::new_local(path)
         .build()
         .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e)))?;
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+        })?;
 
     let conn = db
         .connect()
@@ -378,7 +402,9 @@ async fn run_libsql_local_inner(set: &MigrationSet, path: &str) -> Result<Migrat
     // Create migrations table
     conn.execute(&set.create_table_sql(), ())
         .await
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {}", e)))?;
+        .map_err(|e| {
+            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+        })?;
 
     // Query applied hashes
     let applied_hashes = query_applied_hashes_libsql(&conn, set).await?;
@@ -413,7 +439,10 @@ async fn run_libsql_local_inner(set: &MigrationSet, path: &str) -> Result<Migrat
             }
         }
         if let Err(e) = tx
-            .execute(&set.record_migration_sql(migration.hash(), migration.created_at()), ())
+            .execute(
+                &set.record_migration_sql(migration.hash(), migration.created_at()),
+                (),
+            )
             .await
         {
             tx.rollback().await.ok();
@@ -476,15 +505,12 @@ async fn run_turso_inner(
     url: &str,
     auth_token: Option<&str>,
 ) -> Result<MigrationResult, CliError> {
-    let builder = libsql::Builder::new_remote(
-        url.to_string(),
-        auth_token.unwrap_or("").to_string(),
-    );
+    let builder =
+        libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
 
-    let db = builder
-        .build()
-        .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e)))?;
+    let db = builder.build().await.map_err(|e| {
+        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+    })?;
 
     let conn = db
         .connect()
@@ -493,7 +519,9 @@ async fn run_turso_inner(
     // Create migrations table
     conn.execute(&set.create_table_sql(), ())
         .await
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {}", e)))?;
+        .map_err(|e| {
+            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+        })?;
 
     // Query applied hashes
     let applied_hashes = query_applied_hashes_turso(&conn, set).await?;
@@ -528,7 +556,10 @@ async fn run_turso_inner(
             }
         }
         if let Err(e) = tx
-            .execute(&set.record_migration_sql(migration.hash(), migration.created_at()), ())
+            .execute(
+                &set.record_migration_sql(migration.hash(), migration.created_at()),
+                (),
+            )
             .await
         {
             tx.rollback().await.ok();

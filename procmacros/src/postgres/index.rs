@@ -367,7 +367,6 @@ fn generate_index_name(struct_ident: &Ident, columns: &[ColumnReference]) -> Str
     }
 }
 
-
 /// Extract table type from column expression (similar to SQLite implementation)
 fn extract_table_from_column(column: &Expr) -> Result<Type> {
     if let Expr::Path(expr_path) = column {

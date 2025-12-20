@@ -25,8 +25,14 @@ fn table_sql() {
     // Verify the SQL contains key elements
     assert!(sql.contains("CREATE TABLE"), "Should have CREATE TABLE");
     assert!(sql.contains("test_table"), "Should have table name");
-    assert!(sql.contains("INTEGER") && sql.contains("PRIMARY"), "Should have integer primary key");
-    assert!(sql.contains("TEXT NOT NULL"), "Should have non-null text for name");
+    assert!(
+        sql.contains("INTEGER") && sql.contains("PRIMARY"),
+        "Should have integer primary key"
+    );
+    assert!(
+        sql.contains("TEXT NOT NULL"),
+        "Should have non-null text for name"
+    );
 }
 
 #[test]
@@ -42,7 +48,10 @@ fn strict_table() {
 fn name_attribute() {
     let sql = TestTable::create_table_sql();
     // The table name should be derived from struct name (snake_case)
-    assert!(sql.contains("test_table"), "Should have table name test_table");
+    assert!(
+        sql.contains("test_table"),
+        "Should have table name test_table"
+    );
 }
 
 #[test]
@@ -50,7 +59,10 @@ fn column_types() {
     let sql = TestTable::create_table_sql();
     // Verify column types are properly defined
     assert!(sql.contains("INTEGER"), "Should have INTEGER type for id");
-    assert!(sql.contains("TEXT"), "Should have TEXT type for string columns");
+    assert!(
+        sql.contains("TEXT"),
+        "Should have TEXT type for string columns"
+    );
 }
 
 // Schema derive tests
@@ -222,9 +234,15 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
 
     // Verify ordering: tables should come before their dependent tables
     // Find positions of each table
-    let dept_pos = statements.iter().position(|s| s.contains("departments") && s.contains("CREATE TABLE"));
-    let emp_pos = statements.iter().position(|s| s.contains("employees") && s.contains("CREATE TABLE"));
-    let proj_pos = statements.iter().position(|s| s.contains("projects") && s.contains("CREATE TABLE"));
+    let dept_pos = statements
+        .iter()
+        .position(|s| s.contains("departments") && s.contains("CREATE TABLE"));
+    let emp_pos = statements
+        .iter()
+        .position(|s| s.contains("employees") && s.contains("CREATE TABLE"));
+    let proj_pos = statements
+        .iter()
+        .position(|s| s.contains("projects") && s.contains("CREATE TABLE"));
 
     assert!(dept_pos.is_some(), "Department table should exist");
     assert!(emp_pos.is_some(), "Employee table should exist");
@@ -241,7 +259,9 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     );
 
     // Verify indexes come after their tables
-    let proj_idx_pos = statements.iter().position(|s| s.contains("project_title_idx"));
+    let proj_idx_pos = statements
+        .iter()
+        .position(|s| s.contains("project_title_idx"));
     assert!(
         proj_idx_pos.is_some() && proj_idx_pos.unwrap() > proj_pos.unwrap(),
         "Project index should come after project table"

@@ -73,11 +73,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let create_table_sql = if has_foreign_keys {
         String::new()
     } else {
-        generate_create_table_sql_from_params(
-            &table_name,
-            &field_infos,
-            is_composite_pk,
-        )
+        generate_create_table_sql_from_params(&table_name, &field_infos, is_composite_pk)
     };
 
     let ctx = MacroContext {
@@ -108,11 +104,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
     let column_accessors = generate_column_accessors(&ctx, &column_zst_idents)?;
 
-    let table_impls = generate_table_impls(
-        &ctx,
-        &column_zst_idents,
-        &required_fields_pattern,
-    )?;
+    let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let alias_definitions = generate_aliased_table(&ctx)?;

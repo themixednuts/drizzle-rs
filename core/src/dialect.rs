@@ -27,6 +27,3 @@ impl DialectExt for Dialect {
         }
     }
 }
-
-
-

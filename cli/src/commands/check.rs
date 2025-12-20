@@ -2,7 +2,7 @@
 
 use colored::Colorize;
 
-use crate::config::{Config, Credentials, PostgresCreds, MysqlCreds};
+use crate::config::{Config, Credentials, MysqlCreds, PostgresCreds};
 use crate::error::CliError;
 
 pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
@@ -110,7 +110,13 @@ fn print_credentials(creds: &Credentials) {
         }
         Credentials::Postgres(pg) => match pg {
             PostgresCreds::Url(url) => println!("    PostgreSQL: {}", mask_url(url)),
-            PostgresCreds::Host { host, port, database, user, .. } => {
+            PostgresCreds::Host {
+                host,
+                port,
+                database,
+                user,
+                ..
+            } => {
                 println!("    PostgreSQL: {host}:{port}/{database}");
                 if let Some(u) = user {
                     println!("    User: {u}");
@@ -119,15 +125,29 @@ fn print_credentials(creds: &Credentials) {
         },
         Credentials::Mysql(my) => match my {
             MysqlCreds::Url(url) => println!("    MySQL: {}", mask_url(url)),
-            MysqlCreds::Host { host, port, database, user, .. } => {
+            MysqlCreds::Host {
+                host,
+                port,
+                database,
+                user,
+                ..
+            } => {
                 println!("    MySQL: {host}:{port}/{database}");
                 if let Some(u) = user {
                     println!("    User: {u}");
                 }
             }
         },
-        Credentials::D1 { account_id, database_id, .. } => {
-            println!("    D1: {}.../{}", &account_id[..8.min(account_id.len())], database_id);
+        Credentials::D1 {
+            account_id,
+            database_id,
+            ..
+        } => {
+            println!(
+                "    D1: {}.../{}",
+                &account_id[..8.min(account_id.len())],
+                database_id
+            );
         }
         Credentials::AwsDataApi { database, .. } => {
             println!("    AWS Data API: {database}");

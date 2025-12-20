@@ -880,8 +880,7 @@ impl SqliteGenerator {
                 && let Some(crate::sqlite::ddl::SqliteEntity::Column(col)) =
                     entity_diff.right.as_ref()
             {
-                let table_was_created =
-                    diff.created_tables().iter().any(|t| t.name == col.table);
+                let table_was_created = diff.created_tables().iter().any(|t| t.name == col.table);
 
                 if !table_was_created {
                     statements.push(convert_add_column(&AddColumnStatement {

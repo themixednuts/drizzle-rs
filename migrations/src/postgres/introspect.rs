@@ -544,11 +544,10 @@ pub fn process_policies(raw_policies: &[RawPolicyInfo]) -> Vec<Policy> {
         .map(|p| {
             // Convert Vec<String> to Vec<&'static str> by leaking the strings
             // This is acceptable for migration tooling which runs once
-            let roles: Vec<&'static str> = p
-                .to
-                .iter()
-                .map(|s| Box::leak(s.clone().into_boxed_str()) as &'static str)
-                .collect();
+            let roles: Vec<&'static str> =
+                p.to.iter()
+                    .map(|s| Box::leak(s.clone().into_boxed_str()) as &'static str)
+                    .collect();
 
             Policy {
                 schema: p.schema.clone().into(),

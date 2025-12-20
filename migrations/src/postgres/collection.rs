@@ -277,7 +277,7 @@ impl PostgresDDL {
             PostgresEntity::UniqueConstraint(u) => self.uniques.push(u),
             PostgresEntity::CheckConstraint(c) => self.checks.push(c),
             PostgresEntity::View(v) => self.views.push(v),
-            PostgresEntity::Privilege(_) => true // Privileges are not yet tracked in the DDL collection
+            PostgresEntity::Privilege(_) => true, // Privileges are not yet tracked in the DDL collection
         };
     }
 

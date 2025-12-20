@@ -24,6 +24,6 @@ pub use crate::traits::{Entity, EntityKey, EntityKind};
 
 // Re-export commonly used DDL types at the sqlite module level
 pub use ddl::{
-    CheckConstraint, Column, ForeignKey, Index, IndexColumn, IndexOrigin, PrimaryKey,
-    SqliteEntity, Table, UniqueConstraint, View,
+    CheckConstraint, Column, ForeignKey, Index, IndexColumn, IndexOrigin, PrimaryKey, SqliteEntity,
+    Table, UniqueConstraint, View,
 };
