@@ -63,6 +63,23 @@
         }
       ]
     },
+    "casing": {
+      "description": "Casing mode for generated code",
+      "type": "string",
+      "enum": ["camel_case", "snake_case"]
+    },
+    "introspect": {
+      "description": "Introspection configuration",
+      "type": "object",
+      "properties": {
+        "casing": {
+          "type": "string",
+          "enum": ["camel", "preserve"],
+          "default": "camel"
+        }
+      },
+      "additionalProperties": false
+    },
     "migrations": {
       "description": "Migration table configuration",
       "type": "object",
@@ -149,24 +166,9 @@
           "type": "boolean",
           "default": false
         },
-        "casing": {
-          "description": "Casing mode for generated code",
-          "type": "string",
-          "enum": ["camel_case", "snake_case"]
-        },
+        "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": {
-          "description": "Introspection configuration",
-          "type": "object",
-          "properties": {
-            "casing": {
-              "type": "string",
-              "enum": ["camel", "preserve"],
-              "default": "camel"
-            }
-          },
-          "additionalProperties": false
-        },
+        "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": true
@@ -187,9 +189,9 @@
         "tablesFilter": { "$ref": "#/definitions/filter" },
         "verbose": { "type": "boolean" },
         "strict": { "type": "boolean" },
-        "casing": { "type": "string" },
+        "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "type": "object" },
+        "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
@@ -208,9 +210,9 @@
         "tablesFilter": { "$ref": "#/definitions/filter" },
         "verbose": { "type": "boolean" },
         "strict": { "type": "boolean" },
-        "casing": { "type": "string" },
+        "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "type": "object" },
+        "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
@@ -233,9 +235,9 @@
         },
         "verbose": { "type": "boolean" },
         "strict": { "type": "boolean" },
-        "casing": { "type": "string" },
+        "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "type": "object" },
+        "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
@@ -244,9 +246,14 @@
       "description": "Multi-database configuration",
       "type": "object",
       "required": ["databases"],
+      "allOf": [{ "$ref": "#/definitions/baseConfig" }],
       "properties": {
         "schema": { "$ref": "#/definitions/schemaPath" },
         "out": { "type": "string" },
+        "breakpoints": { "type": "boolean" },
+        "verbose": { "type": "boolean" },
+        "strict": { "type": "boolean" },
+        "casing": { "$ref": "#/definitions/casing" },
         "databases": {
           "description": "Named database configurations",
           "type": "object",
@@ -264,7 +271,9 @@
                   "tablesFilter": { "$ref": "#/definitions/filter" },
                   "verbose": { "type": "boolean" },
                   "strict": { "type": "boolean" },
+                  "casing": { "$ref": "#/definitions/casing" },
                   "migrations": { "$ref": "#/definitions/migrations" },
+                  "introspect": { "$ref": "#/definitions/introspect" },
                   "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
                 },
                 "additionalProperties": false
@@ -281,7 +290,9 @@
                   "tablesFilter": { "$ref": "#/definitions/filter" },
                   "verbose": { "type": "boolean" },
                   "strict": { "type": "boolean" },
+                  "casing": { "$ref": "#/definitions/casing" },
                   "migrations": { "$ref": "#/definitions/migrations" },
+                  "introspect": { "$ref": "#/definitions/introspect" },
                   "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
                 },
                 "additionalProperties": false
@@ -299,7 +310,9 @@
                   "schemaFilter": { "$ref": "#/definitions/filter" },
                   "verbose": { "type": "boolean" },
                   "strict": { "type": "boolean" },
+                  "casing": { "$ref": "#/definitions/casing" },
                   "migrations": { "$ref": "#/definitions/migrations" },
+                  "introspect": { "$ref": "#/definitions/introspect" },
                   "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
                 },
                 "additionalProperties": false
