@@ -181,16 +181,16 @@
       "properties": {
         "dialect": { "const": "sqlite" },
         "driver": { "$ref": "#/definitions/sqliteDriver" },
-        "schema": true,
-        "out": true,
-        "breakpoints": true,
-        "tablesFilter": true,
-        "verbose": true,
-        "strict": true,
-        "casing": true,
-        "migrations": true,
-        "introspect": true,
-        "dbCredentials": true
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": { "type": "string" },
+        "breakpoints": { "type": "boolean" },
+        "tablesFilter": { "$ref": "#/definitions/filter" },
+        "verbose": { "type": "boolean" },
+        "strict": { "type": "boolean" },
+        "casing": { "type": "string" },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "introspect": { "type": "object" },
+        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
     },
@@ -202,16 +202,16 @@
       "properties": {
         "dialect": { "const": "turso" },
         "driver": { "$ref": "#/definitions/tursoDriver" },
-        "schema": true,
-        "out": true,
-        "breakpoints": true,
-        "tablesFilter": true,
-        "verbose": true,
-        "strict": true,
-        "casing": true,
-        "migrations": true,
-        "introspect": true,
-        "dbCredentials": true
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": { "type": "string" },
+        "breakpoints": { "type": "boolean" },
+        "tablesFilter": { "$ref": "#/definitions/filter" },
+        "verbose": { "type": "boolean" },
+        "strict": { "type": "boolean" },
+        "casing": { "type": "string" },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "introspect": { "type": "object" },
+        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
     },
@@ -223,20 +223,20 @@
       "properties": {
         "dialect": { "enum": ["postgresql", "postgres"] },
         "driver": { "$ref": "#/definitions/postgresDriver" },
-        "schema": true,
-        "out": true,
-        "breakpoints": true,
-        "tablesFilter": true,
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": { "type": "string" },
+        "breakpoints": { "type": "boolean" },
+        "tablesFilter": { "$ref": "#/definitions/filter" },
         "schemaFilter": {
           "description": "Schema filter for PostgreSQL",
           "$ref": "#/definitions/filter"
         },
-        "verbose": true,
-        "strict": true,
-        "casing": true,
-        "migrations": true,
-        "introspect": true,
-        "dbCredentials": true
+        "verbose": { "type": "boolean" },
+        "strict": { "type": "boolean" },
+        "casing": { "type": "string" },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "introspect": { "type": "object" },
+        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
       "additionalProperties": false
     },
