@@ -2,7 +2,7 @@
 
 use colored::Colorize;
 
-use crate::config::{Config, Credentials, MysqlCreds, PostgresCreds};
+use crate::config::{Config, Credentials, PostgresCreds};
 use crate::error::CliError;
 
 pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
@@ -118,21 +118,6 @@ fn print_credentials(creds: &Credentials) {
                 ..
             } => {
                 println!("    PostgreSQL: {host}:{port}/{database}");
-                if let Some(u) = user {
-                    println!("    User: {u}");
-                }
-            }
-        },
-        Credentials::Mysql(my) => match my {
-            MysqlCreds::Url(url) => println!("    MySQL: {}", mask_url(url)),
-            MysqlCreds::Host {
-                host,
-                port,
-                database,
-                user,
-                ..
-            } => {
-                println!("    MySQL: {host}:{port}/{database}");
                 if let Some(u) = user {
                     println!("    User: {u}");
                 }

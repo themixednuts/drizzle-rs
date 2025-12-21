@@ -85,13 +85,6 @@ pub fn run_migrations(
             dialect: "PostgreSQL",
             feature: "postgres-sync or tokio-postgres",
         }),
-
-        // Other credential types not yet supported for direct migration
-        _ => Err(CliError::Other(
-            "This credential type is not yet supported for CLI migrations. \
-             Use the programmatic API instead."
-                .into(),
-        )),
     }
 }
 
@@ -762,10 +755,6 @@ fn introspect_database(
     match dialect {
         Dialect::Sqlite | Dialect::Turso => introspect_sqlite_dialect(credentials),
         Dialect::Postgresql => introspect_postgres_dialect(credentials),
-        _ => Err(CliError::Other(format!(
-            "Introspection not yet supported for {:?}",
-            dialect
-        ))),
     }
 }
 

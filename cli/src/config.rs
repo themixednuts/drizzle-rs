@@ -111,23 +111,18 @@ pub enum Dialect {
     Sqlite,
     #[serde(alias = "postgres")]
     Postgresql,
-    Mysql,
     Turso,
-    Singlestore,
 }
 
 impl Dialect {
-    pub const ALL: &'static [&'static str] =
-        &["sqlite", "postgresql", "mysql", "turso", "singlestore"];
+    pub const ALL: &'static [&'static str] = &["sqlite", "postgresql", "turso"];
 
     #[inline]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sqlite => "sqlite",
             Self::Postgresql => "postgresql",
-            Self::Mysql => "mysql",
             Self::Turso => "turso",
-            Self::Singlestore => "singlestore",
         }
     }
 
@@ -136,7 +131,6 @@ impl Dialect {
         match self {
             Self::Sqlite | Self::Turso => drizzle_types::Dialect::SQLite,
             Self::Postgresql => drizzle_types::Dialect::PostgreSQL,
-            Self::Mysql | Self::Singlestore => drizzle_types::Dialect::MySQL,
         }
     }
 }
@@ -164,29 +158,23 @@ impl From<Dialect> for drizzle_types::Dialect {
 pub enum Driver {
     /// rusqlite - synchronous SQLite driver
     Rusqlite,
-    /// libsql - LibSQL/Turso driver
+    /// libsql - LibSQL driver (local embedded)
     Libsql,
-    /// sqlx-sqlite - SQLx async SQLite driver
-    SqlxSqlite,
+    /// turso - Turso cloud driver (remote)
+    Turso,
+    /// postgres-sync - synchronous PostgreSQL driver
+    PostgresSync,
     /// tokio-postgres - async PostgreSQL driver
     TokioPostgres,
-    /// sqlx-postgres - SQLx async PostgreSQL driver
-    SqlxPostgres,
-    /// mysql-async - async MySQL driver
-    MysqlAsync,
-    /// sqlx-mysql - SQLx async MySQL driver
-    SqlxMysql,
 }
 
 impl Driver {
     pub const ALL: &'static [&'static str] = &[
         "rusqlite",
         "libsql",
-        "sqlx-sqlite",
+        "turso",
+        "postgres-sync",
         "tokio-postgres",
-        "sqlx-postgres",
-        "mysql-async",
-        "sqlx-mysql",
     ];
 
     #[inline]
@@ -194,20 +182,17 @@ impl Driver {
         match self {
             Self::Rusqlite => "rusqlite",
             Self::Libsql => "libsql",
-            Self::SqlxSqlite => "sqlx-sqlite",
+            Self::Turso => "turso",
+            Self::PostgresSync => "postgres-sync",
             Self::TokioPostgres => "tokio-postgres",
-            Self::SqlxPostgres => "sqlx-postgres",
-            Self::MysqlAsync => "mysql-async",
-            Self::SqlxMysql => "sqlx-mysql",
         }
     }
 
     pub const fn valid_for(dialect: Dialect) -> &'static [Driver] {
         match dialect {
-            Dialect::Sqlite => &[Self::Rusqlite, Self::SqlxSqlite],
-            Dialect::Turso => &[Self::Libsql],
-            Dialect::Postgresql => &[Self::TokioPostgres, Self::SqlxPostgres],
-            Dialect::Mysql | Dialect::Singlestore => &[Self::MysqlAsync, Self::SqlxMysql],
+            Dialect::Sqlite => &[Self::Rusqlite],
+            Dialect::Turso => &[Self::Libsql, Self::Turso],
+            Dialect::Postgresql => &[Self::PostgresSync, Self::TokioPostgres],
         }
     }
 
@@ -215,13 +200,9 @@ impl Driver {
     pub const fn is_valid_for(self, dialect: Dialect) -> bool {
         matches!(
             (self, dialect),
-            (Self::Rusqlite | Self::SqlxSqlite, Dialect::Sqlite)
-                | (Self::Libsql, Dialect::Turso)
-                | (Self::TokioPostgres | Self::SqlxPostgres, Dialect::Postgresql)
-                | (
-                    Self::MysqlAsync | Self::SqlxMysql,
-                    Dialect::Mysql | Dialect::Singlestore
-                )
+            (Self::Rusqlite, Dialect::Sqlite)
+                | (Self::Libsql | Self::Turso, Dialect::Turso)
+                | (Self::PostgresSync | Self::TokioPostgres, Dialect::Postgresql)
         )
     }
 }
@@ -250,9 +231,6 @@ pub enum Credentials {
 
     /// PostgreSQL
     Postgres(PostgresCreds),
-
-    /// MySQL (also used for SingleStore)
-    Mysql(MysqlCreds),
 }
 
 /// PostgreSQL credentials
@@ -288,44 +266,6 @@ impl PostgresCreds {
                     _ => String::new(),
                 };
                 format!("postgres://{auth}{host}:{port}/{database}")
-            }
-        }
-    }
-}
-
-/// MySQL credentials
-#[derive(Debug, Clone)]
-pub enum MysqlCreds {
-    Url(Box<str>),
-    Host {
-        host: Box<str>,
-        port: u16,
-        user: Option<Box<str>>,
-        password: Option<Box<str>>,
-        database: Box<str>,
-        ssl: bool,
-    },
-}
-
-impl MysqlCreds {
-    /// Build connection URL
-    pub fn connection_url(&self) -> String {
-        match self {
-            Self::Url(url) => url.to_string(),
-            Self::Host {
-                host,
-                port,
-                user,
-                password,
-                database,
-                ..
-            } => {
-                let auth = match (user, password) {
-                    (Some(u), Some(p)) => format!("{u}:{p}@"),
-                    (Some(u), None) => format!("{u}@"),
-                    _ => String::new(),
-                };
-                format!("mysql://{auth}{host}:{port}/{database}")
             }
         }
     }
@@ -545,22 +485,6 @@ impl DatabaseConfig {
             ) if !url.starts_with("postgres") => {
                 Err(err("PostgreSQL URL must start with postgres://"))
             }
-            (
-                Dialect::Mysql,
-                RawCreds::Url {
-                    url: EnvOr::Value(url),
-                    ..
-                },
-            ) if !url.starts_with("mysql://") => Err(err("MySQL URL must start with mysql://")),
-            (
-                Dialect::Singlestore,
-                RawCreds::Url {
-                    url: EnvOr::Value(url),
-                    ..
-                },
-            ) if !url.starts_with("mysql://") && !url.starts_with("singlestore://") => Err(err(
-                "SingleStore URL must start with mysql:// or singlestore://",
-            )),
             _ => Ok(()),
         }
     }
@@ -608,29 +532,6 @@ impl DatabaseConfig {
             ) => Credentials::Postgres(PostgresCreds::Host {
                 host: host.resolve()?.into_boxed_str(),
                 port: port.unwrap_or(5432),
-                user: resolve_opt(user)?,
-                password: resolve_opt(password)?,
-                database: database.resolve()?.into_boxed_str(),
-                ssl: ssl.as_ref().map(|s| s.enabled()).unwrap_or(false),
-            }),
-            // MySQL/SingleStore URL
-            (Dialect::Mysql | Dialect::Singlestore, RawCreds::Url { url, .. }) => {
-                Credentials::Mysql(MysqlCreds::Url(url.resolve()?.into_boxed_str()))
-            }
-            // MySQL/SingleStore Host
-            (
-                Dialect::Mysql | Dialect::Singlestore,
-                RawCreds::Host {
-                    host,
-                    port,
-                    user,
-                    password,
-                    database,
-                    ssl,
-                },
-            ) => Credentials::Mysql(MysqlCreds::Host {
-                host: host.resolve()?.into_boxed_str(),
-                port: port.unwrap_or(3306),
                 user: resolve_opt(user)?,
                 password: resolve_opt(password)?,
                 database: database.resolve()?.into_boxed_str(),
