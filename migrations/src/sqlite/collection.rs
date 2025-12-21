@@ -354,82 +354,90 @@ pub struct EntityDiff {
 pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     let mut diffs = Vec::new();
 
-    // Diff tables
+    // Diff tables (no table_fn needed since these ARE tables)
     diff_entity_type(
         left.tables.list(),
         right.tables.list(),
         |t| t.name.to_string(),
         |t| SqliteEntity::Table(t.clone()),
+        None,
         EntityKind::Table,
         &mut diffs,
     );
 
-    // Diff columns
+    // Diff columns - extract table name from column
     diff_entity_type(
         left.columns.list(),
         right.columns.list(),
         |c| format!("{}:{}", c.table, c.name),
         |c| SqliteEntity::Column(c.clone()),
+        Some(&|c: &Column| c.table.to_string()),
         EntityKind::Column,
         &mut diffs,
     );
 
-    // Diff indexes
+    // Diff indexes - extract table name from index
     diff_entity_type(
         left.indexes.list(),
         right.indexes.list(),
         |i| i.name.to_string(),
         |i| SqliteEntity::Index(i.clone()),
+        Some(&|i: &Index| i.table.to_string()),
         EntityKind::Index,
         &mut diffs,
     );
 
-    // Diff foreign keys
+    // Diff foreign keys - extract table name from FK
     diff_entity_type(
         left.fks.list(),
         right.fks.list(),
         |f| f.name.to_string(),
         |f| SqliteEntity::ForeignKey(f.clone()),
+        Some(&|f: &ForeignKey| f.table.to_string()),
         EntityKind::ForeignKey,
         &mut diffs,
     );
 
-    // Diff primary keys
+    // Diff primary keys - extract table name from PK
     diff_entity_type(
         left.pks.list(),
         right.pks.list(),
         |p| p.table.to_string(),
         |p| SqliteEntity::PrimaryKey(p.clone()),
+        Some(&|p: &PrimaryKey| p.table.to_string()),
         EntityKind::PrimaryKey,
         &mut diffs,
     );
 
-    // Diff unique constraints
+    // Diff unique constraints - extract table name from unique
     diff_entity_type(
         left.uniques.list(),
         right.uniques.list(),
         |u| u.name.to_string(),
         |u| SqliteEntity::UniqueConstraint(u.clone()),
+        Some(&|u: &UniqueConstraint| u.table.to_string()),
         EntityKind::UniqueConstraint,
         &mut diffs,
     );
 
-    // Diff check constraints
+    // Diff check constraints - extract table name from check
     diff_entity_type(
         left.checks.list(),
         right.checks.list(),
         |c| c.name.to_string(),
         |c| SqliteEntity::CheckConstraint(c.clone()),
+        Some(&|c: &CheckConstraint| c.table.to_string()),
         EntityKind::CheckConstraint,
         &mut diffs,
     );
 
-    // Diff views
+    // Diff views (no table_fn needed since views are standalone)
     diff_entity_type(
         left.views.list(),
         right.views.list(),
         |v| v.name.to_string(),
         |v| SqliteEntity::View(v.clone()),
+        None,
         EntityKind::View,
         &mut diffs,
     );
@@ -443,6 +451,7 @@ fn diff_entity_type<T: Clone + PartialEq>(
     right: &[T],
     key_fn: impl Fn(&T) -> String,
     to_entity: impl Fn(&T) -> SqliteEntity,
+    table_fn: Option<&dyn Fn(&T) -> String>,
     kind: EntityKind,
     diffs: &mut Vec<EntityDiff>,
 ) {
@@ -455,7 +464,7 @@ fn diff_entity_type<T: Clone + PartialEq>(
             diffs.push(EntityDiff {
                 diff_type: DiffType::Drop,
                 kind,
-                table: None,
+                table: table_fn.map(|f| f(left_entity)),
                 name: key.clone(),
                 changes: HashMap::new(),
                 left: Some(to_entity(left_entity)),
@@ -470,7 +479,7 @@ fn diff_entity_type<T: Clone + PartialEq>(
             diffs.push(EntityDiff {
                 diff_type: DiffType::Create,
                 kind,
-                table: None,
+                table: table_fn.map(|f| f(right_entity)),
                 name: key.clone(),
                 changes: HashMap::new(),
                 left: None,
@@ -487,7 +496,7 @@ fn diff_entity_type<T: Clone + PartialEq>(
             diffs.push(EntityDiff {
                 diff_type: DiffType::Alter,
                 kind,
-                table: None,
+                table: table_fn.map(|f| f(right_entity)),
                 name: key.clone(),
                 changes: HashMap::new(), // Field-level comparison available via left/right entities
                 left: Some(to_entity(left_entity)),
