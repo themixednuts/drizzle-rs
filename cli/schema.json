@@ -245,6 +245,8 @@
       "type": "object",
       "required": ["databases"],
       "properties": {
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": { "type": "string" },
         "databases": {
           "description": "Named database configurations",
           "type": "object",
