@@ -468,4 +468,148 @@ mod tests {
         assert_eq!(infer_postgres_type("Vec<u8>"), "bytea");
         assert_eq!(infer_postgres_type("Uuid"), "uuid");
     }
+
+    /// Test that changing a column from Option<String> to String generates table recreation
+    #[test]
+    fn test_nullable_to_not_null_generates_migration() {
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_migrations::sqlite::collection::SQLiteDDL;
+        use drizzle_migrations::sqlite::diff::compute_migration;
+
+        // Previous schema: email is nullable (Option<String>)
+        let prev_code = r#"
+#[SQLiteTable]
+pub struct User {
+    #[column(primary)]
+    pub id: i64,
+    pub name: String,
+    pub email: Option<String>,
+}
+"#;
+
+        // Current schema: email is NOT nullable (String)
+        let cur_code = r#"
+#[SQLiteTable]
+pub struct User {
+    #[column(primary)]
+    pub id: i64,
+    pub name: String,
+    pub email: String,
+}
+"#;
+
+        let prev_result = SchemaParser::parse(prev_code);
+        let cur_result = SchemaParser::parse(cur_code);
+
+        let prev_snapshot = parse_result_to_snapshot(&prev_result, Dialect::SQLite);
+        let cur_snapshot = parse_result_to_snapshot(&cur_result, Dialect::SQLite);
+
+        // Extract DDL from snapshots
+        let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
+            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
+                (
+                    SQLiteDDL::from_entities(p.ddl.clone()),
+                    SQLiteDDL::from_entities(c.ddl.clone()),
+                )
+            }
+            _ => panic!("Expected SQLite snapshots"),
+        };
+
+        // Check that previous email column is nullable and current is not
+        let prev_email = prev_ddl.columns.one("user", "email").expect("email column in prev");
+        let cur_email = cur_ddl.columns.one("user", "email").expect("email column in cur");
+        assert!(!prev_email.not_null, "Previous email should be nullable");
+        assert!(cur_email.not_null, "Current email should be NOT NULL");
+
+        // Compute migration
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+
+        // Should have SQL statements for table recreation
+        assert!(
+            !migration.sql_statements.is_empty(),
+            "Should generate migration SQL for nullable change"
+        );
+
+        let combined = migration.sql_statements.join("\n");
+        assert!(
+            combined.contains("PRAGMA foreign_keys=OFF"),
+            "Should contain PRAGMA foreign_keys=OFF for table recreation"
+        );
+        assert!(
+            combined.contains("__new_user"),
+            "Should create temporary table __new_user"
+        );
+        assert!(
+            combined.contains("NOT NULL"),
+            "New table should have NOT NULL on email column"
+        );
+        assert!(
+            combined.contains("DROP TABLE"),
+            "Should drop old table"
+        );
+        assert!(
+            combined.contains("RENAME TO"),
+            "Should rename temp table to original"
+        );
+    }
+
+    /// Test that changing a column from String to Option<String> generates table recreation
+    #[test]
+    fn test_not_null_to_nullable_generates_migration() {
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_migrations::sqlite::collection::SQLiteDDL;
+        use drizzle_migrations::sqlite::diff::compute_migration;
+
+        // Previous schema: email is NOT nullable (String)
+        let prev_code = r#"
+#[SQLiteTable]
+pub struct User {
+    #[column(primary)]
+    pub id: i64,
+    pub email: String,
+}
+"#;
+
+        // Current schema: email is nullable (Option<String>)
+        let cur_code = r#"
+#[SQLiteTable]
+pub struct User {
+    #[column(primary)]
+    pub id: i64,
+    pub email: Option<String>,
+}
+"#;
+
+        let prev_result = SchemaParser::parse(prev_code);
+        let cur_result = SchemaParser::parse(cur_code);
+
+        let prev_snapshot = parse_result_to_snapshot(&prev_result, Dialect::SQLite);
+        let cur_snapshot = parse_result_to_snapshot(&cur_result, Dialect::SQLite);
+
+        // Extract DDL from snapshots
+        let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
+            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
+                (
+                    SQLiteDDL::from_entities(p.ddl.clone()),
+                    SQLiteDDL::from_entities(c.ddl.clone()),
+                )
+            }
+            _ => panic!("Expected SQLite snapshots"),
+        };
+
+        // Compute migration
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+
+        // Should have SQL statements for table recreation
+        assert!(
+            !migration.sql_statements.is_empty(),
+            "Should generate migration SQL for nullable change"
+        );
+
+        let combined = migration.sql_statements.join("\n");
+        assert!(
+            combined.contains("__new_user"),
+            "Should create temporary table for recreation"
+        );
+    }
 }

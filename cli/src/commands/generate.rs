@@ -215,25 +215,30 @@ fn load_previous_snapshot(
 fn generate_diff(
     prev: &drizzle_migrations::schema::Snapshot,
     current: &drizzle_migrations::schema::Snapshot,
-    breakpoints: bool,
+    _breakpoints: bool,
 ) -> Result<Vec<String>, CliError> {
     use drizzle_migrations::schema::Snapshot;
 
     match (prev, current) {
         (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
-            use drizzle_migrations::sqlite::diff_snapshots;
-            use drizzle_migrations::sqlite::statements::SqliteGenerator;
+            use drizzle_migrations::sqlite::collection::SQLiteDDL;
+            use drizzle_migrations::sqlite::diff::compute_migration;
 
-            let diff = diff_snapshots(prev_snap, curr_snap);
-            let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
-            Ok(generator.generate_migration(&diff))
+            // Convert snapshots to DDL collections
+            let prev_ddl = SQLiteDDL::from_entities(prev_snap.ddl.clone());
+            let cur_ddl = SQLiteDDL::from_entities(curr_snap.ddl.clone());
+
+            // Use compute_migration which properly handles column alterations
+            // via table recreation (SQLite doesn't support ALTER COLUMN)
+            let migration = compute_migration(&prev_ddl, &cur_ddl);
+            Ok(migration.sql_statements)
         }
         (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
             use drizzle_migrations::postgres::diff_full_snapshots;
             use drizzle_migrations::postgres::statements::PostgresGenerator;
 
             let diff = diff_full_snapshots(prev_snap, curr_snap);
-            let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
+            let generator = PostgresGenerator::new().with_breakpoints(_breakpoints);
             Ok(generator.generate(&diff.diffs))
         }
         _ => Err(CliError::DialectMismatch),
