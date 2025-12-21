@@ -5,6 +5,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Adjectives for migration names (matches drizzle-kit)
@@ -1339,18 +1340,6 @@ pub enum PrefixMode {
 }
 
 impl PrefixMode {
-    /// Parse prefix mode from string (matches drizzle-kit config)
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "timestamp" => PrefixMode::Timestamp,
-            "index" => PrefixMode::Index,
-            "supabase" => PrefixMode::Supabase,
-            "unix" => PrefixMode::Unix,
-            "none" => PrefixMode::None,
-            _ => PrefixMode::Timestamp,
-        }
-    }
-
     /// Generate a prefix for this mode
     pub fn generate_prefix(&self, idx: u32) -> String {
         match self {
@@ -1360,6 +1349,24 @@ impl PrefixMode {
             PrefixMode::Unix => generate_unix_prefix(),
             PrefixMode::None => String::new(),
         }
+    }
+}
+
+impl FromStr for PrefixMode {
+    type Err = ();
+
+    /// Parse prefix mode from string (matches drizzle-kit config)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let result = match s.to_lowercase().as_str() {
+            "index" => PrefixMode::Index,
+            "supabase" => PrefixMode::Supabase,
+            "unix" => PrefixMode::Unix,
+            "none" => PrefixMode::None,
+            // "timestamp"
+            _ => PrefixMode::Timestamp,
+        };
+
+        Ok(result)
     }
 }
 

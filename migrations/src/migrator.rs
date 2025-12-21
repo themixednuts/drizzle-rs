@@ -22,13 +22,13 @@
 //!
 //! async fn run_migrations(db: &Database) -> Result<(), MigratorError> {
 //!     let set = MigrationSet::new(MIGRATIONS.to_vec(), Dialect::SQLite);
-//!     
+//!
 //!     // Ensure migrations table exists
 //!     db.execute(&set.create_table_sql()).await?;
-//!     
+//!
 //!     // Get applied migrations
 //!     let applied = db.query_column::<String>(&set.query_applied_sql()).await?;
-//!     
+//!
 //!     // Apply pending migrations
 //!     for migration in set.pending(&applied) {
 //!         for statement in migration.statements() {
@@ -560,18 +560,18 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
 /// Supports both V3 format (YYYYMMDDHHMMSS_name) and legacy format (0000_name)
 fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
-    if tag.len() >= 14 {
-        if let Ok(ts) = tag[0..14].parse::<i64>() {
-            return ts;
-        }
+    if tag.len() >= 14
+        && let Ok(ts) = tag[0..14].parse::<i64>()
+    {
+        return ts;
     }
 
     // Try legacy format (0000)
-    if tag.len() >= 4 {
-        if let Ok(idx) = tag[0..4].parse::<i64>() {
-            // Convert index to a pseudo-timestamp for ordering
-            return idx;
-        }
+    if tag.len() >= 4
+        && let Ok(idx) = tag[0..4].parse::<i64>()
+    {
+        // Convert index to a pseudo-timestamp for ordering
+        return idx;
     }
 
     // Fallback: use current time

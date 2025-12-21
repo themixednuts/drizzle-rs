@@ -32,17 +32,17 @@ pub enum JsonStatement {
         to: String,
     },
     AddColumn {
-        column: Column,
+        column: Box<Column>,
         #[serde(rename = "isPK")]
         is_pk: bool,
         #[serde(rename = "isCompositePK")]
         is_composite_pk: bool,
     },
     DropColumn {
-        column: Column,
+        column: Box<Column>,
     },
     AlterColumn {
-        to: Column,
+        to: Box<Column>,
         #[serde(rename = "wasEnum")]
         was_enum: bool,
         #[serde(rename = "isEnum")]
@@ -132,8 +132,8 @@ pub enum JsonStatement {
     },
     /// Recreate column by dropping and re-adding (for generated columns, type changes, etc.)
     RecreateColumn {
-        old_column: Column,
-        new_column: Column,
+        old_column: Box<Column>,
+        new_column: Box<Column>,
     },
     // Missing some less common ones for brevity but covering core DDL
 }
@@ -450,7 +450,7 @@ impl PostgresGenerator {
                     // Check if this column is part of a newly created PK
                     let (is_pk, is_composite_pk) = self.check_column_pk_status(c, all_diffs);
                     Some(JsonStatement::AddColumn {
-                        column: c.clone(),
+                        column: Box::new(c.clone()),
                         is_pk,
                         is_composite_pk,
                     })
@@ -484,7 +484,9 @@ impl PostgresGenerator {
                     table: t.clone(),
                     table_key: format!("{}.{}", t.schema, t.name),
                 }),
-                PostgresEntity::Column(c) => Some(JsonStatement::DropColumn { column: c.clone() }),
+                PostgresEntity::Column(c) => Some(JsonStatement::DropColumn {
+                    column: Box::new(c.clone()),
+                }),
                 PostgresEntity::Index(i) => Some(JsonStatement::DropIndex { index: i.clone() }),
                 PostgresEntity::ForeignKey(f) => Some(JsonStatement::DropFk { fk: f.clone() }),
                 PostgresEntity::PrimaryKey(p) => Some(JsonStatement::DropPk { pk: p.clone() }),
@@ -528,8 +530,8 @@ impl PostgresGenerator {
 
                         if needs_recreate {
                             Some(JsonStatement::RecreateColumn {
-                                old_column: old.clone(),
-                                new_column: new.clone(),
+                                old_column: Box::new(old.clone()),
+                                new_column: Box::new(new.clone()),
                             })
                         } else {
                             // Build a granular diff structure for column alterations
@@ -538,7 +540,7 @@ impl PostgresGenerator {
                             let is_enum = new.type_schema.is_some();
 
                             Some(JsonStatement::AlterColumn {
-                                to: new.clone(),
+                                to: Box::new(new.clone()),
                                 was_enum,
                                 is_enum,
                                 diff,
@@ -988,13 +990,11 @@ impl PostgresGenerator {
                 }
 
                 // Handle generated column change (drop expression)
-                if diff.contains_key("generated") {
-                    if to.generated.is_none() {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP EXPRESSION;",
-                            table_key, to.name
-                        ));
-                    }
+                if diff.contains_key("generated") && to.generated.is_none() {
+                    stmts.push(format!(
+                        "ALTER TABLE {} ALTER COLUMN \"{}\" DROP EXPRESSION;",
+                        table_key, to.name
+                    ));
                     // Note: Adding generated column requires drop + add (recreate_column)
                 }
 
