@@ -168,7 +168,8 @@
           "additionalProperties": false
         },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-      }
+      },
+      "additionalProperties": true
     }
   },
   "oneOf": [
