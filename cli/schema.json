@@ -31,12 +31,13 @@
       "description": "Optional driver for specific database implementations",
       "type": "string",
       "enum": [
-        "d1-http",
-        "expo",
-        "durable-sqlite",
-        "sqlite-cloud",
-        "aws-data-api",
-        "pglite"
+        "rusqlite",
+        "libsql",
+        "sqlx-sqlite",
+        "tokio-postgres",
+        "sqlx-postgres",
+        "mysql-async",
+        "sqlx-mysql"
       ]
     },
     "schemaPath": {
@@ -85,17 +86,20 @@
       "oneOf": [
         {
           "type": "object",
-          "description": "URL-based credentials",
+          "description": "URL-based credentials (SQLite file path, Turso/LibSQL URL, PostgreSQL/MySQL connection string)",
           "required": ["url"],
           "properties": {
             "url": { "$ref": "#/definitions/envOr" },
-            "authToken": { "$ref": "#/definitions/envOr" }
+            "authToken": {
+              "$ref": "#/definitions/envOr",
+              "description": "Auth token for Turso/LibSQL connections"
+            }
           },
           "additionalProperties": false
         },
         {
           "type": "object",
-          "description": "Host-based credentials",
+          "description": "Host-based credentials for PostgreSQL/MySQL",
           "required": ["host", "database"],
           "properties": {
             "host": { "$ref": "#/definitions/envOr" },
@@ -109,28 +113,6 @@
                 { "type": "string", "enum": ["require", "allow", "prefer", "verify-full", "disable"] }
               ]
             }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "description": "Cloudflare D1 credentials",
-          "required": ["accountId", "databaseId", "token"],
-          "properties": {
-            "accountId": { "$ref": "#/definitions/envOr" },
-            "databaseId": { "$ref": "#/definitions/envOr" },
-            "token": { "$ref": "#/definitions/envOr" }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "description": "AWS Data API credentials",
-          "required": ["database", "secretArn", "resourceArn"],
-          "properties": {
-            "database": { "$ref": "#/definitions/envOr" },
-            "secretArn": { "$ref": "#/definitions/envOr" },
-            "resourceArn": { "$ref": "#/definitions/envOr" }
           },
           "additionalProperties": false
         }
@@ -179,7 +161,7 @@
   },
   "oneOf": [
     {
-      "description": "Single database configuration (legacy/simple mode)",
+      "description": "Single database configuration (simple mode)",
       "type": "object",
       "required": ["dialect"],
       "properties": {
@@ -202,10 +184,6 @@
         },
         "schemaFilter": {
           "description": "Schema filter for PostgreSQL",
-          "$ref": "#/definitions/filter"
-        },
-        "extensionsFilters": {
-          "description": "Extensions filter for PostgreSQL",
           "$ref": "#/definitions/filter"
         },
         "verbose": {
@@ -232,27 +210,6 @@
               "type": "string",
               "enum": ["camel", "preserve"],
               "default": "camel"
-            }
-          },
-          "additionalProperties": false
-        },
-        "entities": {
-          "description": "Entity configuration (roles, policies, etc.)",
-          "type": "object",
-          "properties": {
-            "roles": {
-              "oneOf": [
-                { "type": "boolean" },
-                {
-                  "type": "object",
-                  "properties": {
-                    "provider": { "type": "string" },
-                    "exclude": { "type": "array", "items": { "type": "string" } },
-                    "include": { "type": "array", "items": { "type": "string" } }
-                  },
-                  "additionalProperties": false
-                }
-              ]
             }
           },
           "additionalProperties": false

@@ -158,51 +158,56 @@ impl From<Dialect> for drizzle_types::Dialect {
 // Driver
 // ============================================================================
 
-/// Database driver for special connection types
+/// Database driver for Rust database connections
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Driver {
-    D1Http,
-    Expo,
-    DurableSqlite,
-    SqliteCloud,
-    AwsDataApi,
-    Pglite,
+    /// rusqlite - synchronous SQLite driver
+    Rusqlite,
+    /// libsql - LibSQL/Turso driver
+    Libsql,
+    /// sqlx-sqlite - SQLx async SQLite driver
+    SqlxSqlite,
+    /// tokio-postgres - async PostgreSQL driver
+    TokioPostgres,
+    /// sqlx-postgres - SQLx async PostgreSQL driver
+    SqlxPostgres,
+    /// mysql-async - async MySQL driver
+    MysqlAsync,
+    /// sqlx-mysql - SQLx async MySQL driver
+    SqlxMysql,
 }
 
 impl Driver {
     pub const ALL: &'static [&'static str] = &[
-        "d1-http",
-        "expo",
-        "durable-sqlite",
-        "sqlite-cloud",
-        "aws-data-api",
-        "pglite",
+        "rusqlite",
+        "libsql",
+        "sqlx-sqlite",
+        "tokio-postgres",
+        "sqlx-postgres",
+        "mysql-async",
+        "sqlx-mysql",
     ];
 
     #[inline]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::D1Http => "d1-http",
-            Self::Expo => "expo",
-            Self::DurableSqlite => "durable-sqlite",
-            Self::SqliteCloud => "sqlite-cloud",
-            Self::AwsDataApi => "aws-data-api",
-            Self::Pglite => "pglite",
+            Self::Rusqlite => "rusqlite",
+            Self::Libsql => "libsql",
+            Self::SqlxSqlite => "sqlx-sqlite",
+            Self::TokioPostgres => "tokio-postgres",
+            Self::SqlxPostgres => "sqlx-postgres",
+            Self::MysqlAsync => "mysql-async",
+            Self::SqlxMysql => "sqlx-mysql",
         }
     }
 
     pub const fn valid_for(dialect: Dialect) -> &'static [Driver] {
         match dialect {
-            Dialect::Sqlite => &[
-                Self::D1Http,
-                Self::Expo,
-                Self::DurableSqlite,
-                Self::SqliteCloud,
-            ],
-            Dialect::Turso => &[Self::D1Http, Self::SqliteCloud],
-            Dialect::Postgresql => &[Self::AwsDataApi, Self::Pglite],
-            Dialect::Mysql | Dialect::Singlestore => &[],
+            Dialect::Sqlite => &[Self::Rusqlite, Self::SqlxSqlite],
+            Dialect::Turso => &[Self::Libsql],
+            Dialect::Postgresql => &[Self::TokioPostgres, Self::SqlxPostgres],
+            Dialect::Mysql | Dialect::Singlestore => &[Self::MysqlAsync, Self::SqlxMysql],
         }
     }
 
@@ -210,11 +215,13 @@ impl Driver {
     pub const fn is_valid_for(self, dialect: Dialect) -> bool {
         matches!(
             (self, dialect),
-            (
-                Self::D1Http | Self::Expo | Self::DurableSqlite | Self::SqliteCloud,
-                Dialect::Sqlite
-            ) | (Self::D1Http | Self::SqliteCloud, Dialect::Turso)
-                | (Self::AwsDataApi | Self::Pglite, Dialect::Postgresql)
+            (Self::Rusqlite | Self::SqlxSqlite, Dialect::Sqlite)
+                | (Self::Libsql, Dialect::Turso)
+                | (Self::TokioPostgres | Self::SqlxPostgres, Dialect::Postgresql)
+                | (
+                    Self::MysqlAsync | Self::SqlxMysql,
+                    Dialect::Mysql | Dialect::Singlestore
+                )
         )
     }
 }
@@ -246,26 +253,6 @@ pub enum Credentials {
 
     /// MySQL (also used for SingleStore)
     Mysql(MysqlCreds),
-
-    /// Cloudflare D1
-    D1 {
-        account_id: Box<str>,
-        database_id: Box<str>,
-        token: Box<str>,
-    },
-
-    /// AWS RDS Data API
-    AwsDataApi {
-        database: Box<str>,
-        secret_arn: Box<str>,
-        resource_arn: Box<str>,
-    },
-
-    /// PGlite
-    Pglite { path: Box<str> },
-
-    /// SQLite Cloud
-    SqliteCloud { url: Box<str> },
 }
 
 /// PostgreSQL credentials
@@ -430,20 +417,6 @@ enum RawCreds {
         #[serde(default)]
         ssl: Option<SslVal>,
     },
-    D1 {
-        #[serde(rename = "accountId")]
-        account_id: EnvOr,
-        #[serde(rename = "databaseId")]
-        database_id: EnvOr,
-        token: EnvOr,
-    },
-    Aws {
-        database: EnvOr,
-        #[serde(rename = "secretArn")]
-        secret_arn: EnvOr,
-        #[serde(rename = "resourceArn")]
-        resource_arn: EnvOr,
-    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -534,19 +507,6 @@ impl DatabaseConfig {
     fn validate_creds(&self, raw: &RawCreds, _name: &str) -> Result<(), Error> {
         let err = |msg: &str| Error::InvalidCredentials(msg.into());
 
-        // Driver-specific checks
-        match self.driver {
-            Some(Driver::D1Http) if !matches!(raw, RawCreds::D1 { .. }) => {
-                return Err(err("D1 driver requires accountId, databaseId, and token"));
-            }
-            Some(Driver::AwsDataApi) if !matches!(raw, RawCreds::Aws { .. }) => {
-                return Err(err(
-                    "AWS Data API requires database, secretArn, and resourceArn",
-                ));
-            }
-            _ => {}
-        }
-
         // Dialect-specific checks (only for direct values, not env var references)
         match (self.dialect, raw) {
             (
@@ -620,60 +580,23 @@ impl DatabaseConfig {
             }
         };
 
-        let creds = match (self.dialect, self.driver, raw) {
-            // D1
-            (
-                _,
-                Some(Driver::D1Http),
-                RawCreds::D1 {
-                    account_id,
-                    database_id,
-                    token,
-                },
-            ) => Credentials::D1 {
-                account_id: account_id.resolve()?.into_boxed_str(),
-                database_id: database_id.resolve()?.into_boxed_str(),
-                token: token.resolve()?.into_boxed_str(),
-            },
-            // AWS Data API
-            (
-                _,
-                Some(Driver::AwsDataApi),
-                RawCreds::Aws {
-                    database,
-                    secret_arn,
-                    resource_arn,
-                },
-            ) => Credentials::AwsDataApi {
-                database: database.resolve()?.into_boxed_str(),
-                secret_arn: secret_arn.resolve()?.into_boxed_str(),
-                resource_arn: resource_arn.resolve()?.into_boxed_str(),
-            },
-            // PGlite
-            (_, Some(Driver::Pglite), RawCreds::Url { url, .. }) => Credentials::Pglite {
-                path: url.resolve()?.into_boxed_str(),
-            },
-            // SQLite Cloud
-            (_, Some(Driver::SqliteCloud), RawCreds::Url { url, .. }) => Credentials::SqliteCloud {
-                url: url.resolve()?.into_boxed_str(),
-            },
+        let creds = match (self.dialect, raw) {
             // SQLite
-            (Dialect::Sqlite, _, RawCreds::Url { url, .. }) => Credentials::Sqlite {
+            (Dialect::Sqlite, RawCreds::Url { url, .. }) => Credentials::Sqlite {
                 path: url.resolve()?.into_boxed_str(),
             },
             // Turso
-            (Dialect::Turso, _, RawCreds::Url { url, auth_token }) => Credentials::Turso {
+            (Dialect::Turso, RawCreds::Url { url, auth_token }) => Credentials::Turso {
                 url: url.resolve()?.into_boxed_str(),
                 auth_token: resolve_opt(auth_token)?,
             },
             // PostgreSQL URL
-            (Dialect::Postgresql, _, RawCreds::Url { url, .. }) => {
+            (Dialect::Postgresql, RawCreds::Url { url, .. }) => {
                 Credentials::Postgres(PostgresCreds::Url(url.resolve()?.into_boxed_str()))
             }
             // PostgreSQL Host
             (
                 Dialect::Postgresql,
-                _,
                 RawCreds::Host {
                     host,
                     port,
@@ -691,13 +614,12 @@ impl DatabaseConfig {
                 ssl: ssl.as_ref().map(|s| s.enabled()).unwrap_or(false),
             }),
             // MySQL/SingleStore URL
-            (Dialect::Mysql | Dialect::Singlestore, _, RawCreds::Url { url, .. }) => {
+            (Dialect::Mysql | Dialect::Singlestore, RawCreds::Url { url, .. }) => {
                 Credentials::Mysql(MysqlCreds::Url(url.resolve()?.into_boxed_str()))
             }
             // MySQL/SingleStore Host
             (
                 Dialect::Mysql | Dialect::Singlestore,
-                _,
                 RawCreds::Host {
                     host,
                     port,

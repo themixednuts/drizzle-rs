@@ -138,26 +138,6 @@ fn print_credentials(creds: &Credentials) {
                 }
             }
         },
-        Credentials::D1 {
-            account_id,
-            database_id,
-            ..
-        } => {
-            println!(
-                "    D1: {}.../{}",
-                &account_id[..8.min(account_id.len())],
-                database_id
-            );
-        }
-        Credentials::AwsDataApi { database, .. } => {
-            println!("    AWS Data API: {database}");
-        }
-        Credentials::Pglite { path } => {
-            println!("    PGlite: {path}");
-        }
-        Credentials::SqliteCloud { url } => {
-            println!("    SQLite Cloud: {}", mask_url(url));
-        }
     }
 }
 
