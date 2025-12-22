@@ -171,7 +171,7 @@
         "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -179,7 +179,6 @@
       "description": "SQLite configuration",
       "type": "object",
       "required": ["dialect"],
-      "allOf": [{ "$ref": "#/definitions/baseConfig" }],
       "properties": {
         "dialect": { "const": "sqlite" },
         "driver": { "$ref": "#/definitions/sqliteDriver" },
@@ -200,7 +199,6 @@
       "description": "Turso configuration",
       "type": "object",
       "required": ["dialect"],
-      "allOf": [{ "$ref": "#/definitions/baseConfig" }],
       "properties": {
         "dialect": { "const": "turso" },
         "driver": { "$ref": "#/definitions/tursoDriver" },
@@ -221,7 +219,6 @@
       "description": "PostgreSQL configuration",
       "type": "object",
       "required": ["dialect"],
-      "allOf": [{ "$ref": "#/definitions/baseConfig" }],
       "properties": {
         "dialect": { "enum": ["postgresql", "postgres"] },
         "driver": { "$ref": "#/definitions/postgresDriver" },
@@ -246,7 +243,6 @@
       "description": "Multi-database configuration",
       "type": "object",
       "required": ["databases"],
-      "allOf": [{ "$ref": "#/definitions/baseConfig" }],
       "properties": {
         "schema": { "$ref": "#/definitions/schemaPath" },
         "out": { "type": "string" },
