@@ -22,11 +22,6 @@
         }
       ]
     },
-    "dialect": {
-      "description": "Database dialect",
-      "type": "string",
-      "enum": ["sqlite", "postgresql", "postgres", "turso"]
-    },
     "sqliteDriver": {
       "description": "Driver for SQLite dialect",
       "type": "string",
@@ -137,35 +132,23 @@
         }
       ]
     },
-    "baseConfig": {
-      "description": "Base configuration properties shared across all dialects",
+    "databaseConfig": {
+      "description": "Database configuration for multi-database setup",
       "type": "object",
+      "required": ["dialect"],
       "properties": {
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": {
-          "description": "Output directory for migrations",
+        "dialect": {
           "type": "string",
-          "default": "./drizzle"
+          "enum": ["sqlite", "turso", "postgresql", "postgres"]
         },
-        "breakpoints": {
-          "description": "Whether to use SQL breakpoints in generated migrations",
-          "type": "boolean",
-          "default": true
-        },
-        "tablesFilter": {
-          "description": "Table filter for push/introspect commands",
-          "$ref": "#/definitions/filter"
-        },
-        "verbose": {
-          "description": "Verbose output",
-          "type": "boolean",
-          "default": false
-        },
-        "strict": {
-          "description": "Strict mode (require confirmation)",
-          "type": "boolean",
-          "default": false
-        },
+        "driver": { "type": "string" },
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": { "type": "string" },
+        "breakpoints": { "type": "boolean" },
+        "tablesFilter": { "$ref": "#/definitions/filter" },
+        "schemaFilter": { "$ref": "#/definitions/filter" },
+        "verbose": { "type": "boolean" },
+        "strict": { "type": "boolean" },
         "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
         "introspect": { "$ref": "#/definitions/introspect" },
@@ -174,155 +157,88 @@
       "additionalProperties": false
     }
   },
+  "properties": {
+    "dialect": {
+      "description": "Database dialect",
+      "type": "string",
+      "enum": ["sqlite", "turso", "postgresql", "postgres"]
+    },
+    "driver": {
+      "description": "Database driver",
+      "type": "string"
+    },
+    "schema": { "$ref": "#/definitions/schemaPath" },
+    "out": {
+      "description": "Output directory for migrations",
+      "type": "string",
+      "default": "./drizzle"
+    },
+    "breakpoints": {
+      "description": "Whether to use SQL breakpoints in generated migrations",
+      "type": "boolean",
+      "default": true
+    },
+    "tablesFilter": {
+      "description": "Table filter for push/introspect commands",
+      "$ref": "#/definitions/filter"
+    },
+    "schemaFilter": {
+      "description": "Schema filter for PostgreSQL",
+      "$ref": "#/definitions/filter"
+    },
+    "verbose": {
+      "description": "Verbose output",
+      "type": "boolean",
+      "default": false
+    },
+    "strict": {
+      "description": "Strict mode (require confirmation)",
+      "type": "boolean",
+      "default": false
+    },
+    "casing": { "$ref": "#/definitions/casing" },
+    "migrations": { "$ref": "#/definitions/migrations" },
+    "introspect": { "$ref": "#/definitions/introspect" },
+    "dbCredentials": { "$ref": "#/definitions/dbCredentials" },
+    "databases": {
+      "description": "Named database configurations for multi-database setup",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/databaseConfig" },
+      "minProperties": 1
+    }
+  },
+  "additionalProperties": false,
   "oneOf": [
     {
-      "description": "SQLite configuration",
-      "type": "object",
-      "required": ["dialect"],
+      "description": "Single database configuration (SQLite)",
       "properties": {
         "dialect": { "const": "sqlite" },
-        "driver": { "$ref": "#/definitions/sqliteDriver" },
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": { "type": "string" },
-        "breakpoints": { "type": "boolean" },
-        "tablesFilter": { "$ref": "#/definitions/filter" },
-        "verbose": { "type": "boolean" },
-        "strict": { "type": "boolean" },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
+        "driver": { "$ref": "#/definitions/sqliteDriver" }
       },
-      "additionalProperties": false
+      "required": ["dialect"]
     },
     {
-      "description": "Turso configuration",
-      "type": "object",
-      "required": ["dialect"],
+      "description": "Single database configuration (Turso)",
       "properties": {
         "dialect": { "const": "turso" },
-        "driver": { "$ref": "#/definitions/tursoDriver" },
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": { "type": "string" },
-        "breakpoints": { "type": "boolean" },
-        "tablesFilter": { "$ref": "#/definitions/filter" },
-        "verbose": { "type": "boolean" },
-        "strict": { "type": "boolean" },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
+        "driver": { "$ref": "#/definitions/tursoDriver" }
       },
-      "additionalProperties": false
+      "required": ["dialect"]
     },
     {
-      "description": "PostgreSQL configuration",
-      "type": "object",
-      "required": ["dialect"],
+      "description": "Single database configuration (PostgreSQL)",
       "properties": {
         "dialect": { "enum": ["postgresql", "postgres"] },
-        "driver": { "$ref": "#/definitions/postgresDriver" },
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": { "type": "string" },
-        "breakpoints": { "type": "boolean" },
-        "tablesFilter": { "$ref": "#/definitions/filter" },
-        "schemaFilter": {
-          "description": "Schema filter for PostgreSQL",
-          "$ref": "#/definitions/filter"
-        },
-        "verbose": { "type": "boolean" },
-        "strict": { "type": "boolean" },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
+        "driver": { "$ref": "#/definitions/postgresDriver" }
       },
-      "additionalProperties": false
+      "required": ["dialect"]
     },
     {
       "description": "Multi-database configuration",
-      "type": "object",
       "required": ["databases"],
-      "properties": {
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": { "type": "string" },
-        "breakpoints": { "type": "boolean" },
-        "tablesFilter": { "$ref": "#/definitions/filter" },
-        "verbose": { "type": "boolean" },
-        "strict": { "type": "boolean" },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" },
-        "databases": {
-          "description": "Named database configurations",
-          "type": "object",
-          "additionalProperties": {
-            "oneOf": [
-              {
-                "type": "object",
-                "required": ["dialect"],
-                "properties": {
-                  "dialect": { "const": "sqlite" },
-                  "driver": { "$ref": "#/definitions/sqliteDriver" },
-                  "schema": { "$ref": "#/definitions/schemaPath" },
-                  "out": { "type": "string" },
-                  "breakpoints": { "type": "boolean" },
-                  "tablesFilter": { "$ref": "#/definitions/filter" },
-                  "verbose": { "type": "boolean" },
-                  "strict": { "type": "boolean" },
-                  "casing": { "$ref": "#/definitions/casing" },
-                  "migrations": { "$ref": "#/definitions/migrations" },
-                  "introspect": { "$ref": "#/definitions/introspect" },
-                  "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["dialect"],
-                "properties": {
-                  "dialect": { "const": "turso" },
-                  "driver": { "$ref": "#/definitions/tursoDriver" },
-                  "schema": { "$ref": "#/definitions/schemaPath" },
-                  "out": { "type": "string" },
-                  "breakpoints": { "type": "boolean" },
-                  "tablesFilter": { "$ref": "#/definitions/filter" },
-                  "verbose": { "type": "boolean" },
-                  "strict": { "type": "boolean" },
-                  "casing": { "$ref": "#/definitions/casing" },
-                  "migrations": { "$ref": "#/definitions/migrations" },
-                  "introspect": { "$ref": "#/definitions/introspect" },
-                  "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["dialect"],
-                "properties": {
-                  "dialect": { "enum": ["postgresql", "postgres"] },
-                  "driver": { "$ref": "#/definitions/postgresDriver" },
-                  "schema": { "$ref": "#/definitions/schemaPath" },
-                  "out": { "type": "string" },
-                  "breakpoints": { "type": "boolean" },
-                  "tablesFilter": { "$ref": "#/definitions/filter" },
-                  "schemaFilter": { "$ref": "#/definitions/filter" },
-                  "verbose": { "type": "boolean" },
-                  "strict": { "type": "boolean" },
-                  "casing": { "$ref": "#/definitions/casing" },
-                  "migrations": { "$ref": "#/definitions/migrations" },
-                  "introspect": { "$ref": "#/definitions/introspect" },
-                  "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-                },
-                "additionalProperties": false
-              }
-            ]
-          },
-          "minProperties": 1
-        }
-      },
-      "additionalProperties": false
+      "not": {
+        "required": ["dialect"]
+      }
     }
   ]
 }
