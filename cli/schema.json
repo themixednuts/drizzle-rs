@@ -154,7 +154,42 @@
         "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "dialect": { "const": "sqlite" } },
+            "required": ["dialect"]
+          },
+          "then": {
+            "properties": {
+              "driver": { "$ref": "#/definitions/sqliteDriver" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "dialect": { "const": "turso" } },
+            "required": ["dialect"]
+          },
+          "then": {
+            "properties": {
+              "driver": { "$ref": "#/definitions/tursoDriver" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "dialect": { "enum": ["postgresql", "postgres"] } },
+            "required": ["dialect"]
+          },
+          "then": {
+            "properties": {
+              "driver": { "$ref": "#/definitions/postgresDriver" }
+            }
+          }
+        }
+      ]
     }
   },
   "properties": {
@@ -208,35 +243,53 @@
     }
   },
   "additionalProperties": false,
-  "oneOf": [
+  "allOf": [
     {
-      "description": "Single database configuration (SQLite)",
-      "properties": {
-        "dialect": { "const": "sqlite" },
-        "driver": { "$ref": "#/definitions/sqliteDriver" }
+      "if": {
+        "properties": { "dialect": { "const": "sqlite" } },
+        "required": ["dialect"]
       },
-      "required": ["dialect"]
+      "then": {
+        "properties": {
+          "driver": { "$ref": "#/definitions/sqliteDriver" }
+        }
+      }
     },
     {
-      "description": "Single database configuration (Turso)",
-      "properties": {
-        "dialect": { "const": "turso" },
-        "driver": { "$ref": "#/definitions/tursoDriver" }
+      "if": {
+        "properties": { "dialect": { "const": "turso" } },
+        "required": ["dialect"]
       },
-      "required": ["dialect"]
+      "then": {
+        "properties": {
+          "driver": { "$ref": "#/definitions/tursoDriver" }
+        }
+      }
     },
     {
-      "description": "Single database configuration (PostgreSQL)",
-      "properties": {
-        "dialect": { "enum": ["postgresql", "postgres"] },
-        "driver": { "$ref": "#/definitions/postgresDriver" }
+      "if": {
+        "properties": { "dialect": { "enum": ["postgresql", "postgres"] } },
+        "required": ["dialect"]
       },
-      "required": ["dialect"]
+      "then": {
+        "properties": {
+          "driver": { "$ref": "#/definitions/postgresDriver" }
+        }
+      }
     },
     {
-      "description": "Multi-database configuration",
-      "required": ["databases"],
-      "not": {
+      "if": {
+        "required": ["databases"]
+      },
+      "then": {
+        "not": { "required": ["dialect"] }
+      }
+    },
+    {
+      "if": {
+        "not": { "required": ["databases"] }
+      },
+      "then": {
         "required": ["dialect"]
       }
     }
