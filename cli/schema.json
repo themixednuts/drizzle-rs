@@ -251,9 +251,13 @@
         "schema": { "$ref": "#/definitions/schemaPath" },
         "out": { "type": "string" },
         "breakpoints": { "type": "boolean" },
+        "tablesFilter": { "$ref": "#/definitions/filter" },
         "verbose": { "type": "boolean" },
         "strict": { "type": "boolean" },
         "casing": { "$ref": "#/definitions/casing" },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "introspect": { "$ref": "#/definitions/introspect" },
+        "dbCredentials": { "$ref": "#/definitions/dbCredentials" },
         "databases": {
           "description": "Named database configurations",
           "type": "object",
