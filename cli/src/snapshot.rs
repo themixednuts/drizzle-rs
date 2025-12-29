@@ -506,18 +506,22 @@ pub struct User {
 
         // Extract DDL from snapshots
         let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
-            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
-                (
-                    SQLiteDDL::from_entities(p.ddl.clone()),
-                    SQLiteDDL::from_entities(c.ddl.clone()),
-                )
-            }
+            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => (
+                SQLiteDDL::from_entities(p.ddl.clone()),
+                SQLiteDDL::from_entities(c.ddl.clone()),
+            ),
             _ => panic!("Expected SQLite snapshots"),
         };
 
         // Check that previous email column is nullable and current is not
-        let prev_email = prev_ddl.columns.one("user", "email").expect("email column in prev");
-        let cur_email = cur_ddl.columns.one("user", "email").expect("email column in cur");
+        let prev_email = prev_ddl
+            .columns
+            .one("user", "email")
+            .expect("email column in prev");
+        let cur_email = cur_ddl
+            .columns
+            .one("user", "email")
+            .expect("email column in cur");
         assert!(!prev_email.not_null, "Previous email should be nullable");
         assert!(cur_email.not_null, "Current email should be NOT NULL");
 
@@ -543,10 +547,7 @@ pub struct User {
             combined.contains("NOT NULL"),
             "New table should have NOT NULL on email column"
         );
-        assert!(
-            combined.contains("DROP TABLE"),
-            "Should drop old table"
-        );
+        assert!(combined.contains("DROP TABLE"), "Should drop old table");
         assert!(
             combined.contains("RENAME TO"),
             "Should rename temp table to original"
@@ -588,12 +589,10 @@ pub struct User {
 
         // Extract DDL from snapshots
         let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
-            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
-                (
-                    SQLiteDDL::from_entities(p.ddl.clone()),
-                    SQLiteDDL::from_entities(c.ddl.clone()),
-                )
-            }
+            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => (
+                SQLiteDDL::from_entities(p.ddl.clone()),
+                SQLiteDDL::from_entities(c.ddl.clone()),
+            ),
             _ => panic!("Expected SQLite snapshots"),
         };
 

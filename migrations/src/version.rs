@@ -19,7 +19,7 @@ pub const SQLITE_SNAPSHOT_VERSION: &str = "7";
 pub const POSTGRES_SNAPSHOT_VERSION: &str = "8";
 
 /// MySQL snapshot version (current)
-pub const MYSQL_SNAPSHOT_VERSION: &str = "5";
+pub const MYSQL_SNAPSHOT_VERSION: &str = "6";
 
 /// SingleStore snapshot version (current)
 pub const SINGLESTORE_SNAPSHOT_VERSION: &str = "1";
@@ -59,7 +59,7 @@ pub fn is_supported_version(dialect: Dialect, version: &str) -> bool {
     let (min, max) = match dialect {
         Dialect::SQLite => (SQLITE_MIN_SUPPORTED_VERSION, 7),
         Dialect::PostgreSQL => (POSTGRES_MIN_SUPPORTED_VERSION, 8),
-        Dialect::MySQL => (MYSQL_MIN_SUPPORTED_VERSION, 5),
+        Dialect::MySQL => (MYSQL_MIN_SUPPORTED_VERSION, 6),
     };
 
     v >= min && v <= max
@@ -88,7 +88,7 @@ mod tests {
     fn test_snapshot_versions() {
         assert_eq!(snapshot_version(Dialect::SQLite), "7");
         assert_eq!(snapshot_version(Dialect::PostgreSQL), "8");
-        assert_eq!(snapshot_version(Dialect::MySQL), "5");
+        assert_eq!(snapshot_version(Dialect::MySQL), "6");
     }
 
     #[test]

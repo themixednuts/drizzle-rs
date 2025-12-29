@@ -202,7 +202,10 @@ impl Driver {
             (self, dialect),
             (Self::Rusqlite, Dialect::Sqlite)
                 | (Self::Libsql | Self::Turso, Dialect::Turso)
-                | (Self::PostgresSync | Self::TokioPostgres, Dialect::Postgresql)
+                | (
+                    Self::PostgresSync | Self::TokioPostgres,
+                    Dialect::Postgresql
+                )
         )
     }
 }

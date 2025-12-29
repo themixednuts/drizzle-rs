@@ -198,7 +198,10 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
         if col_diff.diff_type == DiffType::Create
             && let Some(SqliteEntity::Column(col)) = &col_diff.right
-            && col.generated.as_ref().is_some_and(|g| g.gen_type == super::ddl::GeneratedType::Stored)
+            && col
+                .generated
+                .as_ref()
+                .is_some_and(|g| g.gen_type == super::ddl::GeneratedType::Stored)
             && !created_table_names.contains(col.table.as_ref())
             && !dropped_table_names.contains(col.table.as_ref())
         {
