@@ -9,12 +9,14 @@ mod param;
 mod table;
 mod to_sql;
 mod tuple;
+mod view;
 
 pub use column::*;
 pub use index::*;
 pub use param::*;
 pub use table::*;
 pub use to_sql::*;
+pub use view::*;
 
 use crate::sql::SQL;
 
