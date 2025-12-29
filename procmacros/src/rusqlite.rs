@@ -1,1 +1,0 @@
-// Rusqlite FromRow implementation is integrated directly into fromrow.rs

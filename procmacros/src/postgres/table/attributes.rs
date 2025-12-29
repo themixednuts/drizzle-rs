@@ -1,6 +1,8 @@
 use syn::spanned::Spanned;
 use syn::{ExprPath, Meta, Result, parse::Parse};
 
+use crate::common::make_uppercase_path;
+
 #[derive(Default)]
 pub struct TableAttributes {
     pub(crate) name: Option<String>,
@@ -10,16 +12,6 @@ pub struct TableAttributes {
     pub(crate) tablespace: Option<String>,
     /// Original marker paths for IDE hover documentation
     pub(crate) marker_exprs: Vec<ExprPath>,
-}
-
-/// Create an ExprPath with an UPPERCASE ident but preserving the original span.
-fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> syn::ExprPath {
-    let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
-    syn::ExprPath {
-        attrs: vec![],
-        qself: None,
-        path: new_ident.into(),
-    }
 }
 
 impl Parse for TableAttributes {

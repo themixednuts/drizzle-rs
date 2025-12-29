@@ -4,6 +4,8 @@ use quote::{ToTokens, quote};
 use std::{collections::HashSet, fmt::Display};
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type};
 
+use crate::common::make_uppercase_path;
+
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
 // The local TypeCategory is kept for now to maintain feature flag consistency.
 
@@ -885,19 +887,6 @@ pub(crate) struct FieldInfo {
 }
 
 impl FieldInfo {
-    /// Create an ExprPath with an UPPERCASE ident but preserving the original span.
-    ///
-    /// This allows users to write `#[column(primary)]` (lowercase) but the generated
-    /// code references `PRIMARY` (uppercase, resolves to prelude). The preserved span
-    /// enables IDE hover documentation by linking back to the user's source.
-    fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> syn::ExprPath {
-        let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
-        syn::ExprPath {
-            attrs: vec![],
-            qself: None,
-            path: new_ident.into(),
-        }
-    }
 
     /// Parse field information from a struct field.
     ///
@@ -1156,7 +1145,7 @@ impl FieldInfo {
                             ));
                         }
                         is_serial = true;
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "SERIAL"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "SERIAL"));
                     }
                     "BIGSERIAL" => {
                         // Validate: bigserial only valid on i64
@@ -1167,7 +1156,7 @@ impl FieldInfo {
                             ));
                         }
                         is_bigserial = true;
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "BIGSERIAL"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "BIGSERIAL"));
                     }
                     "SMALLSERIAL" => {
                         // Validate: smallserial only valid on i16
@@ -1178,15 +1167,15 @@ impl FieldInfo {
                             ));
                         }
                         is_serial = true; // Treat as serial for now
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "SMALLSERIAL"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "SMALLSERIAL"));
                     }
                     "PRIMARY" | "PRIMARY_KEY" => {
                         flags.insert(PostgreSQLFlag::Primary);
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "PRIMARY"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "PRIMARY"));
                     }
                     "UNIQUE" => {
                         flags.insert(PostgreSQLFlag::Unique);
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "UNIQUE"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "UNIQUE"));
                     }
                     "IDENTITY" => {
                         // identity(always) or identity(by_default) syntax
@@ -1222,7 +1211,7 @@ impl FieldInfo {
                             identity_mode = Some(IdentityMode::Always);
                         }
 
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "IDENTITY"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "IDENTITY"));
                     }
                     "GENERATED" => {
                         // generated(stored, "expr") or generated(virtual, "expr") syntax
@@ -1267,22 +1256,22 @@ impl FieldInfo {
                             ));
                         }
 
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "GENERATED"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "GENERATED"));
                     }
                     "JSON" => {
                         // Mark as JSON type - allows any Serialize/Deserialize type
                         is_json = true;
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "JSON"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "JSON"));
                     }
                     "JSONB" => {
                         // Mark as JSONB type - allows any Serialize/Deserialize type
                         is_jsonb = true;
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "JSONB"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "JSONB"));
                     }
                     "ENUM" => {
                         // Just mark as pgenum - the type is inferred from the field definition
                         is_pgenum = true;
-                        marker_exprs.push(Self::make_uppercase_path(path_ident, "ENUM"));
+                        marker_exprs.push(make_uppercase_path(path_ident, "ENUM"));
                     }
                     "DEFAULT" => {
                         if meta.input.peek(Token![=]) {
@@ -1308,7 +1297,7 @@ impl FieldInfo {
                                     ));
                                 }
                             }
-                            marker_exprs.push(Self::make_uppercase_path(path_ident, "DEFAULT"));
+                            marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT"));
                         }
                     }
                     "DEFAULT_FN" => {
@@ -1316,7 +1305,7 @@ impl FieldInfo {
                             meta.input.parse::<Token![=]>()?;
                             let expr: Expr = meta.input.parse()?;
                             default_fn = Some(quote! { #expr });
-                            marker_exprs.push(Self::make_uppercase_path(path_ident, "DEFAULT_FN"));
+                            marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_FN"));
                         }
                     }
                     "CHECK" => {
@@ -1326,7 +1315,7 @@ impl FieldInfo {
                             if let Lit::Str(s) = lit {
                                 check_constraint = Some(s.value());
                                 flags.insert(PostgreSQLFlag::Check(s.value()));
-                                marker_exprs.push(Self::make_uppercase_path(path_ident, "CHECK"));
+                                marker_exprs.push(make_uppercase_path(path_ident, "CHECK"));
                             }
                         }
                     }
@@ -1334,7 +1323,7 @@ impl FieldInfo {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let path: ExprPath = meta.input.parse()?;
-                            foreign_key = Some(Self::parse_reference(&path)?);                            marker_exprs.push(Self::make_uppercase_path(path_ident, "REFERENCES"));
+                            foreign_key = Some(Self::parse_reference(&path)?);                            marker_exprs.push(make_uppercase_path(path_ident, "REFERENCES"));
                         }
                     }
                     "ON_DELETE" => {
@@ -1351,9 +1340,9 @@ impl FieldInfo {
                                     "on_delete must follow references = Table::column",
                                 ));
                             }
-                            marker_exprs.push(Self::make_uppercase_path(path_ident, "ON_DELETE"));
+                            marker_exprs.push(make_uppercase_path(path_ident, "ON_DELETE"));
                             // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                            marker_exprs.push(Self::make_uppercase_path(&action_ident, &action_upper));
+                            marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
                         }
                     }
                     "ON_UPDATE" => {
@@ -1370,9 +1359,9 @@ impl FieldInfo {
                                     "on_update must follow references = Table::column",
                                 ));
                             }
-                            marker_exprs.push(Self::make_uppercase_path(path_ident, "ON_UPDATE"));
+                            marker_exprs.push(make_uppercase_path(path_ident, "ON_UPDATE"));
                             // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                            marker_exprs.push(Self::make_uppercase_path(&action_ident, &action_upper));
+                            marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
                         }
                     }
                     _ => {

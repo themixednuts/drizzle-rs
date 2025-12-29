@@ -8,10 +8,6 @@ mod errors;
 mod json;
 mod models;
 mod traits;
-mod validation;
-
-// #[cfg(feature = "sqlx-postgres")]
-// mod sqlx;
 
 use super::field::FieldInfo;
 use alias::generate_aliased_table;
@@ -29,7 +25,6 @@ use syn::Ident;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Result};
 use traits::generate_table_impls;
-// use validation::generate_default_validations;
 
 // ============================================================================
 // Main Macro Entry Point

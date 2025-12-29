@@ -7,6 +7,8 @@ use syn::{
     parse::ParseStream,
 };
 
+use crate::common::make_uppercase_path;
+
 // =============================================================================
 // Re-export shared types from drizzle-types
 // =============================================================================
@@ -278,20 +280,6 @@ impl FieldProperties {
 }
 
 impl<'a> FieldInfo<'a> {
-    /// Create an ExprPath with an UPPERCASE ident but preserving the original span.
-    ///
-    /// This allows users to write `#[column(primary)]` (lowercase) but the generated
-    /// code references `PRIMARY` (uppercase, resolves to prelude). The preserved span
-    /// enables IDE hover documentation by linking back to the user's source.
-    fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> syn::ExprPath {
-        let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
-        syn::ExprPath {
-            attrs: vec![],
-            qself: None,
-            path: new_ident.into(),
-        }
-    }
-
     /// Validate a referential action (ON DELETE/ON UPDATE)
     fn validate_referential_action(action: &syn::Ident) -> Result<String> {
         let action_str = action.to_string().to_ascii_uppercase();
@@ -338,14 +326,14 @@ impl<'a> FieldInfo<'a> {
                             args.explicit_type = Some(SQLiteType::Text);
                             args.flags.insert("json".to_string());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(ident, "JSON"));
+                                .push(make_uppercase_path(ident, "JSON"));
                         }
                         "JSONB" => {
                             // JSONB = BLOB storage with JSON serialization
                             args.explicit_type = Some(SQLiteType::Blob);
                             args.flags.insert("json".to_string());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(ident, "JSONB"));
+                                .push(make_uppercase_path(ident, "JSONB"));
                         }
                         "DEFAULT" => {
                             args.default_fn = Some(syn::parse_quote!(Default::default));
@@ -353,22 +341,22 @@ impl<'a> FieldInfo<'a> {
                         "ENUM" => {
                             args.flags.insert("enum".to_string());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(ident, "ENUM"));
+                                .push(make_uppercase_path(ident, "ENUM"));
                         }
                         "PRIMARY" | "PRIMARY_KEY" => {
                             args.flags.insert("primary".to_string());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(ident, "PRIMARY"));
+                                .push(make_uppercase_path(ident, "PRIMARY"));
                         }
                         "AUTOINCREMENT" => {
                             args.flags.insert("autoincrement".to_string());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(ident, "AUTOINCREMENT"));
+                                .push(make_uppercase_path(ident, "AUTOINCREMENT"));
                         }
                         "UNIQUE" => {
                             args.flags.insert("unique".to_string());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(ident, "UNIQUE"));
+                                .push(make_uppercase_path(ident, "UNIQUE"));
                         }
                         _ => {
                             // Check if this is a SQLite type override (case-insensitive for types)
@@ -392,17 +380,17 @@ impl<'a> FieldInfo<'a> {
                         "DEFAULT" => {
                             args.default_value = Some(*assign.right);
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(param, "DEFAULT"));
+                                .push(make_uppercase_path(param, "DEFAULT"));
                         }
                         "DEFAULT_FN" => {
                             args.default_fn = Some(*assign.right);
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(param, "DEFAULT_FN"));
+                                .push(make_uppercase_path(param, "DEFAULT_FN"));
                         }
                         "REFERENCES" => {
                             args.references = Some(*assign.right.clone());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(param, "REFERENCES"));
+                                .push(make_uppercase_path(param, "REFERENCES"));
                         }
                         "ON_DELETE" => {
                             if let Expr::Path(action_path) = &*assign.right
@@ -412,10 +400,10 @@ impl<'a> FieldInfo<'a> {
                                 args.on_delete =
                                     Self::validate_referential_action(action_ident).ok();
                                 args.marker_exprs
-                                    .push(Self::make_uppercase_path(param, "ON_DELETE"));
+                                    .push(make_uppercase_path(param, "ON_DELETE"));
                                 // Add marker for the action value (CASCADE, SET_NULL, etc.)
                                 args.marker_exprs
-                                    .push(Self::make_uppercase_path(action_ident, &action_upper));
+                                    .push(make_uppercase_path(action_ident, &action_upper));
                             }
                         }
                         "ON_UPDATE" => {
@@ -426,16 +414,16 @@ impl<'a> FieldInfo<'a> {
                                 args.on_update =
                                     Self::validate_referential_action(action_ident).ok();
                                 args.marker_exprs
-                                    .push(Self::make_uppercase_path(param, "ON_UPDATE"));
+                                    .push(make_uppercase_path(param, "ON_UPDATE"));
                                 // Add marker for the action value (CASCADE, SET_NULL, etc.)
                                 args.marker_exprs
-                                    .push(Self::make_uppercase_path(action_ident, &action_upper));
+                                    .push(make_uppercase_path(action_ident, &action_upper));
                             }
                         }
                         "NAME" => {
                             args.name = Some(*assign.right.clone());
                             args.marker_exprs
-                                .push(Self::make_uppercase_path(param, "NAME"));
+                                .push(make_uppercase_path(param, "NAME"));
                         }
                         _ => {}
                     }

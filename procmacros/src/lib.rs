@@ -73,19 +73,16 @@
 
 extern crate proc_macro;
 
+mod common;
 mod drizzle_test;
 mod fromrow;
 mod generators;
 
 mod paths;
 mod sql;
-mod utils;
 
 #[cfg(feature = "sqlite")]
 mod sqlite;
-
-#[cfg(feature = "rusqlite")]
-mod rusqlite;
 
 #[cfg(feature = "postgres")]
 mod postgres;

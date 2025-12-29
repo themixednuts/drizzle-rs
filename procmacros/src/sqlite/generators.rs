@@ -2,27 +2,27 @@
 //!
 //! These functions provide reusable trait implementation generators using
 //! fully-qualified paths from the paths module.
+//!
+//! Note: Generic generators (ToSQL, SQLColumn, SQLTable, SQLSchema) are implemented
+//! in `common::generators` and re-exported here for API stability. The functions
+//! in this module delegate to the common implementations with SQLite-specific types.
 
-use crate::paths::{core as core_paths, sqlite as sqlite_paths};
+use crate::common::generators as common_gen;
+use crate::common::SqliteDialect;
+use crate::paths::sqlite as sqlite_paths;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-/// Generate SQLite ToSQL trait implementation
+/// Generate SQLite ToSQL trait implementation.
+///
+/// Delegates to the common generator with SQLite dialect.
 pub fn generate_to_sql(struct_ident: &Ident, body: TokenStream) -> TokenStream {
-    let to_sql = core_paths::to_sql();
-    let sql = core_paths::sql();
-    let sqlite_value = sqlite_paths::sqlite_value();
-
-    quote! {
-        impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident {
-            fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
-                #body
-            }
-        }
-    }
+    common_gen::generate_to_sql::<SqliteDialect>(struct_ident, body)
 }
 
-/// Generate SQLite SQLColumn trait implementation
+/// Generate SQLite SQLColumn trait implementation.
+///
+/// Delegates to the common generator with SQLite dialect.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_sql_column(
     struct_ident: &Ident,
@@ -35,25 +35,17 @@ pub fn generate_sql_column(
     default: TokenStream,
     default_fn: TokenStream,
 ) -> TokenStream {
-    let sql_column = core_paths::sql_column();
-    let sqlite_value = sqlite_paths::sqlite_value();
-
-    quote! {
-        impl<'a> #sql_column<'a, #sqlite_value<'a>> for #struct_ident {
-            type Table = #table;
-            type TableType = #table_type;
-            type Type = #r#type;
-
-            const PRIMARY_KEY: bool = #primary_key;
-            const NOT_NULL: bool = #not_null;
-            const UNIQUE: bool = #unique;
-            const DEFAULT: ::std::option::Option<Self::Type> = #default;
-
-            fn default_fn(&'a self) -> ::std::option::Option<impl Fn() -> Self::Type> {
-                #default_fn
-            }
-        }
-    }
+    common_gen::generate_sql_column::<SqliteDialect>(
+        struct_ident,
+        table,
+        table_type,
+        r#type,
+        primary_key,
+        not_null,
+        unique,
+        default,
+        default_fn,
+    )
 }
 
 pub fn generate_sqlite_column_info(
@@ -148,7 +140,9 @@ pub fn generate_sqlite_table(
     }
 }
 
-/// Generate SQLite SQLTable trait implementation
+/// Generate SQLite SQLTable trait implementation.
+///
+/// Delegates to the common generator with SQLite dialect.
 pub fn generate_sql_table(
     struct_ident: &Ident,
     select: TokenStream,
@@ -156,25 +150,12 @@ pub fn generate_sql_table(
     update: TokenStream,
     aliased: TokenStream,
 ) -> TokenStream {
-    let sql_table = core_paths::sql_table();
-    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let sqlite_value = sqlite_paths::sqlite_value();
-
-    quote! {
-        impl<'a> #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident {
-            type Select = #select;
-            type Insert<T> = #insert;
-            type Update = #update;
-            type Aliased = #aliased;
-
-            fn alias(name: &'static str) -> Self::Aliased {
-                #aliased::new(name)
-            }
-        }
-    }
+    common_gen::generate_sql_table::<SqliteDialect>(struct_ident, select, insert, update, aliased)
 }
 
-/// Generate SQLite SQLSchema trait implementation
+/// Generate SQLite SQLSchema trait implementation.
+///
+/// Delegates to the common generator with SQLite dialect.
 pub fn generate_sql_schema(
     struct_ident: &Ident,
     name: TokenStream,
@@ -182,50 +163,17 @@ pub fn generate_sql_schema(
     const_sql: TokenStream,
     runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
-    let sql_schema = core_paths::sql_schema();
-    let sql = core_paths::sql();
-    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let sqlite_value = sqlite_paths::sqlite_value();
-
-    let fn_method = runtime_sql
-        .map(|v| {
-            quote! {
-                fn sql(&self) -> #sql<'a, #sqlite_value<'a>> {
-                    #v
-                }
-            }
-        })
-        .unwrap_or_else(|| quote! {});
-    quote! {
-        impl<'a> #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident {
-            const NAME: &'a str = #name;
-            const TYPE: #sqlite_schema_type = #r#type;
-            const SQL: &'static str = #const_sql;
-            #fn_method
-        }
-    }
+    common_gen::generate_sql_schema::<SqliteDialect>(struct_ident, name, r#type, const_sql, runtime_sql)
 }
 
-/// Generate SQLite SQLSchema for fields trait implementation
+/// Generate SQLite SQLSchema for fields trait implementation.
+///
+/// Delegates to the common generator with SQLite dialect.
 pub fn generate_sql_schema_field(
     struct_ident: &Ident,
     name: TokenStream,
     r#type: TokenStream,
     sql: TokenStream,
 ) -> TokenStream {
-    let sql_schema = core_paths::sql_schema();
-    let sql_type = core_paths::sql();
-    let sqlite_value = sqlite_paths::sqlite_value();
-
-    quote! {
-        impl<'a> #sql_schema<'a, &'a str, #sqlite_value<'a>> for #struct_ident {
-            const NAME: &'a str = #name;
-            const TYPE: &'a str = #r#type;
-            const SQL: &'static str = "";
-
-            fn sql(&self) -> #sql_type<'a, #sqlite_value<'a>> {
-                #sql_type::raw(#sql)
-            }
-        }
-    }
+    common_gen::generate_sql_schema_field::<SqliteDialect>(struct_ident, name, r#type, sql)
 }

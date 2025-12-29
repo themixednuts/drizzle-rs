@@ -1,7 +1,13 @@
+//! FromRow derive macro implementations for database row conversion.
+//!
+//! This module generates `TryFrom` implementations for converting database rows
+//! to Rust structs for various database drivers.
+
+use crate::common::{extract_struct_fields, parse_column_reference};
 use crate::paths::core as core_paths;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
+use syn::{DeriveInput, Field, Ident, Result};
 
 #[cfg(feature = "libsql")]
 mod libsql;
@@ -14,40 +20,103 @@ mod shared;
 #[cfg(feature = "turso")]
 mod turso;
 
-/// Parse column reference from field attributes, looking for #[column(Table::field)]
-fn parse_column_reference(field: &Field) -> Option<ExprPath> {
-    for attr in &field.attrs {
-        if let Some(ident) = attr.path().get_ident()
-            && ident == "column"
-            && let Meta::List(meta_list) = &attr.meta
-            && let Ok(Expr::Path(expr_path)) = syn::parse2::<Expr>(meta_list.tokens.clone())
-        {
-            return Some(expr_path);
-        }
-    }
-    None
+// =============================================================================
+// Shared Helper Functions
+// =============================================================================
+
+/// Generate field assignments for a driver, handling both tuple and named structs.
+fn generate_field_assignments<F>(
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    is_tuple: bool,
+    generator: F,
+) -> Result<Vec<TokenStream>>
+where
+    F: Fn(usize, &Field, Option<&Ident>) -> Result<TokenStream>,
+{
+    fields
+        .iter()
+        .enumerate()
+        .map(|(idx, field)| {
+            let field_name = if is_tuple { None } else { field.ident.as_ref() };
+            generator(idx, field, field_name)
+        })
+        .collect()
 }
 
-/// Helper to extract struct fields
-fn extract_struct_fields(
-    input: &DeriveInput,
-) -> Result<(&syn::punctuated::Punctuated<Field, syn::token::Comma>, bool)> {
-    let struct_name = &input.ident;
-    match &input.data {
-        Data::Struct(data_struct) => match &data_struct.fields {
-            Fields::Named(fields) => Ok((&fields.named, false)),
-            Fields::Unnamed(fields) => Ok((&fields.unnamed, true)),
-            Fields::Unit => Err(Error::new_spanned(
-                struct_name,
-                "FromRow cannot be derived for unit structs",
-            )),
-        },
-        _ => Err(Error::new_spanned(
-            struct_name,
-            "FromRow can only be derived for structs",
-        )),
+/// Generate a TryFrom implementation for a specific driver.
+fn generate_driver_try_from(
+    struct_name: &Ident,
+    row_type: TokenStream,
+    error_type: TokenStream,
+    field_assignments: &[TokenStream],
+    is_tuple: bool,
+) -> TokenStream {
+    let construct = if is_tuple {
+        quote! { Self(#(#field_assignments)*) }
+    } else {
+        quote! { Self { #(#field_assignments)* } }
+    };
+
+    quote! {
+        impl ::std::convert::TryFrom<&#row_type> for #struct_name {
+            type Error = #error_type;
+
+            fn try_from(row: &#row_type) -> ::std::result::Result<Self, Self::Error> {
+                ::std::result::Result::Ok(#construct)
+            }
+        }
     }
 }
+
+/// Generate ToSQL implementation for FromRow structs.
+///
+/// This allows using the struct as a column selector in queries.
+fn generate_tosql_impl(
+    struct_name: &Ident,
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    is_tuple: bool,
+    value_type: TokenStream,
+) -> TokenStream {
+    if is_tuple {
+        return quote! {};
+    }
+
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+    let token = core_paths::token();
+
+    let column_specs = fields
+        .iter()
+        .map(|field| {
+            let field_name = field.ident.as_ref().unwrap();
+            let field_name_str = field_name.to_string();
+
+            if let Some(column_ref) = parse_column_reference(field) {
+                quote! {
+                    columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
+                }
+            } else {
+                quote! {
+                    columns.push(#sql::raw(#field_name_str));
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    quote! {
+        impl<'a> #to_sql<'a, #value_type<'a>> for #struct_name {
+            fn to_sql(&self) -> #sql<'a, #value_type<'a>> {
+                let mut columns = ::std::vec::Vec::new();
+                #(#column_specs)*
+                #sql::join(columns, #token::COMMA)
+            }
+        }
+    }
+}
+
+// =============================================================================
+// SQLite FromRow Implementation
+// =============================================================================
 
 /// Generate SQLite-specific FromRow implementation (rusqlite, libsql, turso)
 #[cfg(feature = "sqlite")]
@@ -56,11 +125,6 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 
     let struct_name = &input.ident;
     let (fields, is_tuple) = extract_struct_fields(&input)?;
-
-    // Get paths for fully-qualified types
-    let sql = core_paths::sql();
-    let to_sql = core_paths::to_sql();
-    let token = core_paths::token();
     let drizzle_error = core_paths::drizzle_error();
     let sqlite_value = sqlite_paths::sqlite_value();
 
@@ -69,185 +133,60 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     // Rusqlite implementation
     #[cfg(feature = "rusqlite")]
     {
-        let field_assignments = if is_tuple {
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| rusqlite::generate_field_assignment(idx, field, None))
-                .collect::<std::result::Result<Vec<_>, _>>()?
-        } else {
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| {
-                    let field_name = field.ident.as_ref().unwrap();
-                    rusqlite::generate_field_assignment(idx, field, Some(field_name))
-                })
-                .collect::<std::result::Result<Vec<_>, _>>()?
-        };
+        let field_assignments =
+            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)?;
 
-        let rusqlite_impl = if is_tuple {
-            quote! {
-                impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
-                    type Error = ::rusqlite::Error;
-
-                    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                        ::std::result::Result::Ok(Self(
-                            #(#field_assignments)*
-                        ))
-                    }
-                }
-            }
-        } else {
-            quote! {
-                impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
-                    type Error = ::rusqlite::Error;
-
-                    fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                        ::std::result::Result::Ok(Self {
-                            #(#field_assignments)*
-                        })
-                    }
-                }
-            }
-        };
-        impl_blocks.push(rusqlite_impl);
+        impl_blocks.push(generate_driver_try_from(
+            struct_name,
+            quote!(::rusqlite::Row<'_>),
+            quote!(::rusqlite::Error),
+            &field_assignments,
+            is_tuple,
+        ));
     }
 
     // Turso implementation
     #[cfg(feature = "turso")]
     {
-        let field_assignments = if is_tuple {
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| turso::generate_field_assignment(idx, field, None))
-                .collect::<std::result::Result<Vec<_>, _>>()?
-        } else {
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| {
-                    let field_name = field.ident.as_ref().unwrap();
-                    turso::generate_field_assignment(idx, field, Some(field_name))
-                })
-                .collect::<std::result::Result<Vec<_>, _>>()?
-        };
+        let field_assignments =
+            generate_field_assignments(fields, is_tuple, turso::generate_field_assignment)?;
 
-        let turso_impl = if is_tuple {
-            quote! {
-                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = #drizzle_error;
-
-                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                        ::std::result::Result::Ok(Self(
-                            #(#field_assignments)*
-                        ))
-                    }
-                }
-            }
-        } else {
-            quote! {
-                impl ::std::convert::TryFrom<&::turso::Row> for #struct_name {
-                    type Error = #drizzle_error;
-
-                    fn try_from(row: &::turso::Row) -> ::std::result::Result<Self, Self::Error> {
-                        ::std::result::Result::Ok(Self {
-                            #(#field_assignments)*
-                        })
-                    }
-                }
-            }
-        };
-        impl_blocks.push(turso_impl);
+        impl_blocks.push(generate_driver_try_from(
+            struct_name,
+            quote!(::turso::Row),
+            quote!(#drizzle_error),
+            &field_assignments,
+            is_tuple,
+        ));
     }
 
     // Libsql implementation
     #[cfg(feature = "libsql")]
     {
-        let field_assignments = if is_tuple {
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| libsql::generate_field_assignment(idx, field, None))
-                .collect::<std::result::Result<Vec<_>, _>>()?
-        } else {
-            fields
-                .iter()
-                .enumerate()
-                .map(|(idx, field)| {
-                    let field_name = field.ident.as_ref().unwrap();
-                    libsql::generate_field_assignment(idx, field, Some(field_name))
-                })
-                .collect::<std::result::Result<Vec<_>, _>>()?
-        };
+        let field_assignments =
+            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)?;
 
-        let libsql_impl = if is_tuple {
-            quote! {
-                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = #drizzle_error;
-
-                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
-                        ::std::result::Result::Ok(Self(
-                            #(#field_assignments)*
-                        ))
-                    }
-                }
-            }
-        } else {
-            quote! {
-                impl ::std::convert::TryFrom<&::libsql::Row> for #struct_name {
-                    type Error = #drizzle_error;
-
-                    fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
-                        ::std::result::Result::Ok(Self {
-                            #(#field_assignments)*
-                        })
-                    }
-                }
-            }
-        };
-        impl_blocks.push(libsql_impl);
+        impl_blocks.push(generate_driver_try_from(
+            struct_name,
+            quote!(::libsql::Row),
+            quote!(#drizzle_error),
+            &field_assignments,
+            is_tuple,
+        ));
     }
 
-    // Generate ToSQL implementation for SQLite FromRow structs
-    let tosql_impl = if is_tuple {
-        quote! {}
-    } else {
-        let column_specs = fields
-            .iter()
-            .map(|field| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
-
-                if let Some(column_ref) = parse_column_reference(field) {
-                    quote! {
-                        columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
-                    }
-                } else {
-                    quote! {
-                        columns.push(#sql::raw(#field_name_str));
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-
-        quote! {
-            impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_name {
-                fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
-                    let mut columns = ::std::vec::Vec::new();
-                    #(#column_specs)*
-                    #sql::join(columns, #token::COMMA)
-                }
-            }
-        }
-    };
+    // Generate ToSQL implementation
+    let tosql_impl = generate_tosql_impl(struct_name, fields, is_tuple, sqlite_value);
 
     Ok(quote! {
         #(#impl_blocks)*
         #tosql_impl
     })
 }
+
+// =============================================================================
+// PostgreSQL FromRow Implementation
+// =============================================================================
 
 /// Generate PostgreSQL-specific FromRow implementation (postgres-sync, tokio-postgres)
 #[cfg(feature = "postgres")]
@@ -256,30 +195,11 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
 
     let struct_name = &input.ident;
     let (fields, is_tuple) = extract_struct_fields(&input)?;
-
-    // Get paths for fully-qualified types
-    let sql = core_paths::sql();
-    let to_sql = core_paths::to_sql();
-    let token = core_paths::token();
     let drizzle_error = core_paths::drizzle_error();
     let postgres_value = postgres_paths::postgres_value();
 
-    let field_assignments = if is_tuple {
-        fields
-            .iter()
-            .enumerate()
-            .map(|(idx, field)| postgres::generate_field_assignment(idx, field, None))
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    } else {
-        fields
-            .iter()
-            .enumerate()
-            .map(|(idx, field)| {
-                let field_name = field.ident.as_ref().unwrap();
-                postgres::generate_field_assignment(idx, field, Some(field_name))
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    };
+    let field_assignments =
+        generate_field_assignments(fields, is_tuple, postgres::generate_field_assignment)?;
 
     let struct_construct = if is_tuple {
         quote! {
@@ -295,38 +215,8 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         }
     };
 
-    // Generate ToSQL implementation for PostgreSQL FromRow structs
-    let tosql_impl = if is_tuple {
-        quote! {}
-    } else {
-        let column_specs = fields
-            .iter()
-            .map(|field| {
-                let field_name = field.ident.as_ref().unwrap();
-                let field_name_str = field_name.to_string();
-
-                if let Some(column_ref) = parse_column_reference(field) {
-                    quote! {
-                        columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
-                    }
-                } else {
-                    quote! {
-                        columns.push(#sql::raw(#field_name_str));
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-
-        quote! {
-            impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_name {
-                fn to_sql(&self) -> #sql<'a, #postgres_value<'a>> {
-                    let mut columns = ::std::vec::Vec::new();
-                    #(#column_specs)*
-                    #sql::join(columns, #token::COMMA)
-                }
-            }
-        }
-    };
+    // Generate ToSQL implementation
+    let tosql_impl = generate_tosql_impl(struct_name, fields, is_tuple, postgres_value);
 
     // Generate the implementations with proper conditional compilation
     // to avoid duplicate implementations (postgres::Row is tokio_postgres::Row)

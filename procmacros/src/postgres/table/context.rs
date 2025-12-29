@@ -2,14 +2,8 @@ use super::attributes::TableAttributes;
 use crate::postgres::field::FieldInfo;
 use syn::{Ident, Visibility};
 
-/// Represents different model types for code generation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelType {
-    Select,
-    PartialSelect,
-    Insert,
-    Update,
-}
+// Re-export ModelType from common for convenience
+pub(crate) use crate::common::ModelType;
 
 /// Context object containing all the information needed for PostgreSQL table macro generation
 pub(super) struct MacroContext<'a> {
