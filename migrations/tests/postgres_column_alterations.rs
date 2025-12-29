@@ -12,7 +12,10 @@
 use drizzle_migrations::postgres::{
     PostgresDDL,
     collection::diff_ddl,
-    ddl::{Column, ForeignKey, Generated, GeneratedType, Index, IndexColumn, PrimaryKey, Table, UniqueConstraint, Identity},
+    ddl::{
+        Column, ForeignKey, Generated, GeneratedType, Identity, Index, IndexColumn, PrimaryKey,
+        Table, UniqueConstraint,
+    },
     statements::PostgresGenerator,
 };
 use std::borrow::Cow;
@@ -204,7 +207,8 @@ fn test_add_column_with_default() {
     let mut to = PostgresDDL::new();
     to.tables.push(table("users"));
     to.columns.push(column_not_null("users", "id", "integer"));
-    to.columns.push(column_default("users", "status", "text", "'active'"));
+    to.columns
+        .push(column_default("users", "status", "text", "'active'"));
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
@@ -316,7 +320,8 @@ fn test_alter_column_add_default() {
     let mut to = PostgresDDL::new();
     to.tables.push(table("users"));
     to.columns.push(column_not_null("users", "id", "integer"));
-    to.columns.push(column_default("users", "status", "text", "'active'")); // with default
+    to.columns
+        .push(column_default("users", "status", "text", "'active'")); // with default
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
@@ -340,7 +345,8 @@ fn test_alter_column_drop_default() {
     let mut from = PostgresDDL::new();
     from.tables.push(table("users"));
     from.columns.push(column_not_null("users", "id", "integer"));
-    from.columns.push(column_default("users", "status", "text", "'active'")); // with default
+    from.columns
+        .push(column_default("users", "status", "text", "'active'")); // with default
     from.pks.push(primary_key("users", vec!["id"]));
 
     let mut to = PostgresDDL::new();
@@ -739,7 +745,11 @@ fn test_add_unique_constraint() {
     from.pks.push(primary_key("users", vec!["id"]));
 
     let mut to = from.clone();
-    to.uniques.push(unique_constraint("users", "users_email_unique", vec!["email"]));
+    to.uniques.push(unique_constraint(
+        "users",
+        "users_email_unique",
+        vec!["email"],
+    ));
 
     let sql = diff_to_sql(&from, &to);
     let combined = sql.join("\n");
@@ -759,7 +769,11 @@ fn test_drop_unique_constraint() {
     from.columns.push(column_not_null("users", "id", "integer"));
     from.columns.push(column("users", "email", "text"));
     from.pks.push(primary_key("users", vec!["id"]));
-    from.uniques.push(unique_constraint("users", "users_email_unique", vec!["email"]));
+    from.uniques.push(unique_constraint(
+        "users",
+        "users_email_unique",
+        vec!["email"],
+    ));
 
     let mut to = PostgresDDL::new();
     to.tables.push(table("users"));
@@ -792,7 +806,8 @@ fn test_add_index() {
     from.pks.push(primary_key("users", vec!["id"]));
 
     let mut to = from.clone();
-    to.indexes.push(index("users", "users_email_idx", vec!["email"]));
+    to.indexes
+        .push(index("users", "users_email_idx", vec!["email"]));
 
     let sql = diff_to_sql(&from, &to);
     let combined = sql.join("\n");
@@ -812,7 +827,8 @@ fn test_drop_index() {
     from.columns.push(column_not_null("users", "id", "integer"));
     from.columns.push(column("users", "email", "text"));
     from.pks.push(primary_key("users", vec!["id"]));
-    from.indexes.push(index("users", "users_email_idx", vec!["email"]));
+    from.indexes
+        .push(index("users", "users_email_idx", vec!["email"]));
 
     let mut to = PostgresDDL::new();
     to.tables.push(table("users"));
@@ -840,8 +856,12 @@ fn test_drop_index() {
 fn test_no_changes_no_sql() {
     let mut schema = PostgresDDL::new();
     schema.tables.push(table("users"));
-    schema.columns.push(column_not_null("users", "id", "integer"));
-    schema.columns.push(column_not_null("users", "name", "text"));
+    schema
+        .columns
+        .push(column_not_null("users", "id", "integer"));
+    schema
+        .columns
+        .push(column_not_null("users", "name", "text"));
     schema.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&schema, &schema.clone());

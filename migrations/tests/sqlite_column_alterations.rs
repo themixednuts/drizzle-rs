@@ -21,8 +21,7 @@
 use std::borrow::Cow;
 
 use drizzle_migrations::sqlite::{
-    SQLiteDDL,
-    compute_migration,
+    SQLiteDDL, compute_migration,
     ddl::{ColumnDef, ForeignKeyDef, IndexColumnDef, IndexDef, PrimaryKeyDef, TableDef},
     statements::JsonStatement,
 };
@@ -949,7 +948,8 @@ fn test_recreate_table_with_nested_references() {
         .push(ColumnDef::new("users", "age", "integer").into_column());
 
     // Subscriptions table
-    from.tables.push(TableDef::new("subscriptions").into_table());
+    from.tables
+        .push(TableDef::new("subscriptions").into_table());
     from.columns.push(
         ColumnDef::new("subscriptions", "id", "integer")
             .primary_key()
@@ -970,9 +970,8 @@ fn test_recreate_table_with_nested_references() {
             .autoincrement()
             .into_column(),
     );
-    from.columns.push(
-        ColumnDef::new("subscriptions_metadata", "subscription_id", "text").into_column(),
-    );
+    from.columns
+        .push(ColumnDef::new("subscriptions_metadata", "subscription_id", "text").into_column());
 
     // Add FK: subscriptions.user_id -> users.id
     const SUB_FK_COLS: &[Cow<'static, str>] = &[Cow::Borrowed("user_id")];

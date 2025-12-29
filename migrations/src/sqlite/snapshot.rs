@@ -227,4 +227,28 @@ mod tests {
         assert_eq!(parsed.version, snapshot.version);
         assert_eq!(parsed.ddl.len(), 2);
     }
+
+    #[test]
+    fn test_column_json_format_matches_drizzle_kit() {
+        // Create a column with autoincrement to verify field naming
+        let col = Column::new("users", "id", "integer")
+            .not_null()
+            .autoincrement();
+
+        let json = serde_json::to_string_pretty(&col).unwrap();
+
+        // Verify field names match drizzle-kit exactly:
+        // - autoincrement (not autoIncrement)
+        // - notNull (camelCase)
+        // - type (renamed from sql_type)
+        assert!(json.contains("\"autoincrement\""), "Expected 'autoincrement' field, got: {}", json);
+        assert!(json.contains("\"notNull\""), "Expected 'notNull' field, got: {}", json);
+        assert!(json.contains("\"type\""), "Expected 'type' field, got: {}", json);
+        assert!(json.contains("\"table\""), "Expected 'table' field, got: {}", json);
+        assert!(json.contains("\"name\""), "Expected 'name' field, got: {}", json);
+
+        // Verify it doesn't contain snake_case versions
+        assert!(!json.contains("\"sql_type\""), "Should not contain 'sql_type'");
+        assert!(!json.contains("\"not_null\""), "Should not contain 'not_null'");
+    }
 }
