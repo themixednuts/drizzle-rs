@@ -1,69 +1,66 @@
-name: Performance Benchmarks
+name: Benchmarks
 
 on:
   push:
     tags:
-      - 'v*' # Trigger on version tags like v1.0.0, v0.1.2, etc.
-  workflow_dispatch: # Allow manual trigger
+      - "v*"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
   benchmark:
-    name: Run Performance Benchmarks
+    name: Benchmark (${{ matrix.platform }})
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             platform: linux
           - os: windows-latest
             platform: windows
           - os: macos-latest
-            platform: mac
+            platform: macos
     runs-on: ${{ matrix.os }}
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@nightly
-    
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
-    
-    - name: Run benchmarks
-      shell: bash
-      run: |
-        cargo bench --bench performance_comparison --features "rusqlite,libsql,uuid,serde" > benchmark_raw.txt 2>&1 || true
-        
-        # Extract only the benchmark results starting from "Timer precision"
-        if grep -q "Timer precision" benchmark_raw.txt; then
-          sed -n '/Timer precision/,$p' benchmark_raw.txt > benchmark_output.txt
-        else
-          # Fallback if Timer precision line is not found
-          echo "No benchmark results found" > benchmark_output.txt
-          cat benchmark_raw.txt >> benchmark_output.txt
-        fi
-    
-    - name: Create benchmark report
-      shell: bash
-      run: |        
-        echo "# Performance Benchmark Results - ${{ matrix.platform }}" > "${{ matrix.platform }}.md"
-        echo "" >> "${{ matrix.platform }}.md"
-        echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "${{ matrix.platform }}.md"
-        echo "**Commit:** ${{ github.sha }}" >> "${{ matrix.platform }}.md"
-        echo "**Platform:** ${{ runner.os }} - ${{ runner.arch }}" >> "${{ matrix.platform }}.md"
-        echo "" >> "${{ matrix.platform }}.md"
-        echo '```' >> "${{ matrix.platform }}.md"
-        cat benchmark_output.txt >> "${{ matrix.platform }}.md"
-        echo '```' >> "${{ matrix.platform }}.md"
-    
-    - name: Upload platform results as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: benchmark-${{ matrix.platform }}
-        path: ${{ matrix.platform }}.md
-        retention-days: 90
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        shell: bash
+        run: |
+          cargo bench --bench performance_comparison --all-features > benchmark_raw.txt 2>&1 || true
+          if grep -q "Timer precision" benchmark_raw.txt; then
+            sed -n '/Timer precision/,$p' benchmark_raw.txt > benchmark_output.txt
+          else
+            echo "No benchmark results found" > benchmark_output.txt
+            cat benchmark_raw.txt >> benchmark_output.txt
+          fi
+
+      - name: Create report
+        shell: bash
+        run: |
+          {
+            echo "# Benchmark Results - ${{ matrix.platform }}"
+            echo ""
+            echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "**Commit:** ${{ github.sha }}"
+            echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
+            echo ""
+            echo '```'
+            cat benchmark_output.txt
+            echo '```'
+          } > "${{ matrix.platform }}.md"
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.platform }}
+          path: ${{ matrix.platform }}.md
+          retention-days: 90

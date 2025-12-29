@@ -6,7 +6,7 @@ on:
     workflows: ["CI"]
     types:
       - completed
-    branches: [master, main]
+    branches: [main]
 
 permissions:
   contents: write
@@ -23,16 +23,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Rust (MSRV from Cargo.toml)
+      - name: Get Rust version
+        id: rust-version
         run: |
           RUST_VERSION=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
-          echo "RUST_VERSION=$RUST_VERSION" >> $GITHUB_ENV
-          echo "Using Rust version: $RUST_VERSION"
-      
+          echo "version=$RUST_VERSION" >> $GITHUB_OUTPUT
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ steps.rust-version.outputs.version }}
 
       - name: Install nightly Rust for formatting
         uses: dtolnay/rust-toolchain@nightly

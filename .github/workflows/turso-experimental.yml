@@ -1,153 +1,16 @@
-name: Turso Tests (Experimental)
+name: Turso (Experimental)
 
 on:
-  workflow_dispatch: # Manual trigger only
-
-permissions:
-  contents: read
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  get-rust-version:
-    name: Get Rust Version
+  test:
+    name: Test (${{ matrix.features }})
     runs-on: ubuntu-latest
-    outputs:
-      rust-version: ${{ steps.rust-version.outputs.version }}
-    steps:
-    - uses: actions/checkout@v4
-    - name: Extract Rust version from Cargo.toml
-      id: rust-version
-      run: |
-        RUST_VERSION=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
-        echo "version=$RUST_VERSION" >> $GITHUB_OUTPUT
-        echo "Detected Rust version: $RUST_VERSION"
-
-  turso-tests:
-    name: Turso Tests
-    runs-on: ubuntu-latest
-    needs: get-rust-version
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - "turso"
-          - "turso,uuid"
-          - "turso,serde"
-          - "turso,uuid,serde"
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: ${{ needs.get-rust-version.outputs.rust-version }}
-    
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
-    
-    - name: Run turso tests with ${{ matrix.features }}
-      id: run-tests
-      run: |
-        echo "::notice::Testing turso with features: ${{ matrix.features }}"
-        mkdir -p test-output
-        
-        # Run tests and capture output
-        cargo test --workspace --features "${{ matrix.features }}" --verbose -- --test-threads=1 2>&1 | tee test-output/raw-output.txt || true
-        
-        # Extract failure reports (complete structured reports)
-        awk '
-          /^╔.*═.*╗$/ && !started { buffer=$0"\n"; started=1; next }
-          started && /TURSO TEST FAILURE REPORT/ { capture=1 }
-          capture { buffer=buffer $0 "\n" }
-          capture && /├─ EXECUTED STATEMENTS/ { in_exec=1 }
-          in_exec && /^╚.*═.*╝$/ { 
-            print buffer
-            print "────────────────────────────────────────────────────────────────────────────────"
-            print ""
-            capture=0
-            in_exec=0
-            started=0
-            buffer=""
-          }
-        ' test-output/raw-output.txt > test-output/failures-${{ matrix.features }}.txt
-        
-        # Check if any failures were captured
-        if [ -s test-output/failures-${{ matrix.features }}.txt ]; then
-          echo "has_failures=true" >> $GITHUB_OUTPUT
-          echo "::warning::❌ Turso tests failed with features: ${{ matrix.features }} (experimental)"
-        else
-          echo "has_failures=false" >> $GITHUB_OUTPUT
-          echo "::notice::✅ Turso tests passed with features: ${{ matrix.features }}"
-          rm -f test-output/failures-${{ matrix.features }}.txt
-        fi
-    
-    - name: Upload failure reports
-      if: steps.run-tests.outputs.has_failures == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: turso-failures-${{ matrix.features }}
-        path: test-output/failures-${{ matrix.features }}.txt
-        retention-days: 3
-
-  merge-failure-reports:
-    name: Merge Failure Reports
-    runs-on: ubuntu-latest
-    needs: turso-tests
-    if: always()
-    steps:
-    - name: Download all failure artifacts
-      uses: actions/download-artifact@v4
-      with:
-        pattern: turso-failures-*
-        path: all-failures
-        merge-multiple: true
-      continue-on-error: true
-    
-    - name: Merge failure reports
-      run: |
-        mkdir -p merged-output
-        
-        if [ -d all-failures ] && [ "$(ls -A all-failures 2>/dev/null)" ]; then
-          echo "╔══════════════════════════════════════════════════════════════════════════════╗" > merged-output/turso-test-failures.txt
-          echo "║                    TURSO TEST FAILURE REPORT (MERGED)                        ║" >> merged-output/turso-test-failures.txt
-          echo "║                    Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')                       ║" >> merged-output/turso-test-failures.txt
-          echo "╚══════════════════════════════════════════════════════════════════════════════╝" >> merged-output/turso-test-failures.txt
-          echo "" >> merged-output/turso-test-failures.txt
-          
-          for file in all-failures/*.txt; do
-            if [ -f "$file" ]; then
-              features=$(basename "$file" .txt | sed 's/failures-//')
-              echo "=================================================================================" >> merged-output/turso-test-failures.txt
-              echo "FEATURE SET: $features" >> merged-output/turso-test-failures.txt
-              echo "=================================================================================" >> merged-output/turso-test-failures.txt
-              echo "" >> merged-output/turso-test-failures.txt
-              cat "$file" >> merged-output/turso-test-failures.txt
-              echo "" >> merged-output/turso-test-failures.txt
-            fi
-          done
-          
-          echo "::notice::Merged $(ls all-failures/*.txt 2>/dev/null | wc -l) failure report(s)"
-        else
-          echo "No failures to merge - all tests passed!" > merged-output/turso-test-failures.txt
-          echo "::notice::✅ All turso tests passed!"
-        fi
-    
-    - name: Upload merged failure report
-      uses: actions/upload-artifact@v4
-      with:
-        name: turso-test-failures
-        path: merged-output/turso-test-failures.txt
-        retention-days: 3
-
-  turso-examples:
-    name: Turso Examples
-    runs-on: ubuntu-latest
-    needs: get-rust-version
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -155,23 +18,43 @@ jobs:
         features:
           - "turso"
           - "turso,uuid,serde"
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: ${{ needs.get-rust-version.outputs.rust-version }}
-    
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
-    
-    - name: Run turso examples with ${{ matrix.features }}
-      run: |
-        echo "::notice::Running turso examples with features: ${{ matrix.features }}"
-        if find examples -name "*.rs" | grep -q "turso" && cargo run --example turso --features "${{ matrix.features }}"; then
-          echo "::notice::✅ Turso examples ran successfully with features: ${{ matrix.features }}"
-        else
-          echo "::warning::❌ Turso examples failed or not found with features: ${{ matrix.features }} (experimental)"
-        fi
+      - uses: actions/checkout@v4
+
+      - name: Get Rust version
+        id: rust-version
+        run: |
+          RUST_VERSION=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
+          echo "version=$RUST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-version.outputs.version }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        id: test
+        run: |
+          mkdir -p test-output
+          cargo test --workspace --features "${{ matrix.features }}" -- --test-threads=1 2>&1 | tee test-output/output.txt || true
+
+          # Check for failures
+          if grep -q "FAILED" test-output/output.txt; then
+            echo "has_failures=true" >> $GITHUB_OUTPUT
+            echo "::warning::Tests failed with features: ${{ matrix.features }}"
+          else
+            echo "has_failures=false" >> $GITHUB_OUTPUT
+            echo "::notice::Tests passed with features: ${{ matrix.features }}"
+          fi
+
+      - name: Upload logs
+        if: steps.test.outputs.has_failures == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: turso-logs-${{ matrix.features }}
+          path: test-output/output.txt
+          retention-days: 3
