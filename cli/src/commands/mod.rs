@@ -9,3 +9,4 @@ pub mod introspect;
 pub mod migrate;
 pub mod push;
 pub mod status;
+pub mod upgrade;

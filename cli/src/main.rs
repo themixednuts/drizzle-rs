@@ -51,7 +51,7 @@ enum Command {
     /// Run pending migrations
     Migrate,
 
-    /// Apply pending migrations (alias for migrate)
+    /// Upgrade migration snapshots to the latest version
     Up,
 
     /// Push schema changes directly to database (without migration files)
@@ -134,9 +134,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::generate::run(&config, db_name, name, custom)
         }
-        Command::Migrate | Command::Up => {
+        Command::Migrate => {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::migrate::run(&config, db_name)
+        }
+        Command::Up => {
+            let config = load_config(cli.config.as_deref())?;
+            drizzle_cli::commands::upgrade::run(&config, db_name)
         }
         Command::Push {
             verbose,
