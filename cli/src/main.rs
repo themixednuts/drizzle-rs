@@ -15,7 +15,7 @@ const DEFAULT_CONFIG_FILE: &str = "drizzle.config.toml";
 
 /// JSON schema URL for TOML validation
 const SCHEMA_URL: &str =
-    "https://raw.githubusercontent.com/themixednuts/drizzle-rs/master/cli/schema.json";
+    "https://raw.githubusercontent.com/themixednuts/drizzle-rs/main/cli/schema.json";
 
 /// Drizzle - Database migration CLI for drizzle-rs
 #[derive(Parser, Debug)]

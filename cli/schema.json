@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/themixednuts/drizzle-rs/master/cli/schema.json",
+  "$id": "https://raw.githubusercontent.com/themixednuts/drizzle-rs/main/cli/schema.json",
   "title": "Drizzle Configuration",
   "description": "Configuration schema for drizzle-rs CLI tool",
   "definitions": {
