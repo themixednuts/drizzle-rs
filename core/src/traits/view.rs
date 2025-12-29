@@ -5,7 +5,9 @@ use core::any::Any;
 /// Trait for database views.
 ///
 /// A View is essentially a named SQL query that can be queried like a table.
-pub trait SQLView<'a, Type: SQLSchemaType, Value: SQLParam + 'a>: SQLTable<'a, Type, Value> {
+pub trait SQLView<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
+    SQLTable<'a, Type, Value>
+{
     /// Returns the SQL definition of this view (the SELECT statement).
     fn definition(&self) -> SQL<'a, Value>;
 

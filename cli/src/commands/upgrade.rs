@@ -133,8 +133,8 @@ fn find_legacy_snapshots(meta_folder: &Path) -> Result<Vec<std::path::PathBuf>, 
 fn upgrade_snapshot_file(path: &Path, dialect: Dialect) -> Result<bool, CliError> {
     let contents = fs::read_to_string(path).map_err(|e| CliError::IoError(e.to_string()))?;
 
-    let json: serde_json::Value =
-        serde_json::from_str(&contents).map_err(|e| CliError::Other(format!("Invalid JSON in {}: {}", path.display(), e)))?;
+    let json: serde_json::Value = serde_json::from_str(&contents)
+        .map_err(|e| CliError::Other(format!("Invalid JSON in {}: {}", path.display(), e)))?;
 
     // Get current version
     let version = json

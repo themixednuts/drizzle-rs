@@ -7,8 +7,8 @@
 //! in `common::generators` and re-exported here for API stability. The functions
 //! in this module delegate to the common implementations with PostgreSQL-specific types.
 
-use crate::common::generators as common_gen;
 use crate::common::PostgresDialect;
+use crate::common::generators as common_gen;
 use crate::paths::postgres as postgres_paths;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
@@ -153,7 +153,13 @@ pub fn generate_sql_schema(
     const_sql: TokenStream,
     runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
-    common_gen::generate_sql_schema::<PostgresDialect>(struct_ident, name, r#type, const_sql, runtime_sql)
+    common_gen::generate_sql_schema::<PostgresDialect>(
+        struct_ident,
+        name,
+        r#type,
+        const_sql,
+        runtime_sql,
+    )
 }
 
 /// Generate PostgreSQL SQLSchema for fields trait implementation.

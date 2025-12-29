@@ -160,10 +160,10 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 ///
 /// This is useful for determining nullability of fields.
 pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            return segment.ident == "Option";
-        }
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+    {
+        return segment.ident == "Option";
     }
     false
 }
@@ -172,16 +172,13 @@ pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
 ///
 /// Returns the original type if it's not an Option.
 pub(crate) fn extract_option_inner(ty: &syn::Type) -> &syn::Type {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            if segment.ident == "Option" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                        return inner;
-                    }
-                }
-            }
-        }
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && segment.ident == "Option"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return inner;
     }
     ty
 }

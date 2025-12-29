@@ -887,7 +887,6 @@ pub(crate) struct FieldInfo {
 }
 
 impl FieldInfo {
-
     /// Parse field information from a struct field.
     ///
     /// The PostgreSQL type is INFERRED from the Rust type, not from attributes.

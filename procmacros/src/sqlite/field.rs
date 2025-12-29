@@ -325,23 +325,20 @@ impl<'a> FieldInfo<'a> {
                             // JSON = TEXT storage with JSON serialization
                             args.explicit_type = Some(SQLiteType::Text);
                             args.flags.insert("json".to_string());
-                            args.marker_exprs
-                                .push(make_uppercase_path(ident, "JSON"));
+                            args.marker_exprs.push(make_uppercase_path(ident, "JSON"));
                         }
                         "JSONB" => {
                             // JSONB = BLOB storage with JSON serialization
                             args.explicit_type = Some(SQLiteType::Blob);
                             args.flags.insert("json".to_string());
-                            args.marker_exprs
-                                .push(make_uppercase_path(ident, "JSONB"));
+                            args.marker_exprs.push(make_uppercase_path(ident, "JSONB"));
                         }
                         "DEFAULT" => {
                             args.default_fn = Some(syn::parse_quote!(Default::default));
                         }
                         "ENUM" => {
                             args.flags.insert("enum".to_string());
-                            args.marker_exprs
-                                .push(make_uppercase_path(ident, "ENUM"));
+                            args.marker_exprs.push(make_uppercase_path(ident, "ENUM"));
                         }
                         "PRIMARY" | "PRIMARY_KEY" => {
                             args.flags.insert("primary".to_string());
@@ -355,8 +352,7 @@ impl<'a> FieldInfo<'a> {
                         }
                         "UNIQUE" => {
                             args.flags.insert("unique".to_string());
-                            args.marker_exprs
-                                .push(make_uppercase_path(ident, "UNIQUE"));
+                            args.marker_exprs.push(make_uppercase_path(ident, "UNIQUE"));
                         }
                         _ => {
                             // Check if this is a SQLite type override (case-insensitive for types)
@@ -422,8 +418,7 @@ impl<'a> FieldInfo<'a> {
                         }
                         "NAME" => {
                             args.name = Some(*assign.right.clone());
-                            args.marker_exprs
-                                .push(make_uppercase_path(param, "NAME"));
+                            args.marker_exprs.push(make_uppercase_path(param, "NAME"));
                         }
                         _ => {}
                     }

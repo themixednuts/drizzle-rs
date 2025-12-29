@@ -241,14 +241,40 @@ mod tests {
         // - autoincrement (not autoIncrement)
         // - notNull (camelCase)
         // - type (renamed from sql_type)
-        assert!(json.contains("\"autoincrement\""), "Expected 'autoincrement' field, got: {}", json);
-        assert!(json.contains("\"notNull\""), "Expected 'notNull' field, got: {}", json);
-        assert!(json.contains("\"type\""), "Expected 'type' field, got: {}", json);
-        assert!(json.contains("\"table\""), "Expected 'table' field, got: {}", json);
-        assert!(json.contains("\"name\""), "Expected 'name' field, got: {}", json);
+        assert!(
+            json.contains("\"autoincrement\""),
+            "Expected 'autoincrement' field, got: {}",
+            json
+        );
+        assert!(
+            json.contains("\"notNull\""),
+            "Expected 'notNull' field, got: {}",
+            json
+        );
+        assert!(
+            json.contains("\"type\""),
+            "Expected 'type' field, got: {}",
+            json
+        );
+        assert!(
+            json.contains("\"table\""),
+            "Expected 'table' field, got: {}",
+            json
+        );
+        assert!(
+            json.contains("\"name\""),
+            "Expected 'name' field, got: {}",
+            json
+        );
 
         // Verify it doesn't contain snake_case versions
-        assert!(!json.contains("\"sql_type\""), "Should not contain 'sql_type'");
-        assert!(!json.contains("\"not_null\""), "Should not contain 'not_null'");
+        assert!(
+            !json.contains("\"sql_type\""),
+            "Should not contain 'sql_type'"
+        );
+        assert!(
+            !json.contains("\"not_null\""),
+            "Should not contain 'not_null'"
+        );
     }
 }
