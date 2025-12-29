@@ -45,11 +45,11 @@ jobs:
           # Full feature set
           - features: "rusqlite,libsql,uuid,serde"
             name: "sqlite-full"
-          # Postgres tests
-          - features: "postgres,postgres-sync"
+          # Postgres tests (postgres-sync includes postgres dialect)
+          - features: "postgres-sync"
             name: "postgres"
           # Postgres with extras
-          - features: "postgres,postgres-sync,uuid,serde"
+          - features: "postgres-sync,uuid,serde"
             name: "postgres-full"
 
     steps:
