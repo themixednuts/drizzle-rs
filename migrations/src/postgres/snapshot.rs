@@ -14,6 +14,9 @@ pub struct PostgresSnapshot {
     pub id: String,
     pub prev_ids: Vec<String>,
     pub ddl: Vec<PostgresEntity>,
+    /// Renames tracking (for table/column renames between migrations)
+    #[serde(default)]
+    pub renames: Vec<String>,
 }
 
 impl Default for PostgresSnapshot {
@@ -26,10 +29,11 @@ impl PostgresSnapshot {
     pub fn new() -> Self {
         Self {
             version: POSTGRES_SNAPSHOT_VERSION.to_string(),
-            dialect: "postgresql".to_string(),
+            dialect: "postgres".to_string(),
             id: uuid::Uuid::new_v4().to_string(),
             prev_ids: vec![ORIGIN_UUID.to_string()],
             ddl: Vec::new(),
+            renames: Vec::new(),
         }
     }
 
@@ -112,9 +116,10 @@ mod tests {
     fn test_new_snapshot() {
         let snapshot = PostgresSnapshot::new();
         assert_eq!(snapshot.version, "8");
-        assert_eq!(snapshot.dialect, "postgresql");
+        assert_eq!(snapshot.dialect, "postgres");
         assert_eq!(snapshot.prev_ids, vec![ORIGIN_UUID]);
         assert!(snapshot.ddl.is_empty());
+        assert!(snapshot.renames.is_empty());
     }
 
     #[test]
