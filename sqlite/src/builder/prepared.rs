@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use drizzle_core::{
     OwnedParam, Param,
     prepared::{
+        OwnedPreparedStatement as CoreOwnedPreparedStatement,
         PreparedStatement as CorePreparedStatement,
-        owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,
     },
 };
 

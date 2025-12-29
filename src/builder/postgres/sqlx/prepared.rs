@@ -2,8 +2,8 @@ use drizzle_postgres::values::PostgresValue;
 use drizzle_core::{
     OwnedParam, Param,
     prepared::{
+        OwnedPreparedStatement as CoreOwnedPreparedStatement,
         PreparedStatement as CorePreparedStatement,
-        owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,
     },
 };
 use drizzle_postgres::values::OwnedPostgresValue;

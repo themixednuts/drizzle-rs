@@ -1,8 +1,8 @@
 use drizzle_core::error::{DrizzleError, Result};
 use drizzle_core::param::{OwnedParam, Param, ParamBind};
 use drizzle_core::prepared::{
+    OwnedPreparedStatement as CoreOwnedPreparedStatement,
     PreparedStatement as CorePreparedStatement,
-    owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,
 };
 use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};

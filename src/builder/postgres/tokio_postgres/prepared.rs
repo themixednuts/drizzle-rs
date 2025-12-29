@@ -4,8 +4,8 @@ use drizzle_core::error::{DrizzleError, Result};
 use drizzle_core::{
     param::{OwnedParam, Param, ParamBind},
     prepared::{
+        OwnedPreparedStatement as CoreOwnedPreparedStatement,
         PreparedStatement as CorePreparedStatement,
-        owned::OwnedPreparedStatement as CoreOwnedPreparedStatement,
     },
     traits::ToSQL,
 };

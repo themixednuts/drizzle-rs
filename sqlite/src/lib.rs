@@ -63,5 +63,5 @@ macro_rules! params_internal {
     };
 }
 
-// Type alias for convenience
-pub type SQLiteSQL<'a> = drizzle_core::SQL<'a, SQLiteValue<'a>>;
+// Re-export type alias from traits
+pub use traits::SQLiteSQL;

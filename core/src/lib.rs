@@ -65,7 +65,6 @@ pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
 pub use schema::OrderBy;
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
-pub use traits::ToSQL;
 pub use traits::*;
 
 // =============================================================================

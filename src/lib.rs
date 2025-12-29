@@ -150,7 +150,7 @@ pub mod core {
     // ==========================================================================
 
     /// Prepared statement support
-    pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+    pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
 
     // ==========================================================================
     // Expression modules - require explicit import
@@ -221,7 +221,7 @@ pub mod sqlite {
         // Core types and traits (but not expressions/conditions)
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use crate::core::{SQLComparable, ToSQL};
-        pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+        pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
 
         // SQLite-specific types and traits
@@ -280,7 +280,7 @@ pub mod postgres {
         // Core types and traits (but not expressions/conditions)
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use crate::core::{SQLComparable, ToSQL};
-        pub use drizzle_core::prepared::{PreparedStatement, owned::OwnedPreparedStatement};
+        pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
 
         // PostgreSQL-specific types and traits

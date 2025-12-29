@@ -1,10 +1,10 @@
-pub mod owned;
+mod owned;
+pub use owned::OwnedPreparedStatement;
 
 use crate::prelude::*;
 use crate::{
     dialect::DialectExt,
     param::{Param, ParamBind},
-    prepared::owned::OwnedPreparedStatement,
     sql::{SQL, SQLChunk},
     traits::{SQLParam, ToSQL},
 };
