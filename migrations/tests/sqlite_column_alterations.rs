@@ -88,15 +88,9 @@ fn test_add_column_not_null() {
     let sql = diff_sql(&from, &to);
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
-    assert!(
-        sql[0].contains("ALTER TABLE") && sql[0].contains("ADD"),
-        "Expected ALTER TABLE ADD, got: {}",
-        sql[0]
-    );
-    assert!(
-        sql[0].contains("`name`") && sql[0].contains("NOT NULL"),
-        "Expected `name` NOT NULL column, got: {}",
-        sql[0]
+    assert_eq!(
+        sql[0], "ALTER TABLE `users` ADD `name` TEXT NOT NULL;",
+        "Unexpected ALTER TABLE ADD SQL"
     );
 }
 
@@ -128,11 +122,24 @@ fn test_add_multiple_columns() {
     let sql = diff_sql(&from, &to);
 
     assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
-    let combined = sql.join("\n");
+
+    // Order may vary
+    let has_name = sql
+        .iter()
+        .any(|s| *s == "ALTER TABLE `users` ADD `name` TEXT;");
+    let has_email = sql
+        .iter()
+        .any(|s| *s == "ALTER TABLE `users` ADD `email` TEXT;");
+
     assert!(
-        combined.contains("`name`") && combined.contains("`email`"),
-        "Expected both columns, got: {}",
-        combined
+        has_name,
+        "Should have ALTER TABLE ADD `name`, got: {:?}",
+        sql
+    );
+    assert!(
+        has_email,
+        "Should have ALTER TABLE ADD `email`, got: {:?}",
+        sql
     );
 }
 
@@ -175,16 +182,24 @@ fn test_add_columns_with_modifiers() {
 
     let sql = diff_sql(&from, &to);
 
-    let combined = sql.join("\n");
+    assert_eq!(sql.len(), 3, "Expected 3 SQL statements, got: {:?}", sql);
+
+    let has_name1 = sql
+        .iter()
+        .any(|s| *s == "ALTER TABLE `users` ADD `name1` TEXT DEFAULT 'name';");
+    let has_name2 = sql
+        .iter()
+        .any(|s| *s == "ALTER TABLE `users` ADD `name2` TEXT NOT NULL;");
+    let has_name3 = sql
+        .iter()
+        .any(|s| *s == "ALTER TABLE `users` ADD `name3` TEXT DEFAULT 'name' NOT NULL;");
+
+    assert!(has_name1, "Should have name1 with DEFAULT, got: {:?}", sql);
+    assert!(has_name2, "Should have name2 with NOT NULL, got: {:?}", sql);
     assert!(
-        combined.contains("DEFAULT 'name'"),
-        "Expected DEFAULT value, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("NOT NULL"),
-        "Expected NOT NULL, got: {}",
-        combined
+        has_name3,
+        "Should have name3 with DEFAULT and NOT NULL, got: {:?}",
+        sql
     );
 }
 
@@ -233,10 +248,9 @@ fn test_add_column_to_table_with_unique() {
     let sql = diff_sql(&from, &to);
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
-    assert!(
-        sql[0].contains("`password`") && sql[0].contains("NOT NULL"),
-        "Expected `password` NOT NULL, got: {}",
-        sql[0]
+    assert_eq!(
+        sql[0], "ALTER TABLE `users` ADD `password` TEXT NOT NULL;",
+        "Unexpected ALTER TABLE ADD SQL"
     );
 }
 
@@ -270,10 +284,9 @@ fn test_drop_column() {
     let sql = diff_sql(&from, &to);
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
-    assert!(
-        sql[0].contains("DROP COLUMN") && sql[0].contains("`name`"),
-        "Expected DROP COLUMN `name`, got: {}",
-        sql[0]
+    assert_eq!(
+        sql[0], "ALTER TABLE `users` DROP COLUMN `name`;",
+        "Unexpected DROP COLUMN SQL"
     );
 }
 
@@ -309,17 +322,41 @@ fn test_alter_column_drop_not_null() {
         "Expected RecreateTable statement"
     );
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("__new_table"),
-        "Expected __new_table, got: {}",
-        combined
+    // Verify the complete sequence
+    assert_eq!(
+        sql.len(),
+        6,
+        "Expected 6 SQL statements for table recreation, got: {:?}",
+        sql
     );
-    // The new table should NOT have NOT NULL for the name column
+    assert_eq!(
+        sql[0], "PRAGMA foreign_keys=OFF;",
+        "Should start with PRAGMA OFF"
+    );
     assert!(
-        combined.contains("`name` TEXT"),
-        "Expected nullable column, got: {}",
-        combined
+        sql[1].contains("CREATE TABLE `__new_table`"),
+        "Second should be CREATE TABLE __new_table"
+    );
+    assert!(
+        sql[1].contains("`name` TEXT"),
+        "Should have nullable name column"
+    );
+    assert!(!sql[1].contains("NOT NULL"), "Should NOT have NOT NULL");
+    assert!(
+        sql[2].contains("INSERT INTO `__new_table`"),
+        "Third should be INSERT"
+    );
+    assert!(
+        sql[3].contains("DROP TABLE `table`"),
+        "Fourth should be DROP TABLE"
+    );
+    assert!(
+        sql[4].contains("ALTER TABLE `__new_table` RENAME TO `table`"),
+        "Fifth should be RENAME"
+    );
+    assert_eq!(
+        sql[5], "PRAGMA foreign_keys=ON;",
+        "Should end with PRAGMA ON"
     );
 }
 
@@ -347,11 +384,15 @@ fn test_alter_column_add_not_null() {
         sql
     );
 
-    let combined = sql.join("\n");
+    // Verify NOT NULL is in the recreated table
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_table`"))
+        .unwrap();
     assert!(
-        combined.contains("NOT NULL"),
+        create_stmt.contains("NOT NULL"),
         "Expected NOT NULL in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -379,11 +420,14 @@ fn test_alter_column_add_default() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_table`"))
+        .unwrap();
     assert!(
-        combined.contains("DEFAULT 'dan'"),
+        create_stmt.contains("DEFAULT 'dan'"),
         "Expected DEFAULT 'dan' in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -411,12 +455,15 @@ fn test_alter_column_drop_default() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_table`"))
+        .unwrap();
     // The new table should NOT have DEFAULT for the name column
     assert!(
-        !combined.contains("DEFAULT 'dan'"),
+        !create_stmt.contains("DEFAULT 'dan'"),
         "Should NOT have DEFAULT 'dan' in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -445,11 +492,14 @@ fn test_alter_column_add_default_not_null() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_table`"))
+        .unwrap();
     assert!(
-        combined.contains("DEFAULT 'dan'") && combined.contains("NOT NULL"),
+        create_stmt.contains("DEFAULT 'dan'") && create_stmt.contains("NOT NULL"),
         "Expected DEFAULT 'dan' NOT NULL in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -500,11 +550,14 @@ fn test_alter_column_type_change() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_users`"))
+        .unwrap();
     assert!(
-        combined.to_lowercase().contains("integer"),
+        create_stmt.to_lowercase().contains("integer"),
         "Expected INTEGER type in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -538,12 +591,14 @@ fn test_drop_autoincrement() {
         sql
     );
 
-    let combined = sql.join("\n");
-    // Should have drop for the name column too since we removed it
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_companies`"))
+        .unwrap();
     assert!(
-        combined.contains("__new_companies"),
+        create_stmt.contains("__new_companies"),
         "Expected __new_companies, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -595,11 +650,14 @@ fn test_add_foreign_key() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_users`"))
+        .unwrap();
     assert!(
-        combined.contains("FOREIGN KEY") && combined.contains("REFERENCES"),
+        create_stmt.contains("FOREIGN KEY") && create_stmt.contains("REFERENCES"),
         "Expected FOREIGN KEY REFERENCES in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -640,11 +698,14 @@ fn test_add_composite_pk() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_table`"))
+        .unwrap();
     assert!(
-        combined.contains("PRIMARY KEY"),
+        create_stmt.contains("PRIMARY KEY"),
         "Expected PRIMARY KEY in recreated table, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -678,11 +739,14 @@ fn test_add_generated_stored_column() {
         sql
     );
 
-    let combined = sql.join("\n");
+    let create_stmt = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE `__new_users`"))
+        .unwrap();
     assert!(
-        combined.contains("GENERATED ALWAYS AS") && combined.contains("STORED"),
+        create_stmt.contains("GENERATED ALWAYS AS") && create_stmt.contains("STORED"),
         "Expected GENERATED ALWAYS AS ... STORED, got: {}",
-        combined
+        create_stmt
     );
 }
 
@@ -706,17 +770,20 @@ fn test_add_generated_virtual_column() {
 
     let sql = diff_sql(&from, &to);
 
-    // Virtual columns CAN be added via ALTER TABLE ADD
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("ALTER TABLE") && combined.contains("ADD"),
-        "Expected ALTER TABLE ADD for VIRTUAL column, got: {}",
-        combined
+    assert_eq!(
+        sql.len(),
+        1,
+        "Virtual columns can be added via ALTER TABLE ADD"
     );
     assert!(
-        combined.contains("VIRTUAL"),
+        sql[0].contains("ALTER TABLE") && sql[0].contains("ADD"),
+        "Expected ALTER TABLE ADD for VIRTUAL column, got: {}",
+        sql[0]
+    );
+    assert!(
+        sql[0].contains("VIRTUAL"),
         "Expected VIRTUAL keyword, got: {}",
-        combined
+        sql[0]
     );
 }
 
@@ -827,20 +894,20 @@ fn test_recreate_preserves_columns() {
         .push(ColumnDef::new("users", "age", "integer").into_column());
 
     let sql = diff_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    // The INSERT INTO should copy all columns
-    assert!(
-        combined.contains("INSERT INTO `__new_users`"),
-        "Expected INSERT INTO __new_users, got: {}",
-        combined
-    );
+    // Find the INSERT statement
+    let insert_stmt = sql
+        .iter()
+        .find(|s| s.contains("INSERT INTO `__new_users`"))
+        .unwrap();
 
-    // Should include all column names in the INSERT
+    // Should include column references in the INSERT
     assert!(
-        combined.contains("`id`") && combined.contains("`name`") && combined.contains("`age`"),
+        insert_stmt.contains("`id`")
+            && insert_stmt.contains("`name`")
+            && insert_stmt.contains("`age`"),
         "Expected all columns in INSERT, got: {}",
-        combined
+        insert_stmt
     );
 }
 

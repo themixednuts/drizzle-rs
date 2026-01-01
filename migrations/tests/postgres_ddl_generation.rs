@@ -148,9 +148,12 @@ fn test_create_table_basic() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE TABLE \"users\""));
-    assert!(sql[0].contains("\"id\" integer NOT NULL"));
-    assert!(sql[0].contains("\"name\" text NOT NULL"));
+    // Column order may vary
+    let sql_str = &sql[0];
+    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
+    assert!(sql_str.contains("\"id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"name\" text NOT NULL"));
+    assert!(sql_str.ends_with(");"));
 }
 
 #[test]
@@ -166,8 +169,13 @@ fn test_create_table_with_primary_key() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE TABLE \"users\""));
-    assert!(sql[0].contains("PRIMARY KEY(\"id\")"));
+    // Column order may vary, PK rendered without CONSTRAINT prefix
+    let sql_str = &sql[0];
+    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
+    assert!(sql_str.contains("\"id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"name\" text NOT NULL"));
+    assert!(sql_str.contains("PRIMARY KEY(\"id\")"));
+    assert!(sql_str.ends_with(");"));
 }
 
 #[test]
@@ -194,8 +202,14 @@ fn test_create_table_composite_pk() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE TABLE \"order_items\""));
-    assert!(sql[0].contains("PRIMARY KEY(\"order_id\", \"product_id\")"));
+    // Column order may vary, but PK column order should be preserved
+    let sql_str = &sql[0];
+    assert!(sql_str.starts_with("CREATE TABLE \"order_items\" ("));
+    assert!(sql_str.contains("\"order_id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"product_id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"quantity\" integer NOT NULL"));
+    assert!(sql_str.contains("PRIMARY KEY(\"order_id\", \"product_id\")"));
+    assert!(sql_str.ends_with(");"));
 }
 
 #[test]
@@ -225,11 +239,30 @@ fn test_create_table_with_foreign_key() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 2);
+
+    // Find the posts SQL (which has FK)
     let posts_sql = sql
         .iter()
         .find(|s| s.contains("CREATE TABLE \"posts\""))
         .unwrap();
-    assert!(posts_sql.contains("FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\")"));
+    let users_sql = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE \"users\""))
+        .unwrap();
+
+    assert_eq!(
+        *users_sql,
+        "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\")\n);",
+        "Unexpected users table SQL"
+    );
+    // Column order may vary
+    let expected_v1 = "CREATE TABLE \"posts\" (\n\t\"id\" integer NOT NULL,\n\t\"author_id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\"),\n\tCONSTRAINT \"posts_author_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\")\n);";
+    let expected_v2 = "CREATE TABLE \"posts\" (\n\t\"author_id\" integer NOT NULL,\n\t\"id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\"),\n\tCONSTRAINT \"posts_author_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\")\n);";
+    assert!(
+        *posts_sql == expected_v1 || *posts_sql == expected_v2,
+        "Unexpected posts table SQL with FK: {}",
+        posts_sql
+    );
 }
 
 #[test]
@@ -263,7 +296,15 @@ fn test_foreign_key_on_delete_cascade() {
         .iter()
         .find(|s| s.contains("CREATE TABLE \"posts\""))
         .unwrap();
-    assert!(posts_sql.contains("ON DELETE CASCADE"));
+
+    // Column order may vary
+    let expected_v1 = "CREATE TABLE \"posts\" (\n\t\"id\" integer NOT NULL,\n\t\"author_id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\"),\n\tCONSTRAINT \"posts_author_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE\n);";
+    let expected_v2 = "CREATE TABLE \"posts\" (\n\t\"author_id\" integer NOT NULL,\n\t\"id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\"),\n\tCONSTRAINT \"posts_author_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE\n);";
+    assert!(
+        *posts_sql == expected_v1 || *posts_sql == expected_v2,
+        "Unexpected FK with CASCADE SQL: {}",
+        posts_sql
+    );
 }
 
 #[test]
@@ -284,7 +325,14 @@ fn test_create_table_with_unique_constraint() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CONSTRAINT \"users_email_unique\" UNIQUE(\"email\")"));
+    // Column order may vary
+    let sql_str = &sql[0];
+    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
+    assert!(sql_str.contains("\"id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"email\" text NOT NULL"));
+    assert!(sql_str.contains("PRIMARY KEY(\"id\")"));
+    assert!(sql_str.contains("CONSTRAINT \"users_email_unique\" UNIQUE(\"email\")"));
+    assert!(sql_str.ends_with(");"));
 }
 
 #[test]
@@ -301,7 +349,12 @@ fn test_create_table_with_default() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("\"status\" text DEFAULT 'active'"));
+    // Column order may vary
+    let sql_str = &sql[0];
+    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
+    assert!(sql_str.contains("\"id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"status\" text DEFAULT 'active'"));
+    assert!(sql_str.ends_with(");"));
 }
 
 // =============================================================================
@@ -319,7 +372,7 @@ fn test_drop_table() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("DROP TABLE \"users\""));
+    assert_eq!(sql[0], "DROP TABLE \"users\";", "Unexpected DROP TABLE SQL");
 }
 
 #[test]
@@ -340,8 +393,18 @@ fn test_drop_and_create_table() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 2);
-    assert!(sql.iter().any(|s| s.contains("DROP TABLE \"old_table\"")));
-    assert!(sql.iter().any(|s| s.contains("CREATE TABLE \"new_table\"")));
+
+    let drop_sql = sql.iter().find(|s| s.contains("DROP TABLE")).unwrap();
+    let create_sql = sql.iter().find(|s| s.contains("CREATE TABLE")).unwrap();
+
+    assert_eq!(
+        *drop_sql, "DROP TABLE \"old_table\";",
+        "Unexpected DROP TABLE SQL"
+    );
+    assert_eq!(
+        *create_sql, "CREATE TABLE \"new_table\" (\n\t\"id\" integer NOT NULL\n);",
+        "Unexpected CREATE TABLE SQL"
+    );
 }
 
 // =============================================================================
@@ -369,7 +432,10 @@ fn test_create_index() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE INDEX \"users_email_idx\" ON \"users\""));
+    assert_eq!(
+        sql[0], "CREATE INDEX \"users_email_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);",
+        "Unexpected CREATE INDEX SQL"
+    );
 }
 
 #[test]
@@ -393,7 +459,11 @@ fn test_create_unique_index() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE UNIQUE INDEX \"users_email_unique_idx\""));
+    assert_eq!(
+        sql[0],
+        "CREATE UNIQUE INDEX \"users_email_unique_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);",
+        "Unexpected CREATE UNIQUE INDEX SQL"
+    );
 }
 
 #[test]
@@ -414,7 +484,10 @@ fn test_drop_index() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("DROP INDEX \"users_email_idx\""));
+    assert_eq!(
+        sql[0], "DROP INDEX \"users_email_idx\";",
+        "Unexpected DROP INDEX SQL"
+    );
 }
 
 // =============================================================================
@@ -436,7 +509,10 @@ fn test_add_column() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("ALTER TABLE \"users\" ADD COLUMN \"email\" text NOT NULL"));
+    assert_eq!(
+        sql[0], "ALTER TABLE \"users\" ADD COLUMN \"email\" text NOT NULL;",
+        "Unexpected ADD COLUMN SQL"
+    );
 }
 
 #[test]
@@ -454,7 +530,10 @@ fn test_drop_column() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("ALTER TABLE \"users\" DROP COLUMN \"email\""));
+    assert_eq!(
+        sql[0], "ALTER TABLE \"users\" DROP COLUMN \"email\";",
+        "Unexpected DROP COLUMN SQL"
+    );
 }
 
 // =============================================================================
@@ -479,10 +558,10 @@ fn test_create_enum() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE TYPE \"status\" AS ENUM"));
-    assert!(sql[0].contains("'active'"));
-    assert!(sql[0].contains("'inactive'"));
-    assert!(sql[0].contains("'pending'"));
+    assert_eq!(
+        sql[0], "CREATE TYPE \"status\" AS ENUM ('active', 'inactive', 'pending');",
+        "Unexpected CREATE TYPE SQL"
+    );
 }
 
 #[test]
@@ -499,7 +578,7 @@ fn test_drop_enum() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("DROP TYPE \"status\""));
+    assert_eq!(sql[0], "DROP TYPE \"status\";", "Unexpected DROP TYPE SQL");
 }
 
 // =============================================================================
@@ -539,22 +618,77 @@ fn test_column_types() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("\"id\" serial NOT NULL"));
-    assert!(sql[0].contains("\"small\" smallint NOT NULL"));
-    assert!(sql[0].contains("\"big\" bigint NOT NULL"));
-    assert!(sql[0].contains("\"real_val\" real"));
-    assert!(sql[0].contains("\"double_val\" double precision"));
-    assert!(sql[0].contains("\"text_val\" text"));
-    assert!(sql[0].contains("\"varchar_val\" varchar(255)"));
-    assert!(sql[0].contains("\"char_val\" char(10)"));
-    assert!(sql[0].contains("\"bool_val\" boolean"));
-    assert!(sql[0].contains("\"timestamp_val\" timestamp"));
-    assert!(sql[0].contains("\"timestamptz_val\" timestamptz"));
-    assert!(sql[0].contains("\"date_val\" date"));
-    assert!(sql[0].contains("\"time_val\" time"));
-    assert!(sql[0].contains("\"json_val\" json"));
-    assert!(sql[0].contains("\"jsonb_val\" jsonb"));
-    assert!(sql[0].contains("\"uuid_val\" uuid"));
+    // Verify all column types are present in the output
+    let sql_str = &sql[0];
+    assert!(
+        sql_str.starts_with("CREATE TABLE \"all_types\" ("),
+        "Should start with CREATE TABLE"
+    );
+    assert!(
+        sql_str.contains("\"id\" serial NOT NULL"),
+        "Should have serial column"
+    );
+    assert!(
+        sql_str.contains("\"small\" smallint NOT NULL"),
+        "Should have smallint column"
+    );
+    assert!(
+        sql_str.contains("\"big\" bigint NOT NULL"),
+        "Should have bigint column"
+    );
+    assert!(
+        sql_str.contains("\"real_val\" real"),
+        "Should have real column"
+    );
+    assert!(
+        sql_str.contains("\"double_val\" double precision"),
+        "Should have double precision column"
+    );
+    assert!(
+        sql_str.contains("\"text_val\" text"),
+        "Should have text column"
+    );
+    assert!(
+        sql_str.contains("\"varchar_val\" varchar(255)"),
+        "Should have varchar column"
+    );
+    assert!(
+        sql_str.contains("\"char_val\" char(10)"),
+        "Should have char column"
+    );
+    assert!(
+        sql_str.contains("\"bool_val\" boolean"),
+        "Should have boolean column"
+    );
+    assert!(
+        sql_str.contains("\"timestamp_val\" timestamp"),
+        "Should have timestamp column"
+    );
+    assert!(
+        sql_str.contains("\"timestamptz_val\" timestamptz"),
+        "Should have timestamptz column"
+    );
+    assert!(
+        sql_str.contains("\"date_val\" date"),
+        "Should have date column"
+    );
+    assert!(
+        sql_str.contains("\"time_val\" time"),
+        "Should have time column"
+    );
+    assert!(
+        sql_str.contains("\"json_val\" json"),
+        "Should have json column"
+    );
+    assert!(
+        sql_str.contains("\"jsonb_val\" jsonb"),
+        "Should have jsonb column"
+    );
+    assert!(
+        sql_str.contains("\"uuid_val\" uuid"),
+        "Should have uuid column"
+    );
+    assert!(sql_str.ends_with(");"), "Should end with );");
 }
 
 // =============================================================================
@@ -579,7 +713,11 @@ fn test_no_diff_for_identical_schemas() {
 
     let sql = diff_to_sql(&from, &to);
 
-    assert!(sql.is_empty(), "Expected no diff for identical schemas");
+    assert!(
+        sql.is_empty(),
+        "Expected no diff for identical schemas, got: {:?}",
+        sql
+    );
 }
 
 // =============================================================================
@@ -613,7 +751,10 @@ fn test_create_table_in_custom_schema() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("CREATE TABLE \"myschema\".\"users\""));
+    assert_eq!(
+        sql[0], "CREATE TABLE \"myschema\".\"users\" (\n\t\"id\" integer NOT NULL\n);",
+        "Unexpected custom schema SQL"
+    );
 }
 
 #[test]
@@ -637,9 +778,35 @@ fn test_create_multiple_tables() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 3);
-    assert!(sql.iter().any(|s| s.contains("CREATE TABLE \"users\"")));
-    assert!(sql.iter().any(|s| s.contains("CREATE TABLE \"posts\"")));
-    assert!(sql.iter().any(|s| s.contains("CREATE TABLE \"comments\"")));
+
+    let users_sql = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE \"users\""))
+        .unwrap();
+    let posts_sql = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE \"posts\""))
+        .unwrap();
+    let comments_sql = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE \"comments\""))
+        .unwrap();
+
+    assert_eq!(
+        *users_sql,
+        "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\")\n);",
+        "Unexpected users SQL"
+    );
+    assert_eq!(
+        *posts_sql,
+        "CREATE TABLE \"posts\" (\n\t\"id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\")\n);",
+        "Unexpected posts SQL"
+    );
+    assert_eq!(
+        *comments_sql,
+        "CREATE TABLE \"comments\" (\n\t\"id\" integer NOT NULL,\n\tPRIMARY KEY(\"id\")\n);",
+        "Unexpected comments SQL"
+    );
 }
 
 // =============================================================================
@@ -668,7 +835,14 @@ fn test_self_referencing_fk() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    assert!(sql[0].contains("REFERENCES \"categories\"(\"id\")"));
+    // Column order may vary
+    let sql_str = &sql[0];
+    assert!(sql_str.starts_with("CREATE TABLE \"categories\" ("));
+    assert!(sql_str.contains("\"id\" integer NOT NULL"));
+    assert!(sql_str.contains("\"parent_id\" integer"));
+    assert!(sql_str.contains("PRIMARY KEY(\"id\")"));
+    assert!(sql_str.contains("CONSTRAINT \"categories_parent_fk\" FOREIGN KEY (\"parent_id\") REFERENCES \"categories\"(\"id\")"));
+    assert!(sql_str.ends_with(");"));
 }
 
 // =============================================================================
