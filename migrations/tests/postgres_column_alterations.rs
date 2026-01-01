@@ -158,15 +158,9 @@ fn test_add_column_not_null() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
-    assert!(
-        sql[0].contains("ALTER TABLE") && sql[0].contains("ADD COLUMN"),
-        "Expected ALTER TABLE ADD COLUMN, got: {}",
-        sql[0]
-    );
-    assert!(
-        sql[0].contains("\"name\"") && sql[0].contains("NOT NULL"),
-        "Expected \"name\" NOT NULL column, got: {}",
-        sql[0]
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ADD COLUMN \"name\" text NOT NULL;"
     );
 }
 
@@ -188,10 +182,16 @@ fn test_add_multiple_columns() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
+    // Column order may vary, so check both statements are present
     let combined = sql.join("\n");
     assert!(
-        combined.contains("\"name\"") && combined.contains("\"email\""),
-        "Expected both columns, got: {}",
+        combined.contains("ALTER TABLE \"users\" ADD COLUMN \"name\" text;"),
+        "Expected ADD COLUMN name, got: {}",
+        combined
+    );
+    assert!(
+        combined.contains("ALTER TABLE \"users\" ADD COLUMN \"email\" text;"),
+        "Expected ADD COLUMN email, got: {}",
         combined
     );
 }
@@ -214,10 +214,9 @@ fn test_add_column_with_default() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
-    assert!(
-        sql[0].contains("DEFAULT 'active'"),
-        "Expected DEFAULT 'active', got: {}",
-        sql[0]
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ADD COLUMN \"status\" text DEFAULT 'active';"
     );
 }
 
@@ -242,11 +241,7 @@ fn test_drop_column() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
-    assert!(
-        sql[0].contains("DROP COLUMN") && sql[0].contains("\"name\""),
-        "Expected DROP COLUMN \"name\", got: {}",
-        sql[0]
-    );
+    assert_eq!(sql[0], "ALTER TABLE \"users\" DROP COLUMN \"name\";");
 }
 
 // =============================================================================
@@ -270,16 +265,10 @@ fn test_alter_column_add_not_null() {
 
     let sql = diff_to_sql(&from, &to);
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("SET NOT NULL"),
-        "Expected SET NOT NULL, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("ALTER TABLE") && combined.contains("ALTER COLUMN"),
-        "Expected ALTER TABLE ALTER COLUMN, got: {}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"email\" SET NOT NULL;"
     );
 }
 
@@ -300,11 +289,10 @@ fn test_alter_column_drop_not_null() {
 
     let sql = diff_to_sql(&from, &to);
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("DROP NOT NULL"),
-        "Expected DROP NOT NULL, got: {}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"email\" DROP NOT NULL;"
     );
 }
 
@@ -326,16 +314,10 @@ fn test_alter_column_add_default() {
 
     let sql = diff_to_sql(&from, &to);
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("SET DEFAULT"),
-        "Expected SET DEFAULT, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("'active'"),
-        "Expected 'active' default value, got: {}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active';"
     );
 }
 
@@ -357,11 +339,10 @@ fn test_alter_column_drop_default() {
 
     let sql = diff_to_sql(&from, &to);
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("DROP DEFAULT"),
-        "Expected DROP DEFAULT, got: {}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" DROP DEFAULT;"
     );
 }
 
@@ -382,16 +363,10 @@ fn test_alter_column_type_change() {
 
     let sql = diff_to_sql(&from, &to);
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("SET DATA TYPE"),
-        "Expected SET DATA TYPE, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("integer"),
-        "Expected integer type, got: {}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"age\" SET DATA TYPE integer USING \"age\"::integer;"
     );
 }
 
@@ -415,16 +390,12 @@ fn test_alter_column_multiple_changes() {
 
     let sql = diff_to_sql(&from, &to);
 
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("SET NOT NULL"),
-        "Expected SET NOT NULL, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("SET DEFAULT"),
-        "Expected SET DEFAULT, got: {}",
-        combined
+    // Multiple changes are combined into one statement with newlines
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET NOT NULL;\n\
+         ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'pending';"
     );
 }
 
@@ -495,23 +466,13 @@ fn test_alter_column_add_generated_expression() {
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    // Should have DROP COLUMN and ADD COLUMN for the recreate
-    assert!(
-        combined.contains("DROP COLUMN \"full_name\""),
-        "Expected DROP COLUMN for recreating generated column, got:\n{}",
-        combined
-    );
-    assert!(
-        combined.contains("ADD COLUMN \"full_name\""),
-        "Expected ADD COLUMN for recreating generated column, got:\n{}",
-        combined
-    );
-    assert!(
-        combined.contains("GENERATED ALWAYS AS"),
-        "Expected GENERATED ALWAYS AS in the new column definition, got:\n{}",
-        combined
+    // DROP + ADD combined into one statement with newlines
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" DROP COLUMN \"full_name\";\n\
+         ALTER TABLE \"users\" ADD COLUMN \"full_name\" text GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;"
     );
 }
 
@@ -542,13 +503,11 @@ fn test_alter_column_drop_generated_expression() {
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    // Should use DROP EXPRESSION (not recreation)
-    assert!(
-        combined.contains("DROP EXPRESSION"),
-        "Expected DROP EXPRESSION for removing generated, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"full_name\" DROP EXPRESSION;"
     );
 }
 
@@ -573,12 +532,11 @@ fn test_alter_column_add_identity() {
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("ADD GENERATED ALWAYS AS IDENTITY"),
-        "Expected ADD GENERATED ALWAYS AS IDENTITY, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"id\" ADD GENERATED ALWAYS AS IDENTITY;"
     );
 }
 
@@ -599,12 +557,11 @@ fn test_alter_column_drop_identity() {
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("DROP IDENTITY"),
-        "Expected DROP IDENTITY, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"id\" DROP IDENTITY;"
     );
 }
 
@@ -635,12 +592,11 @@ fn test_add_foreign_key() {
     ));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("ADD CONSTRAINT") || combined.contains("FOREIGN KEY"),
-        "Expected ADD CONSTRAINT FOREIGN KEY, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"posts\" ADD CONSTRAINT \"posts_author_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\");"
     );
 }
 
@@ -676,12 +632,11 @@ fn test_drop_foreign_key() {
     // No FK in "to"
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("DROP CONSTRAINT"),
-        "Expected DROP CONSTRAINT, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"posts\" DROP CONSTRAINT \"posts_author_fk\";"
     );
 }
 
@@ -701,12 +656,11 @@ fn test_add_primary_key() {
     to.pks.push(primary_key("users", vec!["id"])); // Add PK
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("ADD CONSTRAINT") && combined.contains("PRIMARY KEY"),
-        "Expected ADD CONSTRAINT PRIMARY KEY, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ADD CONSTRAINT \"users_pkey\" PRIMARY KEY (\"id\");"
     );
 }
 
@@ -726,12 +680,11 @@ fn test_drop_primary_key() {
     // No PK
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("DROP CONSTRAINT"),
-        "Expected DROP CONSTRAINT, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" DROP CONSTRAINT \"users_pkey\";"
     );
 }
 
@@ -752,12 +705,11 @@ fn test_add_unique_constraint() {
     ));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("ADD CONSTRAINT") && combined.contains("UNIQUE"),
-        "Expected ADD CONSTRAINT UNIQUE, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ADD CONSTRAINT \"users_email_unique\" UNIQUE (\"email\");"
     );
 }
 
@@ -783,12 +735,11 @@ fn test_drop_unique_constraint() {
     // No unique constraint
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("DROP CONSTRAINT"),
-        "Expected DROP CONSTRAINT, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" DROP CONSTRAINT \"users_email_unique\";"
     );
 }
 
@@ -810,12 +761,11 @@ fn test_add_index() {
         .push(index("users", "users_email_idx", vec!["email"]));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("CREATE INDEX"),
-        "Expected CREATE INDEX, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "CREATE INDEX \"users_email_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);"
     );
 }
 
@@ -838,13 +788,9 @@ fn test_drop_index() {
     // No index
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("DROP INDEX"),
-        "Expected DROP INDEX, got:\n{}",
-        combined
-    );
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(sql[0], "DROP INDEX \"users_email_idx\";");
 }
 
 // =============================================================================
@@ -902,17 +848,17 @@ fn test_multiple_tables_different_changes() {
     to.pks.push(primary_key("posts", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    // users: SET NOT NULL
+    // Table order may vary, so check both statements are present
+    assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
+    let combined = sql.join("\n");
     assert!(
-        combined.contains("SET NOT NULL"),
+        combined.contains("ALTER TABLE \"users\" ALTER COLUMN \"email\" SET NOT NULL;"),
         "Expected SET NOT NULL for users.email, got:\n{}",
         combined
     );
-    // posts: ADD COLUMN
     assert!(
-        combined.contains("ADD COLUMN") && combined.contains("\"content\""),
+        combined.contains("ALTER TABLE \"posts\" ADD COLUMN \"content\" text;"),
         "Expected ADD COLUMN for posts.content, got:\n{}",
         combined
     );
@@ -955,16 +901,10 @@ fn test_custom_schema_alterations() {
     });
 
     let sql = diff_to_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    assert!(
-        combined.contains("\"myschema\".\"users\""),
-        "Expected schema-qualified table name, got:\n{}",
-        combined
-    );
-    assert!(
-        combined.contains("ADD COLUMN"),
-        "Expected ADD COLUMN, got:\n{}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"myschema\".\"users\" ADD COLUMN \"name\" text;"
     );
 }
