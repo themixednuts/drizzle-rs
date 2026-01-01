@@ -29,7 +29,7 @@ use crate::{SQLiteValue, values::OwnedSQLiteValue};
 /// ```rust,ignore
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::{ToSQL, expressions::conditions::eq};
+/// use drizzle_core::{ToSQL, expressions::eq};
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {

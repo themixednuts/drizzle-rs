@@ -134,9 +134,23 @@ impl ExecutableState for InsertOnConflictSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_sqlite::prelude::*;
-/// use drizzle_sqlite::builder::QueryBuilder;
-/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::sqlite::builder::QueryBuilder;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
@@ -177,7 +191,17 @@ impl ExecutableState for InsertOnConflictSet {}
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
 /// # use drizzle::sqlite::builder::{QueryBuilder, insert::Conflict};
@@ -213,7 +237,17 @@ where
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::builder::QueryBuilder;
@@ -272,7 +306,17 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::builder::{QueryBuilder, insert::Conflict};

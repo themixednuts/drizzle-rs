@@ -28,6 +28,8 @@ puffin = { workspace = true, optional = true }
 
 [dev-dependencies]
 drizzle-macros = { workspace = true, features = ["sqlite"] }
+drizzle-types = { workspace = true }
+drizzle-migrations = { workspace = true }
 
 
 [features]

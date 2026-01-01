@@ -4,7 +4,7 @@
 //!
 //! ```no_run
 //! use drizzle::turso::Drizzle;
-//! use drizzle::prelude::*;
+//! use drizzle::sqlite::prelude::*;
 //! use turso::Builder;
 //!
 //! #[SQLiteTable]

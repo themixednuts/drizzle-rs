@@ -51,10 +51,24 @@ impl ExecutableState for DeleteReturningSet {}
 /// ## Basic Usage
 ///
 /// ```rust
-/// use drizzle_sqlite::prelude::*;
-/// use drizzle_core::expressions::conditions::{eq, lt};
-/// use drizzle_sqlite::builder::QueryBuilder;
-/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expressions::{eq, lt};
+/// use drizzle::sqlite::builder::QueryBuilder;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
@@ -92,10 +106,20 @@ impl ExecutableState for DeleteReturningSet {}
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::conditions::eq;
+/// # use drizzle::core::expressions::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -116,7 +140,17 @@ impl ExecutableState for DeleteReturningSet {}
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
 /// # use drizzle::sqlite::builder::QueryBuilder;
@@ -146,10 +180,20 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::conditions::{eq, gt, and, or};
+    /// # use drizzle::core::expressions::{eq, gt, and, or};
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }

@@ -170,7 +170,17 @@ impl ExecutableState for SelectJoinSet {}
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
 /// # }
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle::sqlite::builder::QueryBuilder;
@@ -196,7 +206,7 @@ impl ExecutableState for SelectJoinSet {}
 /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
 ///
 /// // SELECT with WHERE clause
-/// use drizzle::core::expressions::conditions::gt;
+/// use drizzle::core::expressions::gt;
 /// let query = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
@@ -213,10 +223,20 @@ impl ExecutableState for SelectJoinSet {}
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::conditions::eq;
+/// # use drizzle::core::expressions::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
@@ -233,7 +253,17 @@ impl ExecutableState for SelectJoinSet {}
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub mod sqlite {
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
 /// # use drizzle::sqlite::builder::QueryBuilder;
@@ -267,7 +297,17 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::builder::QueryBuilder;
@@ -312,10 +352,20 @@ where
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::conditions::eq;
+    /// # use drizzle::core::expressions::eq;
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
@@ -356,10 +406,20 @@ where
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::conditions::{gt, and, eq};
+    /// # use drizzle::core::expressions::{gt, and, eq};
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -462,7 +522,17 @@ where
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod sqlite { pub use drizzle_sqlite::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::builder::QueryBuilder;

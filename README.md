@@ -5,6 +5,46 @@ SQL ORM inspired by Drizzle ORM.
 > [!WARNING]
 > Still in development, expect breaking changes!
 
+## Installation
+
+Install the CLI with your preferred database driver:
+
+```bash
+# SQLite
+cargo install drizzle-cli --features rusqlite
+
+# PostgreSQL
+cargo install drizzle-cli --features postgres-sync
+
+# Turso/LibSQL
+cargo install drizzle-cli --features turso
+```
+
+| Feature | Description |
+| --------------- | ------------------------------ |
+| `rusqlite` | SQLite via rusqlite (sync) |
+| `libsql` | SQLite via libsql (async) |
+| `turso` | Turso/LibSQL (async) |
+| `postgres-sync` | PostgreSQL via postgres (sync) |
+| `tokio-postgres` | PostgreSQL via tokio-postgres (async) |
+
+## Getting Started
+
+Initialize a new project:
+
+```bash
+drizzle init -d sqlite      # or: postgresql, turso
+```
+
+Edit the generated `drizzle.config.toml` with your database credentials and schema path.
+
+Generate and run migrations:
+
+```bash
+drizzle generate            # Generate migrations from schema changes
+drizzle migrate             # Run pending migrations
+```
+
 ## Quick Start
 
 ### SQLite Example
@@ -30,9 +70,6 @@ pub struct Schema {
 fn main() -> drizzle::Result<()> {
     let conn = rusqlite::Connection::open_in_memory()?;
     let (db, Schema { users }) = Drizzle::new(conn, Schema::new());
-
-    // Create tables, only use on new database.
-    db.create()?;
 
     // Insert data
     db.insert(users)
@@ -81,9 +118,6 @@ fn main() -> drizzle::Result<()> {
     )?;
     let (mut db, Schema { users }) = Drizzle::new(client, Schema::new());
 
-    // Create tables, only use on new database.
-    db.create()?;
-
     db.insert(users)
         .values([InsertUsers::new("Alice", 25).with_email("alice@example.com")])
         .execute()?;
@@ -111,7 +145,6 @@ SQLite table definition.
 #[SQLiteTable(without_rowid)]               // WITHOUT ROWID table
 ```
 
-                               
 ```rust
 #[SQLiteTable]
 pub struct Users {
@@ -151,8 +184,6 @@ pub struct Users {
     pub config: Option<UserConfig>,
 }
 ```
-
-#### Constraint Reference
 
 #### Constraint Reference
 
@@ -215,7 +246,6 @@ pub struct Schema {
 
 // Usage
 let (db, Schema { users, posts, .. }) = Drizzle::new(conn, Schema::new());
-db.create()?; // Creates all tables and indexes
 ```
 
 ---
@@ -269,8 +299,6 @@ pub struct Users {
     pub metadata: Option<serde_json::Value>,
 }
 ```
-
-#### Constraint Reference
 
 #### Constraint Reference
 
@@ -780,29 +808,6 @@ pub struct Users {
 
     #[column(jsonb)]  // Binary JSON (faster queries)
     pub config: Option<UserConfig>,
-}
-```
-
----
-
-## Migrations [WIP]
-
-Embed migrations at compile time for runtime execution:
-
-```rust
-use drizzle::sqlite::prelude::*;
-
-const MIGRATIONS: EmbeddedMigrations = include_migrations!("./drizzle");
-
-fn main() -> drizzle::Result<()> {
-    let conn = rusqlite::Connection::open("app.db")?;
-    let (db, schema) = Drizzle::new(conn, Schema::new());
-
-    // Apply embedded migrations
-    let applied = db.migrate(&MIGRATIONS)?;
-    println!("Applied {} migrations", applied);
-
-    Ok(())
 }
 ```
 

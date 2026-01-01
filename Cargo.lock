@@ -1541,6 +1541,8 @@ dependencies = [
  "compact_str",
  "drizzle-core",
  "drizzle-macros",
+ "drizzle-migrations",
+ "drizzle-types",
  "libsql",
  "paste",
  "puffin",
