@@ -1,5 +1,6 @@
 use core::any::Any;
 
+use crate::expr::Expr;
 use crate::{SQLParam, SQLSchema, SQLSchemaType, SQLTable, SQLTableInfo};
 
 pub trait SQLColumnInfo: Any + Send + Sync {
@@ -25,7 +26,7 @@ pub trait SQLColumnInfo: Any + Send + Sync {
 }
 
 pub trait SQLColumn<'a, Value: SQLParam + 'a>:
-    SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value>
+    SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value> + Expr<'a, Value>
 {
     type Table: SQLTable<'a, Self::TableType, Value>;
     type TableType: SQLSchemaType;
