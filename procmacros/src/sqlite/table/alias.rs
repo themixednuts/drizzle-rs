@@ -1,3 +1,4 @@
+use crate::common::generate_expr_impl;
 use crate::generators::{generate_impl, generate_sql_column_info, generate_sql_table_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::generators::*;
@@ -160,6 +161,15 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
         };
 
+        // Generate Expr impl inheriting types from original column
+        let expr = crate::paths::core::expr();
+        let expr_impl = generate_expr_impl(
+            aliased_field_type,
+            sqlite_value.clone(),
+            quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::SQLType},
+            quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::Nullable},
+        );
+
         Ok(quote! {
             #struct_def
             #impl_new
@@ -170,6 +180,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             #sql_schema_field_impl
             #to_sql_custom_impl
             #into_sqlite_value_impl
+            #expr_impl
         })
     }).collect::<syn::Result<_>>()?;
 

@@ -3,6 +3,10 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DataEnum, Expr, ExprLit, ExprUnary, Ident, Lit, UnOp, spanned::Spanned};
 
+// Note: syn::Expr is imported above but we also use it as a type parameter name
+// in the generated code (drizzle::core::expr::Expr). This is fine because
+// the quote! macro uses the path syntax.
+
 fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
     match expr {
         // Simple positive literal like `3`
@@ -149,7 +153,18 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         })
         .map(|(_, t)| t.into_boxed_slice())?;
 
+    let sqlite_value = sqlite_paths::sqlite_value();
+
     let base_impls = quote! {
+
+        // Implement Expr trait for type-safe comparisons
+        // Uses Any type since enums can be stored as TEXT or INTEGER
+        // Note: &T impl is handled by blanket impl in drizzle_core
+        impl<'a> drizzle::core::expr::Expr<'a, #sqlite_value<'a>> for #name {
+            type SQLType = drizzle::core::types::Any;
+            type Nullable = drizzle::core::expr::NonNull;
+            type Aggregate = drizzle::core::expr::Scalar;
+        }
 
         impl ::std::convert::From<#name> for i64 {
             fn from(value: #name) -> Self {

@@ -138,6 +138,16 @@ pub mod core {
     pub fn impl_try_from_int() -> TokenStream {
         quote!(drizzle::core::impl_try_from_int)
     }
+
+    /// Path to the types module (DataType markers)
+    pub fn types() -> TokenStream {
+        quote!(drizzle::core::types)
+    }
+
+    /// Path to the expr module (Expr trait and markers)
+    pub fn expr() -> TokenStream {
+        quote!(drizzle::core::expr)
+    }
 }
 
 // =============================================================================

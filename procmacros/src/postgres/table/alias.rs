@@ -1,3 +1,4 @@
+use crate::paths::{core as core_paths, postgres as postgres_paths};
 use crate::postgres::table::context::MacroContext;
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
@@ -124,7 +125,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 }
             }
 
-            // Column info is provided directly via PostgresColumnInfo::as_postgres_column
             // Implement SQLColumn trait for aliased field
             impl<'a> SQLColumn<'a, PostgresValue<'a>> for #aliased_field_type {
                 type Table = #aliased_table_name;
@@ -159,6 +159,13 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                     use SQLColumnInfo;
                     SQL::raw(format!(r#""{}"."{}""#, self.alias, self.name()))
                 }
+            }
+
+            // Expr impl inheriting types from original column
+            impl<'a> drizzle::core::expr::Expr<'a, PostgresValue<'a>> for #aliased_field_type {
+                type SQLType = <#original_field_type as drizzle::core::expr::Expr<'a, PostgresValue<'a>>>::SQLType;
+                type Nullable = <#original_field_type as drizzle::core::expr::Expr<'a, PostgresValue<'a>>>::Nullable;
+                type Aggregate = drizzle::core::expr::Scalar;
             }
         }
     }).collect();

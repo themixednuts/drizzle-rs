@@ -1,4 +1,6 @@
 use super::context::MacroContext;
+use crate::common::{generate_expr_impl, rust_type_to_nullability, rust_type_to_sql_type};
+use crate::paths::postgres as postgres_paths;
 use crate::postgres::field::{FieldInfo, PostgreSQLType};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
@@ -203,6 +205,10 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         let is_not_null = !field_info.is_nullable;
         let is_unique = field_info.is_unique;
 
+        // Compute SQL type and nullability markers for type-safe expressions
+        let sql_type_marker = rust_type_to_sql_type(rust_type);
+        let sql_nullable_marker = rust_type_to_nullability(rust_type);
+
         // Only Serial/Bigserial columns have is_serial/is_bigserial fields - others are always false
         let (is_serial_expr, is_bigserial_expr) = match &field_info.column_type {
             PostgreSQLType::Serial => (
@@ -221,6 +227,15 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
         // Generate marker const using original tokens for IDE documentation
         let marker_const = generate_marker_const(field_info, &zst_ident);
+
+        // Generate Expr trait implementation for type-safe expressions
+        let postgres_value = postgres_paths::postgres_value();
+        let expr_impl = generate_expr_impl(
+            &zst_ident,
+            postgres_value,
+            sql_type_marker.clone(),
+            sql_nullable_marker.clone(),
+        );
 
         let column_code = quote! {
             #[allow(non_camel_case_types)]
@@ -321,6 +336,9 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                     SQL::column(&INSTANCE)
                 }
             }
+
+            // Expr trait implementation for type-safe expressions
+            #expr_impl
 
             // Include enum implementation if this is an enum field
             #enum_impl

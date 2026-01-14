@@ -6,11 +6,13 @@
 mod context;
 pub(crate) mod generators;
 mod helpers;
+pub(crate) mod type_mapping;
 
 pub(crate) use context::ModelType;
 pub(crate) use helpers::{
     extract_struct_fields, generate_try_from_impl, make_uppercase_path, parse_column_reference,
 };
+pub(crate) use type_mapping::{generate_expr_impl, rust_type_to_nullability, rust_type_to_sql_type};
 
 // Re-export dialect traits (always available)
 #[allow(unused_imports)]

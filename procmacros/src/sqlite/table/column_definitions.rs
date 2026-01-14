@@ -1,4 +1,5 @@
 use super::context::MacroContext;
+use crate::common::{generate_expr_impl, rust_type_to_nullability, rust_type_to_sql_type};
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
@@ -181,6 +182,10 @@ pub(crate) fn generate_column_definitions<'a>(
         let is_unique = info.is_unique;
         let is_autoincrement = info.is_autoincrement;
 
+        // Compute SQL type and nullability markers for type-safe expressions
+        let sql_type_marker = rust_type_to_sql_type(rust_type);
+        let sql_nullable_marker = rust_type_to_nullability(rust_type);
+
         let sql_column_impl = generate_sql_column(
             &zst_ident,
             quote! {#struct_ident},
@@ -191,6 +196,14 @@ pub(crate) fn generate_column_definitions<'a>(
             quote! { #is_unique },
             quote! {#default_const},
             quote! {#default_fn_body},
+        );
+
+        // Generate Expr trait implementation for type-safe expressions
+        let expr_impl = generate_expr_impl(
+            &zst_ident,
+            sqlite_value.clone(),
+            sql_type_marker,
+            sql_nullable_marker,
         );
 
         let sqlite_column_impl = generate_sqlite_column(&zst_ident, quote! { #is_autoincrement });
@@ -214,6 +227,7 @@ pub(crate) fn generate_column_definitions<'a>(
             #sqlite_column_impl
             #to_sql_impl
             #into_sqlite_value_impl
+            #expr_impl
 
             // Include enum implementation if this is an enum field
             #enum_impl
