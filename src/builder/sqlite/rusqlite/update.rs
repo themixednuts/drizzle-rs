@@ -42,10 +42,10 @@ impl<'a, 'b, Schema, Table>
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::sql::SQL<'b, SQLiteValue<'b>>,
+        condition: impl drizzle_core::traits::ToSQL<'b, SQLiteValue<'b>>,
     ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
     {
-        let builder = self.builder.r#where(condition);
+        let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,

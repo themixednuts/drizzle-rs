@@ -53,7 +53,7 @@ impl<'a, 'conn, Schema, Table>
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, PostgresValue<'a>>,
+        condition: impl drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
     ) -> TransactionBuilder<
         'a,
         'conn,
@@ -61,7 +61,7 @@ impl<'a, 'conn, Schema, Table>
         UpdateBuilder<'a, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
     > {
-        let builder = self.builder.r#where(condition);
+        let builder = self.builder.r#where(condition.to_sql());
         TransactionBuilder {
             transaction: self.transaction,
             builder,

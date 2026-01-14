@@ -16,10 +16,10 @@ where
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::sql::SQL<'b, PostgresValue<'b>>,
+        condition: impl drizzle_core::traits::ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
     {
-        let builder = self.builder.r#where(condition);
+        let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,

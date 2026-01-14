@@ -38,10 +38,10 @@ where
     #[inline]
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
     {
-        let builder = self.builder.r#where(condition);
+        let builder = self.builder.r#where(condition.to_sql());
         TransactionBuilder {
             transaction: self.transaction,
             builder,
@@ -105,10 +105,10 @@ where
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
     {
-        let builder = self.builder.r#where(condition);
+        let builder = self.builder.r#where(condition.to_sql());
         TransactionBuilder {
             transaction: self.transaction,
             builder,

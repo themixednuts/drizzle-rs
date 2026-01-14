@@ -582,3 +582,12 @@ where
         self.builder.to_sql()
     }
 }
+
+impl<'a, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>> for DrizzleBuilder<'a, S, T, State>
+where
+    T: ToSQL<'a, SQLiteValue<'a>>,
+{
+    type SQLType = drizzle_core::types::Any;
+    type Nullable = drizzle_core::expr::NonNull;
+    type Aggregate = drizzle_core::expr::Scalar;
+}

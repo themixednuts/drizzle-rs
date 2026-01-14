@@ -156,7 +156,7 @@ pub mod core {
     // Expression modules - require explicit import
     // ==========================================================================
 
-    /// SQL expressions and conditions.
+    /// SQL expressions and conditions (type-safe).
     ///
     /// Includes aggregate functions (`count`, `sum`, `avg`, `min`, `max`), comparisons
     /// (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`), logical operators (`and`, `or`, `not`),
@@ -169,7 +169,7 @@ pub mod core {
     ///   .from(user)
     ///   .r#where(and([eq(user.name, "Alice"), gt(user.age, 21)]))
     /// ```
-    pub use drizzle_core::expressions;
+    pub use drizzle_core::expr as expressions;
 
     // ==========================================================================
     // Hidden re-exports for macro-generated code
@@ -180,6 +180,14 @@ pub mod core {
 
     #[doc(hidden)]
     pub use drizzle_core::schema::SQLEnumInfo;
+
+    // Type markers for compile-time type checking (used by generated code)
+    #[doc(hidden)]
+    pub use drizzle_core::types;
+
+    // Expr trait and markers (used by generated code)
+    #[doc(hidden)]
+    pub use drizzle_core::expr;
 }
 
 // =============================================================================

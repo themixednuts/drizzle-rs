@@ -12,9 +12,9 @@ where
 {
     pub fn r#where(
         self,
-        condition: drizzle_core::SQL<'a, SQLiteValue<'a>>,
+        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     ) -> TransactionBuilder<'a, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet> {
-        let builder = self.builder.r#where(condition);
+        let builder = self.builder.r#where(condition.to_sql());
         TransactionBuilder {
             transaction: self.transaction,
             builder,
