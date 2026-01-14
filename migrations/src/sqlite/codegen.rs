@@ -6,7 +6,7 @@
 
 use super::collection::SQLiteDDL;
 use super::ddl::{Column, ForeignKey, Index, Table};
-use drizzle_types::sqlite::SqlTypeCategory;
+use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
@@ -282,7 +282,7 @@ fn generate_column_field(
     // - INTEGER PRIMARY KEY is implicitly NOT NULL (special case)
     // - Other PRIMARY KEY types can technically be NULL due to SQLite legacy bug
     let is_integer_pk =
-        is_pk && SqlTypeCategory::from_sql_type(&column.sql_type) == SqlTypeCategory::Integer;
+        is_pk && SQLTypeCategory::from_sql_type(&column.sql_type) == SQLTypeCategory::Integer;
     let is_not_null = column.not_null || is_integer_pk;
 
     // Determine Rust type from SQL type
@@ -296,7 +296,7 @@ fn generate_column_field(
 
 /// Format a default value for Rust syntax
 fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
-    let category = SqlTypeCategory::from_sql_type(sql_type);
+    let category = SQLTypeCategory::from_sql_type(sql_type);
 
     // Skip function calls or complex expressions - these need default_fn
     if default.contains('(') && default.contains(')') {
@@ -306,7 +306,7 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
     }
 
     match category {
-        SqlTypeCategory::Integer => {
+        SQLTypeCategory::Integer => {
             // Boolean defaults
             if default == "0" || default == "1" {
                 return Some(default.to_string());
@@ -314,13 +314,13 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
             // Integer defaults
             default.parse::<i64>().ok().map(|v| v.to_string())
         }
-        SqlTypeCategory::Real => default.parse::<f64>().ok().map(|v| v.to_string()),
-        SqlTypeCategory::Text | SqlTypeCategory::Blob => {
+        SQLTypeCategory::Real => default.parse::<f64>().ok().map(|v| v.to_string()),
+        SQLTypeCategory::Text | SQLTypeCategory::Blob => {
             // Remove surrounding quotes if present
             let trimmed = default.trim_matches(|c| c == '\'' || c == '"');
             Some(format!("\"{}\"", trimmed))
         }
-        SqlTypeCategory::Numeric => {
+        SQLTypeCategory::Numeric => {
             // Try as integer first, then float
             if let Ok(v) = default.parse::<i64>() {
                 Some(v.to_string())
@@ -335,14 +335,14 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
 
 /// Convert SQL type to Rust type
 fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
-    let category = SqlTypeCategory::from_sql_type(sql_type);
+    let category = SQLTypeCategory::from_sql_type(sql_type);
 
     let base_type = match category {
-        SqlTypeCategory::Integer => "i64",
-        SqlTypeCategory::Real => "f64",
-        SqlTypeCategory::Text => "String",
-        SqlTypeCategory::Blob => "Vec<u8>",
-        SqlTypeCategory::Numeric => "i64",
+        SQLTypeCategory::Integer => "i64",
+        SQLTypeCategory::Real => "f64",
+        SQLTypeCategory::Text => "String",
+        SQLTypeCategory::Blob => "Vec<u8>",
+        SQLTypeCategory::Numeric => "i64",
     };
 
     if not_null {

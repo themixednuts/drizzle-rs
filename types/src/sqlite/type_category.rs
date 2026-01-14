@@ -184,7 +184,7 @@ impl TypeCategory {
 }
 
 // =============================================================================
-// SqlTypeCategory - SQL type affinity for parsing
+// SQLTypeCategory - SQL type affinity for parsing
 // =============================================================================
 
 /// SQL type category for parsing SQL type strings.
@@ -195,16 +195,16 @@ impl TypeCategory {
 /// # Examples
 ///
 /// ```
-/// use drizzle_types::sqlite::SqlTypeCategory;
+/// use drizzle_types::sqlite::SQLTypeCategory;
 ///
-/// assert_eq!(SqlTypeCategory::from_sql_type("INTEGER"), SqlTypeCategory::Integer);
-/// assert_eq!(SqlTypeCategory::from_sql_type("VARCHAR(255)"), SqlTypeCategory::Text);
-/// assert_eq!(SqlTypeCategory::from_sql_type("REAL"), SqlTypeCategory::Real);
+/// assert_eq!(SQLTypeCategory::from_sql_type("INTEGER"), SQLTypeCategory::Integer);
+/// assert_eq!(SQLTypeCategory::from_sql_type("VARCHAR(255)"), SQLTypeCategory::Text);
+/// assert_eq!(SQLTypeCategory::from_sql_type("REAL"), SQLTypeCategory::Real);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
-pub enum SqlTypeCategory {
+pub enum SQLTypeCategory {
     /// Integer affinity types: INT, INTEGER, TINYINT, SMALLINT, MEDIUMINT, BIGINT, etc.
     Integer,
     /// Real affinity types: REAL, DOUBLE, DOUBLE PRECISION, FLOAT
@@ -248,7 +248,7 @@ const TEXT_AFFINITIES: &[&str] = &[
     "clob",
 ];
 
-impl SqlTypeCategory {
+impl SQLTypeCategory {
     /// Determine the type category for a SQL type string
     #[must_use]
     pub fn from_sql_type(sql_type: &str) -> Self {
@@ -361,24 +361,24 @@ mod tests {
     #[test]
     fn test_sql_type_category() {
         assert_eq!(
-            SqlTypeCategory::from_sql_type("INTEGER"),
-            SqlTypeCategory::Integer
+            SQLTypeCategory::from_sql_type("INTEGER"),
+            SQLTypeCategory::Integer
         );
         assert_eq!(
-            SqlTypeCategory::from_sql_type("varchar(255)"),
-            SqlTypeCategory::Text
+            SQLTypeCategory::from_sql_type("varchar(255)"),
+            SQLTypeCategory::Text
         );
         assert_eq!(
-            SqlTypeCategory::from_sql_type("REAL"),
-            SqlTypeCategory::Real
+            SQLTypeCategory::from_sql_type("REAL"),
+            SQLTypeCategory::Real
         );
         assert_eq!(
-            SqlTypeCategory::from_sql_type("BLOB"),
-            SqlTypeCategory::Blob
+            SQLTypeCategory::from_sql_type("BLOB"),
+            SQLTypeCategory::Blob
         );
         assert_eq!(
-            SqlTypeCategory::from_sql_type("DECIMAL(10,2)"),
-            SqlTypeCategory::Numeric
+            SQLTypeCategory::from_sql_type("DECIMAL(10,2)"),
+            SQLTypeCategory::Numeric
         );
     }
 }

@@ -46,7 +46,7 @@ pub(crate) mod prelude {
 
 pub mod dialect;
 pub mod error;
-pub mod expressions;
+pub mod expr;
 pub mod helpers;
 pub mod join;
 pub mod param;
@@ -57,6 +57,7 @@ pub mod profiling;
 pub mod schema;
 pub mod sql;
 pub mod traits;
+pub mod types;
 
 // Re-export key types and traits
 pub use dialect::{Dialect, DialectExt};

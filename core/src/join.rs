@@ -144,13 +144,13 @@ macro_rules! impl_join_helpers {
     (
         table_trait: $TableTrait:path,
         condition_trait: $ConditionTrait:path,
-        sql_type: $SqlType:ty $(,)?
+        sql_type: $SQLType:ty $(,)?
     ) => {
         fn join_internal<'a, Table>(
             table: Table,
             join: $crate::Join,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -162,7 +162,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a NATURAL JOIN clause
-        pub fn natural_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn natural_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -170,7 +170,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a JOIN clause
-        pub fn join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -181,7 +181,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_left_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -189,7 +189,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a LEFT JOIN clause
-        pub fn left_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn left_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -197,7 +197,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a LEFT OUTER JOIN clause
-        pub fn left_outer_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn left_outer_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -208,7 +208,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_left_outer_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -223,7 +223,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_right_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -231,7 +231,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a RIGHT JOIN clause
-        pub fn right_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn right_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -242,7 +242,7 @@ macro_rules! impl_join_helpers {
         pub fn right_outer_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -253,7 +253,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_right_outer_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -268,7 +268,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_full_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -276,7 +276,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a FULL JOIN clause
-        pub fn full_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn full_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -284,7 +284,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a FULL OUTER JOIN clause
-        pub fn full_outer_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn full_outer_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -295,7 +295,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_full_outer_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -310,7 +310,7 @@ macro_rules! impl_join_helpers {
         pub fn natural_inner_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
-        ) -> $SqlType
+        ) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -318,7 +318,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create an INNER JOIN clause
-        pub fn inner_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn inner_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
@@ -326,7 +326,7 @@ macro_rules! impl_join_helpers {
         }
 
         /// Helper function to create a CROSS JOIN clause
-        pub fn cross_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SqlType
+        pub fn cross_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {

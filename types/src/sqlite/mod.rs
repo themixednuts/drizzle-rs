@@ -4,11 +4,11 @@
 //!
 //! - [`SQLiteType`] - SQLite column storage types
 //! - [`TypeCategory`] - Rust type classification for SQLite mapping
-//! - [`SqlTypeCategory`] - SQL type affinity categories for parsing
+//! - [`SQLTypeCategory`] - SQL type affinity categories for parsing
 
 pub mod ddl;
 mod sql_type;
 mod type_category;
 
 pub use sql_type::SQLiteType;
-pub use type_category::{SqlTypeCategory, TypeCategory};
+pub use type_category::{SQLTypeCategory, TypeCategory};
