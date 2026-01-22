@@ -1,10 +1,10 @@
 //! Set operations (IN, NOT IN, EXISTS, NOT EXISTS).
 
-use crate::sql::{Token, SQL};
+use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{Bool, Compatible};
 
-use super::{Expr, NonNull, Scalar, SQLExpr};
+use super::{Expr, NonNull, SQLExpr, Scalar};
 
 // =============================================================================
 // IN Array
@@ -58,12 +58,9 @@ where
     let mut values_iter = values.into_iter();
 
     let sql = match values_iter.next() {
-        None => left_sql
-            .push(Token::NOT)
-            .push(Token::IN)
-            .push(Token::LPAREN)
-            .push(Token::NULL)
-            .push(Token::RPAREN),
+        // Empty array: use TRUE condition since NOT IN (empty) is always true
+        // We use the same pattern as in_array for consistency
+        None => left_sql.append(SQL::raw("NOT IN (SELECT NULL WHERE 1=0)")),
         Some(first_value) => {
             let mut result = left_sql
                 .push(Token::NOT)
