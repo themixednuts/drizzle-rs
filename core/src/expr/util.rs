@@ -1,10 +1,10 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat).
 
-use crate::sql::{Token, SQL};
+use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::DataType;
+use crate::types::{DataType, Textual};
 
-use super::{NonNull, Null, Scalar, SQLExpr};
+use super::{Expr, NonNull, Null, SQLExpr, Scalar};
 
 // =============================================================================
 // ALIAS
@@ -67,8 +67,8 @@ where
 
 /// Cast an expression to a different type.
 ///
-/// Note: The target type is specified as a string (SQL type name).
-/// The output type marker must be provided explicitly.
+/// The target type marker specifies the result type for the type system,
+/// while the SQL type string specifies the actual SQL type name (dialect-specific).
 ///
 /// # Example
 ///
@@ -78,6 +78,9 @@ where
 ///
 /// // SELECT CAST(users.age AS TEXT)
 /// let age_text = cast::<_, _, _, Text>(users.age, "TEXT");
+///
+/// // PostgreSQL-specific
+/// let age_text = cast::<_, _, _, Text>(users.age, "VARCHAR(255)");
 /// ```
 pub fn cast<'a, V, E, Target>(expr: E, target_type: &'a str) -> SQLExpr<'a, V, Target, Null, Scalar>
 where
@@ -91,11 +94,55 @@ where
     ))
 }
 
+/// Cast an expression to a different type, preserving non-null status.
+///
+/// Use this when you know the input expression is non-null and the cast
+/// will always succeed (e.g., widening conversions).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::cast_non_null;
+/// use drizzle_core::types::BigInt;
+///
+/// // Cast a non-null integer to bigint
+/// let big_id = cast_non_null::<_, _, _, BigInt>(users.id, "BIGINT");
+/// ```
+pub fn cast_non_null<'a, V, E, Target>(
+    expr: E,
+    target_type: &'a str,
+) -> SQLExpr<'a, V, Target, NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V, Nullable = NonNull>,
+    Target: DataType,
+{
+    SQLExpr::new(SQL::func(
+        "CAST",
+        expr.to_sql().push(Token::AS).append(SQL::raw(target_type)),
+    ))
+}
+
 // =============================================================================
 // STRING CONCATENATION
 // =============================================================================
 
 /// Concatenate two string expressions using || operator.
+///
+/// Requires both operands to be `Textual` (Text or VarChar).
+///
+/// # Type Safety
+///
+/// ```ignore
+/// // ✅ OK: Both are Text
+/// string_concat(users.first_name, users.last_name);
+///
+/// // ✅ OK: Text with string literal
+/// string_concat(users.first_name, " ");
+///
+/// // ❌ Compile error: Int is not Textual
+/// string_concat(users.id, users.name);
+/// ```
 ///
 /// # Example
 ///
@@ -111,8 +158,10 @@ pub fn string_concat<'a, V, L, R>(
 ) -> SQLExpr<'a, V, crate::types::Text, NonNull, Scalar>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
-    R: ToSQL<'a, V>,
+    L: Expr<'a, V>,
+    R: Expr<'a, V>,
+    L::SQLType: Textual,
+    R::SQLType: Textual,
 {
     SQLExpr::new(left.to_sql().push(Token::CONCAT).append(right.to_sql()))
 }
