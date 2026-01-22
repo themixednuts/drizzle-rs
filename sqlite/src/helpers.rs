@@ -6,7 +6,8 @@ use drizzle_core::{
 
 // Re-export core helpers with SQLiteValue type for convenience
 pub(crate) use core_helpers::{
-    delete, from, group_by, having, insert, limit, offset, order_by, select, set, update, r#where,
+    delete, from, group_by, having, insert, limit, offset, order_by, select, select_distinct, set,
+    update, r#where,
 };
 
 // Re-export Join from core

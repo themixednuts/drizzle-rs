@@ -145,7 +145,7 @@ impl ExecutableState for CTEInit {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::gt;
+/// # use drizzle::core::expr::gt;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -201,7 +201,7 @@ impl ExecutableState for CTEInit {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::eq;
+/// # use drizzle::core::expr::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -231,7 +231,7 @@ impl ExecutableState for CTEInit {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::lt;
+/// # use drizzle::core::expr::lt;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -408,6 +408,53 @@ where
             table: PhantomData,
         }
     }
+
+    /// Begins a SELECT DISTINCT query with the specified columns.
+    ///
+    /// SELECT DISTINCT removes duplicate rows from the result set.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder.select_distinct(user.name).from(user);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT DISTINCT "users"."name" FROM "users""#);
+    /// ```
+    pub fn select_distinct<T>(
+        &self,
+        columns: T,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = crate::helpers::select_distinct(columns);
+        select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
@@ -416,6 +463,26 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let sql = self.sql.clone().append(crate::helpers::select(columns));
+        select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a SELECT DISTINCT query with the specified columns after a CTE.
+    pub fn select_distinct<T>(
+        &self,
+        columns: T,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        let sql = self
+            .sql
+            .clone()
+            .append(crate::helpers::select_distinct(columns));
         select::SelectBuilder {
             sql,
             schema: PhantomData,
@@ -521,7 +588,7 @@ where
     /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::eq;
+    /// # use drizzle::core::expr::eq;
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -574,7 +641,7 @@ where
     /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::lt;
+    /// # use drizzle::core::expr::lt;
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }

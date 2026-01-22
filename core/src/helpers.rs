@@ -10,6 +10,15 @@ where
     SQL::from(Token::SELECT).append(&columns)
 }
 
+/// Helper function to create a SELECT DISTINCT statement with the given columns
+pub fn select_distinct<'a, Value, T>(columns: T) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    T: ToSQL<'a, Value>,
+{
+    SQL::from_iter([Token::SELECT, Token::DISTINCT]).append(&columns)
+}
+
 /// Creates an INSERT INTO statement with the specified table
 pub fn insert<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
 where

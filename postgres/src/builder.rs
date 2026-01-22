@@ -118,6 +118,25 @@ where
             table: PhantomData,
         }
     }
+
+    /// Begins a SELECT DISTINCT query with the specified columns.
+    ///
+    /// SELECT DISTINCT removes duplicate rows from the result set.
+    pub fn select_distinct<T>(
+        &self,
+        columns: T,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        T: ToPostgresSQL<'a>,
+    {
+        let sql = crate::helpers::select_distinct(columns);
+        select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
@@ -126,6 +145,26 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         T: ToPostgresSQL<'a>,
     {
         let sql = self.sql.clone().append(crate::helpers::select(columns));
+        select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a SELECT DISTINCT query with the specified columns after a CTE.
+    pub fn select_distinct<T>(
+        &self,
+        columns: T,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        T: ToPostgresSQL<'a>,
+    {
+        let sql = self
+            .sql
+            .clone()
+            .append(crate::helpers::select_distinct(columns));
         select::SelectBuilder {
             sql,
             schema: PhantomData,

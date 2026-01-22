@@ -6,7 +6,8 @@ use drizzle_core::{
 
 // Re-export core helpers with PostgresValue type for convenience
 pub(crate) use helpers::{
-    delete, from, group_by, having, limit, offset, order_by, select, set, update, r#where,
+    delete, from, group_by, having, limit, offset, order_by, select, select_distinct, set, update,
+    r#where,
 };
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
