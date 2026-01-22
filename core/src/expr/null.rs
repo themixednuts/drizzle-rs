@@ -8,11 +8,11 @@
 //! - `coalesce`, `ifnull`: Require compatible types between expression and default
 //! - `nullif`: Requires compatible types between the two arguments
 
-use crate::sql::{Token, SQL};
+use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::{Any, Compatible};
+use crate::types::Compatible;
 
-use super::{Expr, NonNull, Null, Nullability, Scalar, SQLExpr};
+use super::{Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
 
 // =============================================================================
 // Nullability Combination
@@ -69,7 +69,7 @@ impl NullOr<Null> for Null {
 /// // ❌ Compile error: Int not compatible with Text
 /// coalesce(users.age, "unknown");
 /// ```
-pub fn coalesce<'a, V, E, D>(expr: E, default: D) -> SQLExpr<'a, V, Any, Null, Scalar>
+pub fn coalesce<'a, V, E, D>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, Null, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -85,23 +85,28 @@ where
 /// COALESCE with multiple values.
 ///
 /// Returns the first non-null value from the provided expressions.
-pub fn coalesce_many<'a, V, I>(values: I) -> SQLExpr<'a, V, Any, Null, Scalar>
+/// Takes an explicit first argument to guarantee at least one value at compile time.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::coalesce_many;
+///
+/// // COALESCE(users.nickname, users.username, 'Anonymous')
+/// let name = coalesce_many(users.nickname, [users.username, "Anonymous"]);
+/// ```
+pub fn coalesce_many<'a, V, E, I>(first: E, rest: I) -> SQLExpr<'a, V, E::SQLType, Null, Scalar>
 where
     V: SQLParam + 'a,
+    E: Expr<'a, V>,
     I: IntoIterator,
     I::Item: Expr<'a, V>,
 {
-    let mut iter = values.into_iter();
-    match iter.next() {
-        None => panic!("coalesce_many requires at least one value"),
-        Some(first) => {
-            let mut sql = first.to_sql();
-            for value in iter {
-                sql = sql.push(Token::COMMA).append(value.to_sql());
-            }
-            SQLExpr::new(SQL::func("COALESCE", sql))
-        }
+    let mut sql = first.to_sql();
+    for value in rest {
+        sql = sql.push(Token::COMMA).append(value.to_sql());
     }
+    SQLExpr::new(SQL::func("COALESCE", sql))
 }
 
 // =============================================================================
@@ -121,7 +126,7 @@ where
 /// // Returns NULL if status is 'unknown', otherwise returns status
 /// let status = nullif(item.status, "unknown");
 /// ```
-pub fn nullif<'a, V, E1, E2>(expr1: E1, expr2: E2) -> SQLExpr<'a, V, Any, Null, Scalar>
+pub fn nullif<'a, V, E1, E2>(expr1: E1, expr2: E2) -> SQLExpr<'a, V, E1::SQLType, Null, Scalar>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,
@@ -142,7 +147,7 @@ where
 ///
 /// Requires compatible types between the expression and default.
 /// Returns the first argument if not NULL, otherwise returns the second.
-pub fn ifnull<'a, V, E, D>(expr: E, default: D) -> SQLExpr<'a, V, Any, Null, Scalar>
+pub fn ifnull<'a, V, E, D>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, Null, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
