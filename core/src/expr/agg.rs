@@ -13,7 +13,7 @@ use crate::sql::SQL;
 use crate::traits::SQLParam;
 use crate::types::{Any, BigInt, Double, Numeric};
 
-use super::{Agg, Expr, NonNull, Null, Scalar, SQLExpr};
+use super::{Agg, Expr, NonNull, Null, SQLExpr, Scalar};
 
 // =============================================================================
 // COUNT
@@ -68,7 +68,10 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("COUNT", SQL::raw("DISTINCT").append(expr.to_sql())))
+    SQLExpr::new(SQL::func(
+        "COUNT",
+        SQL::raw("DISTINCT").append(expr.to_sql()),
+    ))
 }
 
 // =============================================================================
@@ -78,6 +81,7 @@ where
 /// SUM(expr) - sums numeric values.
 ///
 /// Requires the expression to be `Numeric` (Int, BigInt, Float, Double).
+/// Preserves the input expression's SQL type.
 /// Returns a nullable expression (empty set returns NULL).
 ///
 /// # Type Safety
@@ -85,11 +89,12 @@ where
 /// ```ignore
 /// // ✅ OK: Numeric column
 /// sum(orders.amount);
+/// // Returns the same SQL type as orders.amount
 ///
 /// // ❌ Compile error: Text is not Numeric
 /// sum(users.name);
 /// ```
-pub fn sum<'a, V, E>(expr: E) -> SQLExpr<'a, V, Any, Null, Agg>
+pub fn sum<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -101,7 +106,8 @@ where
 /// SUM(DISTINCT expr) - sums distinct numeric values.
 ///
 /// Requires the expression to be `Numeric`.
-pub fn sum_distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, Any, Null, Agg>
+/// Preserves the input expression's SQL type.
+pub fn sum_distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -156,6 +162,7 @@ where
 /// MIN(expr) - finds minimum value.
 ///
 /// Works with any expression type (ordered types in SQL).
+/// Preserves the input expression's SQL type.
 /// Result is nullable (empty set returns NULL).
 ///
 /// # Example
@@ -165,8 +172,9 @@ where
 ///
 /// let cheapest = min(products.price);
 /// // Generates: MIN("products"."price")
+/// // Returns the same SQL type as products.price
 /// ```
-pub fn min<'a, V, E>(expr: E) -> SQLExpr<'a, V, Any, Null, Agg>
+pub fn min<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -177,6 +185,7 @@ where
 /// MAX(expr) - finds maximum value.
 ///
 /// Works with any expression type (ordered types in SQL).
+/// Preserves the input expression's SQL type.
 /// Result is nullable (empty set returns NULL).
 ///
 /// # Example
@@ -186,13 +195,118 @@ where
 ///
 /// let most_expensive = max(products.price);
 /// // Generates: MAX("products"."price")
+/// // Returns the same SQL type as products.price
 /// ```
-pub fn max<'a, V, E>(expr: E) -> SQLExpr<'a, V, Any, Null, Agg>
+pub fn max<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("MAX", expr.to_sql()))
+}
+
+// =============================================================================
+// STATISTICAL FUNCTIONS
+// =============================================================================
+
+/// STDDEV_POP - population standard deviation.
+///
+/// Calculates the population standard deviation of numeric values.
+/// Requires the expression to be `Numeric`.
+/// Returns Double, nullable (empty set returns NULL).
+///
+/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::stddev_pop;
+///
+/// let deviation = stddev_pop(measurements.value);
+/// // Generates: STDDEV_POP("measurements"."value")
+/// ```
+pub fn stddev_pop<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, Null, Agg>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func("STDDEV_POP", expr.to_sql()))
+}
+
+/// STDDEV_SAMP / STDDEV - sample standard deviation.
+///
+/// Calculates the sample standard deviation of numeric values.
+/// Requires the expression to be `Numeric`.
+/// Returns Double, nullable (empty set returns NULL).
+///
+/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::stddev_samp;
+///
+/// let deviation = stddev_samp(measurements.value);
+/// // Generates: STDDEV_SAMP("measurements"."value")
+/// ```
+pub fn stddev_samp<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, Null, Agg>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func("STDDEV_SAMP", expr.to_sql()))
+}
+
+/// VAR_POP - population variance.
+///
+/// Calculates the population variance of numeric values.
+/// Requires the expression to be `Numeric`.
+/// Returns Double, nullable (empty set returns NULL).
+///
+/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::var_pop;
+///
+/// let variance = var_pop(measurements.value);
+/// // Generates: VAR_POP("measurements"."value")
+/// ```
+pub fn var_pop<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, Null, Agg>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func("VAR_POP", expr.to_sql()))
+}
+
+/// VAR_SAMP / VARIANCE - sample variance.
+///
+/// Calculates the sample variance of numeric values.
+/// Requires the expression to be `Numeric`.
+/// Returns Double, nullable (empty set returns NULL).
+///
+/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::var_samp;
+///
+/// let variance = var_samp(measurements.value);
+/// // Generates: VAR_SAMP("measurements"."value")
+/// ```
+pub fn var_samp<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, Null, Agg>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func("VAR_SAMP", expr.to_sql()))
 }
 
 // =============================================================================
