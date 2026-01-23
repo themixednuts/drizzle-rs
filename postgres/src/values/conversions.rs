@@ -205,6 +205,12 @@ impl<'a> From<&'a str> for PostgresValue<'a> {
     }
 }
 
+impl<'a> From<Cow<'a, str>> for PostgresValue<'a> {
+    fn from(value: Cow<'a, str>) -> Self {
+        PostgresValue::Text(value)
+    }
+}
+
 impl<'a> From<String> for PostgresValue<'a> {
     fn from(value: String) -> Self {
         PostgresValue::Text(Cow::Owned(value))
@@ -238,6 +244,12 @@ impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for PostgresValue<'a> {
 impl<'a> From<&'a [u8]> for PostgresValue<'a> {
     fn from(value: &'a [u8]) -> Self {
         PostgresValue::Bytea(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<Cow<'a, [u8]>> for PostgresValue<'a> {
+    fn from(value: Cow<'a, [u8]>) -> Self {
+        PostgresValue::Bytea(value)
     }
 }
 
@@ -658,6 +670,32 @@ impl<'a> TryFrom<PostgresValue<'a>> for Vec<u8> {
     }
 }
 
+impl<'a> TryFrom<&'a PostgresValue<'a>> for &'a str {
+    type Error = DrizzleError;
+
+    fn try_from(value: &'a PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Text(cow) => Ok(cow.as_ref()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to &str", value).into(),
+            )),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a PostgresValue<'a>> for &'a [u8] {
+    type Error = DrizzleError;
+
+    fn try_from(value: &'a PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Bytea(cow) => Ok(cow.as_ref()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to &[u8]", value).into(),
+            )),
+        }
+    }
+}
+
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
@@ -967,6 +1005,19 @@ impl<'a> TryFrom<PostgresValue<'a>> for Vec<PostgresValue<'a>> {
             PostgresValue::Array(arr) => Ok(arr),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to Vec<PostgresValue>", value).into(),
+            )),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a PostgresValue<'a>> for &'a [PostgresValue<'a>] {
+    type Error = DrizzleError;
+
+    fn try_from(value: &'a PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Array(arr) => Ok(arr),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to &[PostgresValue]", value).into(),
             )),
         }
     }

@@ -1,8 +1,8 @@
 use crate::common::PostgresSchemaType;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use crate::{ToPostgresSQL, helpers};
-use drizzle_core::SQL;
+use crate::helpers;
+use drizzle_core::{SQL, ToSQL};
 use drizzle_core::traits::SQLTable;
 use paste::paste;
 use std::fmt::Debug;
@@ -55,6 +55,10 @@ pub struct SelectLimitSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectOffsetSet;
 
+/// Marker for the state after set operations (UNION/INTERSECT/EXCEPT)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectSetOpSet;
+
 // Const constructors for all marker types
 impl SelectFromSet {
     #[inline]
@@ -98,6 +102,12 @@ impl SelectOffsetSet {
         Self
     }
 }
+impl SelectSetOpSet {
+    #[inline]
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
 #[doc(hidden)]
 macro_rules! join_impl {
@@ -134,7 +144,7 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<U:  PostgresTable<'a>>(
                 self,
                 table: U,
-                condition: impl ToPostgresSQL<'a>,
+                condition: impl ToSQL<'a, PostgresValue<'a>>,
             ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
                 SelectBuilder {
                     sql: self.sql.append(helpers::[<$type _join>](table, condition)),
@@ -153,7 +163,7 @@ macro_rules! join_using_impl {
         pub fn join_using<U: PostgresTable<'a>>(
             self,
             table: U,
-            columns: impl ToPostgresSQL<'a>,
+            columns: impl ToSQL<'a, PostgresValue<'a>>,
         ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
             SelectBuilder {
                 sql: self.sql.append(helpers::join_using(table, columns)),
@@ -169,7 +179,7 @@ macro_rules! join_using_impl {
             pub fn [<$type _join_using>]<U:  PostgresTable<'a>>(
                 self,
                 table: U,
-                columns: impl ToPostgresSQL<'a>,
+                columns: impl ToSQL<'a, PostgresValue<'a>>,
             ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
                 SelectBuilder {
                     sql: self.sql.append(helpers::[<$type _join_using>](table, columns)),
@@ -190,6 +200,7 @@ impl ExecutableState for SelectOffsetSet {}
 impl ExecutableState for SelectOrderSet {}
 impl ExecutableState for SelectGroupSet {}
 impl ExecutableState for SelectJoinSet {}
+impl ExecutableState for SelectSetOpSet {}
 
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
@@ -208,7 +219,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     #[inline]
     pub fn from<T>(self, query: T) -> SelectBuilder<'a, S, SelectFromSet, T>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::from(query)),
@@ -299,7 +310,7 @@ where
         expressions: TOrderBy,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TOrderBy: ToPostgresSQL<'a>,
+        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -335,7 +346,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         expressions: TOrderBy,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TOrderBy: ToPostgresSQL<'a>,
+        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -385,7 +396,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
         expressions: TOrderBy,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TOrderBy: ToPostgresSQL<'a>,
+        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -430,7 +441,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
         expressions: TOrderBy,
     ) -> SelectBuilder<'a, S, SelectOrderSet, T>
     where
-        TOrderBy: ToPostgresSQL<'a>,
+        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -473,6 +484,125 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
     }
 }
 
+//------------------------------------------------------------------------------
+// Set operation support (UNION / INTERSECT / EXCEPT)
+//------------------------------------------------------------------------------
+
+impl<'a, S, State, T> SelectBuilder<'a, S, State, T>
+where
+    State: ExecutableState,
+{
+    /// Combines this query with another using UNION.
+    pub fn union(self, other: impl ToSQL<'a, PostgresValue<'a>>) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+        SelectBuilder {
+            sql: helpers::union(self.sql, other),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Combines this query with another using UNION ALL.
+    pub fn union_all(
+        self,
+        other: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+        SelectBuilder {
+            sql: helpers::union_all(self.sql, other),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Combines this query with another using INTERSECT.
+    pub fn intersect(
+        self,
+        other: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+        SelectBuilder {
+            sql: helpers::intersect(self.sql, other),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Combines this query with another using INTERSECT ALL.
+    pub fn intersect_all(
+        self,
+        other: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+        SelectBuilder {
+            sql: helpers::intersect_all(self.sql, other),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Combines this query with another using EXCEPT.
+    pub fn except(self, other: impl ToSQL<'a, PostgresValue<'a>>) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+        SelectBuilder {
+            sql: helpers::except(self.sql, other),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Combines this query with another using EXCEPT ALL.
+    pub fn except_all(
+        self,
+        other: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+        SelectBuilder {
+            sql: helpers::except_all(self.sql, other),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
+impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    /// Sorts the results of a set operation.
+    pub fn order_by<TOrderBy>(
+        self,
+        expressions: TOrderBy,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    where
+        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(helpers::order_by(expressions)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Limits the results of a set operation.
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::limit(limit)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Offsets the results of a set operation.
+    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::offset(offset)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,3 +620,4 @@ mod tests {
         assert_eq!(builder.to_sql().sql(), "SELECT *");
     }
 }
+

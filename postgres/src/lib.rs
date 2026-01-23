@@ -14,7 +14,7 @@ pub mod traits;
 pub mod values;
 
 // Re-export key types at crate root
-pub use builder::{BuilderInit, BuilderState, CTEInit, ExecutableState, QueryBuilder};
+pub use builder::{BuilderInit, CTEInit, ExecutableState, QueryBuilder};
 pub use common::{Join, JoinType, Number, PostgresSchemaType};
 pub use traits::{
     DrizzleRow, FromPostgresValue, PostgresColumn, PostgresColumnInfo, PostgresEnum, PostgresTable,
@@ -33,14 +33,6 @@ pub use drizzle_core::ParamBind;
 
 // Type alias for convenience
 pub type PostgresSQL<'a> = drizzle_core::SQL<'a, PostgresValue<'a>>;
-
-/// Convenience trait for converting to PostgreSQL-specific SQL
-pub trait ToPostgresSQL<'a>: drizzle_core::ToSQL<'a, PostgresValue<'a>> {
-    fn to_pg_sql(&self) -> PostgresSQL<'a> {
-        self.to_sql()
-    }
-}
-impl<'a, T: drizzle_core::ToSQL<'a, PostgresValue<'a>>> ToPostgresSQL<'a> for T {}
 
 /// PostgreSQL transaction isolation levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -95,9 +87,9 @@ macro_rules! params {
 #[macro_export]
 macro_rules! params_internal {
     ({ $key:ident: $value:expr }) => {
-        $crate::ParamBind::new(stringify!($key), $crate::PostgresValue::from($value))
+        $crate::ParamBind::named(stringify!($key), $crate::PostgresValue::from($value))
     };
     ($value:expr) => {
-        $crate::ParamBind::new("", $crate::PostgresValue::from($value))
+        $crate::ParamBind::positional($crate::PostgresValue::from($value))
     };
 }

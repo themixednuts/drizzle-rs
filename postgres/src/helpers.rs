@@ -1,4 +1,4 @@
-use crate::{PostgresSQL, ToPostgresSQL, traits::PostgresTable, values::PostgresValue};
+use crate::{PostgresSQL, traits::PostgresTable, values::PostgresValue};
 use drizzle_core::{
     Join, SQL, ToSQL, Token, helpers,
     traits::{SQLColumnInfo, SQLModel},
@@ -6,27 +6,37 @@ use drizzle_core::{
 
 // Re-export core helpers with PostgresValue type for convenience
 pub(crate) use helpers::{
-    delete, from, group_by, having, limit, offset, order_by, select, select_distinct, set, update,
-    r#where,
+    delete, except, except_all, from, group_by, having, intersect, intersect_all, limit, offset,
+    order_by, select, select_distinct, set, union, union_all, update, r#where,
 };
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> PostgresSQL<'a> {
-    // For INSERT statements, we need just column names, not fully qualified names
-    let joined_names = columns
-        .iter()
-        .map(|col| col.name())
-        .collect::<Vec<_>>()
-        .join(", ");
-    SQL::raw(joined_names)
+    // For INSERT statements, use quoted column names only (no table qualifiers)
+    SQL::join(columns.iter().map(|col| SQL::ident(col.name())), Token::COMMA)
 }
 
 // Generate all join helper functions using the shared macro
 drizzle_core::impl_join_helpers!(
     table_trait: PostgresTable<'a>,
-    condition_trait: ToPostgresSQL<'a>,
+    condition_trait: ToSQL<'a, PostgresValue<'a>>,
     sql_type: PostgresSQL<'a>,
 );
+
+/// Helper function to create a SELECT DISTINCT ON statement (PostgreSQL-specific)
+pub(crate) fn select_distinct_on<'a, On, Columns>(
+    on: On,
+    columns: Columns,
+) -> SQL<'a, PostgresValue<'a>>
+where
+    On: ToSQL<'a, PostgresValue<'a>>,
+    Columns: ToSQL<'a, PostgresValue<'a>>,
+{
+    SQL::from_iter([Token::SELECT, Token::DISTINCT, Token::ON, Token::LPAREN])
+        .append(on.to_sql())
+        .push(Token::RPAREN)
+        .append(columns.to_sql())
+}
 
 //------------------------------------------------------------------------------
 // USING clause internal helper (PostgreSQL-specific)
@@ -35,7 +45,7 @@ drizzle_core::impl_join_helpers!(
 fn join_using_internal<'a, Table>(
     table: Table,
     join: Join,
-    columns: impl ToPostgresSQL<'a>,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
 ) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
@@ -52,21 +62,21 @@ where
 // USING clause versions of JOIN functions (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
-pub fn join_using<'a, Table>(table: Table, columns: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
+pub fn join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
     join_using_internal(table, Join::new(), columns)
 }
 
-pub fn inner_join_using<'a, Table>(table: Table, columns: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
+pub fn inner_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
     join_using_internal(table, Join::new().inner(), columns)
 }
 
-pub fn left_join_using<'a, Table>(table: Table, columns: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
+pub fn left_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
@@ -75,7 +85,7 @@ where
 
 pub fn left_outer_join_using<'a, Table>(
     table: Table,
-    columns: impl ToPostgresSQL<'a>,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
 ) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
@@ -83,7 +93,7 @@ where
     join_using_internal(table, Join::new().left().outer(), columns)
 }
 
-pub fn right_join_using<'a, Table>(table: Table, columns: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
+pub fn right_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
@@ -92,7 +102,7 @@ where
 
 pub fn right_outer_join_using<'a, Table>(
     table: Table,
-    columns: impl ToPostgresSQL<'a>,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
 ) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
@@ -100,7 +110,7 @@ where
     join_using_internal(table, Join::new().right().outer(), columns)
 }
 
-pub fn full_join_using<'a, Table>(table: Table, columns: impl ToPostgresSQL<'a>) -> PostgresSQL<'a>
+pub fn full_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
@@ -109,7 +119,7 @@ where
 
 pub fn full_outer_join_using<'a, Table>(
     table: Table,
-    columns: impl ToPostgresSQL<'a>,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
 ) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
@@ -163,7 +173,7 @@ where
 /// Helper function to create a RETURNING clause - PostgreSQL specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> PostgresSQL<'a>
 where
-    I: ToPostgresSQL<'a>,
+    I: ToSQL<'a, PostgresValue<'a>>,
 {
     SQL::from(Token::RETURNING).append(columns.to_sql())
 }
@@ -172,7 +182,7 @@ where
 #[allow(dead_code)]
 pub(crate) fn on_conflict<'a>(
     conflict_target: Option<PostgresSQL<'a>>,
-    action: impl ToPostgresSQL<'a>,
+    action: impl ToSQL<'a, PostgresValue<'a>>,
 ) -> PostgresSQL<'a> {
     let mut sql = SQL::from_iter([Token::ON, Token::CONFLICT]);
 
@@ -182,3 +192,4 @@ pub(crate) fn on_conflict<'a>(
 
     sql.append(action.to_sql())
 }
+

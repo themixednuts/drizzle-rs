@@ -1,7 +1,6 @@
-use crate::ToPostgresSQL;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use drizzle_core::SQL;
+use drizzle_core::{SQL, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -101,7 +100,7 @@ impl<'a> Conflict<'a> {
     /// Create a DO NOTHING conflict resolution with specific columns
     pub fn do_nothing_on_columns<T>(columns: T) -> Self
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         Conflict::DoNothing {
             target: Some(ConflictTarget::Columns(columns.to_sql())),
@@ -133,7 +132,7 @@ impl<'a> ConflictTarget<'a> {
     /// Create a column target
     pub fn columns<T>(columns: T) -> Self
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         ConflictTarget::Columns(columns.to_sql())
     }
@@ -141,7 +140,7 @@ impl<'a> ConflictTarget<'a> {
     /// Create a column target with WHERE clause for partial unique indexes
     pub fn columns_where<T>(columns: T, where_clause: SQL<'a, PostgresValue<'a>>) -> Self
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         ConflictTarget::ColumnsWhere {
             columns: columns.to_sql(),
@@ -268,7 +267,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         columns: C,
     ) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
     where
-        C: ToPostgresSQL<'a>,
+        C: ToSQL<'a, PostgresValue<'a>>,
     {
         self.on_conflict(Conflict::do_nothing_on_columns(columns))
     }
@@ -277,7 +276,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     #[inline]
     pub fn returning(
         self,
-        columns: impl ToPostgresSQL<'a>,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
@@ -298,7 +297,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     #[inline]
     pub fn returning(
         self,
-        columns: impl ToPostgresSQL<'a>,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
@@ -347,3 +346,4 @@ mod tests {
         }
     }
 }
+

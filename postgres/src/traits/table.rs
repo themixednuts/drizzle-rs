@@ -11,7 +11,8 @@ pub trait PostgresTableInfo: SQLTableInfo {
     fn r#type(&self) -> &PostgresSchemaType;
     fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo];
 
-    fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]>;
+    /// Returns all tables this table depends on via foreign keys.
+    fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo];
 }
 
 // Blanket implementation for static references
@@ -24,7 +25,7 @@ impl<T: PostgresTableInfo> PostgresTableInfo for &'static T {
         (*self).postgres_columns()
     }
 
-    fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
+    fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo] {
         (*self).postgres_dependencies()
     }
 }

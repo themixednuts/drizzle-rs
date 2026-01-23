@@ -1,4 +1,5 @@
-use crate::ToPostgresSQL;
+use crate::values::PostgresValue;
+use drizzle_core::ToSQL;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -42,7 +43,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: impl ToPostgresSQL<'a>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteWhereSet, T> {
         let where_sql = crate::helpers::r#where(condition.to_sql());
         DeleteBuilder {
@@ -57,7 +58,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     #[inline]
     pub fn returning(
         self,
-        columns: impl ToPostgresSQL<'a>,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
@@ -78,7 +79,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
     #[inline]
     pub fn returning(
         self,
-        columns: impl ToPostgresSQL<'a>,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
@@ -107,3 +108,4 @@ mod tests {
         assert_eq!(builder.to_sql().sql(), "DELETE FROM test");
     }
 }
+

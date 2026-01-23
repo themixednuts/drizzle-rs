@@ -1,7 +1,6 @@
-use crate::ToPostgresSQL;
 use crate::common::PostgresSchemaType;
 use crate::values::PostgresValue;
-use drizzle_core::{SQL, SQLTable};
+use drizzle_core::{SQL, SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -20,6 +19,10 @@ pub struct UpdateInitial;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateSetClauseSet;
 
+/// Marker for the state after FROM clause
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UpdateFromSet;
+
 /// Marker for the state after WHERE clause
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateWhereSet;
@@ -30,6 +33,7 @@ pub struct UpdateReturningSet;
 
 // Mark states that can execute update queries
 impl ExecutableState for UpdateSetClauseSet {}
+impl ExecutableState for UpdateFromSet {}
 impl ExecutableState for UpdateWhereSet {}
 impl ExecutableState for UpdateReturningSet {}
 
@@ -69,6 +73,21 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
+    /// Adds a FROM clause and transitions to the FromSet state
+    #[inline]
+    pub fn from(
+        self,
+        source: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> UpdateBuilder<'a, S, UpdateFromSet, T> {
+        let from_sql = crate::helpers::from(source);
+        UpdateBuilder {
+            sql: self.sql.append(from_sql),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
     /// Adds a WHERE condition and transitions to the WhereSet state
     #[inline]
     pub fn r#where(
@@ -88,7 +107,43 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     #[inline]
     pub fn returning(
         self,
-        columns: impl ToPostgresSQL<'a>,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
+        let returning_sql = crate::helpers::returning(columns);
+        UpdateBuilder {
+            sql: self.sql.append(returning_sql),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Post-FROM Implementation
+//------------------------------------------------------------------------------
+
+impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
+    /// Adds a WHERE condition after FROM
+    #[inline]
+    pub fn r#where(
+        self,
+        condition: SQL<'a, PostgresValue<'a>>,
+    ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
+        let where_sql = crate::helpers::r#where(condition);
+        UpdateBuilder {
+            sql: self.sql.append(where_sql),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds a RETURNING clause after FROM
+    #[inline]
+    pub fn returning(
+        self,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
@@ -109,7 +164,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     #[inline]
     pub fn returning(
         self,
-        columns: impl ToPostgresSQL<'a>,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
@@ -138,3 +193,4 @@ mod tests {
         assert_eq!(builder.to_sql().sql(), "UPDATE test");
     }
 }
+

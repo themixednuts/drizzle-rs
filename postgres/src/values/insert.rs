@@ -1,9 +1,8 @@
 //! Insert value types for PostgreSQL
 
 use super::{OwnedPostgresValue, PostgresValue};
-use crate::ToPostgresSQL;
 use drizzle_core::{
-    param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam,
+    param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam, ToSQL,
 };
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -124,7 +123,7 @@ impl<'a, T> From<Placeholder> for PostgresInsertValue<'a, PostgresValue<'a>, T> 
 // Option conversion
 impl<'a, T> From<Option<T>> for PostgresInsertValue<'a, PostgresValue<'a>, T>
 where
-    T: ToPostgresSQL<'a>,
+    T: ToSQL<'a, PostgresValue<'a>>,
 {
     fn from(value: Option<T>) -> Self {
         match value {
@@ -155,3 +154,4 @@ impl<'a> From<&'a Uuid> for PostgresInsertValue<'a, PostgresValue<'a>, String> {
         PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, String>::new(sql))
     }
 }
+

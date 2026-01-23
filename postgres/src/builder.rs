@@ -4,11 +4,12 @@ pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
     traits::{SQLSchema, SQLTable},
 };
+pub use drizzle_core::builder::{
+    BuilderInit, ExecutableState, OrderByClause,
+};
 
 // Local imports
-use crate::{
-    ToPostgresSQL, common::PostgresSchemaType, traits::PostgresTable, values::PostgresValue,
-};
+use crate::{common::PostgresSchemaType, traits::PostgresTable, values::PostgresValue};
 use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
@@ -31,38 +32,12 @@ pub use select::{
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
     SelectOrderSet, SelectWhereSet,
 };
-pub use update::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet};
-
-//------------------------------------------------------------------------------
-// Common SQL Components
-//------------------------------------------------------------------------------
-
-/// Represents an ORDER BY clause in a query
-#[derive(Debug, Clone)]
-pub struct OrderByClause<'a> {
-    /// The expression to order by
-    pub expr: SQL<'a, PostgresValue<'a>>,
-    /// The direction to sort (ASC or DESC)
-    pub direction: OrderBy,
-}
-
-impl<'a> OrderByClause<'a> {
-    /// Creates a new ORDER BY clause
-    pub const fn new(expr: SQL<'a, PostgresValue<'a>>, direction: OrderBy) -> Self {
-        Self { expr, direction }
-    }
-}
-
-pub trait BuilderState {}
-
-#[derive(Debug, Clone)]
-pub struct BuilderInit;
+pub use update::{
+    UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
+};
 
 #[derive(Debug, Clone)]
 pub struct CTEInit;
-
-impl BuilderState for BuilderInit {}
-impl ExecutableState for BuilderInit {}
 
 impl ExecutableState for CTEInit {}
 
@@ -102,13 +77,10 @@ impl<'a> QueryBuilder<'a> {
     }
 }
 
-impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
-where
-    State: BuilderState,
-{
+impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = crate::helpers::select(columns);
         select::SelectBuilder {
@@ -127,9 +99,28 @@ where
         columns: T,
     ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = crate::helpers::select_distinct(columns);
+        select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a SELECT DISTINCT ON query with the specified columns.
+    pub fn select_distinct_on<On, Columns>(
+        &self,
+        on: On,
+        columns: Columns,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        On: ToSQL<'a, PostgresValue<'a>>,
+        Columns: ToSQL<'a, PostgresValue<'a>>,
+    {
+        let sql = crate::helpers::select_distinct_on(on, columns);
         select::SelectBuilder {
             sql,
             schema: PhantomData,
@@ -142,7 +133,7 @@ where
 impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = self.sql.clone().append(crate::helpers::select(columns));
         select::SelectBuilder {
@@ -159,13 +150,95 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         columns: T,
     ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = self
             .sql
             .clone()
             .append(crate::helpers::select_distinct(columns));
         select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a SELECT DISTINCT ON query with the specified columns after a CTE.
+    pub fn select_distinct_on<On, Columns>(
+        &self,
+        on: On,
+        columns: Columns,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    where
+        On: ToSQL<'a, PostgresValue<'a>>,
+        Columns: ToSQL<'a, PostgresValue<'a>>,
+    {
+        let sql = self
+            .sql
+            .clone()
+            .append(crate::helpers::select_distinct_on(on, columns));
+        select::SelectBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins an INSERT query after a CTE.
+    pub fn insert<Table>(
+        &self,
+        table: Table,
+    ) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, Table>
+    where
+        Table: PostgresTable<'a>,
+    {
+        let sql = self.sql.clone().append(crate::helpers::insert(table));
+
+        insert::InsertBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins an UPDATE query after a CTE.
+    pub fn update<Table>(
+        &self,
+        table: Table,
+    ) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, Table>
+    where
+        Table: PostgresTable<'a>,
+    {
+        let sql = self
+            .sql
+            .clone()
+            .append(crate::helpers::update::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(table));
+
+        update::UpdateBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a DELETE query after a CTE.
+    pub fn delete<Table>(
+        &self,
+        table: Table,
+    ) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, Table>
+    where
+        Table: PostgresTable<'a>,
+    {
+        let sql = self
+            .sql
+            .clone()
+            .append(crate::helpers::delete::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(table));
+
+        delete::DeleteBuilder {
             sql,
             schema: PhantomData,
             state: PhantomData,
@@ -191,10 +264,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     }
 }
 
-impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
-where
-    State: BuilderState,
-{
+impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     pub fn insert<Table>(
         &self,
         table: Table,
@@ -261,8 +331,6 @@ where
 }
 
 // Marker trait to indicate a query builder state is executable
-pub trait ExecutableState {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,10 +344,8 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_state_trait() {
-        // Test that different states implement BuilderState
-        fn assert_builder_state<T: BuilderState>() {}
-
-        assert_builder_state::<BuilderInit>();
+    fn test_builder_init_type() {
+        let _state = BuilderInit;
     }
 }
+
