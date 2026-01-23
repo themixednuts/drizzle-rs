@@ -520,7 +520,8 @@ where
     }
 }
 
-impl<'a, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>> for DrizzleBuilder<'a, S, T, State>
+impl<'a, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
+    for DrizzleBuilder<'a, S, T, State>
 where
     T: ToSQL<'a, PostgresValue<'a>>,
 {
