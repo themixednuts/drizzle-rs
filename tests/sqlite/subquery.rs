@@ -1,7 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
-use drizzle::core::expressions::*;
-use drizzle::core::expressions::{avg, min};
+use drizzle::core::expr::*;
+use drizzle::core::expr::{avg, min};
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 

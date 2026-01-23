@@ -1,7 +1,7 @@
-//! Test that using AVG on a Text column fails to compile.
+//! Test that using date() on an Int column fails to compile.
 
 use drizzle::sqlite::prelude::*;
-use drizzle::core::expr::avg;
+use drizzle::core::expr::date;
 
 #[SQLiteTable]
 struct User {
@@ -13,6 +13,6 @@ struct User {
 fn main() {
     let user = User::default();
 
-    // ERROR: Text is not Numeric
-    let _ = avg(user.name);
+    // ERROR: Int is not Temporal
+    let _ = date(user.id);
 }

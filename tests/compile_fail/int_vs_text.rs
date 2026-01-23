@@ -1,7 +1,7 @@
 //! Test that comparing Int column with Text literal fails to compile.
 
 use drizzle::sqlite::prelude::*;
-use drizzle::core::expressions::eq;
+use drizzle::core::expr::eq;
 
 #[SQLiteTable]
 struct User {

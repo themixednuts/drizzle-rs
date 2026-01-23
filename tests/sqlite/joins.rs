@@ -4,7 +4,7 @@ use crate::common::schema::sqlite::{
 };
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, InsertComplex};
-use drizzle::core::expressions::*;
+use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 

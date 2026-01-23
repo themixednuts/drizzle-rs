@@ -3,8 +3,8 @@
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{ComplexSchema, InsertComplex};
 use crate::common::schema::sqlite::{InsertSimple, Role, SelectSimple, SimpleSchema};
-use drizzle::core::expressions::*;
-use drizzle::core::expressions::*;
+use drizzle::core::expr::*;
+use drizzle::core::expr::*;
 use drizzle::sql;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
@@ -596,4 +596,601 @@ sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3); // Should have 3 users with id > 2 (Charlie, David, Eve)
     assert_eq!(result[0].category, "high_id_users");
+});
+
+// =============================================================================
+// New Expression DX Tests
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct ModuloResult {
+    result: i32,
+}
+
+sqlite_test!(test_modulo_operator, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Item A").with_id(10),
+        InsertSimple::new("Item B").with_id(15),
+        InsertSimple::new("Item C").with_id(23),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test modulo operator - find items where id % 5 == 0
+    // Numeric columns now have arithmetic operators directly!
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.id % 5, 0))
+            .all()
+    );
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].id, 10);
+    assert_eq!(result[1].id, 15);
+
+    // Test modulo with different values
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.id % 10, 3))
+            .all()
+    );
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].id, 23);
+});
+
+sqlite_test!(test_between_method, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Item A").with_id(5),
+        InsertSimple::new("Item B").with_id(10),
+        InsertSimple::new("Item C").with_id(15),
+        InsertSimple::new("Item D").with_id(20),
+        InsertSimple::new("Item E").with_id(25),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test between method - find items with id between 10 and 20 (inclusive)
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(simple.id.between(10, 20))
+            .all()
+    );
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0].id, 10);
+    assert_eq!(result[1].id, 15);
+    assert_eq!(result[2].id, 20);
+
+    // Test not_between method
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(simple.id.not_between(10, 20))
+            .all()
+    );
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].id, 5);
+    assert_eq!(result[1].id, 25);
+});
+
+sqlite_test!(test_in_array_method, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Alice").with_id(1),
+        InsertSimple::new("Bob").with_id(2),
+        InsertSimple::new("Charlie").with_id(3),
+        InsertSimple::new("David").with_id(4),
+        InsertSimple::new("Eve").with_id(5),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test in_array method with integers
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(simple.id.in_array([1, 3, 5]))
+            .all()
+    );
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0].name, "Alice");
+    assert_eq!(result[1].name, "Charlie");
+    assert_eq!(result[2].name, "Eve");
+
+    // Test not_in_array method
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(simple.id.not_in_array([1, 3, 5]))
+            .all()
+    );
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].name, "Bob");
+    assert_eq!(result[1].name, "David");
+
+    // Test in_array with strings
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(simple.name.in_array(["Alice", "Eve"]))
+            .all()
+    );
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].name, "Alice");
+    assert_eq!(result[1].name, "Eve");
+});
+
+sqlite_test!(test_column_arithmetic, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Item A").with_id(10),
+        InsertSimple::new("Item B").with_id(20),
+        InsertSimple::new("Item C").with_id(30),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    #[derive(Debug, SQLiteFromRow)]
+    struct ComputedResult {
+        computed: i32,
+    }
+
+    // Test direct column arithmetic: simple.id * 2
+    let result: Vec<ComputedResult> = drizzle_exec!(
+        db.select(alias(simple.id * 2, "computed"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0].computed, 20); // 10 * 2
+    assert_eq!(result[1].computed, 40); // 20 * 2
+    assert_eq!(result[2].computed, 60); // 30 * 2
+
+    // Test column arithmetic in comparison
+    let result: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(lt(simple.id, 25))
+            .all()
+    );
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].id, 10);
+    assert_eq!(result[1].id, 20);
+});
+
+// =============================================================================
+// String Function Tests
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct StringResult {
+    result: String,
+}
+
+#[derive(Debug, SQLiteFromRow)]
+struct LengthResult {
+    length: i64,
+}
+
+#[derive(Debug, SQLiteFromRow)]
+struct InstrResult {
+    position: i64,
+}
+
+sqlite_test!(test_string_upper_lower, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Hello World").with_id(1),
+        InsertSimple::new("Test String").with_id(2),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test UPPER function
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(upper(simple.name), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            .all()
+    );
+    assert_eq!(result[0].result, "HELLO WORLD");
+
+    // Test LOWER function
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(lower(simple.name), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            .all()
+    );
+    assert_eq!(result[0].result, "hello world");
+});
+
+sqlite_test!(test_string_trim, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("  trimmed  ").with_id(1),
+        InsertSimple::new("  left").with_id(2),
+        InsertSimple::new("right  ").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test TRIM function
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(trim(simple.name), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            .all()
+    );
+    assert_eq!(result[0].result, "trimmed");
+
+    // Test LTRIM function
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(ltrim(simple.name), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 2))
+            .all()
+    );
+    assert_eq!(result[0].result, "left");
+
+    // Test RTRIM function
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(rtrim(simple.name), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 3))
+            .all()
+    );
+    assert_eq!(result[0].result, "right");
+});
+
+sqlite_test!(test_string_length, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("hello").with_id(1),
+        InsertSimple::new("").with_id(2),
+        InsertSimple::new("test string").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test LENGTH function
+    let result: Vec<LengthResult> = drizzle_exec!(
+        db.select(alias(length(simple.name), "length"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            .all()
+    );
+    assert_eq!(result[0].length, 5);
+
+    // Test LENGTH with empty string
+    let result: Vec<LengthResult> = drizzle_exec!(
+        db.select(alias(length(simple.name), "length"))
+            .from(simple)
+            .r#where(eq(simple.id, 2))
+            .all()
+    );
+    assert_eq!(result[0].length, 0);
+});
+
+sqlite_test!(test_string_substr, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test SUBSTR function - extract "Hello"
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(substr(simple.name, 1, 5), "result"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].result, "Hello");
+
+    // Test SUBSTR function - extract "World"
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(substr(simple.name, 7, 5), "result"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].result, "World");
+});
+
+sqlite_test!(test_string_replace, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test REPLACE function
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(replace(simple.name, "World", "Rust"), "result"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].result, "Hello Rust");
+
+    // Test REPLACE with non-existent pattern (should return original)
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(replace(simple.name, "xyz", "abc"), "result"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].result, "Hello World");
+});
+
+sqlite_test!(test_string_instr, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test INSTR function - find position of "World"
+    let result: Vec<InstrResult> = drizzle_exec!(
+        db.select(alias(instr(simple.name, "World"), "position"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].position, 7);
+
+    // Test INSTR with non-existent pattern (should return 0)
+    let result: Vec<InstrResult> = drizzle_exec!(
+        db.select(alias(instr(simple.name, "xyz"), "position"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].position, 0);
+});
+
+sqlite_test!(test_string_concat, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Hello").with_id(1),
+        InsertSimple::new("World").with_id(2),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test concat function with literal
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(concat(simple.name, "!"), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            .all()
+    );
+    assert_eq!(result[0].result, "Hello!");
+
+    // Test chained concat
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(concat(concat(simple.name, " "), "there"), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            .all()
+    );
+    assert_eq!(result[0].result, "Hello there");
+});
+
+sqlite_test!(test_string_functions_combined, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("  Hello World  ").with_id(1)];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test combined: UPPER(TRIM(name))
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(upper(trim(simple.name)), "result"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].result, "HELLO WORLD");
+
+    // Test combined: LOWER(TRIM(name))
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(lower(trim(simple.name)), "result"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].result, "hello world");
+
+    // Test combined: LENGTH(TRIM(name))
+    let result: Vec<LengthResult> = drizzle_exec!(
+        db.select(alias(length(trim(simple.name)), "length"))
+            .from(simple)
+            .all()
+    );
+    assert_eq!(result[0].length, 11); // "Hello World" without leading/trailing spaces
+});
+
+// =============================================================================
+// Math Function Tests
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct MathIntResult {
+    result: i32,
+}
+
+#[derive(Debug, SQLiteFromRow)]
+struct MathFloatResult {
+    result: f64,
+}
+
+sqlite_test!(test_math_abs, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Negative").with_id(-10),
+        InsertSimple::new("Zero").with_id(0),
+        InsertSimple::new("Positive").with_id(10),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test ABS function
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(abs(simple.id), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Negative"))
+            .all()
+    );
+    assert_eq!(result[0].result, 10);
+
+    // Test ABS with zero
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(abs(simple.id), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Zero"))
+            .all()
+    );
+    assert_eq!(result[0].result, 0);
+});
+
+sqlite_test!(test_math_round, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    // Use a table with float values - we'll compute from integer for simplicity
+    let test_data = vec![InsertSimple::new("Test").with_id(37)];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test ROUND function with computed expression (id / 10.0)
+    // 37 / 10.0 = 3.7, ROUND(3.7) = 4.0
+    let result: Vec<MathFloatResult> = drizzle_exec!(
+        db.select(alias(round(simple.id / 10), "result"))
+            .from(simple)
+            .all()
+    );
+    // Integer division: 37 / 10 = 3, ROUND(3) = 3.0
+    assert_eq!(result[0].result, 3.0);
+});
+
+sqlite_test!(test_math_sign, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Negative").with_id(-5),
+        InsertSimple::new("Zero").with_id(0),
+        InsertSimple::new("Positive").with_id(5),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test SIGN function with negative
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(sign(simple.id), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Negative"))
+            .all()
+    );
+    assert_eq!(result[0].result, -1);
+
+    // Test SIGN with zero
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(sign(simple.id), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Zero"))
+            .all()
+    );
+    assert_eq!(result[0].result, 0);
+
+    // Test SIGN with positive
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(sign(simple.id), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Positive"))
+            .all()
+    );
+    assert_eq!(result[0].result, 1);
+});
+
+sqlite_test!(test_math_mod, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("Ten").with_id(10),
+        InsertSimple::new("Seven").with_id(7),
+        InsertSimple::new("Fifteen").with_id(15),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test MOD function (10 % 3 = 1)
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(mod_(simple.id, 3), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Ten"))
+            .all()
+    );
+    assert_eq!(result[0].result, 1);
+
+    // Test MOD function (15 % 4 = 3)
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(mod_(simple.id, 4), "result"))
+            .from(simple)
+            .r#where(eq(simple.name, "Fifteen"))
+            .all()
+    );
+    assert_eq!(result[0].result, 3);
+});
+
+// =============================================================================
+// DateTime Function Tests
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct DateResult {
+    result: String,
+}
+
+#[derive(Debug, SQLiteFromRow)]
+struct CurrentDateResult {
+    today: String,
+}
+
+sqlite_test!(test_datetime_current, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("Test").with_id(1)];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test CURRENT_DATE - returns format YYYY-MM-DD
+    let result: Vec<CurrentDateResult> = drizzle_exec!(
+        db.select(alias(current_date(), "today"))
+            .from(simple)
+            .all()
+    );
+    // Just verify it's in the expected format (YYYY-MM-DD)
+    assert!(result[0].today.len() == 10);
+    assert!(result[0].today.contains('-'));
+});
+
+sqlite_test!(test_datetime_strftime, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("Test").with_id(1)];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    // Test STRFTIME to format current date
+    let result: Vec<DateResult> = drizzle_exec!(
+        db.select(alias(strftime("%Y", current_date()), "result"))
+            .from(simple)
+            .all()
+    );
+    // Should return 4-digit year
+    assert!(result[0].result.len() == 4);
+    assert!(result[0].result.starts_with("20")); // Years 2000-2099
 });

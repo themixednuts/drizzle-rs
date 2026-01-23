@@ -1,0 +1,20 @@
+error[E0277]: the trait bound `Int: Textual` is not satisfied
+  --> tests/compile_fail/concat_on_int.rs:17:20
+   |
+17 |     let _ = concat(user.id, user.name);
+   |             ------ ^^^^^^^ the trait `Textual` is not implemented for `Int`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `Textual`:
+             VarChar
+             drizzle::core::types::Any
+             drizzle::core::types::Text
+note: required by a bound in `drizzle::core::expr::concat`
+  --> core/src/expr/string.rs
+   |
+   | pub fn concat<'a, V, E1, E2>(
+   |        ------ required by a bound in this function
+...
+   |     E1::SQLType: Textual,
+   |                  ^^^^^^^ required by this bound in `concat`

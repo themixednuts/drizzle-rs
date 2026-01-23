@@ -1,7 +1,7 @@
 //! Test that COALESCE with incompatible types fails to compile.
 
 use drizzle::sqlite::prelude::*;
-use drizzle::core::expressions::coalesce;
+use drizzle::core::expr::coalesce;
 
 #[SQLiteTable]
 struct User {

@@ -1,7 +1,7 @@
 //! Test that using SUM on a Text column fails to compile.
 
 use drizzle::sqlite::prelude::*;
-use drizzle::core::expressions::sum;
+use drizzle::core::expr::sum;
 
 #[SQLiteTable]
 struct User {

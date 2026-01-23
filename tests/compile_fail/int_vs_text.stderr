@@ -12,7 +12,7 @@ error[E0277]: the trait bound `Int: Compatible<drizzle::core::types::Text>` is n
              `Int` implements `Compatible<drizzle::core::types::Any>`
              `Int` implements `Compatible<drizzle::core::types::BigInt>`
              `Int` implements `Compatible<drizzle::core::types::SmallInt>`
-note: required by a bound in `drizzle::core::expressions::eq`
+note: required by a bound in `drizzle::core::expr::eq`
   --> core/src/expr/cmp.rs
    |
    | pub fn eq<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>

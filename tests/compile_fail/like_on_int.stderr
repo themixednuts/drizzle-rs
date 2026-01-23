@@ -10,7 +10,7 @@ error[E0277]: the trait bound `Int: Textual` is not satisfied
              VarChar
              drizzle::core::types::Any
              drizzle::core::types::Text
-note: required by a bound in `like`
+note: required by a bound in `drizzle::core::expr::like`
   --> core/src/expr/cmp.rs
    |
    | pub fn like<'a, V, L, R>(left: L, pattern: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>

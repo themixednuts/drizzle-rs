@@ -5,7 +5,7 @@ use crate::common::schema::sqlite::{
     InsertSimple, Role, Simple, SimpleSchema, UserConfig, UserMetadata,
 };
 
-use drizzle::core::expressions::*;
+use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_core::OrderBy;
 use drizzle_macros::sqlite_test;

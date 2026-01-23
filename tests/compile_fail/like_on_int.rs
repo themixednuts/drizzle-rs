@@ -1,7 +1,7 @@
 //! Test that using LIKE on an Int column fails to compile.
 
 use drizzle::sqlite::prelude::*;
-use drizzle::core::expressions::like;
+use drizzle::core::expr::like;
 
 #[SQLiteTable]
 struct User {

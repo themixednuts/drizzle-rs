@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `Int: Temporal` is not satisfied
+  --> tests/compile_fail/date_on_int.rs:17:18
+   |
+17 |     let _ = date(user.id);
+   |             ---- ^^^^^^^ the trait `Temporal` is not implemented for `Int`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `Temporal`:
+             drizzle::core::types::Date
+             drizzle::core::types::Time
+             drizzle::core::types::Timestamp
+             drizzle::core::types::TimestampTz
+note: required by a bound in `date`
+  --> core/src/expr/datetime.rs
+   |
+   | pub fn date<'a, V, E>(expr: E) -> SQLExpr<'a, V, Date, E::Nullable, Scalar>
+   |        ---- required by a bound in this function
+...
+   |     E::SQLType: Temporal,
+   |                 ^^^^^^^^ required by this bound in `date`

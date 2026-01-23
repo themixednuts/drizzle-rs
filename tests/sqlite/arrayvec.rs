@@ -4,8 +4,8 @@
 ))]
 
 use arrayvec::{ArrayString, ArrayVec};
-use drizzle::core::expressions::*;
-use drizzle::core::expressions::*;
+use drizzle::core::expr::*;
+use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 

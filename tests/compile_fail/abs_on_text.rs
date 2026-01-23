@@ -1,7 +1,7 @@
-//! Test that using AVG on a Text column fails to compile.
+//! Test that using abs on a Text column fails to compile.
 
 use drizzle::sqlite::prelude::*;
-use drizzle::core::expr::avg;
+use drizzle::core::expr::abs;
 
 #[SQLiteTable]
 struct User {
@@ -14,5 +14,5 @@ fn main() {
     let user = User::default();
 
     // ERROR: Text is not Numeric
-    let _ = avg(user.name);
+    let _ = abs(user.name);
 }

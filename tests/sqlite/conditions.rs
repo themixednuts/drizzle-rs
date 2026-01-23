@@ -3,8 +3,8 @@
 use crate::common::schema::sqlite::{
     ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
 };
-use drizzle::core::expressions::*;
-use drizzle::core::expressions::*;
+use drizzle::core::expr::*;
+use drizzle::core::expr::*;
 use drizzle::sqlite::conditions::json_extract;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
