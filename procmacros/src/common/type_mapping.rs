@@ -8,6 +8,11 @@ use quote::quote;
 use syn::Type;
 
 use crate::paths::core as core_paths;
+use crate::common::{
+    is_option_type, option_inner_type, type_is_array_u8, type_is_bool, type_is_byte_slice,
+    type_is_chrono_date, type_is_chrono_time, type_is_datetime_tz, type_is_float, type_is_int,
+    type_is_json_value, type_is_naive_datetime, type_is_string_like, type_is_uuid, type_is_vec_u8,
+};
 
 /// Determines the SQL DataType marker for a given Rust type.
 ///
@@ -15,58 +20,57 @@ use crate::paths::core as core_paths;
 /// Unknown types fall back to `Any` for backward compatibility.
 pub fn rust_type_to_sql_type(ty: &Type) -> TokenStream {
     let types = core_paths::types();
-    let ty_str = quote!(#ty).to_string().replace(' ', "");
+    let ty = option_inner_type(ty).unwrap_or(ty);
 
-    match ty_str.as_str() {
-        // Small integers
-        "i8" | "i16" | "u8" => quote!(#types::SmallInt),
-
-        // Regular integers
-        "i32" | "u16" => quote!(#types::Int),
-
-        // Big integers
-        "i64" | "isize" | "u32" | "u64" | "usize" => quote!(#types::BigInt),
-
-        // Floating point
-        "f32" => quote!(#types::Float),
-        "f64" => quote!(#types::Double),
-
-        // Boolean
-        "bool" => quote!(#types::Bool),
-
-        // Text types
-        "String" | "&str" | "&'staticstr" | "&'astr" => quote!(#types::Text),
-
-        // Handle Option<T> - extract inner type
-        s if s.starts_with("Option<") => {
-            if let Type::Path(type_path) = ty
-                && let Some(segment) = type_path.path.segments.last()
-                && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
-                && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
-            {
-                return rust_type_to_sql_type(inner);
-            }
-            quote!(#types::Any)
-        }
-
-        // Binary data
-        s if s.starts_with("Vec<u8>") || s.contains("&[u8]") => quote!(#types::Bytes),
-
-        // UUID
-        s if s.contains("Uuid") => quote!(#types::Uuid),
-
-        // Date/Time types
-        s if s.contains("NaiveDateTime") => quote!(#types::Timestamp),
-        s if s.contains("DateTime") => quote!(#types::TimestampTz),
-        s if s.contains("NaiveDate") => quote!(#types::Date),
-        s if s.contains("NaiveTime") => quote!(#types::Time),
-
-        // JSON types
-        s if s.contains("serde_json") || s.contains("Value") => quote!(#types::Json),
-
-        // Fallback for unknown types
-        _ => quote!(#types::Any),
+    if type_is_int(ty, "i8") || type_is_int(ty, "i16") || type_is_int(ty, "u8") {
+        return quote!(#types::SmallInt);
     }
+    if type_is_int(ty, "i32") || type_is_int(ty, "u16") {
+        return quote!(#types::Int);
+    }
+    if type_is_int(ty, "i64")
+        || type_is_int(ty, "isize")
+        || type_is_int(ty, "u32")
+        || type_is_int(ty, "u64")
+        || type_is_int(ty, "usize")
+    {
+        return quote!(#types::BigInt);
+    }
+    if type_is_float(ty, "f32") {
+        return quote!(#types::Float);
+    }
+    if type_is_float(ty, "f64") {
+        return quote!(#types::Double);
+    }
+    if type_is_bool(ty) {
+        return quote!(#types::Bool);
+    }
+    if type_is_string_like(ty) {
+        return quote!(#types::Text);
+    }
+    if type_is_vec_u8(ty) || type_is_byte_slice(ty) || type_is_array_u8(ty) {
+        return quote!(#types::Bytes);
+    }
+    if type_is_uuid(ty) {
+        return quote!(#types::Uuid);
+    }
+    if type_is_naive_datetime(ty) {
+        return quote!(#types::Timestamp);
+    }
+    if type_is_datetime_tz(ty) {
+        return quote!(#types::TimestampTz);
+    }
+    if type_is_chrono_date(ty) {
+        return quote!(#types::Date);
+    }
+    if type_is_chrono_time(ty) {
+        return quote!(#types::Time);
+    }
+    if type_is_json_value(ty) {
+        return quote!(#types::Json);
+    }
+
+    quote!(#types::Any)
 }
 
 /// Determines the nullability marker for a given Rust type.
@@ -74,9 +78,7 @@ pub fn rust_type_to_sql_type(ty: &Type) -> TokenStream {
 /// Returns `Null` for `Option<T>` types, `NonNull` otherwise.
 pub fn rust_type_to_nullability(ty: &Type) -> TokenStream {
     let expr = core_paths::expr();
-    let ty_str = quote!(#ty).to_string().replace(' ', "");
-
-    if ty_str.starts_with("Option<") {
+    if is_option_type(ty) {
         quote!(#expr::Null)
     } else {
         quote!(#expr::NonNull)
@@ -175,17 +177,20 @@ pub fn generate_arithmetic_ops(
 
 /// Checks if a SQL type marker is numeric and can have arithmetic operators.
 pub fn is_numeric_sql_type(ty: &Type) -> bool {
-    let ty_str = quote!(#ty).to_string().replace(' ', "");
-
+    let ty = option_inner_type(ty).unwrap_or(ty);
     matches!(
-        ty_str.as_str(),
-        // Small integers
-        "i8" | "i16" | "u8" |
-        // Regular integers
-        "i32" | "u16" |
-        // Big integers
-        "i64" | "isize" | "u32" | "u64" | "usize" |
-        // Floating point
-        "f32" | "f64"
+        ty,
+        _ if type_is_int(ty, "i8")
+            || type_is_int(ty, "i16")
+            || type_is_int(ty, "u8")
+            || type_is_int(ty, "i32")
+            || type_is_int(ty, "u16")
+            || type_is_int(ty, "i64")
+            || type_is_int(ty, "isize")
+            || type_is_int(ty, "u32")
+            || type_is_int(ty, "u64")
+            || type_is_int(ty, "usize")
+            || type_is_float(ty, "f32")
+            || type_is_float(ty, "f64")
     )
 }

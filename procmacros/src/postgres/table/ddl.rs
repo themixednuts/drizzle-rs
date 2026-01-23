@@ -16,14 +16,13 @@ use syn::Ident;
 /// This is the core implementation that doesn't require a full MacroContext.
 /// Use this before context is fully constructed.
 pub(crate) fn generate_create_table_sql_from_params(
+    schema_name: &str,
     table_name: &str,
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
 ) -> String {
-    let schema_name = "public"; // TODO: Add schema attribute support
-
-    // Build Table
-    let table = Table::new(schema_name, table_name.to_string());
+    // Build Table (owned schema name because DDL runtime types use Cow<'static, str>)
+    let table = Table::new(schema_name.to_string(), table_name.to_string());
 
     // Build Columns
     let columns: Vec<Column> = field_infos
@@ -79,7 +78,13 @@ pub(crate) fn generate_create_table_sql_from_params(
 /// is known at macro expansion time. Uses the same DDL types as runtime
 /// generation for consistency.
 pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
-    generate_create_table_sql_from_params(&ctx.table_name, ctx.field_infos, ctx.is_composite_pk)
+    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
+    generate_create_table_sql_from_params(
+        schema_name,
+        &ctx.table_name,
+        ctx.field_infos,
+        ctx.is_composite_pk,
+    )
 }
 
 /// Build a Column from FieldInfo
@@ -146,7 +151,7 @@ pub(crate) fn generate_const_ddl(
 ) -> Result<TokenStream, syn::Error> {
     let struct_ident = ctx.struct_ident;
     let table_name = &ctx.table_name;
-    let schema_name = "public"; // TODO: Add schema attribute support
+    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
 
     // Get DDL type paths
     let table_def = ddl_paths::table_def();

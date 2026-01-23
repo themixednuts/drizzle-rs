@@ -3,6 +3,7 @@ use crate::generators::generate_sql_table_info;
 use crate::postgres::generators::*;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use std::collections::HashSet;
 use syn::{Ident, Result};
 
 /// Generate trait implementations for the PostgreSQL table
@@ -66,6 +67,37 @@ pub(super) fn generate_table_impls(
         quote! { #aliased_table_ident },
     );
 
+    let mut dependencies = Vec::new();
+    let mut seen_dependencies = HashSet::new();
+    for field in ctx.field_infos {
+        if let Some(fk) = &field.foreign_key {
+            let name = fk.table.to_string();
+            if seen_dependencies.insert(name) {
+                dependencies.push(fk.table.clone());
+            }
+        }
+    }
+    let dependencies_len = dependencies.len();
+    let dependency_statics: Vec<_> = dependencies
+        .iter()
+        .enumerate()
+        .map(|(idx, ident)| format_ident!("__DRIZZLE_DEP_{}_{}", idx, ident))
+        .collect();
+    let sql_dependencies = quote! {
+        #(#[allow(non_upper_case_globals)] static #dependency_statics: #dependencies = #dependencies::new(); )*
+        #[allow(non_upper_case_globals)]
+        static DEPENDENCIES: [&'static dyn SQLTableInfo; #dependencies_len] =
+            [#(&#dependency_statics,)*];
+        &DEPENDENCIES
+    };
+    let postgres_dependencies = quote! {
+        #(#[allow(non_upper_case_globals)] static #dependency_statics: #dependencies = #dependencies::new(); )*
+        #[allow(non_upper_case_globals)]
+        static DEPENDENCIES: [&'static dyn PostgresTableInfo; #dependencies_len] =
+            [#(&#dependency_statics,)*];
+        &DEPENDENCIES
+    };
+
     let sql_table_info_impl = generate_sql_table_info(
         struct_ident,
         quote! {
@@ -78,6 +110,7 @@ pub(super) fn generate_table_impls(
                 [#(&#column_zst_idents,)*];
             &COLUMNS
         },
+        sql_dependencies,
     );
 
     let postgres_table_info_impl = generate_postgres_table_info(
@@ -92,6 +125,7 @@ pub(super) fn generate_table_impls(
                 [#(&#column_zst_idents,)*];
             &POSTGRES_COLUMNS
         },
+        postgres_dependencies,
     );
 
     let postgres_table_impl = generate_postgres_table(struct_ident);

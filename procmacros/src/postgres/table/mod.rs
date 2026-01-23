@@ -9,7 +9,7 @@ mod json;
 mod models;
 mod traits;
 
-use super::field::FieldInfo;
+use super::field::{FieldInfo, generate_table_meta_json};
 use alias::generate_aliased_table;
 pub use attributes::TableAttributes;
 use column_definitions::{
@@ -17,13 +17,15 @@ use column_definitions::{
 };
 use context::MacroContext;
 use ddl::{generate_const_ddl, generate_create_table_sql, generate_create_table_sql_from_params};
-use heck::ToSnakeCase;
+use crate::common::{
+    count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
+};
 use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Ident;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Result};
+use syn::{DeriveInput, Result};
 use traits::generate_table_impls;
 
 // ============================================================================
@@ -36,24 +38,13 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // -------------------
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
-    let table_name = attrs
-        .name
-        .clone()
-        .unwrap_or_else(|| struct_ident.to_string().to_snake_case());
+    let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
-    let fields = if let Data::Struct(data) = &input.data {
-        &data.fields
-    } else {
-        return Err(syn::Error::new(
-            input.span(),
-            "The #[PostgresTable] attribute can only be applied to struct definitions.\n",
-        ));
-    };
+    let fields = struct_fields(&input, "PostgresTable")?;
 
-    let primary_key_count = fields
-        .iter()
-        .filter(|f| FieldInfo::from_field(f, false).is_ok_and(|f| f.is_primary))
-        .count();
+    let primary_key_count = count_primary_keys(fields, |field| {
+        Ok(FieldInfo::from_field(field, false)?.is_primary)
+    })?;
     let is_composite_pk = primary_key_count > 1;
 
     let field_infos = fields
@@ -61,14 +52,19 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
         .collect::<Result<Vec<_>>>()?;
 
+    // Generate table metadata JSON for drizzle-kit compatible migrations
+    let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
+
     // Calculate has_foreign_keys before creating context
     let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some());
 
     // Generate CREATE TABLE SQL (only for tables without foreign keys)
+    let schema_name = attrs.schema.as_deref().unwrap_or("public");
+
     let create_table_sql = if has_foreign_keys {
         String::new()
     } else {
-        generate_create_table_sql_from_params(&table_name, &field_infos, is_composite_pk)
+        generate_create_table_sql_from_params(schema_name, &table_name, &field_infos, is_composite_pk)
     };
 
     let ctx = MacroContext {
@@ -87,10 +83,8 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     };
 
     // Calculate required fields pattern for const generic
-    let required_fields_pattern: Vec<bool> = field_infos
-        .iter()
-        .map(|info| !ctx.is_field_optional_in_insert(info))
-        .collect();
+    let required_fields_pattern =
+        required_fields_pattern(&field_infos, |info| ctx.is_field_optional_in_insert(info));
 
     // -------------------
     // 2. Generation Phase
@@ -142,6 +136,12 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
             /// This respects the `name = "..."` attribute if specified,
             /// otherwise uses the snake_case version of the struct name.
             pub const TABLE_NAME: &'static str = #table_name;
+
+            /// Table metadata in drizzle-kit compatible JSON format.
+            ///
+            /// This constant contains the schema metadata for migrations,
+            /// matching the format used by drizzle-kit snapshots.
+            pub const __DRIZZLE_TABLE_META: &'static str = #table_meta_json;
         }
 
         #column_accessors

@@ -103,9 +103,7 @@ pub(crate) fn generate_insert_model(
         }
 
         impl<'a, T> SQLModel<'a, PostgresValue<'a>> for #insert_model<'a, T> {
-            type Columns = Box<[&'static dyn SQLColumnInfo]>;
-
-            fn columns(&self) -> Self::Columns {
+            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn SQLColumnInfo]> {
                 static TABLE: #struct_ident = #struct_ident::new();
                 let all_columns = SQLTableInfo::columns(&TABLE);
                 let mut result_columns = Vec::new();
@@ -119,7 +117,7 @@ pub(crate) fn generate_insert_model(
                     }
                 )*
 
-                result_columns.into_boxed_slice()
+                ::std::borrow::Cow::Owned(result_columns)
             }
 
             fn values(&self) -> SQL<'a, PostgresValue<'a>> {

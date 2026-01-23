@@ -92,6 +92,7 @@ pub fn generate_sqlite_table_info(
     strict: TokenStream,
     without_rowid: TokenStream,
     columns: TokenStream,
+    dependencies: TokenStream,
 ) -> TokenStream {
     let sqlite_table_info = sqlite_paths::sqlite_table_info();
     let sqlite_column_info = sqlite_paths::sqlite_column_info();
@@ -113,12 +114,8 @@ pub fn generate_sqlite_table_info(
                 #columns
             }
 
-            fn sqlite_dependencies(&self) -> ::std::boxed::Box<[&'static dyn #sqlite_table_info]> {
-                #sqlite_table_info::sqlite_columns(self)
-                    .iter()
-                    .filter_map(|col| #sqlite_column_info::foreign_key(*col))
-                    .map(|fk_col| #sqlite_column_info::table(fk_col))
-                    .collect()
+            fn sqlite_dependencies(&self) -> &'static [&'static dyn #sqlite_table_info] {
+                #dependencies
             }
         }
     }

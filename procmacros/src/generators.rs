@@ -58,6 +58,7 @@ pub fn generate_sql_table_info(
     struct_ident: &Ident,
     name: TokenStream,
     columns: TokenStream,
+    dependencies: TokenStream,
 ) -> TokenStream {
     let sql_table_info = core_paths::sql_table_info();
     let sql_column_info = core_paths::sql_column_info();
@@ -72,12 +73,8 @@ pub fn generate_sql_table_info(
                 #columns
             }
 
-            fn dependencies(&self) -> ::std::boxed::Box<[&'static dyn #sql_table_info]> {
-                #sql_table_info::columns(self)
-                    .iter()
-                    .filter_map(|col| #sql_column_info::foreign_key(*col))
-                    .map(|fk_col| #sql_column_info::table(fk_col))
-                    .collect()
+            fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {
+                #dependencies
             }
         }
     }

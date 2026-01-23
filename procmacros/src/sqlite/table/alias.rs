@@ -25,6 +25,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql_schema = core_paths::sql_schema();
     let sql_table = core_paths::sql_table();
     let sql_table_info = core_paths::sql_table_info();
+    let token = core_paths::token();
     let to_sql = core_paths::to_sql();
     let sql_param = core_paths::sql_param();
     let sqlite_value = sqlite_paths::sqlite_value();
@@ -90,7 +91,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         let to_sql_custom_impl = quote! {
             impl<'a, V: #sql_param + 'a> #to_sql<'a, V> for #aliased_field_type {
                 fn to_sql(&self) -> #sql<'a, V> {
-                    #sql::raw(::std::format!(r#""{}"."{}""#, self.alias, #sql_column_info::name(self)))
+                    #sql::ident(self.alias)
+                        .push(#token::DOT)
+                        .append(#sql::ident({
+                            static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                            #sql_column_info::name(&ORIGINAL_FIELD)
+                        }))
                 }
             }
         };
@@ -211,6 +217,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::columns(&ORIGINAL_TABLE)
         },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as #sql_table_info>::dependencies(&ORIGINAL_TABLE)
+        },
     );
 
     let sqlite_table_info_impl = generate_sqlite_table_info(
@@ -230,6 +240,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sqlite_table_info>::sqlite_columns(&ORIGINAL_TABLE)
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as #sqlite_table_info>::sqlite_dependencies(&ORIGINAL_TABLE)
         },
     );
 

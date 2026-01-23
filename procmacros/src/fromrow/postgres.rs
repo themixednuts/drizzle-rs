@@ -73,8 +73,7 @@ pub(crate) fn generate_field_assignment(
     field: &Field,
     field_name: Option<&syn::Ident>,
 ) -> Result<TokenStream> {
-    let type_str = field.ty.to_token_stream().to_string();
-    let category = TypeCategory::from_type_string(&type_str);
+    let category = TypeCategory::from_type(&field.ty);
 
     let idx_or_name = if let Some(field_name) = field_name {
         let field_name_str = field_name.to_string();

@@ -95,6 +95,7 @@ pub fn generate_postgres_table_info(
     struct_ident: &Ident,
     r#type: TokenStream,
     columns: TokenStream,
+    dependencies: TokenStream,
 ) -> TokenStream {
     let postgres_table_info = postgres_paths::postgres_table_info();
     let postgres_column_info = postgres_paths::postgres_column_info();
@@ -110,12 +111,8 @@ pub fn generate_postgres_table_info(
                 #columns
             }
 
-            fn postgres_dependencies(&self) -> ::std::boxed::Box<[&'static dyn #postgres_table_info]> {
-                #postgres_table_info::postgres_columns(self)
-                    .iter()
-                    .filter_map(|col| #postgres_column_info::foreign_key(*col))
-                    .map(|fk_col| #postgres_column_info::table(fk_col))
-                    .collect()
+            fn postgres_dependencies(&self) -> &'static [&'static dyn #postgres_table_info] {
+                #dependencies
             }
         }
     }

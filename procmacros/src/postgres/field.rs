@@ -5,6 +5,15 @@ use std::{collections::HashSet, fmt::Display};
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type};
 
 use crate::common::make_uppercase_path;
+use crate::common::{
+    is_option_type, option_inner_type, references_required_message, type_is_array_char,
+    type_is_array_string, type_is_array_u8, type_is_arrayvec_u8, type_is_bit_vec, type_is_bool,
+    type_is_datetime_tz, type_is_float, type_is_geo_linestring, type_is_geo_point,
+    type_is_geo_rect, type_is_int, type_is_ip_addr, type_is_ip_cidr, type_is_json_value,
+    type_is_mac_addr, type_is_naive_date, type_is_naive_datetime, type_is_naive_time,
+    type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like, type_is_time_date,
+    type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option,
+};
 
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
 // The local TypeCategory is kept for now to maintain feature flag consistency.
@@ -90,126 +99,109 @@ pub(crate) enum TypeCategory {
 }
 
 impl TypeCategory {
-    /// Detect the category from a type string representation.
+    /// Detect the category from a `syn::Type` without stringification.
     ///
     /// Order matters: more specific types (ArrayString) must be checked
     /// before more general types (String).
-    pub(crate) fn from_type_string(type_str: &str) -> Self {
-        // Remove whitespace for consistent matching
-        let type_str = type_str.replace(' ', "");
+    pub(crate) fn from_type(ty: &Type) -> Self {
+        let ty = unwrap_option(ty);
 
-        // Handle Option<T> wrapper - recurse into inner type
-        if type_str.starts_with("Option<") && type_str.ends_with('>') {
-            let inner = &type_str[7..type_str.len() - 1];
-            return Self::from_type_string(inner);
-        }
-
-        // Fixed-size arrays first
-        if type_str.starts_with("[u8;") || type_str.contains("[u8;") {
+        if type_is_array_u8(ty) {
             return TypeCategory::ByteArray;
         }
-        if type_str.starts_with("[char;") || type_str.contains("[char;") {
+        if type_is_array_char(ty) {
             return TypeCategory::CharArray;
         }
-
-        // ArrayVec/ArrayString before generic checks
-        if type_str.contains("ArrayString") {
+        if type_is_array_string(ty) {
             return TypeCategory::ArrayString;
         }
-        if type_str.contains("ArrayVec") && type_str.contains("u8") {
+        if type_is_arrayvec_u8(ty) {
             return TypeCategory::ArrayVec;
         }
-
-        // UUID
-        if type_str.contains("Uuid") {
+        if type_is_uuid(ty) {
             return TypeCategory::Uuid;
         }
-
-        // JSON (serde_json::Value)
-        if type_str.contains("serde_json::Value") || type_str == "Value" {
+        if type_is_json_value(ty) {
             return TypeCategory::Json;
         }
 
-        // Chrono types (check specific types before generic DateTime)
-        if type_str.contains("NaiveDate") && !type_str.contains("NaiveDateTime") {
+        if type_is_naive_date(ty) {
             return TypeCategory::NaiveDate;
         }
-        if type_str.contains("NaiveTime") {
+        if type_is_naive_time(ty) {
             return TypeCategory::NaiveTime;
         }
-        if type_str.contains("NaiveDateTime") {
+        if type_is_naive_datetime(ty) {
             return TypeCategory::NaiveDateTime;
         }
-        if type_str.contains("DateTime<") {
+        if type_is_datetime_tz(ty) {
             return TypeCategory::DateTimeTz;
         }
 
-        // Time crate types
-        if type_str.contains("time::Date") || type_str == "Date" {
+        if type_is_time_date(ty) {
             return TypeCategory::TimeDate;
         }
-        if type_str.contains("time::Time") {
+        if type_is_time_time(ty) {
             return TypeCategory::TimeTime;
         }
-        if type_str.contains("PrimitiveDateTime") {
+        if type_is_primitive_date_time(ty) {
             return TypeCategory::TimePrimitiveDateTime;
         }
-        if type_str.contains("OffsetDateTime") {
+        if type_is_offset_datetime(ty) {
             return TypeCategory::TimeOffsetDateTime;
         }
 
-        // Geo types
-        if type_str.contains("Point<") || type_str.contains("geo_types::Point") {
+        if type_is_geo_point(ty) {
             return TypeCategory::GeoPoint;
         }
-        if type_str.contains("Rect<") || type_str.contains("geo_types::Rect") {
+        if type_is_geo_rect(ty) {
             return TypeCategory::GeoRect;
         }
-        if type_str.contains("LineString<") || type_str.contains("geo_types::LineString") {
+        if type_is_geo_linestring(ty) {
             return TypeCategory::GeoLineString;
         }
 
-        // Network types (cidr crate)
-        // cidr::IpInet -> INET (host address with optional netmask)
-        // cidr::IpCidr -> CIDR (network specification)
-        // std::net::IpAddr also supported
-        if type_str.contains("IpInet") || type_str.contains("IpAddr") {
+        if type_is_ip_addr(ty) {
             return TypeCategory::IpAddr;
         }
-        if type_str.contains("IpCidr") {
+        if type_is_ip_cidr(ty) {
             return TypeCategory::Cidr;
         }
 
-        // MAC address
-        if type_str.contains("MacAddress") || type_str.contains("eui48") {
+        if type_is_mac_addr(ty) {
             return TypeCategory::MacAddr;
         }
-
-        // Bit vector
-        if type_str.contains("BitVec") {
+        if type_is_bit_vec(ty) {
             return TypeCategory::BitVec;
         }
 
-        // String types
-        if type_str.contains("String") {
+        if type_is_string_like(ty) {
             return TypeCategory::String;
         }
-
-        // Vec<u8>
-        if type_str.contains("Vec<u8>") {
+        if type_is_vec_u8(ty) {
             return TypeCategory::Blob;
         }
 
-        // Primitives - check exact matches for simple types
-        match type_str.as_str() {
-            "i16" => TypeCategory::I16,
-            "i32" => TypeCategory::I32,
-            "i64" => TypeCategory::I64,
-            "f32" => TypeCategory::F32,
-            "f64" => TypeCategory::F64,
-            "bool" => TypeCategory::Bool,
-            _ => TypeCategory::Unknown,
+        if type_is_int(ty, "i16") {
+            return TypeCategory::I16;
         }
+        if type_is_int(ty, "i32") {
+            return TypeCategory::I32;
+        }
+        if type_is_int(ty, "i64") {
+            return TypeCategory::I64;
+        }
+        if type_is_float(ty, "f32") {
+            return TypeCategory::F32;
+        }
+        if type_is_float(ty, "f64") {
+            return TypeCategory::F64;
+        }
+        if type_is_bool(ty) {
+            return TypeCategory::Bool;
+        }
+
+        TypeCategory::Unknown
     }
 
     /// Infer the PostgreSQL type from this category.
@@ -897,11 +889,11 @@ impl FieldInfo {
         let ty = field.ty.clone();
 
         // Check if field is nullable (wrapped in Option<T>)
-        let is_nullable = Self::is_option_type(&ty);
+        let is_nullable = is_option_type(&ty);
 
         // Infer PostgreSQL type from Rust type
         let type_str = ty.to_token_stream().to_string();
-        let type_category = TypeCategory::from_type_string(&type_str);
+        let type_category = TypeCategory::from_type(&ty);
 
         // Initialize constraint-related fields
         let mut flags = HashSet::new();
@@ -952,7 +944,7 @@ impl FieldInfo {
             PostgreSQLType::Bigserial
         } else if is_pgenum {
             // Get the enum type name from the field's base type
-            let base_type = Self::extract_option_inner(&ty);
+            let base_type = option_inner_type(&ty).unwrap_or(&ty);
             let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
             PostgreSQLType::from_enum_attribute(&base_type_str)
         } else if is_explicit_json {
@@ -982,7 +974,7 @@ impl FieldInfo {
             PostgreSQLType::Bigserial
         } else if is_pgenum {
             // Get the enum type name from the field's base type
-            let base_type = Self::extract_option_inner(&ty);
+            let base_type = option_inner_type(&ty).unwrap_or(&ty);
             let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
             PostgreSQLType::from_enum_attribute(&base_type_str)
         } else {
@@ -1001,7 +993,7 @@ impl FieldInfo {
 
         // Apply flags from type category
         if is_pgenum {
-            let base_type = Self::extract_option_inner(&ty);
+            let base_type = option_inner_type(&ty).unwrap_or(&ty);
             let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
             flags.insert(PostgreSQLFlag::NativeEnum(base_type_str));
         }
@@ -1016,7 +1008,7 @@ impl FieldInfo {
         let has_default = default.is_some() || default_fn.is_some() || is_serial_type;
 
         // Compute base_type once and store it
-        let base_type = Self::extract_option_inner(&ty).clone();
+        let base_type = option_inner_type(&ty).unwrap_or(&ty).clone();
 
         // Column name defaults to field ident converted to snake_case (can be overridden with NAME attribute)
         let column_name = name.to_string().to_snake_case();
@@ -1060,30 +1052,6 @@ impl FieldInfo {
             has_default,
             marker_exprs,
         })
-    }
-
-    /// Check if a type is Option<T>
-    fn is_option_type(ty: &Type) -> bool {
-        if let Type::Path(type_path) = ty
-            && let Some(segment) = type_path.path.segments.last()
-        {
-            return segment.ident == "Option";
-        }
-        false
-    }
-
-    /// Extract the inner type from Option<T>, returning T
-    /// If the type is not Option<T>, returns the original type
-    fn extract_option_inner(ty: &Type) -> &Type {
-        if let Type::Path(type_path) = ty
-            && let Some(segment) = type_path.path.segments.last()
-            && segment.ident == "Option"
-            && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
-            && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
-        {
-            return inner;
-        }
-        ty
     }
 
     // base_type is now a field, not a method - see struct definition
@@ -1336,7 +1304,7 @@ impl FieldInfo {
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     &action_ident,
-                                    "on_delete must follow references = Table::column",
+                                    references_required_message(true, false),
                                 ));
                             }
                             marker_exprs.push(make_uppercase_path(path_ident, "ON_DELETE"));
@@ -1355,7 +1323,7 @@ impl FieldInfo {
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     &action_ident,
-                                    "on_update must follow references = Table::column",
+                                    references_required_message(false, true),
                                 ));
                             }
                             marker_exprs.push(make_uppercase_path(path_ident, "ON_UPDATE"));
@@ -1468,9 +1436,145 @@ impl FieldInfo {
         }
 
         // Detect from the base type string
-        let type_str = self.field_type.to_token_stream().to_string();
-        TypeCategory::from_type_string(&type_str)
+        TypeCategory::from_type(&self.field_type)
     }
+}
+
+// =============================================================================
+// Table Metadata Generation - Uses drizzle-schema types
+// =============================================================================
+
+impl FieldInfo {
+    /// Convert default value to a string for DDL metadata (when possible).
+    fn default_to_string(&self) -> Option<String> {
+        match &self.default {
+            Some(PostgreSQLDefault::Literal(lit)) => Some(lit.clone()),
+            Some(PostgreSQLDefault::Function(func)) => Some(func.clone()),
+            Some(PostgreSQLDefault::Expression(_)) | None => None,
+        }
+    }
+
+    /// Convert this field to a drizzle-schema Column type.
+    pub(crate) fn to_column_meta(
+        &self,
+        schema: &str,
+        table_name: &str,
+    ) -> drizzle_types::postgres::ddl::Column {
+        let mut col = drizzle_types::postgres::ddl::Column::new(
+            schema.to_string(),
+            table_name.to_string(),
+            self.column_name.clone(),
+            self.column_type.to_sql_type().to_string(),
+        );
+
+        if !self.is_nullable {
+            col = col.not_null();
+        }
+        if let Some(default) = self.default_to_string() {
+            col = col.default_value(default);
+        }
+
+        if let Some(generated) = &self.generated_column
+            && generated.stored
+        {
+            col.generated = Some(drizzle_types::postgres::ddl::Generated {
+                expression: std::borrow::Cow::Owned(generated.expression.clone()),
+                gen_type: drizzle_types::postgres::ddl::GeneratedType::Stored,
+            });
+        }
+
+        col
+    }
+
+    /// Convert this field to a drizzle-schema ForeignKey if it has a reference.
+    pub(crate) fn to_foreign_key_meta(
+        &self,
+        schema: &str,
+        table_name: &str,
+    ) -> Option<drizzle_types::postgres::ddl::ForeignKey> {
+        let fk_ref = self.foreign_key.as_ref()?;
+        let table_to = fk_ref.table.to_string();
+        let column_to = fk_ref.column.to_string();
+        let fk_name = format!(
+            "{}_{}_{}_{}_fk",
+            table_name, self.column_name, table_to, column_to
+        );
+
+        let mut fk = drizzle_types::postgres::ddl::ForeignKey::from_strings(
+            schema.to_string(),
+            table_name.to_string(),
+            fk_name,
+            vec![self.column_name.clone()],
+            schema.to_string(),
+            table_to,
+            vec![column_to],
+        );
+
+        if let Some(on_delete) = &fk_ref.on_delete
+            && let Some(action) =
+                drizzle_types::postgres::ddl::ReferentialAction::from_sql(on_delete)
+        {
+            fk = fk.on_delete(action.as_sql());
+        }
+        if let Some(on_update) = &fk_ref.on_update
+            && let Some(action) =
+                drizzle_types::postgres::ddl::ReferentialAction::from_sql(on_update)
+        {
+            fk = fk.on_update(action.as_sql());
+        }
+
+        Some(fk)
+    }
+}
+
+/// Generate the complete table metadata JSON for use in drizzle-kit compatible migrations.
+pub(crate) fn generate_table_meta_json(
+    table_name: &str,
+    field_infos: &[FieldInfo],
+    is_composite_pk: bool,
+) -> String {
+    use drizzle_types::postgres::ddl::{PostgresEntity, PrimaryKey, Table};
+
+    let schema = "public";
+    let mut entities: Vec<PostgresEntity> = Vec::new();
+
+    entities.push(PostgresEntity::Table(Table::new(
+        schema.to_string(),
+        table_name.to_string(),
+    )));
+
+    for field in field_infos {
+        entities.push(PostgresEntity::Column(
+            field.to_column_meta(schema, table_name),
+        ));
+    }
+
+    for field in field_infos {
+        if let Some(fk) = field.to_foreign_key_meta(schema, table_name) {
+            entities.push(PostgresEntity::ForeignKey(fk));
+        }
+    }
+
+    if is_composite_pk {
+        let pk_columns: Vec<String> = field_infos
+            .iter()
+            .filter(|f| f.is_primary)
+            .map(|f| f.column_name.clone())
+            .collect();
+
+        if pk_columns.len() > 1 {
+            let pk_name = format!("{}_pk", table_name);
+            let pk = PrimaryKey::from_strings(
+                schema.to_string(),
+                table_name.to_string(),
+                pk_name,
+                pk_columns,
+            );
+            entities.push(PostgresEntity::PrimaryKey(pk));
+        }
+    }
+
+    serde_json::to_string(&entities).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// Context for building a SQL column definition

@@ -6,6 +6,7 @@ use crate::common::make_uppercase_path;
 #[derive(Default)]
 pub struct TableAttributes {
     pub(crate) name: Option<String>,
+    pub(crate) schema: Option<String>,
     pub(crate) unlogged: bool,
     pub(crate) temporary: bool,
     pub(crate) inherits: Option<String>,
@@ -37,6 +38,21 @@ impl Parse for TableAttributes {
                                 return Err(syn::Error::new(
                                     nv.span(),
                                     "Expected a string literal for 'NAME'",
+                                ));
+                            }
+                            "SCHEMA" => {
+                                if let syn::Expr::Lit(lit) = nv.clone().value
+                                    && let syn::Lit::Str(str_lit) = lit.lit
+                                {
+                                    attrs.schema = Some(str_lit.value());
+                                    attrs
+                                        .marker_exprs
+                                        .push(make_uppercase_path(ident, "SCHEMA"));
+                                    continue;
+                                }
+                                return Err(syn::Error::new(
+                                    nv.span(),
+                                    "Expected a string literal for 'SCHEMA'",
                                 ));
                             }
                             "INHERITS" => {
@@ -103,6 +119,7 @@ impl Parse for TableAttributes {
                 "Unrecognized table attribute.\n\
                  Supported attributes (case-insensitive):\n\
                  - NAME: Custom table name (e.g., #[PostgresTable(NAME = \"custom_name\")])\n\
+                 - SCHEMA: Custom schema name (e.g., #[PostgresTable(SCHEMA = \"auth\")])\n\
                  - UNLOGGED: Create UNLOGGED table (e.g., #[PostgresTable(UNLOGGED)])\n\
                  - TEMPORARY: Create TEMPORARY table (e.g., #[PostgresTable(TEMPORARY)])\n\
                  - INHERITS: Inherit from parent table (e.g., #[PostgresTable(INHERITS = \"parent_table\")])\n\

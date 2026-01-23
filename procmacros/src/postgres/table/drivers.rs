@@ -33,8 +33,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;
-    let base_type_str = base_type.to_token_stream().to_string();
-    let type_category = TypeCategory::from_type_string(&base_type_str);
+    let type_category = TypeCategory::from_type(base_type);
 
     // Determine if we need special handling via FromPostgresValue
     let needs_from_postgres_value = matches!(
@@ -149,8 +148,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;
-    let base_type_str = base_type.to_token_stream().to_string();
-    let type_category = TypeCategory::from_type_string(&base_type_str);
+    let type_category = TypeCategory::from_type(base_type);
 
     // Determine if we need special handling via FromPostgresValue
     let needs_from_postgres_value = matches!(
@@ -258,8 +256,7 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;
-    let base_type_str = base_type.to_token_stream().to_string();
-    let type_category = TypeCategory::from_type_string(&base_type_str);
+    let type_category = TypeCategory::from_type(base_type);
 
     // Determine if we need special handling via FromPostgresValue
     let needs_from_postgres_value = matches!(

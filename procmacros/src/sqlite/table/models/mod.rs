@@ -66,12 +66,10 @@ fn generate_model_trait_impls(
 
     let partial_impl = quote! {
         impl<'a> #sql_model<'a, #sqlite_value<'a>> for #select_model_partial {
-            type Columns = &'static [&'static dyn #sql_column_info];
-
-            fn columns(&self) -> Self::Columns {
+            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 // For partial select model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                <#struct_ident as #sql_table_info>::columns(&INSTANCE)
+                ::std::borrow::Cow::Borrowed(<#struct_ident as #sql_table_info>::columns(&INSTANCE))
             }
 
             fn values(&self) -> #sql<'a, #sqlite_value<'a>> {
@@ -89,12 +87,10 @@ fn generate_model_trait_impls(
     Ok(quote! {
         // SQLModel implementations
         impl<'a> #sql_model<'a, #sqlite_value<'a>> for #select_model {
-            type Columns = &'static [&'static dyn #sql_column_info];
-
-            fn columns(&self) -> Self::Columns {
+            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 // For select model, return all columns
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                <#struct_ident as #sql_table_info>::columns(&INSTANCE)
+                ::std::borrow::Cow::Borrowed(<#struct_ident as #sql_table_info>::columns(&INSTANCE))
             }
 
             fn values(&self) -> #sql<'a, #sqlite_value<'a>> {
@@ -113,12 +109,10 @@ fn generate_model_trait_impls(
         }
 
         impl<'a> #sql_model<'a, #sqlite_value<'a>> for #update_model {
-            type Columns = &'static [&'static dyn #sql_column_info];
-
-            fn columns(&self) -> Self::Columns {
+            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
-                <#struct_ident as #sql_table_info>::columns(&INSTANCE)
+                ::std::borrow::Cow::Borrowed(<#struct_ident as #sql_table_info>::columns(&INSTANCE))
             }
 
             fn values(&self) -> #sql<'a, #sqlite_value<'a>> {

@@ -7,6 +7,13 @@ use syn::{
     parse::ParseStream,
 };
 
+use crate::common::{
+    is_option_type, option_inner_type, references_required_message, type_is_array_string,
+    type_is_array_u8, type_is_arrayvec_u8, type_is_bool, type_is_byte_slice, type_is_datetime_tz,
+    type_is_float, type_is_int, type_is_json_value, type_is_naive_date, type_is_naive_datetime,
+    type_is_naive_time, type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like,
+    type_is_time_date, type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option,
+};
 use crate::common::make_uppercase_path;
 
 // =============================================================================
@@ -273,7 +280,7 @@ impl FieldProperties {
             is_unique: flags.contains("unique"),
             is_json: flags.contains("json"),
             is_enum: flags.contains("enum"),
-            is_uuid: base_type.to_token_stream().to_string().contains("Uuid"),
+            is_uuid: type_is_uuid(base_type),
             has_default: false, // Will be set in build() based on actual values
         }
     }
@@ -542,16 +549,8 @@ impl<'a> FieldInfo<'a> {
         // Validate: on_delete and on_update require references
         if (data.on_delete.is_some() || data.on_update.is_some()) && data.references_path.is_none()
         {
-            let msg = if data.on_delete.is_some() && data.on_update.is_some() {
-                "on_delete and on_update require a references attribute.\n\
-                 Example: #[column(references = Table::column, on_delete = CASCADE, on_update = CASCADE)]"
-            } else if data.on_delete.is_some() {
-                "on_delete requires a references attribute.\n\
-                 Example: #[column(references = Table::column, on_delete = CASCADE)]"
-            } else {
-                "on_update requires a references attribute.\n\
-                 Example: #[column(references = Table::column, on_update = CASCADE)]"
-            };
+            let msg =
+                references_required_message(data.on_delete.is_some(), data.on_update.is_some());
             // Use the first marker as span source for the error
             if let Some(marker) = data.marker_exprs.first() {
                 return Err(Error::new_spanned(marker, msg));
@@ -575,11 +574,7 @@ impl<'a> FieldInfo<'a> {
             .clone()
             .unwrap_or_else(|| field_name.to_string().to_snake_case());
         let is_nullable = is_option_type(field_type);
-        let base_type = if is_nullable {
-            extract_option_inner(field_type).unwrap_or(field_type)
-        } else {
-            field_type
-        };
+        let base_type = option_inner_type(field_type).unwrap_or(field_type);
 
         let mut properties =
             FieldProperties::from_flags_and_types(&attrs.flags, field_type, base_type);
@@ -588,13 +583,12 @@ impl<'a> FieldInfo<'a> {
         // Determine the SQLite type:
         // 1. Use explicit type from attribute if provided
         // 2. Otherwise, infer from Rust type
-        let type_str = base_type.to_token_stream().to_string();
         let type_category = if properties.is_json {
             TypeCategory::Json
         } else if properties.is_enum {
             TypeCategory::Enum
         } else {
-            TypeCategory::from_type_string(&type_str)
+            type_category_from_type(base_type)
         };
 
         let column_type = if attrs.has_explicit_type {
@@ -799,9 +793,7 @@ impl<'a> FieldInfo<'a> {
             return TypeCategory::Uuid;
         }
 
-        // Detect from the base type string
-        let type_str = self.base_type.to_token_stream().to_string();
-        TypeCategory::from_type_string(&type_str)
+        type_category_from_type(self.base_type)
     }
 
     /// Get the inner type for SQLiteInsertValue wrapper.
@@ -981,28 +973,61 @@ pub(crate) fn generate_table_meta_json(
     serde_json::to_string(&entities).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// Check if a type is an Option<T>
-pub(crate) fn is_option_type(ty: &Type) -> bool {
-    matches!(ty, Type::Path(type_path)
-        if type_path.path.segments.last()
-            .is_some_and(|seg| seg.ident == "Option"))
-}
+fn type_category_from_type(ty: &Type) -> TypeCategory {
+    let ty = unwrap_option(ty);
 
-/// Extract the inner type from Option<T>
-pub(crate) fn extract_option_inner(ty: &Type) -> Option<&Type> {
-    let Type::Path(type_path) = ty else {
-        return None;
-    };
-    let segment = type_path.path.segments.last()?;
-
-    if segment.ident == "Option"
-        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
-        && let Some(syn::GenericArgument::Type(inner_type)) = args.args.first()
-    {
-        Some(inner_type)
-    } else {
-        None
+    if type_is_array_u8(ty) {
+        return TypeCategory::ByteArray;
     }
+    if type_is_array_string(ty) {
+        return TypeCategory::ArrayString;
+    }
+    if type_is_arrayvec_u8(ty) {
+        return TypeCategory::ArrayVec;
+    }
+    if type_is_uuid(ty) {
+        return TypeCategory::Uuid;
+    }
+    if type_is_json_value(ty) {
+        return TypeCategory::Json;
+    }
+    if type_is_naive_date(ty)
+        || type_is_naive_time(ty)
+        || type_is_naive_datetime(ty)
+        || type_is_datetime_tz(ty)
+        || type_is_time_date(ty)
+        || type_is_time_time(ty)
+        || type_is_primitive_date_time(ty)
+        || type_is_offset_datetime(ty)
+    {
+        return TypeCategory::DateTime;
+    }
+    if type_is_string_like(ty) {
+        return TypeCategory::String;
+    }
+    if type_is_vec_u8(ty) || type_is_byte_slice(ty) {
+        return TypeCategory::Blob;
+    }
+    if type_is_bool(ty) {
+        return TypeCategory::Bool;
+    }
+    if type_is_int(ty, "i8")
+        || type_is_int(ty, "i16")
+        || type_is_int(ty, "i32")
+        || type_is_int(ty, "i64")
+        || type_is_int(ty, "u8")
+        || type_is_int(ty, "u16")
+        || type_is_int(ty, "u32")
+        || type_is_int(ty, "isize")
+        || type_is_int(ty, "usize")
+    {
+        return TypeCategory::Integer;
+    }
+    if type_is_float(ty, "f32") || type_is_float(ty, "f64") {
+        return TypeCategory::Real;
+    }
+
+    TypeCategory::Unknown
 }
 
 /// Detect if an ExprPath is a foreign key reference (Table::column syntax)

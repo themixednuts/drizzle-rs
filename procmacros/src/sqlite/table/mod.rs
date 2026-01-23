@@ -28,7 +28,9 @@ use column_definitions::{
 };
 use context::MacroContext;
 use ddl::generate_const_ddl;
-use heck::ToSnakeCase;
+use crate::common::{
+    count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
+};
 use json::generate_json_impls;
 use models::generate_model_definitions;
 use traits::generate_table_impls;
@@ -37,7 +39,7 @@ use validation::generate_default_validations;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Result};
+use syn::{DeriveInput, Result};
 
 // ============================================================================
 // Main Macro Entry Point
@@ -49,24 +51,13 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // -------------------
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
-    let table_name = attrs
-        .name
-        .clone()
-        .unwrap_or_else(|| struct_ident.to_string().to_snake_case());
+    let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
-    let fields = if let Data::Struct(data) = &input.data {
-        &data.fields
-    } else {
-        return Err(syn::Error::new(
-            input.span(),
-            "The #[SQLiteTable] attribute can only be applied to struct definitions.\n",
-        ));
-    };
+    let fields = struct_fields(&input, "SQLiteTable")?;
 
-    let primary_key_count = fields
-        .iter()
-        .filter(|f| FieldInfo::from_field(f, false).is_ok_and(|f| f.is_primary))
-        .count();
+    let primary_key_count = count_primary_keys(fields, |field| {
+        Ok(FieldInfo::from_field(field, false)?.is_primary)
+    })?;
     let is_composite_pk = primary_key_count > 1;
 
     let field_infos = fields
@@ -75,19 +66,15 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         .collect::<Result<Vec<_>>>()?;
 
     // Calculate required fields pattern for const generic
-    let required_fields_pattern: Vec<bool> = field_infos
-        .iter()
-        .map(|info| {
-            let is_optional = info.is_nullable
-                || info.has_default
-                || info.default_fn.is_some()
-                || (info.is_primary
-                    && !attrs.without_rowid
-                    && !info.is_enum
-                    && matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer));
-            !is_optional
-        })
-        .collect();
+    let required_fields_pattern = required_fields_pattern(&field_infos, |info| {
+        info.is_nullable
+            || info.has_default
+            || info.default_fn.is_some()
+            || (info.is_primary
+                && !attrs.without_rowid
+                && !info.is_enum
+                && matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer))
+    });
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
     let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);

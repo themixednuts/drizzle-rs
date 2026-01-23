@@ -116,9 +116,7 @@ pub(crate) fn generate_insert_model(
         }
 
         impl<'a, T> #sql_model<'a, #sqlite_value<'a>> for #insert_model<'a, T> {
-            type Columns = ::std::boxed::Box<[&'static dyn #sql_column_info]>;
-
-            fn columns(&self) -> Self::Columns {
+            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 static TABLE: #struct_ident = #struct_ident::new();
                 let all_columns = #sql_table_info::columns(&TABLE);
                 let mut result_columns = ::std::vec::Vec::new();
@@ -132,7 +130,7 @@ pub(crate) fn generate_insert_model(
                     }
                 )*
 
-                result_columns.into_boxed_slice()
+                ::std::borrow::Cow::Owned(result_columns)
             }
 
             fn values(&self) -> #sql<'a, #sqlite_value<'a>> {

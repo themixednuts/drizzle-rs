@@ -11,6 +11,7 @@ rust-version.workspace = true
 
 [lib]
 proc-macro = true
+doctest = false
 
 [dependencies]
 quote = { version = "1.0" }

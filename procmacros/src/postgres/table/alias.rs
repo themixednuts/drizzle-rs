@@ -14,6 +14,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let table_name = &ctx.struct_ident;
     let struct_vis = &ctx.struct_vis;
     let aliased_table_name = format_ident!("Aliased{}", table_name);
+    let sql = core_paths::sql();
+    let sql_column_info = core_paths::sql_column_info();
+    let token = core_paths::token();
 
     // Generate aliased field structs and their names
     let aliased_fields: Vec<_> = ctx
@@ -155,9 +158,13 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
             // ToSQL implementation that uses the alias
             impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for #aliased_field_type {
-                fn to_sql(&self) -> SQL<'a, V> {
-                    use SQLColumnInfo;
-                    SQL::raw(format!(r#""{}"."{}""#, self.alias, self.name()))
+                fn to_sql(&self) -> #sql<'a, V> {
+                    #sql::ident(self.alias)
+                        .push(#token::DOT)
+                        .append(#sql::ident({
+                            static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                            #sql_column_info::name(&ORIGINAL_FIELD)
+                        }))
                 }
             }
 
@@ -228,7 +235,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 <#table_name as SQLTableInfo>::columns(&ORIGINAL_TABLE)
             }
 
-            fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
+            fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as SQLTableInfo>::dependencies(&ORIGINAL_TABLE)
             }
@@ -249,7 +256,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 <#table_name as PostgresTableInfo>::postgres_columns(&ORIGINAL_TABLE)
             }
 
-            fn postgres_dependencies(&self) -> Box<[&'static dyn PostgresTableInfo]> {
+            fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo] {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as PostgresTableInfo>::postgres_dependencies(&ORIGINAL_TABLE)
             }
