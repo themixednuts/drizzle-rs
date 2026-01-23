@@ -381,7 +381,7 @@ pub mod test_db {
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite_setup {
     use super::test_db::TestDb;
-    use drizzle::rusqlite::Drizzle;
+    use drizzle::sqlite::rusqlite::Drizzle;
     use rusqlite::Connection;
 
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
@@ -408,7 +408,7 @@ pub mod rusqlite_setup {
 #[cfg(feature = "libsql")]
 pub mod libsql_setup {
     use super::test_db::TestDb;
-    use drizzle::libsql::Drizzle;
+    use drizzle::sqlite::libsql::Drizzle;
     use libsql::Builder;
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
@@ -439,7 +439,7 @@ pub mod libsql_setup {
 #[cfg(feature = "turso")]
 pub mod turso_setup {
     use super::test_db::TestDb;
-    use drizzle::turso::Drizzle;
+    use drizzle::sqlite::turso::Drizzle;
     use turso::Builder;
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
@@ -470,7 +470,7 @@ pub mod turso_setup {
 #[cfg(feature = "postgres-sync")]
 pub mod postgres_sync_setup {
     use super::{CapturedStatement, failure_report};
-    use drizzle::postgres_sync::Drizzle;
+    use drizzle::postgres::sync::Drizzle;
     use postgres::{Client, NoTls};
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
@@ -683,7 +683,7 @@ pub mod postgres_sync_setup {
 #[cfg(feature = "tokio-postgres")]
 pub mod tokio_postgres_setup {
     use super::{CapturedStatement, failure_report};
-    use drizzle::tokio_postgres::Drizzle;
+    use drizzle::postgres::tokio::Drizzle;
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
