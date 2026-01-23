@@ -5,7 +5,7 @@ use drizzle_postgres::{
     PostgresValue,
     builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
 };
-use drizzle_postgres::{ToPostgresSQL, traits::PostgresTable};
+use drizzle_postgres::traits::PostgresTable;
 use std::marker::PhantomData;
 
 impl<'a, 'conn, Schema>
@@ -108,7 +108,7 @@ where
     pub fn join<U>(
         self,
         table: U,
-        on_condition: impl ToPostgresSQL<'a>,
+        on_condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> TransactionBuilder<
         'a,
         'conn,
@@ -181,7 +181,7 @@ where
     pub fn join<U>(
         self,
         table: U,
-        condition: impl ToPostgresSQL<'a>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> TransactionBuilder<
         'a,
         'conn,
@@ -311,3 +311,4 @@ where
         }
     }
 }
+

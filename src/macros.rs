@@ -22,9 +22,10 @@ macro_rules! drizzle_builder_join_impl {
             pub fn [<$type _join>]<U>(
                 self,
                 table: U,
-                on_condition: impl ToSQLiteSQL<'a>,
+                on_condition: impl drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>>,
             ) -> DrizzleBuilder<
                 'a,
+                Conn,
                 Schema,
                 SelectBuilder<'a, Schema, SelectJoinSet, T>,
                 SelectJoinSet,
@@ -67,7 +68,7 @@ macro_rules! transaction_builder_join_impl {
             pub fn [<$type _join>]<U>(
                 self,
                 table: U,
-                on_condition: impl ToSQLiteSQL<'a>,
+                on_condition: impl drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>>,
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,

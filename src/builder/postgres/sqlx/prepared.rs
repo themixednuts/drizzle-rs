@@ -28,6 +28,7 @@ impl<'a> PreparedStatement<'a> {
         let inner = CoreOwnedPreparedStatement {
             text_segments: self.inner.text_segments.clone(),
             params: owned_params.collect::<Box<[_]>>(),
+            sql: self.inner.sql.clone(),
         };
 
         OwnedPreparedStatement { inner }
@@ -56,6 +57,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
         let inner = CorePreparedStatement {
             text_segments: value.inner.text_segments,
             params: postgres_params.collect::<Box<[_]>>(),
+            sql: value.inner.sql,
         };
         PreparedStatement { inner }
     }

@@ -3,7 +3,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use drizzle::rusqlite::Drizzle;
+//! use drizzle::sqlite::rusqlite::Drizzle;
 //! use drizzle::sqlite::prelude::*;
 //!
 //! #[SQLiteTable]
@@ -33,178 +33,30 @@
 //! }
 //! ```
 
-mod delete;
-mod insert;
 mod prepared;
-mod select;
-mod update;
 
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
-use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
-use drizzle_sqlite::traits::SQLiteTable;
 use drizzle_sqlite::values::SQLiteValue;
 use rusqlite::{Connection, params_from_iter};
-use std::marker::PhantomData;
 
 use drizzle_sqlite::{
-    builder::{
-        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-        update::UpdateBuilder,
-    },
+    builder::{self, QueryBuilder},
     connection::SQLiteTransactionType,
 };
 
-/// Rusqlite-specific drizzle builder
-#[derive(Debug)]
-pub struct DrizzleBuilder<'a, Schema, Builder, State> {
-    drizzle: &'a Drizzle<Schema>,
-    builder: Builder,
-    state: PhantomData<(Schema, State)>,
-}
+use crate::builder::sqlite::common;
 use crate::transaction::sqlite::rusqlite::Transaction;
 
-// Generic prepare method for rusqlite DrizzleBuilder
-impl<'a: 'b, 'b, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
-where
-    State: builder::ExecutableState,
-{
-    /// Creates a prepared statement that can be executed multiple times
-    #[inline]
-    pub fn prepare(self) -> prepared::PreparedStatement<'b> {
-        let inner = prepare_render(self.to_sql().clone());
-        prepared::PreparedStatement { inner }
-    }
-}
+pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
+pub type DrizzleBuilder<'a, Schema, Builder, State> =
+    common::DrizzleBuilder<'a, Connection, Schema, Builder, State>;
 
-/// Synchronous SQLite database wrapper using [`rusqlite::Connection`].
-///
-/// Provides query building methods (`select`, `insert`, `update`, `delete`)
-/// and execution methods (`execute`, `all`, `get`, `transaction`).
-#[derive(Debug)]
-pub struct Drizzle<Schema = ()> {
-    conn: Connection,
-    _schema: PhantomData<Schema>,
-}
+// Generic prepare method for DrizzleBuilder
+crate::drizzle_prepare_impl!();
 
-impl Drizzle {
-    /// Creates a new `Drizzle` instance.
-    ///
-    /// Returns a tuple of (Drizzle, Schema) for destructuring.
-    #[inline]
-    pub const fn new<S>(conn: Connection, schema: S) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle {
-            conn,
-            _schema: PhantomData,
-        };
-        (drizzle, schema)
-    }
-}
-
-impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
-    #[inline]
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-impl<Schema> Drizzle<Schema> {
-    /// Gets a reference to the underlying connection
-    #[inline]
-    pub fn conn(&self) -> &Connection {
-        &self.conn
-    }
-
-    #[inline]
-    pub fn mut_conn(&mut self) -> &mut Connection {
-        &mut self.conn
-    }
-
-    /// Creates a SELECT query builder.
-    pub fn select<'a, 'b, T>(
-        &'a self,
-        query: T,
-    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
-    where
-        T: ToSQL<'b, SQLiteValue<'b>>,
-    {
-        use drizzle_sqlite::builder::QueryBuilder;
-
-        let builder = QueryBuilder::new::<Schema>().select(query);
-
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates an INSERT query builder.
-    pub fn insert<'a, 'b, Table>(
-        &'a self,
-        table: Table,
-    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
-    where
-        Table: SQLiteTable<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().insert(table);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates an UPDATE query builder.
-    pub fn update<'a, 'b, Table>(
-        &'a self,
-        table: Table,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
-    where
-        Table: SQLiteTable<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().update(table);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates a DELETE query builder.
-    pub fn delete<'a, 'b, T>(
-        &'a self,
-        table: T,
-    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteInitial, T>, DeleteInitial>
-    where
-        T: SQLiteTable<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().delete(table);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates a query with CTE (Common Table Expression).
-    pub fn with<'a, 'b, C>(
-        &'a self,
-        cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
-    where
-        C: builder::CTEDefinition<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().with(cte);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
+impl<Schema> common::Drizzle<Connection, Schema> {
     pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -300,7 +152,7 @@ impl<Schema> Drizzle<Schema> {
 }
 
 // Implementation for schemas that implement SQLSchemaImpl
-impl<Schema> Drizzle<Schema>
+impl<Schema> common::Drizzle<Connection, Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
@@ -317,7 +169,7 @@ where
 }
 
 // Migration support
-impl<Schema> Drizzle<Schema> {
+impl<Schema> common::Drizzle<Connection, Schema> {
     /// Run pending migrations from a MigrationSet.
     ///
     /// This method follows the drizzle-orm migration spec:
@@ -329,7 +181,7 @@ impl<Schema> Drizzle<Schema> {
     /// # Example
     ///
     /// ```ignore
-    /// use drizzle::rusqlite::Drizzle;
+    /// use drizzle::sqlite::rusqlite::Drizzle;
     /// use drizzle_migrations::{migrations, MigrationSet};
     /// use drizzle_types::Dialect;
     ///
@@ -411,43 +263,6 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-// CTE (WITH) Builder Implementation for RusQLite
-impl<'a, Schema>
-    DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
-{
-    #[inline]
-    pub fn select<T>(
-        self,
-        query: T,
-    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
-    where
-        T: ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let builder = self.builder.select(query);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn with<C>(
-        self,
-        cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
-    where
-        C: builder::CTEDefinition<'a>,
-    {
-        let builder = self.builder.with(cte);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
 // Rusqlite-specific execution methods for all ExecutableState QueryBuilders
 impl<'a, 'b, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
@@ -500,21 +315,3 @@ where
     }
 }
 
-impl<'a, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'a, S, T, State>
-where
-    T: ToSQL<'a, SQLiteValue<'a>>,
-{
-    fn to_sql(&self) -> drizzle_core::sql::SQL<'a, SQLiteValue<'a>> {
-        self.builder.to_sql()
-    }
-}
-
-impl<'a, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
-    for DrizzleBuilder<'a, S, T, State>
-where
-    T: ToSQL<'a, SQLiteValue<'a>>,
-{
-    type SQLType = drizzle_core::types::Any;
-    type Nullable = drizzle_core::expr::NonNull;
-    type Aggregate = drizzle_core::expr::Scalar;
-}

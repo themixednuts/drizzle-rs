@@ -26,6 +26,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
         let inner = CorePreparedStatement {
             text_segments: value.inner.text_segments,
             params: sqlitevalue.collect::<Box<[_]>>(),
+            sql: value.inner.sql,
         };
         PreparedStatement { inner }
     }
@@ -40,7 +41,7 @@ impl<'a> PreparedStatement<'a> {
     ) -> Result<usize> {
         let (sql_str, params) = self.inner.bind(params);
         // Execute with connection
-        conn.execute(&sql_str, params_from_iter(params))
+        conn.execute(sql_str, params_from_iter(params))
             .map_err(Into::into)
     }
 
@@ -57,7 +58,7 @@ impl<'a> PreparedStatement<'a> {
         let (sql_str, params) = self.inner.bind(params);
 
         // Execute with connection
-        let mut stmt = conn.prepare(&sql_str)?;
+        let mut stmt = conn.prepare(sql_str)?;
 
         let rows = stmt.query_map(params_from_iter(params), |row| {
             Ok(T::try_from(row).map_err(Into::into))
@@ -84,7 +85,7 @@ impl<'a> PreparedStatement<'a> {
         let (sql_str, params) = self.inner.bind(params);
 
         // Execute with connection
-        let mut stmt = conn.prepare(&sql_str)?;
+        let mut stmt = conn.prepare(sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {
             Ok(T::try_from(row).map_err(Into::into))
@@ -102,6 +103,7 @@ impl<'a> PreparedStatement<'a> {
         let inner = CoreOwnedPreparedStatement {
             text_segments: self.inner.text_segments.clone(),
             params: owned_params.collect::<Box<[_]>>(),
+            sql: self.inner.sql.clone(),
         };
 
         OwnedPreparedStatement { inner }
@@ -128,7 +130,7 @@ impl OwnedPreparedStatement {
     ) -> Result<usize> {
         let (sql_str, params) = self.inner.bind(params);
         // Execute with connection
-        Ok(conn.execute(&sql_str, params_from_iter(params))?)
+        Ok(conn.execute(sql_str, params_from_iter(params))?)
     }
 
     /// Runs the prepared statement and returns all matching rows
@@ -144,7 +146,7 @@ impl OwnedPreparedStatement {
         let (sql_str, params) = self.inner.bind(params);
 
         // Execute with connection
-        let mut stmt = conn.prepare(&sql_str)?;
+        let mut stmt = conn.prepare(sql_str)?;
 
         let rows = stmt.query_and_then(params_from_iter(params), |row| {
             T::try_from(row).map_err(Into::into)
@@ -171,7 +173,7 @@ impl OwnedPreparedStatement {
         let (sql_str, params) = self.inner.bind(params);
 
         // Execute with connection
-        let mut stmt = conn.prepare(&sql_str)?;
+        let mut stmt = conn.prepare(sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {
             Ok(T::try_from(row).map_err(Into::into))

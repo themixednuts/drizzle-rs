@@ -35,11 +35,7 @@
 //! }
 //! ```
 
-mod delete;
-mod insert;
 mod prepared;
-mod select;
-mod update;
 
 use crate::transaction::postgres::sqlx::Transaction;
 use drizzle_core::error::DrizzleError;
@@ -58,27 +54,14 @@ use drizzle_postgres::{
 use sqlx::PgPool;
 use std::marker::PhantomData;
 
-/// Sqlx-specific drizzle builder
-#[derive(Debug)]
-pub struct DrizzleBuilder<'a, Schema, Builder, State> {
-    drizzle: &'a Drizzle<Schema>,
-    builder: Builder,
-    state: PhantomData<(Schema, State)>,
-}
+use crate::builder::postgres::common;
 
-// Generic prepare method for sqlx DrizzleBuilder
-impl<'a: 'b, 'b, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
-where
-    State: builder::ExecutableState,
-{
-    /// Creates a prepared statement that can be executed multiple times
-    #[inline]
-    pub fn prepare(self) -> prepared::PreparedStatement<'b> {
-        let inner = prepare_render(self.to_sql().clone());
-        prepared::PreparedStatement { inner }
-    }
-}
+/// Sqlx-specific drizzle builder
+pub type DrizzleBuilder<'a, Schema, Builder, State> =
+    common::DrizzleBuilder<'a, &'a Drizzle<Schema>, Schema, Builder, State>;
+
+// Generic prepare method for DrizzleBuilder
+crate::drizzle_prepare_impl!();
 
 /// Async PostgreSQL database wrapper using [`sqlx::PgPool`].
 ///
@@ -118,92 +101,11 @@ impl<Schema> Drizzle<Schema> {
         &self.pool
     }
 
-    /// Creates a SELECT query builder.
-    pub fn select<'a, 'b, T>(
-        &'a self,
-        query: T,
-    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
-    where
-        T: ToSQL<'b, PostgresValue<'b>>,
-    {
-        use drizzle_postgres::builder::QueryBuilder;
-
-        let builder = QueryBuilder::new::<Schema>().select(query);
-
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates an INSERT query builder.
-    pub fn insert<'a, 'b, Table>(
-        &'a self,
-        table: Table,
-    ) -> DrizzleBuilder<'a, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
-    where
-        Table: PostgresTable<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().insert(table);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates an UPDATE query builder.
-    pub fn update<'a, 'b, Table>(
-        &'a self,
-        table: Table,
-    ) -> DrizzleBuilder<'a, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
-    where
-        Table: PostgresTable<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().update(table);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates a DELETE query builder.
-    pub fn delete<'a, 'b, T>(
-        &'a self,
-        table: T,
-    ) -> DrizzleBuilder<'a, Schema, DeleteBuilder<'b, Schema, DeleteInitial, T>, DeleteInitial>
-    where
-        T: PostgresTable<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().delete(table);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Creates a query with CTE (Common Table Expression).
-    pub fn with<'a, 'b, C>(
-        &'a self,
-        cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
-    where
-        C: builder::CTEDefinition<'b>,
-    {
-        let builder = QueryBuilder::new::<Schema>().with(cte);
-        DrizzleBuilder {
-            drizzle: self,
-            builder,
-            state: PhantomData,
-        }
-    }
+    postgres_builder_constructors!();
 
     pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, sqlx::Error>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let query = query.to_sql();
         let sql = query.sql();
@@ -227,7 +129,7 @@ impl<Schema> Drizzle<Schema> {
         R: for<'r> TryFrom<&'r sqlx::postgres::PgRow>,
         for<'r> <R as TryFrom<&'r sqlx::postgres::PgRow>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
         C: std::iter::FromIterator<R>,
     {
         let query_sql = query.to_sql();
@@ -261,7 +163,7 @@ impl<Schema> Drizzle<Schema> {
         R: for<'r> TryFrom<&'r sqlx::postgres::PgRow>,
         for<'r> <R as TryFrom<&'r sqlx::postgres::PgRow>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let query_sql = query.to_sql();
         let sql = query_sql.sql();
@@ -338,43 +240,6 @@ where
         }
 
         Ok(())
-    }
-}
-
-// CTE (WITH) Builder Implementation for Sqlx
-impl<'a, Schema>
-    DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
-{
-    #[inline]
-    pub fn select<T>(
-        self,
-        query: T,
-    ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
-    where
-        T: ToPostgresSQL<'a>,
-    {
-        let builder = self.builder.select(query);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn with<C>(
-        self,
-        cte: C,
-    ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
-    where
-        C: builder::CTEDefinition<'a>,
-    {
-        let builder = self.builder.with(cte);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
     }
 }
 
@@ -464,9 +329,9 @@ where
     }
 }
 
-impl<'a, S, T, State> ToPostgresSQL<'a> for DrizzleBuilder<'a, S, T, State>
+impl<'a, S, T, State> ToSQL<'a, PostgresValue<'a>> for DrizzleBuilder<'a, S, T, State>
 where
-    T: ToPostgresSQL<'a>,
+    T: ToSQL<'a, PostgresValue<'a>>,
 {
     fn to_sql(&self) -> drizzle_core::sql::SQL<'a, PostgresValue<'a>> {
         self.builder.to_sql()
@@ -475,9 +340,10 @@ where
 
 impl<'a, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>> for DrizzleBuilder<'a, S, T, State>
 where
-    T: ToPostgresSQL<'a>,
+    T: ToSQL<'a, PostgresValue<'a>>,
 {
     type SQLType = drizzle_core::types::Any;
     type Nullable = drizzle_core::expr::NonNull;
     type Aggregate = drizzle_core::expr::Scalar;
 }
+

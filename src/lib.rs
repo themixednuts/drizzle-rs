@@ -6,7 +6,7 @@
 //!
 //! ```rust
 //! use drizzle::sqlite::prelude::*;
-//! use drizzle::rusqlite::Drizzle;
+//! use drizzle::sqlite::rusqlite::Drizzle;
 //!
 //! #[SQLiteTable(name = "Users")]
 //! struct User {
@@ -205,7 +205,7 @@ pub mod core {
 pub mod sqlite {
     // Macros
     pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable};
-    pub use drizzle_sqlite::{params, params_internal};
+    pub use drizzle_sqlite::params;
 
     // Query builder
     pub use drizzle_sqlite::QueryBuilder;
@@ -218,6 +218,28 @@ pub mod sqlite {
 
     // Sub-modules for advanced use
     pub use drizzle_sqlite::{attrs, builder, common, conditions, expression, traits, values};
+
+    // Driver modules
+    #[cfg(feature = "rusqlite")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
+    pub mod rusqlite {
+        pub use crate::builder::sqlite::rusqlite::{Drizzle, DrizzleBuilder};
+        pub use crate::transaction::sqlite::rusqlite::Transaction;
+    }
+
+    #[cfg(feature = "libsql")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "libsql")))]
+    pub mod libsql {
+        pub use crate::builder::sqlite::libsql::{Drizzle, DrizzleBuilder};
+        pub use crate::transaction::sqlite::libsql::Transaction;
+    }
+
+    #[cfg(feature = "turso")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "turso")))]
+    pub mod turso {
+        pub use crate::builder::sqlite::turso::{Drizzle, DrizzleBuilder};
+        pub use crate::transaction::sqlite::turso::Transaction;
+    }
 
     /// SQLite prelude - import this for schema declarations.
     ///
@@ -260,7 +282,7 @@ pub mod postgres {
     pub use drizzle_macros::{
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
     };
-    pub use drizzle_postgres::{params, params_internal};
+    pub use drizzle_postgres::params;
 
     // Query builder
     pub use drizzle_postgres::QueryBuilder;
@@ -280,6 +302,21 @@ pub mod postgres {
 
     // Sub-modules for advanced use
     pub use drizzle_postgres::{attrs, builder, common, traits, values};
+
+    // Driver modules
+    #[cfg(feature = "postgres-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
+    pub mod sync {
+        pub use crate::builder::postgres::postgres_sync::{Drizzle, DrizzleBuilder};
+        pub use crate::transaction::postgres::postgres_sync::Transaction;
+    }
+
+    #[cfg(feature = "tokio-postgres")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio-postgres")))]
+    pub mod tokio {
+        pub use crate::builder::postgres::tokio_postgres::{Drizzle, DrizzleBuilder};
+        pub use crate::transaction::postgres::tokio_postgres::Transaction;
+    }
 
     /// PostgreSQL prelude - import this for schema declarations.
     ///
@@ -316,50 +353,6 @@ pub mod postgres {
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql {}
-
-// =============================================================================
-// Driver modules
-// =============================================================================
-
-/// Rusqlite driver - synchronous SQLite via rusqlite.
-#[cfg(feature = "rusqlite")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
-pub mod rusqlite {
-    pub use crate::builder::sqlite::rusqlite::{Drizzle, DrizzleBuilder};
-    pub use crate::transaction::sqlite::rusqlite::Transaction;
-}
-
-/// LibSQL driver - async SQLite via libsql.
-#[cfg(feature = "libsql")]
-#[cfg_attr(docsrs, doc(cfg(feature = "libsql")))]
-pub mod libsql {
-    pub use crate::builder::sqlite::libsql::{Drizzle, DrizzleBuilder};
-    pub use crate::transaction::sqlite::libsql::Transaction;
-}
-
-/// Turso driver - async SQLite via Turso.
-#[cfg(feature = "turso")]
-#[cfg_attr(docsrs, doc(cfg(feature = "turso")))]
-pub mod turso {
-    pub use crate::builder::sqlite::turso::{Drizzle, DrizzleBuilder};
-    pub use crate::transaction::sqlite::turso::Transaction;
-}
-
-/// Postgres sync driver - synchronous PostgreSQL via postgres crate.
-#[cfg(feature = "postgres-sync")]
-#[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
-pub mod postgres_sync {
-    pub use crate::builder::postgres::postgres_sync::{Drizzle, DrizzleBuilder};
-    pub use crate::transaction::postgres::postgres_sync::Transaction;
-}
-
-/// Tokio-postgres driver - async PostgreSQL via tokio-postgres.
-#[cfg(feature = "tokio-postgres")]
-#[cfg_attr(docsrs, doc(cfg(feature = "tokio-postgres")))]
-pub mod tokio_postgres {
-    pub use crate::builder::postgres::tokio_postgres::{Drizzle, DrizzleBuilder};
-    pub use crate::transaction::postgres::tokio_postgres::Transaction;
-}
 
 // =============================================================================
 // Note: No global prelude - use database-specific preludes

@@ -3,7 +3,6 @@ use crate::transaction_builder_join_impl;
 use drizzle_core::ToSQL;
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::traits::SQLiteTable;
-use drizzle_sqlite::traits::ToSQLiteSQL;
 use drizzle_sqlite::{
     SQLiteValue,
     builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
@@ -82,7 +81,7 @@ where
     pub fn join<U>(
         self,
         table: U,
-        on_condition: impl ToSQLiteSQL<'a>,
+        on_condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
         U: SQLiteTable<'a>,
@@ -134,7 +133,7 @@ where
     pub fn join<U>(
         self,
         table: U,
-        condition: impl ToSQLiteSQL<'a>,
+        condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
         U: SQLiteTable<'a>,
@@ -225,3 +224,4 @@ where
         }
     }
 }
+

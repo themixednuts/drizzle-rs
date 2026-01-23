@@ -12,7 +12,7 @@ pub mod select;
 pub mod update;
 
 use drizzle_postgres::{
-    PostgresTransactionType, PostgresValue, ToPostgresSQL,
+    PostgresTransactionType, PostgresValue,
     builder::{
         self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
         update::UpdateBuilder,
@@ -174,7 +174,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, tokio_postgres::Error>
     where
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let query_sql = query.to_sql();
         let sql = query_sql.sql();
@@ -195,7 +195,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
         C: std::iter::FromIterator<R>,
     {
         let sql = query.to_sql();
@@ -228,7 +228,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToPostgresSQL<'a>,
+        T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = query.to_sql();
         let sql_str = sql.sql();
@@ -421,3 +421,4 @@ where
         self.builder.to_sql()
     }
 }
+

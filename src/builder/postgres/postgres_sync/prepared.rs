@@ -1,8 +1,7 @@
 use std::borrow::Cow;
 
-use drizzle_core::error::{DrizzleError, Result};
 use drizzle_core::{
-    param::{OwnedParam, Param, ParamBind},
+    param::{OwnedParam, Param},
     prepared::{
         OwnedPreparedStatement as CoreOwnedPreparedStatement,
         PreparedStatement as CorePreparedStatement,
@@ -12,6 +11,7 @@ use drizzle_core::{
 use drizzle_postgres::{PostgresValue, values::OwnedPostgresValue};
 use postgres::{Client, Row, types::ToSql};
 
+use crate::builder::postgres::prepared_common::postgres_prepared_sync_impl;
 /// A prepared statement that can be executed multiple times with different parameters.
 ///
 /// This is a wrapper around an owned prepared statement that can be used with the postgres driver.
@@ -31,84 +31,21 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
         let inner = CorePreparedStatement {
             text_segments: value.inner.text_segments,
             params: postgres_params.collect::<Box<[_]>>(),
+            sql: value.inner.sql,
         };
         PreparedStatement { inner }
     }
 }
 
 impl<'a> PreparedStatement<'a> {
-    /// Gets the SQL query string by reconstructing it from text segments
-    pub fn sql(&self) -> String {
-        self.inner.to_sql().sql()
+    /// Gets the SQL query string with placeholders
+    pub fn sql(&self) -> &str {
+        self.inner.sql()
     }
 
     /// Gets the number of parameters in the query
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
-    }
-
-    /// Runs the prepared statement and returns the number of affected rows
-    pub fn execute(
-        &self,
-        client: &mut Client,
-        params: impl IntoIterator<Item = ParamBind<'a, PostgresValue<'a>>>,
-    ) -> Result<u64> {
-        let (sql_str, bound_params) = self.inner.bind(params);
-        let params_vec: Vec<PostgresValue<'a>> = bound_params.collect();
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params_vec
-            .iter()
-            .map(|p| p as &(dyn ToSql + Sync))
-            .collect();
-
-        client.execute(&sql_str, &params_refs).map_err(Into::into)
-    }
-
-    /// Runs the prepared statement and returns all matching rows
-    pub fn all<T>(
-        &self,
-        client: &mut Client,
-        params: impl IntoIterator<Item = ParamBind<'a, PostgresValue<'a>>>,
-    ) -> Result<Vec<T>>
-    where
-        T: for<'r> TryFrom<&'r Row>,
-        for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        let (sql_str, bound_params) = self.inner.bind(params);
-        let params_vec: Vec<PostgresValue<'a>> = bound_params.collect();
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params_vec
-            .iter()
-            .map(|p| p as &(dyn ToSql + Sync))
-            .collect();
-
-        let rows = client.query(&sql_str, &params_refs)?;
-
-        let mut results = Vec::with_capacity(rows.len());
-        for row in &rows {
-            results.push(T::try_from(row).map_err(Into::into)?);
-        }
-
-        Ok(results)
-    }
-
-    /// Runs the prepared statement and returns a single row
-    pub fn get<T>(
-        &self,
-        client: &mut Client,
-        params: impl IntoIterator<Item = ParamBind<'a, PostgresValue<'a>>>,
-    ) -> Result<T>
-    where
-        T: for<'r> TryFrom<&'r Row>,
-        for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        let (sql_str, bound_params) = self.inner.bind(params);
-        let params_vec: Vec<PostgresValue<'a>> = bound_params.collect();
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params_vec
-            .iter()
-            .map(|p| p as &(dyn ToSql + Sync))
-            .collect();
-
-        let row = client.query_one(&sql_str, &params_refs)?;
-        T::try_from(&row).map_err(Into::into)
     }
 
     /// Converts this borrowed prepared statement into an owned one.
@@ -126,6 +63,7 @@ impl<'a> PreparedStatement<'a> {
         let inner = CoreOwnedPreparedStatement {
             text_segments: self.inner.text_segments,
             params: owned_params.collect::<Box<[_]>>(),
+            sql: self.inner.sql,
         };
 
         OwnedPreparedStatement { inner }
@@ -149,10 +87,9 @@ impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
 }
 
 impl OwnedPreparedStatement {
-    /// Gets the SQL query string by reconstructing it from text segments
-    pub fn sql(&self) -> String {
-        use drizzle_core::traits::ToSQL;
-        self.inner.to_sql().sql()
+    /// Gets the SQL query string with placeholders
+    pub fn sql(&self) -> &str {
+        self.inner.sql()
     }
 
     /// Gets the number of parameters in the query
@@ -160,70 +97,9 @@ impl OwnedPreparedStatement {
         self.inner.params.len()
     }
 
-    /// Runs the prepared statement and returns the number of affected rows
-    pub fn execute<'a>(
-        &self,
-        client: &mut Client,
-        params: impl IntoIterator<Item = ParamBind<'a, PostgresValue<'a>>>,
-    ) -> Result<u64> {
-        let (sql_str, bound_params) = self.inner.bind(params);
-        let params_vec: Vec<PostgresValue<'_>> = bound_params.map(PostgresValue::from).collect();
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params_vec
-            .iter()
-            .map(|p| p as &(dyn ToSql + Sync))
-            .collect();
-
-        client.execute(&sql_str, &params_refs).map_err(Into::into)
-    }
-
-    /// Runs the prepared statement and returns all matching rows
-    pub fn all<'a, T>(
-        &self,
-        client: &mut Client,
-        params: impl IntoIterator<Item = ParamBind<'a, PostgresValue<'a>>>,
-    ) -> Result<Vec<T>>
-    where
-        T: for<'r> TryFrom<&'r Row>,
-        for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        let (sql_str, bound_params) = self.inner.bind(params);
-        let params_vec: Vec<PostgresValue<'_>> = bound_params.map(PostgresValue::from).collect();
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params_vec
-            .iter()
-            .map(|p| p as &(dyn ToSql + Sync))
-            .collect();
-
-        let rows = client.query(&sql_str, &params_refs)?;
-
-        let mut results = Vec::with_capacity(rows.len());
-        for row in &rows {
-            results.push(T::try_from(row).map_err(Into::into)?);
-        }
-
-        Ok(results)
-    }
-
-    /// Runs the prepared statement and returns a single row
-    pub fn get<'a, T>(
-        &self,
-        client: &mut Client,
-        params: impl IntoIterator<Item = ParamBind<'a, PostgresValue<'a>>>,
-    ) -> Result<T>
-    where
-        T: for<'r> TryFrom<&'r Row>,
-        for<'r> <T as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        let (sql_str, bound_params) = self.inner.bind(params);
-        let params_vec: Vec<PostgresValue<'_>> = bound_params.map(PostgresValue::from).collect();
-        let params_refs: Vec<&(dyn ToSql + Sync)> = params_vec
-            .iter()
-            .map(|p| p as &(dyn ToSql + Sync))
-            .collect();
-
-        let row = client.query_one(&sql_str, &params_refs)?;
-        T::try_from(&row).map_err(Into::into)
-    }
 }
+
+postgres_prepared_sync_impl!(Client, Row, ToSql);
 
 impl<'a> std::fmt::Display for PreparedStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
