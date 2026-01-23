@@ -237,4 +237,3 @@ where
     type Nullable = Null;
     type Aggregate = Scalar;
 }
-

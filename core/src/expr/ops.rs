@@ -1,15 +1,15 @@
 //! Arithmetic operations using std::ops traits.
 //!
-//! This module implements `Add`, `Sub`, `Mul`, `Div` for `SQLExpr`,
+//! This module implements `Add`, `Sub`, `Mul`, `Div`, `Rem` for `SQLExpr`,
 //! enabling natural Rust syntax for SQL arithmetic.
 
-use core::ops::{Add, Div, Mul, Neg, Sub};
+use core::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
-use crate::sql::{Token, SQL};
+use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{ArithmeticOutput, Numeric};
 
-use super::{AggregateKind, Expr, NullOr, Nullability, Scalar, SQLExpr};
+use super::{AggregateKind, Expr, NullOr, Nullability, SQLExpr, Scalar};
 
 // =============================================================================
 // Addition
@@ -92,6 +92,27 @@ where
 
     fn div(self, rhs: Rhs) -> Self::Output {
         SQLExpr::new(self.to_sql().push(Token::SLASH).append(rhs.to_sql()))
+    }
+}
+
+// =============================================================================
+// Remainder (Modulo)
+// =============================================================================
+
+impl<'a, V, T, N, A, Rhs> Rem<Rhs> for SQLExpr<'a, V, T, N, A>
+where
+    V: SQLParam + 'a,
+    T: ArithmeticOutput<Rhs::SQLType>,
+    N: Nullability + NullOr<Rhs::Nullable>,
+    A: AggregateKind,
+    Rhs: Expr<'a, V>,
+    Rhs::SQLType: Numeric,
+    Rhs::Nullable: Nullability,
+{
+    type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
+
+    fn rem(self, rhs: Rhs) -> Self::Output {
+        SQLExpr::new(self.to_sql().push(Token::REM).append(rhs.to_sql()))
     }
 }
 

@@ -1,10 +1,26 @@
 //! Logical operators (AND, OR, NOT).
+//!
+//! This module provides both function-based and operator-based logical operations:
+//!
+//! ```ignore
+//! // Function style
+//! and2(condition1, condition2)
+//! or2(condition1, condition2)
+//! not(condition)
+//!
+//! // Operator style (via std::ops traits)
+//! condition1 & condition2   // BitAnd
+//! condition1 | condition2   // BitOr
+//! !condition                 // Not
+//! ```
 
-use crate::sql::{SQLChunk, Token, SQL};
+use core::ops::{BitAnd, BitOr, Not};
+
+use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::Bool;
 
-use super::{NonNull, Scalar, SQLExpr};
+use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 
 // =============================================================================
 // NOT
@@ -131,4 +147,73 @@ where
             .append(right.to_sql())
             .push(Token::RPAREN),
     )
+}
+
+// =============================================================================
+// Operator Trait Implementations
+// =============================================================================
+
+/// Implements `!expr` for boolean expressions (SQL NOT).
+///
+/// # Example
+///
+/// ```ignore
+/// let condition = eq(users.active, true);
+/// let negated = !condition;  // NOT "users"."active" = TRUE
+/// ```
+impl<'a, V, N, A> Not for SQLExpr<'a, V, Bool, N, A>
+where
+    V: SQLParam + 'a,
+    N: Nullability,
+    A: AggregateKind,
+{
+    type Output = SQLExpr<'a, V, Bool, NonNull, Scalar>;
+
+    fn not(self) -> Self::Output {
+        not(self)
+    }
+}
+
+/// Implements `expr1 & expr2` for boolean expressions (SQL AND).
+///
+/// # Example
+///
+/// ```ignore
+/// let condition = eq(users.active, true) & gt(users.age, 18);
+/// // ("users"."active" = TRUE AND "users"."age" > 18)
+/// ```
+impl<'a, V, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, Bool, N, A>
+where
+    V: SQLParam + 'a,
+    N: Nullability,
+    A: AggregateKind,
+    Rhs: Expr<'a, V>,
+{
+    type Output = SQLExpr<'a, V, Bool, NonNull, Scalar>;
+
+    fn bitand(self, rhs: Rhs) -> Self::Output {
+        and2(self, rhs)
+    }
+}
+
+/// Implements `expr1 | expr2` for boolean expressions (SQL OR).
+///
+/// # Example
+///
+/// ```ignore
+/// let condition = eq(users.role, "admin") | eq(users.role, "moderator");
+/// // ("users"."role" = 'admin' OR "users"."role" = 'moderator')
+/// ```
+impl<'a, V, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, Bool, N, A>
+where
+    V: SQLParam + 'a,
+    N: Nullability,
+    A: AggregateKind,
+    Rhs: Expr<'a, V>,
+{
+    type Output = SQLExpr<'a, V, Bool, NonNull, Scalar>;
+
+    fn bitor(self, rhs: Rhs) -> Self::Output {
+        or2(self, rhs)
+    }
 }

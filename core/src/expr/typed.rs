@@ -1,6 +1,8 @@
 //! SQLExpr - A typed SQL expression wrapper.
 
+use core::fmt::{self, Display};
 use core::marker::PhantomData;
+use core::ops::Deref;
 
 use crate::sql::SQL;
 use crate::traits::{SQLParam, ToSQL};
@@ -30,8 +32,13 @@ use super::{Agg, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
 /// let expr: SQLExpr<'_, SQLiteValue, Int, NonNull, Scalar> = ...;
 /// ```
 #[derive(Debug, Clone)]
-pub struct SQLExpr<'a, V: SQLParam, T: DataType, N: Nullability = NonNull, A: AggregateKind = Scalar>
-{
+pub struct SQLExpr<
+    'a,
+    V: SQLParam,
+    T: DataType,
+    N: Nullability = NonNull,
+    A: AggregateKind = Scalar,
+> {
     sql: SQL<'a, V>,
     _ty: PhantomData<(T, N, A)>,
 }
@@ -140,3 +147,81 @@ pub type AggExpr<'a, V, T> = SQLExpr<'a, V, T, NonNull, Agg>;
 
 /// An aggregate, nullable expression.
 pub type NullableAggExpr<'a, V, T> = SQLExpr<'a, V, T, Null, Agg>;
+
+// =============================================================================
+// Display Implementation
+// =============================================================================
+
+/// Display the SQL expression as a string.
+///
+/// Delegates to the inner `SQL` type's Display implementation.
+///
+/// # Example
+///
+/// ```ignore
+/// let expr = eq(users.id, 42);
+/// println!("{}", expr);  // "users"."id" = 42
+/// ```
+impl<'a, V, T, N, A> Display for SQLExpr<'a, V, T, N, A>
+where
+    V: SQLParam + Display,
+    T: DataType,
+    N: Nullability,
+    A: AggregateKind,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.sql, f)
+    }
+}
+
+// =============================================================================
+// Deref Implementation
+// =============================================================================
+
+/// Provides transparent access to inner SQL methods via Deref coercion.
+///
+/// # Example
+///
+/// ```ignore
+/// let expr = eq(users.id, 42);
+/// // Access SQL methods directly:
+/// let sql_str = expr.to_string();
+/// ```
+impl<'a, V, T, N, A> Deref for SQLExpr<'a, V, T, N, A>
+where
+    V: SQLParam,
+    T: DataType,
+    N: Nullability,
+    A: AggregateKind,
+{
+    type Target = SQL<'a, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.sql
+    }
+}
+
+// =============================================================================
+// AsRef Implementation
+// =============================================================================
+
+/// Provides reference conversion to inner SQL.
+///
+/// # Example
+///
+/// ```ignore
+/// fn takes_sql_ref<'a, V>(sql: &SQL<'a, V>) { ... }
+/// let expr = eq(users.id, 42);
+/// takes_sql_ref(expr.as_ref());
+/// ```
+impl<'a, V, T, N, A> AsRef<SQL<'a, V>> for SQLExpr<'a, V, T, N, A>
+where
+    V: SQLParam,
+    T: DataType,
+    N: Nullability,
+    A: AggregateKind,
+{
+    fn as_ref(&self) -> &SQL<'a, V> {
+        &self.sql
+    }
+}
