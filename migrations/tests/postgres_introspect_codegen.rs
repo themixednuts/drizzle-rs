@@ -63,6 +63,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -76,6 +77,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -89,6 +91,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     // Add primary key for users
@@ -131,6 +134,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -144,6 +148,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -157,6 +162,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     // Add primary key for posts
@@ -590,10 +596,9 @@ fn test_process_enums() {
 
 #[test]
 fn test_postgres_array_type_mapping() {
-    // TODO: Once array type support is added to codegen
-    // For now, arrays default to String
-    assert_eq!(sql_type_to_rust_type("_int4", true), "String"); // PostgreSQL array types use _ prefix
-    assert_eq!(sql_type_to_rust_type("_text", true), "String");
+    // PostgreSQL array types use _ prefix (udt_name). We map these to Vec<T>.
+    assert_eq!(sql_type_to_rust_type("_int4", true), "Vec<i32>");
+    assert_eq!(sql_type_to_rust_type("_text", true), "Vec<String>");
 }
 
 #[test]
@@ -724,6 +729,7 @@ fn test_generated_column_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -737,6 +743,7 @@ fn test_generated_column_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -753,6 +760,7 @@ fn test_generated_column_codegen() {
         }),
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     let options = CodegenOptions::default();
@@ -811,6 +819,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -824,6 +833,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -837,6 +847,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     let options = CodegenOptions::default();
@@ -896,6 +907,7 @@ fn test_identity_column_types() {
             cycle: None,
         }),
         dimensions: None,
+        ordinal_position: None,
     });
 
     // Identity BY DEFAULT
@@ -920,6 +932,7 @@ fn test_identity_column_types() {
             cycle: None,
         }),
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.pks.push(
@@ -984,6 +997,7 @@ fn test_unique_index_generation() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     // Unique index
@@ -1168,6 +1182,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -1181,6 +1196,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -1194,6 +1210,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.pks.push(
@@ -1276,6 +1293,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -1289,6 +1307,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.columns.push(Column {
@@ -1302,6 +1321,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     ddl.pks.push(

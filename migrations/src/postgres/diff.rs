@@ -8,6 +8,7 @@ use super::statements::PostgresGenerator;
 use crate::postgres::ddl::PostgresEntity;
 use crate::postgres::snapshot::PostgresSnapshot;
 use crate::traits::EntityKind;
+use std::collections::HashSet;
 
 /// Complete schema diff between two PostgreSQL snapshots
 #[derive(Debug, Clone, Default)]
@@ -148,14 +149,148 @@ pub struct MigrationDiff {
 
 /// Compute a full migration diff between two PostgreSQL DDL states
 pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff {
-    let schema_diff = diff_collections(prev, cur);
+    // Heuristic rename detection (non-interactive):
+    // Detect simple column renames: one dropped + one created column in the same table
+    // with identical column properties (type/nullability/default/etc).
+    let mut prev_normalized = prev.clone();
+    let mut column_renames: Vec<ColumnRename> = Vec::new();
+    let mut rename_sql: Vec<String> = Vec::new();
+
+    detect_and_apply_postgres_column_renames(&mut prev_normalized, cur, &mut column_renames, &mut rename_sql);
+
+    let schema_diff = diff_collections(&prev_normalized, cur);
     let generator = PostgresGenerator::new();
-    let sql_statements = generator.generate(&schema_diff.diffs);
+    let mut sql_statements = rename_sql;
+    sql_statements.extend(generator.generate(&schema_diff.diffs));
 
     MigrationDiff {
         sql_statements,
-        renames: Vec::new(),
+        renames: prepare_migration_renames(&[], &[], &column_renames),
         warnings: Vec::new(),
+    }
+}
+
+fn detect_and_apply_postgres_column_renames(
+    prev: &mut PostgresDDL,
+    cur: &PostgresDDL,
+    out: &mut Vec<ColumnRename>,
+    rename_sql: &mut Vec<String>,
+) {
+    let common_tables: Vec<(String, String)> = prev
+        .tables
+        .list()
+        .iter()
+        .map(|t| (t.schema.to_string(), t.name.to_string()))
+        .filter(|(schema, table)| cur.tables.one(schema, table).is_some())
+        .collect();
+
+    for (schema, table) in common_tables {
+        let prev_cols = prev.columns.for_table(&schema, &table);
+        let cur_cols = cur.columns.for_table(&schema, &table);
+
+        let prev_names: HashSet<String> = prev_cols.iter().map(|c| c.name.to_string()).collect();
+        let cur_names: HashSet<String> = cur_cols.iter().map(|c| c.name.to_string()).collect();
+
+        let dropped: Vec<String> = prev_names.difference(&cur_names).cloned().collect();
+        let created: Vec<String> = cur_names.difference(&prev_names).cloned().collect();
+
+        if dropped.len() != 1 || created.len() != 1 {
+            continue;
+        }
+
+        let from = &dropped[0];
+        let to = &created[0];
+
+        let prev_col = prev.columns.one(&schema, &table, from);
+        let cur_col = cur.columns.one(&schema, &table, to);
+        if let (Some(prev_col), Some(cur_col)) = (prev_col, cur_col) {
+            let mut prev_cmp = prev_col.clone();
+            prev_cmp.name = cur_col.name.clone();
+            if prev_cmp == *cur_col {
+                out.push(ColumnRename {
+                    schema: schema.clone(),
+                    table: table.clone(),
+                    from: from.clone(),
+                    to: to.clone(),
+                });
+                rename_sql.push(format!(
+                    "ALTER TABLE \"{}\".\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
+                    schema, table, from, to
+                ));
+                apply_postgres_column_rename(prev, &schema, &table, from, to);
+            }
+        }
+    }
+}
+
+fn apply_postgres_column_rename(
+    ddl: &mut PostgresDDL,
+    schema: &str,
+    table: &str,
+    from: &str,
+    to: &str,
+) {
+    let to = to.to_string();
+    // Columns
+    for c in ddl.columns.list_mut().iter_mut() {
+        if c.schema.as_ref() == schema && c.table.as_ref() == table && c.name.as_ref() == from {
+            c.name = to.clone().into();
+        }
+    }
+
+    // PKs
+    for pk in ddl.pks.list_mut().iter_mut().filter(|p| p.schema.as_ref() == schema && p.table.as_ref() == table) {
+        for col in pk.columns.to_mut().iter_mut() {
+            if col.as_ref() == from {
+                *col = to.clone().into();
+            }
+        }
+    }
+
+    // Uniques
+    for u in ddl
+        .uniques
+        .list_mut()
+        .iter_mut()
+        .filter(|u| u.schema.as_ref() == schema && u.table.as_ref() == table)
+    {
+        for col in u.columns.to_mut().iter_mut() {
+            if col.as_ref() == from {
+                *col = to.clone().into();
+            }
+        }
+    }
+
+    // FKs (both table side and referenced side)
+    for fk in ddl.fks.list_mut().iter_mut() {
+        if fk.schema.as_ref() == schema && fk.table.as_ref() == table {
+            for col in fk.columns.to_mut().iter_mut() {
+                if col.as_ref() == from {
+                    *col = to.clone().into();
+                }
+            }
+        }
+        if fk.schema_to.as_ref() == schema && fk.table_to.as_ref() == table {
+            for col in fk.columns_to.to_mut().iter_mut() {
+                if col.as_ref() == from {
+                    *col = to.clone().into();
+                }
+            }
+        }
+    }
+
+    // Indexes
+    for idx in ddl
+        .indexes
+        .list_mut()
+        .iter_mut()
+        .filter(|i| i.schema.as_ref() == schema && i.table.as_ref() == table)
+    {
+        for col in idx.columns.iter_mut() {
+            if !col.is_expression && col.value.as_ref() == from {
+                col.value = to.clone().into();
+            }
+        }
     }
 }
 
@@ -244,6 +379,7 @@ mod tests {
                 generated: None,
                 identity: None,
                 dimensions: None,
+                ordinal_position: None,
             }),
         ];
 
@@ -272,6 +408,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         });
 
         let mut cur_ddl = PostgresDDL::new();
@@ -291,6 +428,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         });
 
         let migration = compute_migration(&prev_ddl, &cur_ddl);
@@ -330,6 +468,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         });
 
         let mut cur_ddl = PostgresDDL::new();
@@ -349,6 +488,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         });
 
         let migration = compute_migration(&prev_ddl, &cur_ddl);
@@ -388,6 +528,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         });
 
         let mut cur_ddl = PostgresDDL::new();
@@ -407,6 +548,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         });
 
         let migration = compute_migration(&prev_ddl, &cur_ddl);

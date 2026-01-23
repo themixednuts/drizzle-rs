@@ -9,7 +9,7 @@ use super::ddl::SqliteEntity;
 use super::statements::{
     AddColumnStatement, CreateIndexStatement, CreateTableStatement, CreateViewStatement,
     DropColumnStatement, DropIndexStatement, DropTableStatement, DropViewStatement, JsonStatement,
-    RecreateTableStatement, TableFull, from_json,
+    RecreateTableStatement, RenameColumnStatement, RenameTableStatement, TableFull, from_json,
 };
 use crate::traits::EntityKind;
 use std::collections::HashSet;
@@ -159,10 +159,29 @@ pub fn table_from_ddl(table_name: &str, ddl: &SQLiteDDL) -> TableFull {
 /// For a fully interactive migration with rename detection, you would
 /// need to provide resolver callbacks.
 pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
-    let schema_diff = diff_collections(prev, cur);
+    // Heuristic rename detection (non-interactive):
+    // - detect exact table renames (same schema, identical entities)
+    // - detect exact column renames (same table, identical column properties)
+    let mut prev_normalized = prev.clone();
+    let mut rename_statements: Vec<JsonStatement> = Vec::new();
+    let mut table_renames: Vec<TableRename> = Vec::new();
+    let mut column_renames: Vec<ColumnRename> = Vec::new();
+
+    detect_and_apply_sqlite_renames(
+        &mut prev_normalized,
+        cur,
+        &mut rename_statements,
+        &mut table_renames,
+        &mut column_renames,
+    );
+
+    let schema_diff = diff_collections(&prev_normalized, cur);
     let mut statements = Vec::new();
     let mut warnings = Vec::new();
-    let renames = Vec::new();
+    let renames = prepare_migration_renames(&table_renames, &column_renames);
+
+    // Emit rename statements first so subsequent diffs apply to the renamed schema.
+    statements.extend(rename_statements);
 
     // Track created/dropped table names
     let created_table_names: HashSet<String> = schema_diff
@@ -530,6 +549,282 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
         sql_statements: result.sql_statements,
         renames,
         warnings,
+    }
+}
+
+fn sqlite_table_signature(table_name: &str, ddl: &SQLiteDDL) -> Vec<SqliteEntity> {
+    // A stable-ish signature for rename matching: table + its entities (columns/constraints/indexes)
+    // using the existing entity shapes, sorted by their EntityKey ordering via serialization key.
+    // We intentionally exclude views (not tied to a table by name reliably).
+    let mut entities = Vec::new();
+
+    if let Some(t) = ddl.tables.one(table_name) {
+        entities.push(SqliteEntity::Table(t.clone()));
+    }
+    for c in ddl.columns.for_table(table_name) {
+        entities.push(SqliteEntity::Column(c.clone()));
+    }
+    if let Some(pk) = ddl.pks.for_table(table_name) {
+        entities.push(SqliteEntity::PrimaryKey(pk.clone()));
+    }
+    for u in ddl.uniques.for_table(table_name) {
+        entities.push(SqliteEntity::UniqueConstraint(u.clone()));
+    }
+    for fk in ddl.fks.for_table(table_name) {
+        entities.push(SqliteEntity::ForeignKey(fk.clone()));
+    }
+    for idx in ddl.indexes.for_table(table_name) {
+        entities.push(SqliteEntity::Index(idx.clone()));
+    }
+    for chk in ddl.checks.for_table(table_name) {
+        entities.push(SqliteEntity::CheckConstraint(chk.clone()));
+    }
+
+    // Sort by debug string as a simple stable ordering for comparisons.
+    entities.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+    entities
+}
+
+fn detect_and_apply_sqlite_renames(
+    prev: &mut SQLiteDDL,
+    cur: &SQLiteDDL,
+    rename_statements: &mut Vec<JsonStatement>,
+    table_renames: &mut Vec<TableRename>,
+    column_renames: &mut Vec<ColumnRename>,
+) {
+    // Table renames: exact match of signatures, different table name.
+    let prev_tables: Vec<String> = prev.tables.list().iter().map(|t| t.name.to_string()).collect();
+    let cur_tables: Vec<String> = cur.tables.list().iter().map(|t| t.name.to_string()).collect();
+
+    let dropped: Vec<String> = prev_tables
+        .iter()
+        .filter(|t| !cur_tables.contains(t))
+        .cloned()
+        .collect();
+    let created: Vec<String> = cur_tables
+        .iter()
+        .filter(|t| !prev_tables.contains(t))
+        .cloned()
+        .collect();
+
+    let mut used_created: HashSet<String> = HashSet::new();
+    for from in &dropped {
+        let from_sig = sqlite_table_signature(from, prev);
+        let mut best: Option<String> = None;
+        for to in &created {
+            if used_created.contains(to) {
+                continue;
+            }
+            let to_sig = sqlite_table_signature(to, cur);
+            if from_sig == to_sig {
+                best = Some(to.clone());
+                break;
+            }
+        }
+        if let Some(to) = best {
+            used_created.insert(to.clone());
+            // Record and emit rename
+            table_renames.push(TableRename {
+                from: from.clone(),
+                to: to.clone(),
+            });
+            rename_statements.push(JsonStatement::RenameTable(RenameTableStatement {
+                from: from.clone(),
+                to: to.clone(),
+            }));
+            apply_sqlite_table_rename(prev, from, &to);
+        }
+    }
+
+    // Column renames (within tables that exist in both): exact property match, different name.
+    let common_tables: Vec<String> = prev
+        .tables
+        .list()
+        .iter()
+        .map(|t| t.name.to_string())
+        .filter(|t| cur.tables.one(t).is_some())
+        .collect();
+
+    for table in common_tables {
+        let prev_cols: Vec<_> = prev.columns.for_table(&table);
+        let cur_cols: Vec<_> = cur.columns.for_table(&table);
+
+        let prev_names: Vec<String> = prev_cols.iter().map(|c| c.name.to_string()).collect();
+        let cur_names: Vec<String> = cur_cols.iter().map(|c| c.name.to_string()).collect();
+
+        let dropped_cols: Vec<String> = prev_names
+            .iter()
+            .filter(|c| !cur_names.contains(c))
+            .cloned()
+            .collect();
+        let created_cols: Vec<String> = cur_names
+            .iter()
+            .filter(|c| !prev_names.contains(c))
+            .cloned()
+            .collect();
+
+        if dropped_cols.len() != 1 || created_cols.len() != 1 {
+            continue;
+        }
+
+        let from = &dropped_cols[0];
+        let to = &created_cols[0];
+
+        let prev_col = prev.columns.one(&table, from);
+        let cur_col = cur.columns.one(&table, to);
+        if let (Some(prev_col), Some(cur_col)) = (prev_col, cur_col) {
+            let mut prev_cmp = prev_col.clone();
+            prev_cmp.name = cur_col.name.clone();
+            if prev_cmp == *cur_col {
+                column_renames.push(ColumnRename {
+                    table: table.clone(),
+                    from: from.clone(),
+                    to: to.clone(),
+                });
+                rename_statements.push(JsonStatement::RenameColumn(RenameColumnStatement {
+                    table: table.clone(),
+                    from: from.clone(),
+                    to: to.clone(),
+                }));
+                apply_sqlite_column_rename(prev, &table, from, to);
+            }
+        }
+    }
+}
+
+fn apply_sqlite_table_rename(ddl: &mut SQLiteDDL, from: &str, to: &str) {
+    let to = to.to_string();
+    // Tables
+    if let Some(t) = ddl
+        .tables
+        .list_mut()
+        .iter_mut()
+        .find(|t| t.name.as_ref() == from)
+    {
+        t.name = to.clone().into();
+    }
+    // Columns
+    for c in ddl
+        .columns
+        .list_mut()
+        .iter_mut()
+        .filter(|c| c.table.as_ref() == from)
+    {
+        c.table = to.clone().into();
+    }
+    // PKs
+    for pk in ddl
+        .pks
+        .list_mut()
+        .iter_mut()
+        .filter(|pk| pk.table.as_ref() == from)
+    {
+        pk.table = to.clone().into();
+    }
+    // Uniques
+    for u in ddl
+        .uniques
+        .list_mut()
+        .iter_mut()
+        .filter(|u| u.table.as_ref() == from)
+    {
+        u.table = to.clone().into();
+    }
+    // FKs (table side and referenced side)
+    for fk in ddl.fks.list_mut().iter_mut() {
+        if fk.table.as_ref() == from {
+            fk.table = to.clone().into();
+        }
+        if fk.table_to.as_ref() == from {
+            fk.table_to = to.clone().into();
+        }
+    }
+    // Indexes
+    for idx in ddl
+        .indexes
+        .list_mut()
+        .iter_mut()
+        .filter(|i| i.table.as_ref() == from)
+    {
+        idx.table = to.clone().into();
+    }
+    // Checks
+    for chk in ddl
+        .checks
+        .list_mut()
+        .iter_mut()
+        .filter(|c| c.table.as_ref() == from)
+    {
+        chk.table = to.clone().into();
+    }
+}
+
+fn apply_sqlite_column_rename(ddl: &mut SQLiteDDL, table: &str, from: &str, to: &str) {
+    let to = to.to_string();
+    // Columns
+    if let Some(c) = ddl
+        .columns
+        .list_mut()
+        .iter_mut()
+        .find(|c| c.table.as_ref() == table && c.name.as_ref() == from)
+    {
+        c.name = to.clone().into();
+    }
+    // PK columns
+    for pk in ddl
+        .pks
+        .list_mut()
+        .iter_mut()
+        .filter(|pk| pk.table.as_ref() == table)
+    {
+        for col in pk.columns.to_mut().iter_mut() {
+            if col.as_ref() == from {
+                *col = to.clone().into();
+            }
+        }
+    }
+    // Unique columns
+    for u in ddl
+        .uniques
+        .list_mut()
+        .iter_mut()
+        .filter(|u| u.table.as_ref() == table)
+    {
+        for col in u.columns.to_mut().iter_mut() {
+            if col.as_ref() == from {
+                *col = to.clone().into();
+            }
+        }
+    }
+    // FK columns
+    for fk in ddl.fks.list_mut().iter_mut() {
+        if fk.table.as_ref() == table {
+            for col in fk.columns.to_mut().iter_mut() {
+                if col.as_ref() == from {
+                    *col = to.clone().into();
+                }
+            }
+        }
+        if fk.table_to.as_ref() == table {
+            for col in fk.columns_to.to_mut().iter_mut() {
+                if col.as_ref() == from {
+                    *col = to.clone().into();
+                }
+            }
+        }
+    }
+    // Index columns (only non-expression)
+    for idx in ddl
+        .indexes
+        .list_mut()
+        .iter_mut()
+        .filter(|i| i.table.as_ref() == table)
+    {
+        for col in idx.columns.iter_mut() {
+            if !col.is_expression && col.value.as_ref() == from {
+                col.value = to.clone().into();
+            }
+        }
     }
 }
 

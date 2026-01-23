@@ -378,6 +378,7 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                 generated,
                 identity,
                 dimensions: None,
+                ordinal_position: Some(c.ordinal_position),
             }
         })
         .collect()

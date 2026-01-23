@@ -102,13 +102,21 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             .get(&table_name)
             .map(|c| c.as_slice())
             .unwrap_or(&[]);
+
+        // Preserve DB/introspection order when available (cid -> ordinal_position).
+        let mut columns_sorted: Vec<&Column> = columns.to_vec();
+        columns_sorted.sort_by(|a, b| {
+            let ao = a.ordinal_position.unwrap_or(i32::MAX);
+            let bo = b.ordinal_position.unwrap_or(i32::MAX);
+            ao.cmp(&bo).then_with(|| a.name.cmp(&b.name))
+        });
         let pk_columns = table_pks.get(&table_name);
         let unique_columns = table_uniques.get(&table_name);
         let is_composite_pk = pk_columns.map(|pks| pks.len() > 1).unwrap_or(false);
 
         let table_code = generate_table_struct(
             table,
-            columns,
+            &columns_sorted,
             pk_columns,
             unique_columns,
             is_composite_pk,

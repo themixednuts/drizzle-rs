@@ -186,9 +186,13 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     // Struct definition
     code.push_str(&format!("{vis}struct {struct_name} {{\n"));
 
-    // Sort columns by ordinal position if available by sorting alphabetically as fallback
+    // Sort columns by ordinal position if available, falling back to name.
     let mut sorted_columns: Vec<&&Column> = ctx.columns.iter().collect();
-    sorted_columns.sort_by(|a, b| a.name.cmp(&b.name));
+    sorted_columns.sort_by(|a, b| {
+        let ao = a.ordinal_position.unwrap_or(i32::MAX);
+        let bo = b.ordinal_position.unwrap_or(i32::MAX);
+        ao.cmp(&bo).then_with(|| a.name.cmp(&b.name))
+    });
 
     // Generate fields
     for column in sorted_columns {
@@ -460,40 +464,64 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
 
 /// Convert PostgreSQL type to Rust type
 pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
-    let base_type = match sql_type.to_lowercase().as_str() {
+    // Handle PostgreSQL array types, which are often represented as "_typename" (udt_name).
+    // Keep this intentionally simple: one-dimensional arrays map to Vec<T>.
+    if let Some(elem) = sql_type.strip_prefix('_') {
+        let elem_ty = sql_type_to_rust_type(elem, true);
+        let base = format!("Vec<{}>", elem_ty);
+        return if not_null {
+            base
+        } else {
+            format!("Option<{}>", base)
+        };
+    }
+
+    let base_type = match sql_type {
         // Integer types
-        "int2" | "smallint" => "i16",
-        "int4" | "integer" | "int" => "i32",
-        "int8" | "bigint" => "i64",
-        "serial" | "serial4" => "i32",
-        "bigserial" | "serial8" => "i64",
-        "smallserial" | "serial2" => "i16",
+        s if s.eq_ignore_ascii_case("int2") || s.eq_ignore_ascii_case("smallint") => "i16",
+        s if s.eq_ignore_ascii_case("int4")
+            || s.eq_ignore_ascii_case("integer")
+            || s.eq_ignore_ascii_case("int") =>
+        {
+            "i32"
+        }
+        s if s.eq_ignore_ascii_case("int8") || s.eq_ignore_ascii_case("bigint") => "i64",
+        s if s.eq_ignore_ascii_case("serial") || s.eq_ignore_ascii_case("serial4") => "i32",
+        s if s.eq_ignore_ascii_case("bigserial") || s.eq_ignore_ascii_case("serial8") => "i64",
+        s if s.eq_ignore_ascii_case("smallserial") || s.eq_ignore_ascii_case("serial2") => "i16",
 
         // Floating point
-        "float4" | "real" => "f32",
-        "float8" | "double precision" => "f64",
-        "numeric" | "decimal" => "String", // Use String for precise decimals
+        s if s.eq_ignore_ascii_case("float4") || s.eq_ignore_ascii_case("real") => "f32",
+        s if s.eq_ignore_ascii_case("float8") || s.eq_ignore_ascii_case("double precision") => "f64",
+        s if s.eq_ignore_ascii_case("numeric") || s.eq_ignore_ascii_case("decimal") => "String", // Use String for precise decimals
 
         // Boolean
-        "bool" | "boolean" => "bool",
+        s if s.eq_ignore_ascii_case("bool") || s.eq_ignore_ascii_case("boolean") => "bool",
 
         // Text types
-        "text" | "varchar" | "char" | "bpchar" | "name" => "String",
+        s if s.eq_ignore_ascii_case("text")
+            || s.eq_ignore_ascii_case("varchar")
+            || s.eq_ignore_ascii_case("char")
+            || s.eq_ignore_ascii_case("bpchar")
+            || s.eq_ignore_ascii_case("name") =>
+        {
+            "String"
+        }
 
         // Binary
-        "bytea" => "Vec<u8>",
+        s if s.eq_ignore_ascii_case("bytea") => "Vec<u8>",
 
         // UUID
-        "uuid" => "uuid::Uuid",
+        s if s.eq_ignore_ascii_case("uuid") => "uuid::Uuid",
 
         // Date/Time types
-        "date" => "chrono::NaiveDate",
-        "time" => "chrono::NaiveTime",
-        "timestamp" => "chrono::NaiveDateTime",
-        "timestamptz" => "chrono::DateTime<chrono::Utc>",
+        s if s.eq_ignore_ascii_case("date") => "chrono::NaiveDate",
+        s if s.eq_ignore_ascii_case("time") => "chrono::NaiveTime",
+        s if s.eq_ignore_ascii_case("timestamp") => "chrono::NaiveDateTime",
+        s if s.eq_ignore_ascii_case("timestamptz") => "chrono::DateTime<chrono::Utc>",
 
         // JSON
-        "json" | "jsonb" => "serde_json::Value",
+        s if s.eq_ignore_ascii_case("json") || s.eq_ignore_ascii_case("jsonb") => "serde_json::Value",
 
         // Default to String for unknown types
         _ => "String",

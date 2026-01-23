@@ -12,7 +12,7 @@ use drizzle_migrations::{
         ddl::{Table, parse_table_ddl},
         introspect::{
             IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
-            process_columns, process_foreign_keys, process_indexes,
+            process_columns, process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
         },
     },
 };
@@ -114,7 +114,7 @@ fn introspect_database(conn: &Connection) -> IntrospectionResult {
     let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
     for (table_name, sql) in &table_sql_map {
         let mut col_stmt = conn.prepare(&format!(
-            "SELECT name, type, \"notnull\", dflt_value, pk, hidden FROM pragma_table_xinfo('{}')",
+            "SELECT cid, name, type, \"notnull\", dflt_value, pk, hidden FROM pragma_table_xinfo('{}')",
             table_name
         )).unwrap();
 
@@ -122,12 +122,13 @@ fn introspect_database(conn: &Connection) -> IntrospectionResult {
             .query_map([], |row| {
                 Ok(RawColumnInfo {
                     table: table_name.clone(),
-                    name: row.get(0)?,
-                    column_type: row.get(1)?,
-                    not_null: row.get::<_, i32>(2)? != 0,
-                    default_value: row.get(3)?,
-                    pk: row.get(4)?,
-                    hidden: row.get(5)?,
+                    cid: row.get(0)?,
+                    name: row.get(1)?,
+                    column_type: row.get(2)?,
+                    not_null: row.get::<_, i32>(3)? != 0,
+                    default_value: row.get(4)?,
+                    pk: row.get(5)?,
+                    hidden: row.get(6)?,
                     sql: Some(sql.clone()),
                 })
             })
@@ -235,21 +236,9 @@ fn introspect_database(conn: &Connection) -> IntrospectionResult {
 
     result.foreign_keys = process_foreign_keys(&raw_fks);
 
-    // Parse unique constraints from table DDL
-    for (table_name, sql) in &table_sql_map {
-        let parsed = parse_table_ddl(sql);
-        for parsed_unique in parsed.uniques {
-            result.unique_constraints.push(
-                drizzle_migrations::sqlite::ddl::UniqueConstraint::from_strings(
-                    table_name.clone(),
-                    parsed_unique.name.unwrap_or_else(|| {
-                        format!("{}_{}_unique", table_name, parsed_unique.columns.join("_"))
-                    }),
-                    parsed_unique.columns,
-                ),
-            );
-        }
-    }
+    // Unique constraints (origin == 'u' indexes, including inline column UNIQUE)
+    result.unique_constraints =
+        process_unique_constraints_from_indexes(&raw_indexes, &raw_index_columns);
 
     result
 }
@@ -368,12 +357,10 @@ fn verify_generated_code(generated: &GeneratedSchema) {
         username_field.ty, "String",
         "Users.username should be String (NOT NULL)"
     );
-    // TODO: Inline column UNIQUE is not yet detected by introspection
-    // (UNIQUE via constraint/index IS detected, just not inline column UNIQUE)
-    // assert!(
-    //     username_field.has_attr("unique"),
-    //     "Users.username should have unique attribute"
-    // );
+    assert!(
+        username_field.has_attr("unique"),
+        "Users.username should have unique attribute"
+    );
 
     // Users.email: TEXT NOT NULL (no unique, that's via index)
     let email_field = users.field("email").expect("Users should have email field");
@@ -514,11 +501,10 @@ fn verify_generated_code(generated: &GeneratedSchema) {
         key_field.ty, "String",
         "Settings.key should be String (NOT NULL)"
     );
-    // TODO: Inline column UNIQUE is not yet detected by introspection
-    // assert!(
-    //     key_field.has_attr("unique"),
-    //     "Settings.key should have unique attribute"
-    // );
+    assert!(
+        key_field.has_attr("unique"),
+        "Settings.key should have unique attribute"
+    );
 
     let value_field = settings
         .field("value")

@@ -8,6 +8,8 @@ use super::ddl::{
     UniqueConstraint, View,
 };
 use super::snapshot::SQLiteSnapshot;
+use super::ddl::{GeneratedType, ParsedGenerated};
+use std::collections::HashMap;
 
 /// Error type for introspection operations
 #[derive(Debug, Clone)]
@@ -35,6 +37,7 @@ pub type IntrospectResult<T> = Result<T, IntrospectError>;
 #[derive(Debug, Clone)]
 pub struct RawColumnInfo {
     pub table: String,
+    pub cid: i32,
     pub name: String,
     pub column_type: String,
     pub not_null: bool,
@@ -160,6 +163,18 @@ pub fn process_columns(
     generated_columns: &std::collections::HashMap<String, super::ddl::ParsedGenerated>,
     _pk_columns: &std::collections::HashSet<(String, String)>, // (table, column) - reserved for future use
 ) -> (Vec<Column>, Vec<PrimaryKey>) {
+    // Precompute AUTOINCREMENT columns once per table (avoids per-column regex compilation).
+    let mut autoinc_by_table: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for c in raw_columns {
+        if autoinc_by_table.contains_key(&c.table) {
+            continue;
+        }
+        let Some(sql) = c.sql.as_deref() else {
+            continue;
+        };
+        autoinc_by_table.insert(c.table.clone(), parse_autoincrement_columns_from_table_sql(sql));
+    }
+
     let columns: Vec<Column> = raw_columns
         .iter()
         .filter(|c| c.hidden != 2 && c.hidden != 3) // Filter out hidden columns
@@ -170,7 +185,9 @@ pub fn process_columns(
                 gen_type: g.gen_type,
             });
 
-            let is_autoincrement = is_auto_increment(&c.sql, &c.name);
+            let is_autoincrement = autoinc_by_table
+                .get(&c.table)
+                .is_some_and(|set| set.contains(&c.name));
 
             Column {
                 table: c.table.clone().into(),
@@ -182,6 +199,7 @@ pub fn process_columns(
                 unique: None,      // Handled via UniqueConstraint entity
                 default: c.default_value.clone().map(|s| s.into()),
                 generated,
+                ordinal_position: Some(c.cid),
             }
         })
         .collect();
@@ -218,19 +236,100 @@ fn normalize_sql_type(sql_type: &str) -> String {
     sql_type.to_lowercase()
 }
 
-/// Check if a column is autoincrement based on the CREATE TABLE SQL
-fn is_auto_increment(sql: &Option<String>, column_name: &str) -> bool {
-    if let Some(sql) = sql {
-        // Check if the column is marked as INTEGER PRIMARY KEY AUTOINCREMENT
-        let pattern = format!(
-            r#"(?i)["'`\[]?{}["'`\]]?\s+INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT"#,
-            regex::escape(column_name)
-        );
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            return re.is_match(sql);
+/// Parse AUTOINCREMENT columns from a CREATE TABLE SQL statement.
+///
+/// This avoids regex compilation in hot paths and is tolerant of common quoting styles.
+fn parse_autoincrement_columns_from_table_sql(sql: &str) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+
+    let sql = sql.trim();
+    let Some(start) = sql.find('(') else {
+        return out;
+    };
+
+    let mut depth = 0i32;
+    let mut end: Option<usize> = None;
+    for (i, ch) in sql.char_indices().skip(start) {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(i);
+                    break;
+                }
+            }
+            _ => {}
         }
     }
-    false
+    let Some(end) = end else {
+        return out;
+    };
+
+    let body = &sql[start + 1..end];
+
+    // Split on top-level commas (ignore commas inside parentheses).
+    let mut parts: Vec<&str> = Vec::new();
+    let mut part_start = 0usize;
+    let mut p_depth = 0i32;
+    for (i, ch) in body.char_indices() {
+        match ch {
+            '(' => p_depth += 1,
+            ')' => p_depth -= 1,
+            ',' if p_depth == 0 => {
+                parts.push(body[part_start..i].trim());
+                part_start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(body[part_start..].trim());
+
+    for item in parts {
+        if item.is_empty() {
+            continue;
+        }
+
+        let upper = item.to_uppercase();
+        // Skip table-level constraints.
+        if upper.starts_with("CONSTRAINT ")
+            || upper.starts_with("PRIMARY ")
+            || upper.starts_with("UNIQUE ")
+            || upper.starts_with("CHECK ")
+            || upper.starts_with("FOREIGN ")
+        {
+            continue;
+        }
+
+        if !upper.contains("AUTOINCREMENT") {
+            continue;
+        }
+        if !(upper.contains("INTEGER") && upper.contains("PRIMARY") && upper.contains("KEY")) {
+            continue;
+        }
+
+        // Parse column name (first token, handling quotes/backticks/brackets).
+        let rest = item.trim();
+        let col_name: String;
+        if let Some(r) = rest.strip_prefix('"') {
+            let Some(endq) = r.find('"') else { continue };
+            col_name = r[..endq].to_string();
+        } else if let Some(r) = rest.strip_prefix('`') {
+            let Some(endq) = r.find('`') else { continue };
+            col_name = r[..endq].to_string();
+        } else if let Some(r) = rest.strip_prefix('[') {
+            let Some(endq) = r.find(']') else { continue };
+            col_name = r[..endq].to_string();
+        } else {
+            let mut it = rest.split_whitespace();
+            let Some(name) = it.next() else { continue };
+            col_name = name.to_string();
+        }
+
+        out.insert(col_name);
+    }
+
+    out
 }
 
 /// Process raw index info into Index entities
@@ -262,6 +361,46 @@ pub fn process_indexes(
                 where_clause: None,
                 origin: IndexOrigin::Manual,
             }
+        })
+        .collect()
+}
+
+/// Extract unique constraints from pragma index list + index_xinfo.
+///
+/// SQLite reports UNIQUE constraints (including inline column UNIQUE and table-level UNIQUE)
+/// as indexes with `origin == "u"`. These should be represented as `UniqueConstraint` entities
+/// so codegen can emit `#[column(unique)]` for single-column uniques.
+pub fn process_unique_constraints_from_indexes(
+    raw_indexes: &[RawIndexInfo],
+    index_columns: &[RawIndexColumn],
+) -> Vec<UniqueConstraint> {
+    use std::borrow::Cow;
+
+    raw_indexes
+        .iter()
+        .filter(|idx| idx.origin == "u")
+        .filter_map(|idx| {
+            let mut cols: Vec<(i32, Cow<'static, str>)> = index_columns
+                .iter()
+                .filter(|c| c.index_name == idx.name && c.key)
+                .filter_map(|c| c.name.as_ref().map(|name| (c.seqno, Cow::Owned(name.clone()))))
+                .collect();
+
+            cols.sort_by_key(|(seq, _)| *seq);
+            let columns: Vec<Cow<'static, str>> = cols.into_iter().map(|(_, c)| c).collect();
+            if columns.is_empty() {
+                return None;
+            }
+
+            let columns_refs: Vec<&str> = columns.iter().map(|c| c.as_ref()).collect();
+            let name = super::ddl::name_for_unique(&idx.table, &columns_refs);
+
+            Some(UniqueConstraint {
+                table: Cow::Owned(idx.table.clone()),
+                name: Cow::Owned(name),
+                name_explicit: false,
+                columns: Cow::Owned(columns),
+            })
         })
         .collect()
 }
@@ -469,6 +608,159 @@ pub fn parse_view_sql(sql: &str) -> Option<String> {
     }
 }
 
+/// Parse generated columns from a CREATE TABLE SQL statement.
+///
+/// Returns a map keyed by `"table:column"` matching the key format used by `process_columns`.
+///
+/// This is intentionally a small, tolerant parser (not a full SQL parser). It handles common
+/// SQLite syntax for generated columns:
+/// - `col TYPE GENERATED ALWAYS AS (expr) STORED`
+/// - `col TYPE GENERATED ALWAYS AS (expr) VIRTUAL`
+pub fn parse_generated_columns_from_table_sql(table: &str, sql: &str) -> HashMap<String, ParsedGenerated> {
+    let mut out: HashMap<String, ParsedGenerated> = HashMap::new();
+
+    let sql = sql.trim();
+    // Find the first '(' after CREATE TABLE and extract the table body until the matching ')'.
+    let Some(start) = sql.find('(') else {
+        return out;
+    };
+
+    let mut depth = 0i32;
+    let mut end: Option<usize> = None;
+    for (i, ch) in sql.char_indices().skip(start) {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(end) = end else {
+        return out;
+    };
+
+    let body = &sql[start + 1..end];
+
+    // Split on top-level commas (ignore commas inside parentheses).
+    let mut parts: Vec<&str> = Vec::new();
+    let mut part_start = 0usize;
+    let mut p_depth = 0i32;
+    for (i, ch) in body.char_indices() {
+        match ch {
+            '(' => p_depth += 1,
+            ')' => p_depth -= 1,
+            ',' if p_depth == 0 => {
+                parts.push(body[part_start..i].trim());
+                part_start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(body[part_start..].trim());
+
+    for item in parts {
+        if item.is_empty() {
+            continue;
+        }
+        let upper = item.to_uppercase();
+        if !upper.contains("GENERATED") {
+            continue;
+        }
+        // Skip table-level constraints.
+        if upper.starts_with("CONSTRAINT ")
+            || upper.starts_with("PRIMARY ")
+            || upper.starts_with("UNIQUE ")
+            || upper.starts_with("CHECK ")
+            || upper.starts_with("FOREIGN ")
+        {
+            continue;
+        }
+
+        // Parse column name (first token, handling quotes/backticks/brackets).
+        let mut rest = item.trim();
+        let col_name: String;
+        if let Some(r) = rest.strip_prefix('"') {
+            if let Some(endq) = r.find('"') {
+                col_name = r[..endq].to_string();
+                rest = r[endq + 1..].trim_start();
+            } else {
+                continue;
+            }
+        } else if let Some(r) = rest.strip_prefix('`') {
+            if let Some(endq) = r.find('`') {
+                col_name = r[..endq].to_string();
+                rest = r[endq + 1..].trim_start();
+            } else {
+                continue;
+            }
+        } else if let Some(r) = rest.strip_prefix('[') {
+            if let Some(endq) = r.find(']') {
+                col_name = r[..endq].to_string();
+                rest = r[endq + 1..].trim_start();
+            } else {
+                continue;
+            }
+        } else {
+            let mut it = rest.split_whitespace();
+            let Some(name) = it.next() else { continue };
+            col_name = name.to_string();
+        }
+
+        // Find " AS (" and extract expression with balanced parentheses.
+        let upper_rest = rest.to_uppercase();
+        let Some(as_pos) = upper_rest.find(" AS ") else {
+            continue;
+        };
+        let after_as = &rest[as_pos + 4..];
+        let Some(expr_start_rel) = after_as.find('(') else {
+            continue;
+        };
+        let expr_start = as_pos + 4 + expr_start_rel;
+
+        let mut expr_depth = 0i32;
+        let mut expr_end: Option<usize> = None;
+        for (i, ch) in rest.char_indices().skip(expr_start) {
+            match ch {
+                '(' => expr_depth += 1,
+                ')' => {
+                    expr_depth -= 1;
+                    if expr_depth == 0 {
+                        expr_end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(expr_end) = expr_end else {
+            continue;
+        };
+
+        let expression = rest[expr_start + 1..expr_end].trim().to_string();
+        let after_expr = rest[expr_end + 1..].to_uppercase();
+        let gen_type = if after_expr.contains("STORED") {
+            GeneratedType::Stored
+        } else {
+            GeneratedType::Virtual
+        };
+
+        out.insert(
+            format!("{}:{}", table, col_name),
+            ParsedGenerated {
+                expression,
+                gen_type,
+            },
+        );
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,11 +785,31 @@ mod tests {
     }
 
     #[test]
-    fn test_is_auto_increment() {
-        let sql = Some(
-            "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)".to_string(),
-        );
-        assert!(is_auto_increment(&sql, "id"));
-        assert!(!is_auto_increment(&sql, "name"));
+    fn test_parse_autoincrement_columns_from_table_sql() {
+        let sql = "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)";
+        let cols = parse_autoincrement_columns_from_table_sql(sql);
+        assert!(cols.contains("id"));
+        assert!(!cols.contains("name"));
+    }
+
+    #[test]
+    fn test_parse_generated_columns_from_table_sql() {
+        let sql = r#"
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  first TEXT,
+  last TEXT,
+  full TEXT GENERATED ALWAYS AS (first || ' ' || last) VIRTUAL,
+  total INT GENERATED ALWAYS AS ((id + 1) * 2) STORED
+);
+"#;
+        let map = parse_generated_columns_from_table_sql("users", sql);
+        let full = map.get("users:full").expect("full generated");
+        assert_eq!(full.gen_type, GeneratedType::Virtual);
+        assert!(full.expression.contains("first"));
+
+        let total = map.get("users:total").expect("total generated");
+        assert_eq!(total.gen_type, GeneratedType::Stored);
+        assert!(total.expression.contains("id"));
     }
 }

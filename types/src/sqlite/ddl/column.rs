@@ -232,6 +232,7 @@ impl ColumnDef {
                 Some(g) => Some(g.into_generated()),
                 None => None,
             },
+            ordinal_position: None,
         }
     }
 }
@@ -308,6 +309,15 @@ pub struct Column {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     pub generated: Option<Generated>,
+
+    /// Ordinal position within the table (cid, 0-based).
+    ///
+    /// This is primarily populated by introspection and used for stable codegen ordering.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub ordinal_position: Option<i32>,
 }
 
 impl Column {
@@ -328,6 +338,7 @@ impl Column {
             unique: None,
             default: None,
             generated: None,
+            ordinal_position: None,
         }
     }
 

@@ -44,6 +44,7 @@ fn column(table: &str, name: &str, sql_type: &str) -> Column {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     }
 }
 
@@ -884,6 +885,7 @@ fn test_custom_schema_alterations() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     let mut to = from.clone();
@@ -898,6 +900,7 @@ fn test_custom_schema_alterations() {
         generated: None,
         identity: None,
         dimensions: None,
+        ordinal_position: None,
     });
 
     let sql = diff_to_sql(&from, &to);

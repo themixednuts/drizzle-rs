@@ -12,7 +12,7 @@
 //! The simplest way to run migrations is using the `migrate()` method on your Drizzle instance:
 //!
 //! ```ignore
-//! use drizzle::rusqlite::Drizzle;
+//! use drizzle::sqlite::rusqlite::Drizzle;
 //! use drizzle_migrations::{migrations, MigrationSet};
 //! use drizzle_types::Dialect;
 //!

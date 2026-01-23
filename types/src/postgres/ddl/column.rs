@@ -471,6 +471,7 @@ impl ColumnDef {
                 None => None,
             },
             dimensions: self.dimensions,
+            ordinal_position: None,
         }
     }
 }
@@ -552,6 +553,15 @@ pub struct Column {
     /// Array dimensions (for array types)
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
     pub dimensions: Option<i32>,
+
+    /// Ordinal position within the table (1-based).
+    ///
+    /// This is primarily populated by introspection and used for stable codegen ordering.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub ordinal_position: Option<i32>,
 }
 
 impl Column {
@@ -574,6 +584,7 @@ impl Column {
             generated: None,
             identity: None,
             dimensions: None,
+            ordinal_position: None,
         }
     }
 
