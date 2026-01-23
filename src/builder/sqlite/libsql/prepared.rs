@@ -11,7 +11,7 @@ use std::borrow::Cow;
 
 use libsql::{Connection, Row, params_from_iter};
 
-use super::super::sqlite_async_prepared_impl;
+use super::super::prepared_common::sqlite_async_prepared_impl;
 
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {

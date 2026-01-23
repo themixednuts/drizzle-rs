@@ -11,7 +11,7 @@ use std::borrow::Cow;
 
 use turso::{Connection, Row, params_from_iter};
 
-use super::super::sqlite_async_prepared_impl;
+use super::super::prepared_common::sqlite_async_prepared_impl;
 
 /// Turso-specific prepared statement (uses libsql under the hood)
 #[derive(Debug, Clone)]
