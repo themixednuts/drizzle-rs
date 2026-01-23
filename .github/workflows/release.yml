@@ -1,0 +1,225 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'cli-v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: drizzle
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 (glibc)
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          # Linux x86_64 (musl - static, more portable)
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          # Linux aarch64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          # macOS Intel
+          - target: x86_64-apple-darwin
+            os: macos-13
+            archive: tar.gz
+          # macOS Apple Silicon
+          - target: aarch64-apple-darwin
+            os: macos-14
+            archive: tar.gz
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Rust version
+        id: rust-version
+        shell: bash
+        run: |
+          RUST_VERSION=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
+          echo "version=$RUST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-version.outputs.version }}
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools (Linux musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --package drizzle-cli --all-features --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --package drizzle-cli --all-features --target ${{ matrix.target }}
+          fi
+
+      - name: Strip binary (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          BINARY="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            # Cross-compiled binaries need the right strip tool
+            docker run --rm -v "$(pwd):/workspace" -w /workspace \
+              ghcr.io/cross-rs/${{ matrix.target }}:main \
+              /usr/bin/${{ matrix.target }}-strip "$BINARY" || true
+          else
+            strip "$BINARY" || true
+          fi
+
+      - name: Prepare artifacts (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} dist/
+          cd dist
+          tar -czvf ${{ env.BINARY_NAME }}-${{ matrix.target }}.${{ matrix.archive }} ${{ env.BINARY_NAME }}
+          rm ${{ env.BINARY_NAME }}
+
+      - name: Prepare artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" -Destination "dist/"
+          Compress-Archive -Path "dist/${{ env.BINARY_NAME }}.exe" -DestinationPath "dist/${{ env.BINARY_NAME }}-${{ matrix.target }}.${{ matrix.archive }}"
+          Remove-Item "dist/${{ env.BINARY_NAME }}.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
+          path: dist/*
+          retention-days: 3
+          compression-level: 9
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum * > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#cli-}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: drizzle-cli v${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          generate_release_notes: true
+          files: release/*
+          body: |
+            ## drizzle-cli v${{ steps.version.outputs.version }}
+
+            ### Installation
+
+            #### Linux (x86_64, glibc)
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+            sudo mv drizzle /usr/local/bin/
+            ```
+
+            #### Linux (x86_64, musl - static)
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-x86_64-unknown-linux-musl.tar.gz | tar -xz
+            sudo mv drizzle /usr/local/bin/
+            ```
+
+            #### Linux (ARM64)
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-aarch64-unknown-linux-gnu.tar.gz | tar -xz
+            sudo mv drizzle /usr/local/bin/
+            ```
+
+            #### macOS (Intel)
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-x86_64-apple-darwin.tar.gz | tar -xz
+            sudo mv drizzle /usr/local/bin/
+            ```
+
+            #### macOS (Apple Silicon)
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-aarch64-apple-darwin.tar.gz | tar -xz
+            sudo mv drizzle /usr/local/bin/
+            ```
+
+            #### Windows (x86_64)
+            Download `drizzle-x86_64-pc-windows-msvc.zip`, extract, and add to PATH.
+
+            ### Verify
+            ```bash
+            drizzle --version
+            ```
+
+            ### Checksums
+            See `checksums-sha256.txt` for SHA256 hashes.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
