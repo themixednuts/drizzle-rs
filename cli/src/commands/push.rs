@@ -10,29 +10,35 @@ use crate::config::{Casing, DrizzleConfig};
 use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
+#[derive(Debug, Clone)]
+pub struct PushOptions {
+    pub cli_verbose: bool,
+    pub cli_strict: bool,
+    pub force: bool,
+    pub cli_explain: bool,
+    pub casing: Option<Casing>,
+    pub extensions_filters: Option<Vec<String>>,
+}
+
 /// Run the push command
 pub fn run(
     config: &DrizzleConfig,
     db_name: Option<&str>,
-    cli_verbose: bool,
-    cli_strict: bool,
-    _force: bool,
-    cli_explain: bool,
-    casing: Option<Casing>,
-    _extensions_filters: Option<Vec<String>>,
+    opts: PushOptions,
 ) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 
     let db = config.database(db_name)?;
 
     // CLI flags override config
-    let verbose = cli_verbose || db.verbose;
-    let explain = cli_explain;
-    let _effective_casing = casing.unwrap_or_else(|| db.effective_casing());
+    let verbose = opts.cli_verbose || db.verbose;
+    let explain = opts.cli_explain;
+    let _effective_casing = opts.casing.unwrap_or_else(|| db.effective_casing());
     // Note: extensions_filters would be used when introspecting the database
     // to filter out extension-specific types (e.g., PostGIS geometry types)
+    let _extensions_filters = opts.extensions_filters;
 
-    if cli_strict {
+    if opts.cli_strict {
         println!(
             "{}",
             "⚠️ Deprecated: Do not use '--strict'. Use '--explain' instead.".yellow()
@@ -47,6 +53,44 @@ pub fn run(
 
     println!("{}", "Pushing schema to database...".bright_cyan());
     println!();
+
+    // Get credentials
+    let credentials = db.credentials()?;
+    let credentials = match credentials {
+        Some(c) => c,
+        None => {
+            println!("{}", "No database credentials configured.".yellow());
+            println!();
+            println!("Add credentials to your drizzle.config.toml:");
+            println!();
+            println!("  {}", "[dbCredentials]".bright_black());
+            match db.dialect.to_base() {
+                drizzle_types::Dialect::SQLite => {
+                    println!("  {}", "url = \"./dev.db\"".bright_black());
+                }
+                drizzle_types::Dialect::PostgreSQL => {
+                    println!(
+                        "  {}",
+                        "url = \"postgres://user:pass@localhost:5432/db\"".bright_black()
+                    );
+                }
+                drizzle_types::Dialect::MySQL => {
+                    // drizzle-cli doesn't currently support MySQL end-to-end, but the base
+                    // dialect type includes it, so keep the match exhaustive.
+                    println!(
+                        "  {}",
+                        "url = \"mysql://user:pass@localhost:3306/db\"".bright_black()
+                    );
+                }
+            }
+            println!();
+            println!("Or use an environment variable:");
+            println!();
+            println!("  {}", "[dbCredentials]".bright_black());
+            println!("  {}", "url = { env = \"DATABASE_URL\" }".bright_black());
+            return Ok(());
+        }
+    };
 
     // Parse schema files
     let schema_files = db.schema_files()?;
@@ -84,53 +128,49 @@ pub fn run(
 
     // Build snapshot from parsed schema (use config dialect)
     let dialect = db.dialect.to_base();
-    let _code_snapshot = parse_result_to_snapshot(&parse_result, dialect);
+    let desired_snapshot = parse_result_to_snapshot(&parse_result, dialect);
 
-    // Display verbose output if enabled
-    if verbose {
+    // Compute push plan (DB snapshot -> desired snapshot)
+    let plan = crate::db::plan_push(&credentials, db.dialect, &desired_snapshot, db.breakpoints)?;
+
+    if !plan.warnings.is_empty() {
+        println!("{}", "Warnings:".bright_yellow());
+        for w in &plan.warnings {
+            println!("  {} {}", "-".bright_yellow(), w);
+        }
         println!();
-        println!("{}", "Verbose mode enabled - SQL statements:".bright_blue());
-        // TODO: Generate and display SQL statements
+    }
+
+    // Print SQL plan for explain/verbose
+    if explain || verbose {
+        if plan.sql_statements.is_empty() {
+            println!("{}", "No schema changes detected.".green());
+            return Ok(());
+        }
+
+        println!("{}", "--- Planned SQL ---".bright_black());
+        println!();
+        for stmt in &plan.sql_statements {
+            println!("{stmt}\n");
+        }
+        println!("{}", "--- End SQL ---".bright_black());
+        println!();
     }
 
     // Provide explain/dry-run output when requested
     if explain {
-        println!();
-        println!("{}", "--- Planned SQL changes ---".bright_black());
-        println!(
-            "{}",
-            "(Dry run) Diff requires a database connection.".yellow()
-        );
-        println!();
-        println!("  Tables that would be synced:");
-        for table_name in parse_result.tables.keys() {
-            println!("    {} {}", "->".bright_blue(), table_name);
-        }
-        println!();
-        println!(
-            "{}",
-            "Use the programmatic API to execute push.".bright_black()
-        );
         return Ok(());
     }
 
-    // Note: Push requires introspecting the database and comparing snapshots
-    // This requires driver-specific implementations
-    println!();
-    println!("{}", "Push requires a database connection.".yellow());
-    println!();
-    println!("  Use the programmatic API to push schema:");
-    println!();
-    println!(
-        "  {}",
-        "let (db, schema) = Drizzle::new(connection, Schema::new());".bright_black()
-    );
-    println!("  {}", "db.push().await?;".bright_black());
-    println!();
-    println!("  Tables that would be synced:");
-    for table_name in parse_result.tables.keys() {
-        println!("    {} {}", "->".bright_blue(), table_name);
+    if plan.sql_statements.is_empty() {
+        println!("{}", "No schema changes detected.".green());
+        return Ok(());
     }
+
+    // Apply plan
+    crate::db::apply_push(&credentials, db.dialect, &plan, opts.force)?;
+
+    println!("{}", "Push complete!".bright_green());
 
     Ok(())
 }

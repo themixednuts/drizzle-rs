@@ -50,7 +50,13 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
     };
 
     // Run migrations
-    let result = crate::db::run_migrations(&credentials, db.dialect, out_dir)?;
+    let result = crate::db::run_migrations(
+        &credentials,
+        db.dialect,
+        out_dir,
+        db.migrations_table(),
+        db.migrations_schema(),
+    )?;
 
     if result.applied_count == 0 {
         println!("  {}", "No pending migrations.".green());

@@ -122,12 +122,11 @@ fn find_legacy_snapshots(meta_folder: &Path) -> Result<Vec<std::path::PathBuf>, 
         let entry = entry.map_err(|e| CliError::IoError(e.to_string()))?;
         let path = entry.path();
 
-        if path.is_file() {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.ends_with("_snapshot.json") {
-                    snapshots.push(path);
-                }
-            }
+        if path.is_file()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with("_snapshot.json")
+        {
+            snapshots.push(path);
         }
     }
 

@@ -161,16 +161,12 @@ impl RolesFilter {
                 exclude,
             } => {
                 // Check provider exclusions
-                if let Some(p) = provider {
-                    if is_provider_role(p, role_name) {
-                        return false;
-                    }
+                if let Some(p) = provider && is_provider_role(p, role_name) {
+                    return false;
                 }
                 // Check explicit exclude list
-                if let Some(excl) = exclude {
-                    if excl.iter().any(|e| e == role_name) {
-                        return false;
-                    }
+                if let Some(excl) = exclude && excl.iter().any(|e| e == role_name) {
+                    return false;
                 }
                 // Check explicit include list (if specified, only include those)
                 if let Some(incl) = include {
@@ -695,6 +691,40 @@ fn yes() -> bool {
 }
 
 impl DatabaseConfig {
+    fn normalize_paths(&mut self, base_dir: &Path) {
+        // Resolve `out` relative to the config file directory for predictable behavior,
+        // especially when `--config` points at a file outside the current working directory.
+        if self.out.is_relative() {
+            self.out = base_dir.join(&self.out);
+        }
+
+        // Normalize schema patterns:
+        // - Resolve relative patterns relative to config dir
+        // - Use forward slashes to avoid glob escaping issues on Windows
+        let base = base_dir.to_string_lossy().replace('\\', "/");
+        let base = base.trim_end_matches('/').to_string();
+
+        let normalize_one = |p: &str| -> String {
+            let p_trim = p.trim();
+            let is_abs = Path::new(p_trim).is_absolute() || p_trim.starts_with("\\\\");
+            let joined = if is_abs || base.is_empty() || base == "." {
+                p_trim.to_string()
+            } else {
+                format!("{base}/{p_trim}")
+            };
+            joined.replace('\\', "/")
+        };
+
+        match &mut self.schema {
+            Schema::One(p) => *p = normalize_one(p),
+            Schema::Many(v) => {
+                for p in v.iter_mut() {
+                    *p = normalize_one(p);
+                }
+            }
+        }
+    }
+
     fn validate(&self, name: &str) -> Result<(), Error> {
         // Check driver compatibility
         if let Some(d) = self.driver
@@ -717,6 +747,19 @@ impl DatabaseConfig {
     fn validate_creds(&self, raw: &RawCreds, _name: &str) -> Result<(), Error> {
         let err = |msg: &str| Error::InvalidCredentials(msg.into());
 
+        // Enforce dialect/shape pairing. Without this, serde can parse a "host" form for
+        // any dialect, and later `credentials()` would silently return None.
+        match (self.dialect, raw) {
+            (Dialect::Postgresql, RawCreds::Host { .. }) => {}
+            (Dialect::Postgresql, RawCreds::Url { .. }) => {}
+            (_, RawCreds::Host { .. }) => {
+                return Err(err(
+                    "host-based dbCredentials are only supported for dialect = \"postgresql\"",
+                ));
+            }
+            _ => {}
+        }
+
         // Dialect-specific checks (only for direct values, not env var references)
         match (self.dialect, raw) {
             (
@@ -734,8 +777,23 @@ impl DatabaseConfig {
                     url: EnvOr::Value(url),
                     ..
                 },
-            ) if url.starts_with("libsql://") => {
-                Err(err("libsql:// URLs require dialect = \"turso\""))
+            ) if url.starts_with("libsql://") => Err(err(
+                "libsql:// URLs require dialect = \"turso\" (for local SQLite files, use ./path.db)",
+            )),
+            (
+                Dialect::Sqlite,
+                RawCreds::Url {
+                    url: EnvOr::Value(url),
+                    ..
+                },
+            ) if url.starts_with("http://")
+                || url.starts_with("https://")
+                || url.starts_with("postgres://")
+                || url.starts_with("postgresql://") =>
+            {
+                Err(err(
+                    "SQLite dbCredentials.url must be a local file path (not an http(s)/postgres URL)",
+                ))
             }
             (
                 Dialect::Turso,
@@ -844,11 +902,25 @@ impl DatabaseConfig {
         let mut files = Vec::new();
 
         for pattern in self.schema.iter() {
-            match glob::glob(pattern) {
+            let pat = pattern.trim();
+
+            // If it's not a glob pattern, treat it as a direct path (better Windows behavior).
+            let is_glob = pat.contains('*') || pat.contains('?') || pat.contains('[');
+            if !is_glob {
+                let p = PathBuf::from(pat);
+                if p.exists() {
+                    files.push(p);
+                    continue;
+                }
+            }
+
+            // Glob patterns: normalize separators to avoid `\` being treated as an escape.
+            let pat_norm = pat.replace('\\', "/");
+            match glob::glob(&pat_norm) {
                 Ok(paths) => {
                     let matched: Vec<_> = paths.filter_map(Result::ok).collect();
-                    if matched.is_empty() {
-                        let p = PathBuf::from(pattern);
+                    if matched.is_empty() && !is_glob {
+                        let p = PathBuf::from(&pat_norm);
                         if p.exists() {
                             files.push(p);
                         }
@@ -856,9 +928,14 @@ impl DatabaseConfig {
                         files.extend(matched);
                     }
                 }
-                Err(e) => return Err(Error::Glob(pattern.into(), e)),
+                Err(e) => return Err(Error::Glob(pat.into(), e)),
             }
         }
+
+        // Keep only real files (glob can return directories).
+        files.retain(|p| p.is_file());
+        files.sort();
+        files.dedup();
 
         if files.is_empty() {
             return Err(Error::NoSchemaFiles(self.schema_display()));
@@ -999,6 +1076,8 @@ impl Config {
 
     /// Load from string content
     fn load_from_str(content: &str, path: &Path) -> Result<Self, Error> {
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+
         // Try multi-database format first
         if let Ok(multi) = toml::from_str::<MultiDbConfig>(content)
             && !multi.databases.is_empty()
@@ -1007,6 +1086,9 @@ impl Config {
                 databases: multi.databases,
                 is_single: false,
             };
+            for db in config.databases.values_mut() {
+                db.normalize_paths(base_dir);
+            }
             config.validate()?;
             return Ok(config);
         }
@@ -1022,6 +1104,9 @@ impl Config {
             databases,
             is_single: true,
         };
+        for db in config.databases.values_mut() {
+            db.normalize_paths(base_dir);
+        }
         config.validate()?;
         Ok(config)
     }
@@ -1182,6 +1267,8 @@ pub type ConfigError = Error;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn sqlite() {
@@ -1410,5 +1497,89 @@ mod tests {
         let db2 = cfg2.default_database().unwrap();
         assert_eq!(db2.migrations_table(), "__drizzle_migrations");
         assert_eq!(db2.migrations_schema(), "drizzle");
+    }
+
+    #[test]
+    fn resolves_paths_relative_to_config_dir() {
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = tmp.path().join("cfg");
+        fs::create_dir_all(&cfg_dir).unwrap();
+
+        // Create schema file next to config file.
+        let schema_path = cfg_dir.join("schema.rs");
+        fs::write(&schema_path, "#[allow(dead_code)]\npub struct X;").unwrap();
+
+        let cfg_path = cfg_dir.join("drizzle.config.toml");
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            schema = "schema.rs"
+            out = "./drizzle"
+            [dbCredentials]
+            url = "./dev.db"
+        "#,
+            &cfg_path,
+        )
+        .unwrap();
+
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.migrations_dir(), cfg_dir.join("./drizzle").as_path());
+
+        let files = db.schema_files().unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0], schema_path);
+    }
+
+    #[test]
+    fn rejects_host_credentials_for_sqlite() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            [dbCredentials]
+            host = "localhost"
+            database = "db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("host-based dbCredentials are only supported"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn schema_files_accept_backslash_paths() {
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = tmp.path().join("cfg");
+        fs::create_dir_all(&cfg_dir).unwrap();
+
+        let schema_path = cfg_dir.join("src").join("schema.rs");
+        fs::create_dir_all(schema_path.parent().unwrap()).unwrap();
+        fs::write(&schema_path, "#[allow(dead_code)]\npub struct X;").unwrap();
+
+        // Write schema path with backslashes (common on Windows).
+        let schema_str = schema_path.to_string_lossy().replace('/', "\\");
+        // TOML basic strings treat backslash as an escape; double-escape to embed a Windows path.
+        let schema_toml = schema_str.replace('\\', "\\\\");
+        let cfg_path = cfg_dir.join("drizzle.config.toml");
+        let cfg = Config::load_from_str(
+            &format!(
+                r#"
+                dialect = "sqlite"
+                schema = "{}"
+            "#,
+                schema_toml
+            ),
+            &cfg_path,
+        )
+        .unwrap();
+
+        let db = cfg.default_database().unwrap();
+        let files = db.schema_files().unwrap();
+        assert_eq!(files, vec![schema_path]);
     }
 }

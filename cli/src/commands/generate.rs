@@ -20,7 +20,7 @@ pub fn run(
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::parser::SchemaParser;
-    use drizzle_migrations::words::generate_migration_tag;
+    use drizzle_migrations::words::{generate_migration_tag_with_mode, PrefixMode};
 
     let db = config.database(db_name)?;
 
@@ -103,8 +103,18 @@ pub fn run(
         sql_statements.len()
     );
 
-    // Write migration files (V3 format: timestamp-based tags)
-    let migration_tag = generate_migration_tag(name.as_deref());
+    // Load or create journal (needed for index-based prefixes)
+    let mut journal = Journal::load_or_create(&journal_path, dialect)
+        .map_err(|e| CliError::IoError(e.to_string()))?;
+
+    let prefix_mode = db
+        .migrations
+        .as_ref()
+        .and_then(|m| m.prefix)
+        .map(map_prefix_mode)
+        .unwrap_or(PrefixMode::Timestamp);
+
+    let migration_tag = generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), name.as_deref());
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -127,8 +137,6 @@ pub fn run(
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Update journal
-    let mut journal = Journal::load_or_create(&journal_path, dialect)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
     journal.add_entry(migration_tag.clone(), db.breakpoints);
     journal
         .save(&journal_path)
@@ -149,15 +157,25 @@ fn generate_custom_migration(
     name: Option<String>,
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
-    use drizzle_migrations::words::generate_migration_tag;
+    use drizzle_migrations::words::{generate_migration_tag_with_mode, PrefixMode};
 
     let out_dir = db.migrations_dir();
     let journal_path = db.journal_path();
     let dialect = db.dialect.to_base();
 
-    // V3 format: timestamp-based tags
     let custom_name = name.unwrap_or_else(|| "custom".to_string());
-    let migration_tag = generate_migration_tag(Some(&custom_name));
+    let mut journal =
+        Journal::load_or_create(&journal_path, dialect).map_err(|e| CliError::IoError(e.to_string()))?;
+
+    let prefix_mode = db
+        .migrations
+        .as_ref()
+        .and_then(|m| m.prefix)
+        .map(map_prefix_mode)
+        .unwrap_or(PrefixMode::Timestamp);
+
+    let migration_tag =
+        generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), Some(&custom_name));
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -170,8 +188,6 @@ fn generate_custom_migration(
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Update journal
-    let mut journal = Journal::load_or_create(&journal_path, dialect)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
     journal.add_entry(migration_tag.clone(), db.breakpoints);
     journal
         .save(&journal_path)
@@ -190,6 +206,16 @@ fn generate_custom_migration(
     Ok(())
 }
 
+fn map_prefix_mode(p: crate::config::MigrationPrefix) -> drizzle_migrations::PrefixMode {
+    match p {
+        crate::config::MigrationPrefix::Index => drizzle_migrations::PrefixMode::Index,
+        crate::config::MigrationPrefix::Timestamp => drizzle_migrations::PrefixMode::Timestamp,
+        crate::config::MigrationPrefix::Supabase => drizzle_migrations::PrefixMode::Supabase,
+        crate::config::MigrationPrefix::Unix => drizzle_migrations::PrefixMode::Unix,
+        crate::config::MigrationPrefix::None => drizzle_migrations::PrefixMode::None,
+    }
+}
+
 /// Load the previous snapshot from the migration directory
 fn load_previous_snapshot(
     out_dir: &Path,
@@ -199,15 +225,18 @@ fn load_previous_snapshot(
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::schema::Snapshot;
 
-    // Try to load journal and get latest snapshot
-    if let Ok(journal) = Journal::load(journal_path)
-        && let Some(latest) = journal.entries.last()
-    {
-        // Snapshot is in {out}/{tag}/snapshot.json
-        let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");
-        if snapshot_path.exists() {
-            return Snapshot::load(&snapshot_path, dialect)
-                .map_err(|e| CliError::IoError(e.to_string()));
+    // If a journal exists, it must be readable. Silently ignoring parse errors can
+    // lead to generating incorrect diffs and destructive migrations.
+    if journal_path.exists() {
+        let journal =
+            Journal::load(journal_path).map_err(|e| CliError::IoError(e.to_string()))?;
+        if let Some(latest) = journal.entries.last() {
+            // Snapshot is in {out}/{tag}/snapshot.json
+            let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");
+            if snapshot_path.exists() {
+                return Snapshot::load(&snapshot_path, dialect)
+                    .map_err(|e| CliError::IoError(e.to_string()));
+            }
         }
     }
 

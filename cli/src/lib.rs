@@ -1,17 +1,17 @@
 //! Drizzle CLI - Command-line interface for drizzle-rs migrations
 //!
 //! This crate provides a standalone CLI tool for managing database migrations
-//! using a `drizzle.toml` configuration file instead of requiring Rust code.
+//! using a `drizzle.config.toml` configuration file instead of requiring Rust code.
 //!
 //! # Quick Start
 //!
 //! 1. Install the CLI: `cargo install drizzle-cli`
-//! 2. Run `drizzle init` to create a `drizzle.toml`
+//! 2. Run `drizzle init` to create a `drizzle.config.toml`
 //! 3. Run `drizzle generate` to create migrations
 //!
 //! # Configuration
 //!
-//! Create a `drizzle.toml` file in your project root (or run `drizzle init`):
+//! Create a `drizzle.config.toml` file in your project root (or run `drizzle init`):
 //!
 //! ```toml
 //! dialect = "sqlite"
@@ -35,7 +35,7 @@
 //!
 //! # Commands
 //!
-//! - `drizzle init` - Create a new drizzle.toml configuration file
+//! - `drizzle init` - Create a new drizzle.config.toml configuration file
 //! - `drizzle generate` - Generate a new migration from schema changes
 //! - `drizzle generate --custom` - Create an empty migration for manual SQL
 //! - `drizzle status` - Show migration status

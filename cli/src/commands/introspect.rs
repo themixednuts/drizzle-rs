@@ -66,6 +66,8 @@ pub fn run(
                     );
                 }
                 drizzle_types::Dialect::MySQL => {
+                    // drizzle-cli doesn't currently support MySQL end-to-end, but the base
+                    // dialect type includes it, so keep the match exhaustive.
                     println!(
                         "  {}",
                         "url = \"mysql://user:pass@localhost:3306/db\"".bright_black()
@@ -82,8 +84,14 @@ pub fn run(
     };
 
     // Run introspection
-    let result =
-        crate::db::run_introspection(&credentials, db.dialect, effective_out, init_metadata)?;
+    let result = crate::db::run_introspection(
+        &credentials,
+        db.dialect,
+        effective_out,
+        init_metadata,
+        db.migrations_table(),
+        db.migrations_schema(),
+    )?;
 
     println!();
     println!(

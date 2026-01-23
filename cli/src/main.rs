@@ -157,12 +157,16 @@ enum Command {
 
     /// Initialize a new drizzle.config.toml configuration file
     Init {
-        /// Database dialect (sqlite, postgresql, mysql, turso, singlestore)
-        #[arg(short, long, default_value = "sqlite")]
+        /// Database dialect (sqlite, postgresql, turso)
+        #[arg(short, long, default_value = "sqlite", value_parser = ["sqlite", "postgresql", "postgres", "turso"])]
         dialect: String,
 
-        /// Database driver (d1-http, expo, aws-data-api, pglite, sqlite-cloud, durable-sqlite)
-        #[arg(short = 'r', long)]
+        /// Database driver (optional; Rust drivers only)
+        ///
+        /// - sqlite: rusqlite
+        /// - turso: libsql, turso
+        /// - postgresql: postgres-sync, tokio-postgres
+        #[arg(short = 'r', long, value_parser = ["rusqlite", "libsql", "turso", "postgres-sync", "tokio-postgres"])]
         driver: Option<String>,
     },
 }
@@ -232,12 +236,14 @@ fn run(cli: Cli) -> Result<(), CliError> {
             drizzle_cli::commands::push::run(
                 &config,
                 db_name,
-                verbose,
-                strict,
-                force,
-                explain,
-                casing,
-                extensions_filters,
+                drizzle_cli::commands::push::PushOptions {
+                    cli_verbose: verbose,
+                    cli_strict: strict,
+                    force,
+                    cli_explain: explain,
+                    casing,
+                    extensions_filters,
+                },
             )
         }
         Command::Introspect {
@@ -280,7 +286,14 @@ fn run(cli: Cli) -> Result<(), CliError> {
 /// Load configuration with fallback to default path
 fn load_config(custom_path: Option<&std::path::Path>) -> Result<DrizzleConfig, CliError> {
     match custom_path {
-        Some(path) => DrizzleConfig::load_from(path).map_err(Into::into),
+        Some(path) => {
+            // If the user points at a config in a different directory, also try to load a `.env`
+            // next to that config before resolving `{ env = "NAME" }` values.
+            if let Some(dir) = path.parent() {
+                let _ = dotenvy::from_path(dir.join(".env"));
+            }
+            DrizzleConfig::load_from(path).map_err(Into::into)
+        }
         None => DrizzleConfig::load().map_err(Into::into),
     }
 }
@@ -324,127 +337,30 @@ fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
 
 /// Generate the init configuration content based on dialect and driver
 fn generate_init_config(dialect: &str, driver: Option<&str>) -> Result<String, CliError> {
-    // Handle driver-specific configurations
-    if let Some(drv) = driver {
-        return match drv.to_lowercase().as_str() {
-            "d1-http" => Ok(format!(
+    let dialect = dialect.to_lowercase();
+    let driver = driver.map(|d| d.to_lowercase());
+
+    // Rust-only: keep init output aligned with what `cli/src/config.rs` can actually parse.
+    match dialect.as_str() {
+        "sqlite" => {
+            if let Some(ref d) = driver
+                && d != "rusqlite"
+            {
+                return Err(CliError::Other(format!(
+                    "Invalid driver for sqlite: {d}. Supported: rusqlite"
+                )));
+            }
+            Ok(format!(
                 r#"#:schema {}
 
-# Drizzle Configuration - Cloudflare D1
-# See: https://orm.drizzle.team/kit-docs/config-reference
+# Drizzle Configuration (drizzle-rs)
+#
+# This file is parsed by `drizzle-cli` and should stay aligned with its config schema:
+# - dialect: sqlite | turso | postgresql
+# - drivers: Rust drivers only (optional)
 
 dialect = "sqlite"
-driver = "d1-http"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-accountId = "your-cloudflare-account-id"
-databaseId = "your-d1-database-id"
-token = "your-cloudflare-api-token"
-"#,
-                SCHEMA_URL
-            )),
-            "aws-data-api" => Ok(format!(
-                r#"#:schema {}
-
-# Drizzle Configuration - AWS RDS Data API
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "postgresql"
-driver = "aws-data-api"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-database = "your-database-name"
-secretArn = "arn:aws:secretsmanager:region:account:secret:name"
-resourceArn = "arn:aws:rds:region:account:cluster:name"
-"#,
-                SCHEMA_URL
-            )),
-            "pglite" => Ok(format!(
-                r#"#:schema {}
-
-# Drizzle Configuration - PGlite
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "postgresql"
-driver = "pglite"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-url = "./dev.db"
-"#,
-                SCHEMA_URL
-            )),
-            "sqlite-cloud" => Ok(format!(
-                r#"#:schema {}
-
-# Drizzle Configuration - SQLite Cloud
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "sqlite"
-driver = "sqlite-cloud"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-url = "sqlitecloud://your-host.sqlite.cloud:8860/your-database?apikey=your-api-key"
-"#,
-                SCHEMA_URL
-            )),
-            "expo" => Ok(format!(
-                r#"#:schema {}
-
-# Drizzle Configuration - Expo SQLite
-# See: https://orm.drizzle.team/kit-docs/config-reference
-# Note: Expo driver is for React Native and not supported in drizzle-kit CLI
-
-dialect = "sqlite"
-driver = "expo"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-url = "./dev.db"
-"#,
-                SCHEMA_URL
-            )),
-            "durable-sqlite" => Ok(format!(
-                r#"#:schema {}
-
-# Drizzle Configuration - Cloudflare Durable Objects SQLite
-# See: https://orm.drizzle.team/kit-docs/config-reference
-# Note: Durable SQLite driver is not supported in drizzle-kit CLI
-
-dialect = "sqlite"
-driver = "durable-sqlite"
-schema = "src/schema.rs"
-out = "./drizzle"
-
-[dbCredentials]
-url = "./dev.db"
-"#,
-                SCHEMA_URL
-            )),
-            _ => Err(CliError::Other(format!(
-                "Unknown driver: {}. Valid drivers: d1-http, aws-data-api, pglite, sqlite-cloud, expo, durable-sqlite",
-                drv
-            ))),
-        };
-    }
-
-    // Handle dialect-only configurations
-    match dialect.to_lowercase().as_str() {
-        "sqlite" => Ok(format!(
-            r#"#:schema {}
-
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "sqlite"
+# driver = "rusqlite"
 schema = "src/schema.rs"
 out = "./drizzle"
 # breakpoints = true
@@ -452,15 +368,26 @@ out = "./drizzle"
 [dbCredentials]
 url = "./dev.db"
 "#,
-            SCHEMA_URL
-        )),
-        "turso" => Ok(format!(
-            r#"#:schema {}
+                SCHEMA_URL
+            ))
+        }
+        "turso" => {
+            if let Some(ref d) = driver
+                && d != "libsql"
+                && d != "turso"
+            {
+                return Err(CliError::Other(format!(
+                    "Invalid driver for turso: {d}. Supported: libsql, turso"
+                )));
+            }
+            Ok(format!(
+                r#"#:schema {}
 
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
+# Drizzle Configuration (drizzle-rs)
 
 dialect = "turso"
+# driver = "libsql"   # local libsql (embedded)
+# driver = "turso"    # remote Turso
 schema = "src/schema.rs"
 out = "./drizzle"
 # breakpoints = true
@@ -469,15 +396,26 @@ out = "./drizzle"
 url = "libsql://your-db.turso.io"
 authToken = "your-auth-token"
 "#,
-            SCHEMA_URL
-        )),
-        "postgresql" | "postgres" => Ok(format!(
-            r#"#:schema {}
+                SCHEMA_URL
+            ))
+        }
+        "postgresql" | "postgres" => {
+            if let Some(ref d) = driver
+                && d != "postgres-sync"
+                && d != "tokio-postgres"
+            {
+                return Err(CliError::Other(format!(
+                    "Invalid driver for postgresql: {d}. Supported: postgres-sync, tokio-postgres"
+                )));
+            }
+            Ok(format!(
+                r#"#:schema {}
 
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
+# Drizzle Configuration (drizzle-rs)
 
 dialect = "postgresql"
+# driver = "postgres-sync"
+# driver = "tokio-postgres"
 schema = "src/schema.rs"
 out = "./drizzle"
 # breakpoints = true
@@ -494,59 +432,11 @@ url = "postgres://user:password@localhost:5432/mydb"
 # database = "mydb"
 # ssl = true
 "#,
-            SCHEMA_URL
-        )),
-        "mysql" => Ok(format!(
-            r#"#:schema {}
-
-# Drizzle Configuration
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "mysql"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "mysql://user:password@localhost:3306/mydb"
-
-# Or use individual connection fields:
-# [dbCredentials]
-# host = "localhost"
-# port = 3306
-# user = "root"
-# password = "password"
-# database = "mydb"
-"#,
-            SCHEMA_URL
-        )),
-        "singlestore" => Ok(format!(
-            r#"#:schema {}
-
-# Drizzle Configuration - SingleStore
-# See: https://orm.drizzle.team/kit-docs/config-reference
-
-dialect = "singlestore"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "mysql://user:password@localhost:3306/mydb"
-
-# Or use individual connection fields:
-# [dbCredentials]
-# host = "localhost"
-# port = 3306
-# user = "root"
-# password = "password"
-# database = "mydb"
-"#,
-            SCHEMA_URL
-        )),
+                SCHEMA_URL
+            ))
+        }
         _ => Err(CliError::Other(format!(
-            "Unknown dialect: {}. Valid dialects: sqlite, turso, postgresql, mysql, singlestore",
-            dialect
+            "Unknown dialect: {dialect}. Supported: sqlite, turso, postgresql"
         ))),
     }
 }

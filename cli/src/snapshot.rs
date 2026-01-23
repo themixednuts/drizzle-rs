@@ -19,10 +19,7 @@ pub fn parse_result_to_snapshot(result: &ParseResult, dialect: Dialect) -> Snaps
     match dialect {
         Dialect::SQLite => Snapshot::Sqlite(build_sqlite_snapshot(result)),
         Dialect::PostgreSQL => Snapshot::Postgres(build_postgres_snapshot(result)),
-        Dialect::MySQL => {
-            // MySQL not yet fully supported
-            panic!("MySQL snapshot generation not yet implemented")
-        }
+        _ => unreachable!("Unsupported dialect for drizzle-cli snapshot generation: {dialect:?}"),
     }
 }
 
@@ -250,6 +247,7 @@ fn build_postgres_column(
             None
         },
         dimensions: None,
+        ordinal_position: None,
     }
 }
 
