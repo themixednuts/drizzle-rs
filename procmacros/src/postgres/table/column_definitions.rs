@@ -1,5 +1,8 @@
 use super::context::MacroContext;
-use crate::common::{generate_expr_impl, rust_type_to_nullability, rust_type_to_sql_type};
+use crate::common::{
+    generate_arithmetic_ops, generate_expr_impl, is_numeric_sql_type, rust_type_to_nullability,
+    rust_type_to_sql_type,
+};
 use crate::paths::postgres as postgres_paths;
 use crate::postgres::field::{FieldInfo, PostgreSQLType};
 use heck::ToUpperCamelCase;
@@ -232,10 +235,22 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         let postgres_value = postgres_paths::postgres_value();
         let expr_impl = generate_expr_impl(
             &zst_ident,
-            postgres_value,
+            postgres_value.clone(),
             sql_type_marker.clone(),
             sql_nullable_marker.clone(),
         );
+
+        // Generate arithmetic operators for numeric columns
+        let arithmetic_ops = if is_numeric_sql_type(rust_type) {
+            generate_arithmetic_ops(
+                &zst_ident,
+                postgres_value,
+                sql_type_marker,
+                sql_nullable_marker,
+            )
+        } else {
+            quote! {}
+        };
 
         let column_code = quote! {
             #[allow(non_camel_case_types)]
@@ -339,6 +354,9 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
             // Expr trait implementation for type-safe expressions
             #expr_impl
+
+            // Arithmetic operators for numeric columns
+            #arithmetic_ops
 
             // Include enum implementation if this is an enum field
             #enum_impl

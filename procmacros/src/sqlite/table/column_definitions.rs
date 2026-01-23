@@ -1,5 +1,8 @@
 use super::context::MacroContext;
-use crate::common::{generate_expr_impl, rust_type_to_nullability, rust_type_to_sql_type};
+use crate::common::{
+    generate_arithmetic_ops, generate_expr_impl, is_numeric_sql_type, rust_type_to_nullability,
+    rust_type_to_sql_type,
+};
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
@@ -202,9 +205,21 @@ pub(crate) fn generate_column_definitions<'a>(
         let expr_impl = generate_expr_impl(
             &zst_ident,
             sqlite_value.clone(),
-            sql_type_marker,
-            sql_nullable_marker,
+            sql_type_marker.clone(),
+            sql_nullable_marker.clone(),
         );
+
+        // Generate arithmetic operators for numeric columns
+        let arithmetic_ops = if is_numeric_sql_type(rust_type) {
+            generate_arithmetic_ops(
+                &zst_ident,
+                sqlite_value.clone(),
+                sql_type_marker,
+                sql_nullable_marker,
+            )
+        } else {
+            quote! {}
+        };
 
         let sqlite_column_impl = generate_sqlite_column(&zst_ident, quote! { #is_autoincrement });
         let to_sql_impl = generate_to_sql(&zst_ident, to_sql_body);
@@ -228,6 +243,7 @@ pub(crate) fn generate_column_definitions<'a>(
             #to_sql_impl
             #into_sqlite_value_impl
             #expr_impl
+            #arithmetic_ops
 
             // Include enum implementation if this is an enum field
             #enum_impl
