@@ -21,20 +21,29 @@
 
 mod agg;
 mod cmp;
+mod column_ops;
+mod datetime;
 mod logical;
+mod math;
 mod null;
 mod ops;
 mod primitives;
 mod set;
+mod string;
 mod typed;
 mod util;
 
 pub use agg::*;
 pub use cmp::*;
+#[doc(hidden)]
+pub use column_ops::*;
+pub use datetime::*;
 pub use logical::*;
+pub use math::*;
 pub use null::*;
 pub use set::*;
-// ops and primitives only have trait impls - no items to re-export
+pub use string::*;
+// ops has only trait impls - no items to re-export
 pub use typed::*;
 pub use util::*;
 
