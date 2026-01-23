@@ -59,5 +59,5 @@ pub use dialect::{Dialect, DialectParseError};
 pub mod prelude {
     pub use crate::Dialect;
     pub use crate::postgres::{PgTypeCategory, PostgreSQLType, TypeCategory as PgRustTypeCategory};
-    pub use crate::sqlite::{SQLiteType, SQLTypeCategory, TypeCategory as SqliteRustTypeCategory};
+    pub use crate::sqlite::{SQLTypeCategory, SQLiteType, TypeCategory as SqliteRustTypeCategory};
 }
