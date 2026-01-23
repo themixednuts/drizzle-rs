@@ -1,13 +1,14 @@
 //! Drizzle CLI - Main entry point
 //!
 //! This is the main binary for the drizzle-cli tool.
+//! CLI interface matches drizzle-kit for TypeScript compatibility.
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use drizzle_cli::config::DrizzleConfig;
+use drizzle_cli::config::{Casing, DrizzleConfig, IntrospectCasing};
 use drizzle_cli::error::CliError;
 
 /// Default configuration file name
@@ -35,6 +36,8 @@ struct Cli {
 }
 
 /// CLI subcommands
+///
+/// These commands match drizzle-kit for TypeScript compatibility.
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Generate a new migration from schema changes
@@ -46,13 +49,25 @@ enum Command {
         /// Create a custom (empty) migration file for manual SQL
         #[arg(long)]
         custom: bool,
+
+        /// Casing for generated identifiers (camelCase or snake_case)
+        #[arg(long, value_parser = parse_casing)]
+        casing: Option<Casing>,
     },
 
     /// Run pending migrations
     Migrate,
 
     /// Upgrade migration snapshots to the latest version
-    Up,
+    Up {
+        /// Override dialect from config
+        #[arg(long)]
+        dialect: Option<String>,
+
+        /// Override output directory
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 
     /// Push schema changes directly to database (without migration files)
     Push {
@@ -60,13 +75,25 @@ enum Command {
         #[arg(long)]
         verbose: bool,
 
-        /// Require confirmation before executing
-        #[arg(long)]
+        /// Deprecated: use --explain instead
+        #[arg(long, hide = true)]
         strict: bool,
 
-        /// Force execution without warnings
+        /// Force execution without warnings (auto-approve data-loss statements)
         #[arg(long)]
         force: bool,
+
+        /// Print planned SQL changes without executing them (dry run)
+        #[arg(long)]
+        explain: bool,
+
+        /// Casing for identifiers (camelCase or snake_case)
+        #[arg(long, value_parser = parse_casing)]
+        casing: Option<Casing>,
+
+        /// Extensions filter (e.g., postgis)
+        #[arg(long = "extensionsFilters", value_delimiter = ',')]
+        extensions_filters: Option<Vec<String>>,
     },
 
     /// Introspect database and generate schema
@@ -74,6 +101,18 @@ enum Command {
         /// Initialize migration metadata after introspecting
         #[arg(long, name = "init")]
         init_metadata: bool,
+
+        /// Casing for introspected identifiers (camel or preserve)
+        #[arg(long, value_parser = parse_introspect_casing)]
+        casing: Option<IntrospectCasing>,
+
+        /// Override output directory
+        #[arg(long)]
+        out: Option<PathBuf>,
+
+        /// Override breakpoints setting
+        #[arg(long)]
+        breakpoints: Option<bool>,
     },
 
     /// Introspect database and generate schema (alias for introspect)
@@ -81,13 +120,33 @@ enum Command {
         /// Initialize migration metadata after introspecting
         #[arg(long, name = "init")]
         init_metadata: bool,
+
+        /// Casing for introspected identifiers (camel or preserve)
+        #[arg(long, value_parser = parse_introspect_casing)]
+        casing: Option<IntrospectCasing>,
+
+        /// Override output directory
+        #[arg(long)]
+        out: Option<PathBuf>,
+
+        /// Override breakpoints setting
+        #[arg(long)]
+        breakpoints: Option<bool>,
     },
 
     /// Show migration status
     Status,
 
     /// Validate configuration file
-    Check,
+    Check {
+        /// Override dialect from config
+        #[arg(long)]
+        dialect: Option<String>,
+
+        /// Override output directory
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 
     /// Export schema as SQL statements
     Export {
@@ -106,6 +165,16 @@ enum Command {
         #[arg(short = 'r', long)]
         driver: Option<String>,
     },
+}
+
+/// Parse casing argument
+fn parse_casing(s: &str) -> Result<Casing, String> {
+    s.parse()
+}
+
+/// Parse introspect casing argument
+fn parse_introspect_casing(s: &str) -> Result<IntrospectCasing, String> {
+    s.parse()
 }
 
 fn main() -> ExitCode {
@@ -130,37 +199,76 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
     match cli.command {
         Command::Init { dialect, driver } => run_init(&dialect, driver.as_deref()),
-        Command::Generate { name, custom } => {
+        Command::Generate {
+            name,
+            custom,
+            casing,
+        } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::generate::run(&config, db_name, name, custom)
+            drizzle_cli::commands::generate::run(&config, db_name, name, custom, casing)
         }
         Command::Migrate => {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::migrate::run(&config, db_name)
         }
-        Command::Up => {
+        Command::Up { dialect, out } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::upgrade::run(&config, db_name)
+            drizzle_cli::commands::upgrade::run(
+                &config,
+                db_name,
+                dialect.as_deref(),
+                out.as_deref(),
+            )
         }
         Command::Push {
             verbose,
             strict,
             force,
+            explain,
+            casing,
+            extensions_filters,
         } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::push::run(&config, db_name, verbose, strict, force)
+            drizzle_cli::commands::push::run(
+                &config,
+                db_name,
+                verbose,
+                strict,
+                force,
+                explain,
+                casing,
+                extensions_filters,
+            )
         }
-        Command::Introspect { init_metadata } | Command::Pull { init_metadata } => {
+        Command::Introspect {
+            init_metadata,
+            casing,
+            out,
+            breakpoints,
+        }
+        | Command::Pull {
+            init_metadata,
+            casing,
+            out,
+            breakpoints,
+        } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::introspect::run(&config, db_name, init_metadata)
+            drizzle_cli::commands::introspect::run(
+                &config,
+                db_name,
+                init_metadata,
+                casing,
+                out.as_deref(),
+                breakpoints,
+            )
         }
         Command::Status => {
             let config = load_config(cli.config.as_deref())?;
             drizzle_cli::commands::status::run(&config, db_name)
         }
-        Command::Check => {
+        Command::Check { dialect, out } => {
             let config = load_config(cli.config.as_deref())?;
-            drizzle_cli::commands::check::run(&config, db_name)
+            drizzle_cli::commands::check::run(&config, db_name, dialect.as_deref(), out.as_deref())
         }
         Command::Export { sql } => {
             let config = load_config(cli.config.as_deref())?;

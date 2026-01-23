@@ -1,12 +1,24 @@
 //! Check command - validates configuration
 
+use std::path::Path;
+
 use colored::Colorize;
 
 use crate::config::{Config, Credentials, PostgresCreds};
 use crate::error::CliError;
 
-pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
+pub fn run(
+    config: &Config,
+    db_name: Option<&str>,
+    _dialect_override: Option<&str>,
+    out_override: Option<&Path>,
+) -> Result<(), CliError> {
     let db = config.database(db_name)?;
+
+    // CLI flags override config
+    let effective_out = out_override
+        .map(Path::to_path_buf)
+        .unwrap_or(db.out.clone());
 
     println!("{}", "Checking configuration...".bright_cyan());
     println!();
@@ -25,7 +37,7 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
         println!("  {}: {}", "Driver".bright_blue(), driver);
     }
     println!("  {}: {}", "Schema".bright_blue(), db.schema_display());
-    println!("  {}: {}", "Output".bright_blue(), db.out.display());
+    println!("  {}: {}", "Output".bright_blue(), effective_out.display());
 
     // Schema files
     println!();
@@ -47,10 +59,11 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     // Migrations dir
     println!();
     print!("  {} Migrations... ", "Checking".bright_blue());
-    let dir = db.migrations_dir();
+    let dir = &effective_out;
+    let journal_path = effective_out.join("meta").join("_journal.json");
     if dir.exists() {
         println!("{}", "OK".green());
-        if db.journal_path().exists() {
+        if journal_path.exists() {
             println!("    Journal: {}", "found".green());
         } else {
             println!("    Journal: {} (run generate first)", "missing".yellow());

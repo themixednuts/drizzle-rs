@@ -2,6 +2,9 @@
 //!
 //! Handles loading `drizzle.config.toml` with type-safe credentials.
 //! Supports both single-database (legacy) and multi-database configurations.
+//!
+//! This configuration format is designed to be compatible with drizzle-kit
+//! so TypeScript users can use the same config expectations.
 
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -9,6 +12,241 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILE: &str = "drizzle.config.toml";
+
+// ============================================================================
+// Casing Options (matching drizzle-kit)
+// ============================================================================
+
+/// Casing mode for generated code and SQL identifiers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+pub enum Casing {
+    /// camelCase - e.g., "userId", "createdAt"
+    #[default]
+    #[serde(rename = "camelCase")]
+    CamelCase,
+    /// snake_case - e.g., "user_id", "created_at"
+    #[serde(rename = "snake_case")]
+    SnakeCase,
+}
+
+impl Casing {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CamelCase => "camelCase",
+            Self::SnakeCase => "snake_case",
+        }
+    }
+}
+
+impl std::fmt::Display for Casing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for Casing {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "camelCase" | "camel" => Ok(Self::CamelCase),
+            "snake_case" | "snake" => Ok(Self::SnakeCase),
+            _ => Err(format!(
+                "invalid casing '{}', expected 'camelCase' or 'snake_case'",
+                s
+            )),
+        }
+    }
+}
+
+/// Casing mode for introspection (pull command)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+pub enum IntrospectCasing {
+    /// Convert database names to camelCase
+    #[default]
+    #[serde(rename = "camel")]
+    Camel,
+    /// Preserve original database names
+    #[serde(rename = "preserve")]
+    Preserve,
+}
+
+impl IntrospectCasing {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Camel => "camel",
+            Self::Preserve => "preserve",
+        }
+    }
+}
+
+impl std::fmt::Display for IntrospectCasing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for IntrospectCasing {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "camel" | "camelCase" => Ok(Self::Camel),
+            "preserve" => Ok(Self::Preserve),
+            _ => Err(format!(
+                "invalid introspect casing '{}', expected 'camel' or 'preserve'",
+                s
+            )),
+        }
+    }
+}
+
+/// Introspection configuration
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct IntrospectConfig {
+    /// Casing mode for introspected identifiers
+    #[serde(default)]
+    pub casing: IntrospectCasing,
+}
+
+// ============================================================================
+// Entities Filter (matching drizzle-kit)
+// ============================================================================
+
+/// Roles filter configuration
+///
+/// Can be either a boolean (true = include all, false = exclude all)
+/// or a detailed configuration with provider/include/exclude lists.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RolesFilter {
+    /// Simple boolean: true = include all user roles, false = exclude all
+    Bool(bool),
+    /// Detailed configuration
+    Config {
+        /// Provider preset (e.g., "supabase", "neon") - excludes provider-specific roles
+        #[serde(default)]
+        provider: Option<String>,
+        /// Explicit list of role names to include
+        #[serde(default)]
+        include: Option<Vec<String>>,
+        /// Explicit list of role names to exclude
+        #[serde(default)]
+        exclude: Option<Vec<String>>,
+    },
+}
+
+impl Default for RolesFilter {
+    fn default() -> Self {
+        Self::Bool(false)
+    }
+}
+
+impl RolesFilter {
+    /// Check if roles should be included at all
+    pub fn is_enabled(&self) -> bool {
+        match self {
+            Self::Bool(b) => *b,
+            Self::Config { .. } => true,
+        }
+    }
+
+    /// Check if a specific role should be included
+    pub fn should_include(&self, role_name: &str) -> bool {
+        match self {
+            Self::Bool(b) => *b,
+            Self::Config {
+                provider,
+                include,
+                exclude,
+            } => {
+                // Check provider exclusions
+                if let Some(p) = provider {
+                    if is_provider_role(p, role_name) {
+                        return false;
+                    }
+                }
+                // Check explicit exclude list
+                if let Some(excl) = exclude {
+                    if excl.iter().any(|e| e == role_name) {
+                        return false;
+                    }
+                }
+                // Check explicit include list (if specified, only include those)
+                if let Some(incl) = include {
+                    return incl.iter().any(|i| i == role_name);
+                }
+                true
+            }
+        }
+    }
+}
+
+/// Check if a role belongs to a provider's built-in roles
+fn is_provider_role(provider: &str, role_name: &str) -> bool {
+    match provider {
+        "supabase" => matches!(
+            role_name,
+            "anon"
+                | "authenticated"
+                | "service_role"
+                | "supabase_admin"
+                | "supabase_auth_admin"
+                | "supabase_storage_admin"
+                | "dashboard_user"
+                | "supabase_replication_admin"
+                | "supabase_read_only_user"
+                | "supabase_realtime_admin"
+                | "supabase_functions_admin"
+                | "postgres"
+                | "pgbouncer"
+                | "pgsodium_keyholder"
+                | "pgsodium_keyiduser"
+                | "pgsodium_keymaker"
+        ),
+        "neon" => matches!(
+            role_name,
+            "neon_superuser" | "cloud_admin" | "authenticated" | "anonymous"
+        ),
+        _ => false,
+    }
+}
+
+/// Entities filter configuration
+///
+/// Controls which database entities are included in push/pull operations.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct EntitiesFilter {
+    /// Roles filter (PostgreSQL only)
+    #[serde(default)]
+    pub roles: RolesFilter,
+}
+
+// ============================================================================
+// Extensions Filter (PostgreSQL only)
+// ============================================================================
+
+/// Known PostgreSQL extensions that can be filtered
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Extension {
+    /// PostGIS spatial extension
+    Postgis,
+}
+
+impl Extension {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Postgis => "postgis",
+        }
+    }
+}
+
+impl std::fmt::Display for Extension {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 // ============================================================================
 // EnvOr - Environment variable or direct value
@@ -383,38 +621,67 @@ impl SslVal {
 // ============================================================================
 
 /// Configuration for a single database
+///
+/// This structure matches drizzle-kit's config format for compatibility.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseConfig {
+    /// Database dialect (required)
     pub dialect: Dialect,
 
+    /// Path(s) to schema file(s) - supports glob patterns
     #[serde(default)]
     pub schema: Schema,
 
+    /// Output directory for migrations (default: "./drizzle")
     #[serde(default = "default_out")]
     pub out: PathBuf,
 
+    /// Whether to use SQL breakpoints in migrations (default: true)
     #[serde(default = "yes")]
     pub breakpoints: bool,
 
+    /// Database driver for Rust connections
     #[serde(default)]
     pub driver: Option<Driver>,
 
+    /// Database credentials
     #[serde(default)]
     db_credentials: Option<RawCreds>,
 
+    /// Table name filter (glob patterns supported)
     #[serde(default)]
     pub tables_filter: Option<Filter>,
 
+    /// Schema name filter (PostgreSQL only)
     #[serde(default)]
     pub schema_filter: Option<Filter>,
 
+    /// Extensions filter (PostgreSQL only, e.g., ["postgis"])
+    #[serde(default)]
+    pub extensions_filters: Option<Vec<Extension>>,
+
+    /// Entities filter (roles, etc.)
+    #[serde(default)]
+    pub entities: Option<EntitiesFilter>,
+
+    /// Casing mode for generated code
+    #[serde(default)]
+    pub casing: Option<Casing>,
+
+    /// Introspection configuration
+    #[serde(default)]
+    pub introspect: Option<IntrospectConfig>,
+
+    /// Verbose output
     #[serde(default)]
     pub verbose: bool,
 
+    /// Strict mode - deprecated, use explain flag instead
     #[serde(default)]
     pub strict: bool,
 
+    /// Migration table configuration
     #[serde(default)]
     pub migrations: Option<MigrationsOpts>,
 }
@@ -598,6 +865,72 @@ impl DatabaseConfig {
         }
 
         Ok(files)
+    }
+
+    /// Get effective casing mode (default: camelCase)
+    #[inline]
+    pub fn effective_casing(&self) -> Casing {
+        self.casing.unwrap_or_default()
+    }
+
+    /// Get effective introspect casing mode (default: camel)
+    #[inline]
+    pub fn effective_introspect_casing(&self) -> IntrospectCasing {
+        self.introspect
+            .as_ref()
+            .map(|i| i.casing)
+            .unwrap_or_default()
+    }
+
+    /// Get entities filter (default: empty)
+    #[inline]
+    pub fn effective_entities(&self) -> EntitiesFilter {
+        self.entities.clone().unwrap_or_default()
+    }
+
+    /// Check if a role should be included based on entities filter
+    pub fn should_include_role(&self, role_name: &str) -> bool {
+        self.entities
+            .as_ref()
+            .map(|e| e.roles.should_include(role_name))
+            .unwrap_or(false)
+    }
+
+    /// Check if roles are enabled in entities filter
+    pub fn roles_enabled(&self) -> bool {
+        self.entities
+            .as_ref()
+            .map(|e| e.roles.is_enabled())
+            .unwrap_or(false)
+    }
+
+    /// Get extensions filters (PostgreSQL only)
+    pub fn extensions(&self) -> &[Extension] {
+        self.extensions_filters.as_deref().unwrap_or(&[])
+    }
+
+    /// Check if an extension is in the filter list
+    pub fn has_extension(&self, ext: Extension) -> bool {
+        self.extensions_filters
+            .as_ref()
+            .map(|v| v.contains(&ext))
+            .unwrap_or(false)
+    }
+
+    /// Get migration table name (default: __drizzle_migrations)
+    pub fn migrations_table(&self) -> &str {
+        self.migrations
+            .as_ref()
+            .and_then(|m| m.table.as_deref())
+            .unwrap_or("__drizzle_migrations")
+    }
+
+    /// Get migration schema (PostgreSQL only, default: drizzle)
+    pub fn migrations_schema(&self) -> &str {
+        self.migrations
+            .as_ref()
+            .and_then(|m| m.schema.as_deref())
+            .unwrap_or("drizzle")
     }
 }
 
@@ -946,5 +1279,136 @@ mod tests {
         )
         .unwrap();
         assert!(cfg.is_single_database());
+    }
+
+    #[test]
+    fn casing_options() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            casing = "snake_case"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.effective_casing(), Casing::SnakeCase);
+
+        // Test default (camelCase)
+        let cfg2 = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db2 = cfg2.default_database().unwrap();
+        assert_eq!(db2.effective_casing(), Casing::CamelCase);
+    }
+
+    #[test]
+    fn introspect_casing() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [introspect]
+            casing = "preserve"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.effective_introspect_casing(), IntrospectCasing::Preserve);
+    }
+
+    #[test]
+    fn entities_roles_filter() {
+        // Test boolean roles filter
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [entities]
+            roles = true
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert!(db.roles_enabled());
+        assert!(db.should_include_role("my_role"));
+
+        // Test roles filter with provider
+        let cfg2 = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [entities.roles]
+            provider = "supabase"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db2 = cfg2.default_database().unwrap();
+        assert!(db2.roles_enabled());
+        assert!(!db2.should_include_role("anon")); // Supabase built-in
+        assert!(db2.should_include_role("my_custom_role"));
+    }
+
+    #[test]
+    fn extensions_filter() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            extensionsFilters = ["postgis"]
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert!(db.has_extension(Extension::Postgis));
+    }
+
+    #[test]
+    fn migrations_config() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [migrations]
+            table = "custom_migrations"
+            schema = "custom_schema"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.migrations_table(), "custom_migrations");
+        assert_eq!(db.migrations_schema(), "custom_schema");
+
+        // Test defaults
+        let cfg2 = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db2 = cfg2.default_database().unwrap();
+        assert_eq!(db2.migrations_table(), "__drizzle_migrations");
+        assert_eq!(db2.migrations_schema(), "drizzle");
     }
 }

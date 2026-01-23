@@ -624,6 +624,7 @@ pub fn run_introspection(
     credentials: &Credentials,
     dialect: Dialect,
     out_dir: &Path,
+    init_metadata: bool,
 ) -> Result<IntrospectResult, CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::words::generate_migration_tag;
@@ -717,7 +718,335 @@ pub fn run_introspection(
         .save(&journal_path)
         .map_err(|e| CliError::Other(format!("Failed to save journal: {}", e)))?;
 
+    if init_metadata {
+        apply_init_metadata(credentials, dialect, out_dir)?;
+    }
+
     Ok(result)
+}
+
+// =============================================================================
+// Init metadata handling
+// =============================================================================
+
+fn apply_init_metadata(
+    credentials: &Credentials,
+    dialect: Dialect,
+    out_dir: &Path,
+) -> Result<(), CliError> {
+    use drizzle_migrations::MigrationSet;
+
+    let set = MigrationSet::from_dir(out_dir, dialect.to_base())
+        .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
+
+    if set.all().is_empty() {
+        return Err(CliError::Other(
+            "--init can't be used with empty migrations".into(),
+        ));
+    }
+
+    match credentials {
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { path } => init_sqlite_metadata(path, &set),
+
+        #[cfg(not(feature = "rusqlite"))]
+        Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
+            dialect: "SQLite",
+            feature: "rusqlite",
+        }),
+
+        #[cfg(feature = "libsql")]
+        Credentials::Turso { url, auth_token: _ } if is_local_libsql(url) => {
+            init_libsql_local_metadata(url, &set)
+        }
+
+        #[cfg(feature = "turso")]
+        Credentials::Turso { url, auth_token } => {
+            init_turso_metadata(url, auth_token.as_deref(), &set)
+        }
+
+        #[cfg(all(not(feature = "turso"), not(feature = "libsql")))]
+        Credentials::Turso { .. } => Err(CliError::MissingDriver {
+            dialect: "Turso",
+            feature: "turso or libsql",
+        }),
+
+        #[cfg(all(not(feature = "turso"), feature = "libsql"))]
+        Credentials::Turso { url, .. } if !is_local_libsql(url) => Err(CliError::MissingDriver {
+            dialect: "Turso (remote)",
+            feature: "turso",
+        }),
+
+        #[cfg(feature = "postgres-sync")]
+        Credentials::Postgres(creds) => init_postgres_sync_metadata(creds, &set),
+
+        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+        Credentials::Postgres(creds) => init_postgres_async_metadata(creds, &set),
+
+        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
+        Credentials::Postgres(_) => Err(CliError::MissingDriver {
+            dialect: "PostgreSQL",
+            feature: "postgres-sync or tokio-postgres",
+        }),
+    }
+}
+
+fn validate_init_metadata(applied_hashes: &[String], set: &MigrationSet) -> Result<(), CliError> {
+    if !applied_hashes.is_empty() {
+        return Err(CliError::Other(
+            "--init can't be used when database already has migrations set".into(),
+        ));
+    }
+
+    let first = set
+        .all()
+        .first()
+        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+
+    let created_at = first.created_at();
+    if set.all().iter().any(|m| m.created_at() != created_at) {
+        return Err(CliError::Other(
+            "--init can't be used with existing migrations".into(),
+        ));
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// Init metadata implementations
+// =============================================================================
+
+#[cfg(feature = "rusqlite")]
+fn init_sqlite_metadata(path: &str, set: &MigrationSet) -> Result<(), CliError> {
+    let conn = rusqlite::Connection::open(path).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+    })?;
+
+    conn.execute(&set.create_table_sql(), []).map_err(|e| {
+        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+    })?;
+
+    let applied_hashes = query_applied_hashes_sqlite(&conn, set)?;
+    validate_init_metadata(&applied_hashes, set)?;
+
+    let first = set
+        .all()
+        .first()
+        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+
+    conn.execute(
+        &set.record_migration_sql(first.hash(), first.created_at()),
+        [],
+    )
+    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "libsql")]
+fn init_libsql_local_metadata(path: &str, set: &MigrationSet) -> Result<(), CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(init_libsql_local_metadata_inner(path, set))
+}
+
+#[cfg(feature = "libsql")]
+async fn init_libsql_local_metadata_inner(path: &str, set: &MigrationSet) -> Result<(), CliError> {
+    let db = libsql::Builder::new_local(path)
+        .build()
+        .await
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+        })?;
+
+    let conn = db
+        .connect()
+        .map_err(|e| CliError::ConnectionError(e.to_string()))?;
+
+    conn.execute(&set.create_table_sql(), ())
+        .await
+        .map_err(|e| {
+            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+        })?;
+
+    let applied_hashes = query_applied_hashes_libsql(&conn, set).await?;
+    validate_init_metadata(&applied_hashes, set)?;
+
+    let first = set
+        .all()
+        .first()
+        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+
+    conn.execute(
+        &set.record_migration_sql(first.hash(), first.created_at()),
+        (),
+    )
+    .await
+    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "turso")]
+fn init_turso_metadata(
+    url: &str,
+    auth_token: Option<&str>,
+    set: &MigrationSet,
+) -> Result<(), CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(init_turso_metadata_inner(url, auth_token, set))
+}
+
+#[cfg(feature = "turso")]
+async fn init_turso_metadata_inner(
+    url: &str,
+    auth_token: Option<&str>,
+    set: &MigrationSet,
+) -> Result<(), CliError> {
+    let builder =
+        libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
+
+    let db = builder.build().await.map_err(|e| {
+        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+    })?;
+
+    let conn = db
+        .connect()
+        .map_err(|e| CliError::ConnectionError(e.to_string()))?;
+
+    conn.execute(&set.create_table_sql(), ())
+        .await
+        .map_err(|e| {
+            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+        })?;
+
+    let applied_hashes = query_applied_hashes_turso(&conn, set).await?;
+    validate_init_metadata(&applied_hashes, set)?;
+
+    let first = set
+        .all()
+        .first()
+        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+
+    conn.execute(
+        &set.record_migration_sql(first.hash(), first.created_at()),
+        (),
+    )
+    .await
+    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "postgres-sync")]
+fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Result<(), CliError> {
+    let url = creds.connection_url();
+    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+    })?;
+
+    if let Some(schema_sql) = set.create_schema_sql() {
+        client
+            .execute(&schema_sql, &[])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    client
+        .execute(&set.create_table_sql(), &[])
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let rows = client
+        .query(&set.query_all_hashes_sql(), &[])
+        .unwrap_or_default();
+    let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+
+    validate_init_metadata(&applied_hashes, set)?;
+
+    let first = set
+        .all()
+        .first()
+        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+
+    client
+        .execute(
+            &set.record_migration_sql(first.hash(), first.created_at()),
+            &[],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "tokio-postgres")]
+fn init_postgres_async_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Result<(), CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(init_postgres_async_inner(creds, set))
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn init_postgres_async_inner(
+    creds: &PostgresCreds,
+    set: &MigrationSet,
+) -> Result<(), CliError> {
+    let url = creds.connection_url();
+    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+        })?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("PostgreSQL connection error: {}", e);
+        }
+    });
+
+    if let Some(schema_sql) = set.create_schema_sql() {
+        client
+            .execute(&schema_sql, &[])
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    client
+        .execute(&set.create_table_sql(), &[])
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let rows = client
+        .query(&set.query_all_hashes_sql(), &[])
+        .await
+        .unwrap_or_default();
+    let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+
+    validate_init_metadata(&applied_hashes, set)?;
+
+    let first = set
+        .all()
+        .first()
+        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+
+    client
+        .execute(
+            &set.record_migration_sql(first.hash(), first.created_at()),
+            &[],
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    Ok(())
 }
 
 /// Generate migration SQL from snapshot diff (for introspection)

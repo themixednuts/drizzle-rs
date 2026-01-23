@@ -13,11 +13,17 @@ use std::fs;
 use std::path::Path;
 
 /// Run the upgrade command
-pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError> {
+pub fn run(
+    config: &DrizzleConfig,
+    db_name: Option<&str>,
+    _dialect_override: Option<&str>,
+    out_override: Option<&Path>,
+) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
+    // CLI flags override config
     let dialect = db.dialect.to_base();
-    let out_dir = db.migrations_dir();
+    let out_dir = out_override.unwrap_or(db.migrations_dir());
 
     println!(
         "{} Checking for snapshots to upgrade in {}",

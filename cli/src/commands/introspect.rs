@@ -2,9 +2,11 @@
 //!
 //! Introspects an existing database and generates a snapshot/schema.
 
+use std::path::Path;
+
 use colored::Colorize;
 
-use crate::config::DrizzleConfig;
+use crate::config::{DrizzleConfig, IntrospectCasing};
 use crate::error::CliError;
 
 /// Run the introspect command
@@ -12,8 +14,16 @@ pub fn run(
     config: &DrizzleConfig,
     db_name: Option<&str>,
     init_metadata: bool,
+    casing: Option<IntrospectCasing>,
+    out_override: Option<&Path>,
+    breakpoints_override: Option<bool>,
 ) -> Result<(), CliError> {
     let db = config.database(db_name)?;
+
+    // CLI flags override config
+    let _effective_casing = casing.unwrap_or_else(|| db.effective_introspect_casing());
+    let effective_out = out_override.unwrap_or(db.migrations_dir());
+    let _effective_breakpoints = breakpoints_override.unwrap_or(db.breakpoints);
 
     println!("{}", "Introspecting database...".bright_cyan());
     println!();
@@ -27,7 +37,7 @@ pub fn run(
     if let Some(ref driver) = db.driver {
         println!("  {}: {:?}", "Driver".bright_blue(), driver);
     }
-    println!("  {}: {}", "Output".bright_blue(), db.out.display());
+    println!("  {}: {}", "Output".bright_blue(), effective_out.display());
 
     if init_metadata {
         println!("  {}: enabled", "Init metadata".bright_blue());
@@ -72,7 +82,8 @@ pub fn run(
     };
 
     // Run introspection
-    let result = crate::db::run_introspection(&credentials, db.dialect, &db.out)?;
+    let result =
+        crate::db::run_introspection(&credentials, db.dialect, effective_out, init_metadata)?;
 
     println!();
     println!(
@@ -96,7 +107,7 @@ pub fn run(
     if init_metadata {
         println!();
         println!(
-            "  {} Migration metadata initialized.",
+            "  {} Migration metadata initialized in database.",
             "Note:".bright_blue()
         );
         println!("  The current database state is now the baseline for future migrations.");

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use colored::Colorize;
 
-use crate::config::DrizzleConfig;
+use crate::config::{Casing, DrizzleConfig};
 use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
@@ -16,12 +16,16 @@ pub fn run(
     db_name: Option<&str>,
     name: Option<String>,
     custom: bool,
+    casing: Option<Casing>,
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::parser::SchemaParser;
     use drizzle_migrations::words::generate_migration_tag;
 
     let db = config.database(db_name)?;
+
+    // CLI flag overrides config, config default is camelCase
+    let _effective_casing = casing.unwrap_or_else(|| db.effective_casing());
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");

@@ -6,7 +6,7 @@
 
 use colored::Colorize;
 
-use crate::config::DrizzleConfig;
+use crate::config::{Casing, DrizzleConfig};
 use crate::error::CliError;
 use crate::snapshot::parse_result_to_snapshot;
 
@@ -17,6 +17,9 @@ pub fn run(
     cli_verbose: bool,
     cli_strict: bool,
     _force: bool,
+    cli_explain: bool,
+    casing: Option<Casing>,
+    _extensions_filters: Option<Vec<String>>,
 ) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 
@@ -24,7 +27,18 @@ pub fn run(
 
     // CLI flags override config
     let verbose = cli_verbose || db.verbose;
-    let strict = cli_strict || db.strict;
+    let explain = cli_explain;
+    let _effective_casing = casing.unwrap_or_else(|| db.effective_casing());
+    // Note: extensions_filters would be used when introspecting the database
+    // to filter out extension-specific types (e.g., PostGIS geometry types)
+
+    if cli_strict {
+        println!(
+            "{}",
+            "⚠️ Deprecated: Do not use '--strict'. Use '--explain' instead.".yellow()
+        );
+        return Err(CliError::Other("strict flag is deprecated".into()));
+    }
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
@@ -79,6 +93,27 @@ pub fn run(
         // TODO: Generate and display SQL statements
     }
 
+    // Provide explain/dry-run output when requested
+    if explain {
+        println!();
+        println!("{}", "--- Planned SQL changes ---".bright_black());
+        println!(
+            "{}",
+            "(Dry run) Diff requires a database connection.".yellow()
+        );
+        println!();
+        println!("  Tables that would be synced:");
+        for table_name in parse_result.tables.keys() {
+            println!("    {} {}", "->".bright_blue(), table_name);
+        }
+        println!();
+        println!(
+            "{}",
+            "Use the programmatic API to execute push.".bright_black()
+        );
+        return Ok(());
+    }
+
     // Note: Push requires introspecting the database and comparing snapshots
     // This requires driver-specific implementations
     println!();
@@ -95,14 +130,6 @@ pub fn run(
     println!("  Tables that would be synced:");
     for table_name in parse_result.tables.keys() {
         println!("    {} {}", "->".bright_blue(), table_name);
-    }
-
-    if strict {
-        println!();
-        println!(
-            "  {} Strict mode is enabled. Would require confirmation before execution.",
-            "Note:".yellow()
-        );
     }
 
     Ok(())

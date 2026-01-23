@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/themixednuts/drizzle-rs/main/cli/schema.json",
   "title": "Drizzle Configuration",
-  "description": "Configuration schema for drizzle-rs CLI tool",
+  "description": "Configuration schema for drizzle-rs CLI tool (compatible with drizzle-kit)",
   "definitions": {
     "envOr": {
       "description": "A value that can be a direct string or an environment variable reference",
@@ -43,21 +43,74 @@
       ]
     },
     "casing": {
-      "description": "Casing mode for generated code",
+      "description": "Casing mode for generated code and SQL identifiers",
       "type": "string",
-      "enum": ["camel_case", "snake_case"]
+      "enum": ["camelCase", "snake_case"],
+      "default": "camelCase"
+    },
+    "introspectCasing": {
+      "description": "Casing mode for introspected identifiers",
+      "type": "string",
+      "enum": ["camel", "preserve"],
+      "default": "camel"
     },
     "introspect": {
       "description": "Introspection configuration",
       "type": "object",
       "properties": {
         "casing": {
-          "type": "string",
-          "enum": ["camel", "preserve"],
-          "default": "camel"
+          "$ref": "#/definitions/introspectCasing"
         }
       },
       "additionalProperties": false
+    },
+    "rolesFilter": {
+      "description": "Roles filter configuration (PostgreSQL only)",
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "true = include all user roles, false = exclude all"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "description": "Provider preset (e.g., 'supabase', 'neon') - excludes provider-specific roles",
+              "enum": ["supabase", "neon"]
+            },
+            "include": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Explicit list of role names to include"
+            },
+            "exclude": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Explicit list of role names to exclude"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "entities": {
+      "description": "Entities filter configuration",
+      "type": "object",
+      "properties": {
+        "roles": {
+          "$ref": "#/definitions/rolesFilter"
+        }
+      },
+      "additionalProperties": false
+    },
+    "extensionsFilters": {
+      "description": "Extensions filter (PostgreSQL only)",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["postgis"]
+      }
     },
     "migrations": {
       "description": "Migration table configuration",
@@ -65,11 +118,13 @@
       "properties": {
         "table": {
           "description": "Custom table name for migrations (default: __drizzle_migrations)",
-          "type": "string"
+          "type": "string",
+          "default": "__drizzle_migrations"
         },
         "schema": {
-          "description": "Schema for migrations table (PostgreSQL only)",
-          "type": "string"
+          "description": "Schema for migrations table (PostgreSQL only, default: drizzle)",
+          "type": "string",
+          "default": "drizzle"
         },
         "prefix": {
           "description": "Migration file naming prefix",
@@ -101,7 +156,7 @@
           "required": ["host", "database"],
           "properties": {
             "host": { "$ref": "#/definitions/envOr" },
-            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 5432 },
             "user": { "$ref": "#/definitions/envOr" },
             "password": { "$ref": "#/definitions/envOr" },
             "database": { "$ref": "#/definitions/envOr" },
@@ -116,20 +171,9 @@
         }
       ]
     },
-    "sqliteConfig": {
+    "commonConfig": {
       "type": "object",
-      "required": ["dialect"],
       "properties": {
-        "dialect": {
-          "description": "Database dialect",
-          "type": "string",
-          "const": "sqlite"
-        },
-        "driver": {
-          "description": "Database driver",
-          "type": "string",
-          "enum": ["rusqlite"]
-        },
         "schema": { "$ref": "#/definitions/schemaPath" },
         "out": {
           "description": "Output directory for migrations",
@@ -142,7 +186,7 @@
           "default": true
         },
         "tablesFilter": {
-          "description": "Table filter for push/introspect commands",
+          "description": "Table filter for push/introspect commands (glob patterns)",
           "$ref": "#/definitions/filter"
         },
         "verbose": {
@@ -151,146 +195,94 @@
           "default": false
         },
         "strict": {
-          "description": "Strict mode (require confirmation)",
+          "description": "Deprecated: use explain flag instead",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "deprecated": true
         },
         "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
         "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-      },
-      "additionalProperties": false
+      }
+    },
+    "sqliteConfig": {
+      "allOf": [
+        { "$ref": "#/definitions/commonConfig" },
+        {
+          "type": "object",
+          "required": ["dialect"],
+          "properties": {
+            "dialect": {
+              "description": "Database dialect",
+              "type": "string",
+              "const": "sqlite"
+            },
+            "driver": {
+              "description": "Database driver",
+              "type": "string",
+              "enum": ["rusqlite"]
+            }
+          }
+        }
+      ]
     },
     "tursoConfig": {
-      "type": "object",
-      "required": ["dialect"],
-      "properties": {
-        "dialect": {
-          "description": "Database dialect",
-          "type": "string",
-          "const": "turso"
-        },
-        "driver": {
-          "description": "Database driver",
-          "type": "string",
-          "enum": ["libsql", "turso"]
-        },
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": {
-          "description": "Output directory for migrations",
-          "type": "string",
-          "default": "./drizzle"
-        },
-        "breakpoints": {
-          "description": "Whether to use SQL breakpoints in generated migrations",
-          "type": "boolean",
-          "default": true
-        },
-        "tablesFilter": {
-          "description": "Table filter for push/introspect commands",
-          "$ref": "#/definitions/filter"
-        },
-        "verbose": {
-          "description": "Verbose output",
-          "type": "boolean",
-          "default": false
-        },
-        "strict": {
-          "description": "Strict mode (require confirmation)",
-          "type": "boolean",
-          "default": false
-        },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-      },
-      "additionalProperties": false
+      "allOf": [
+        { "$ref": "#/definitions/commonConfig" },
+        {
+          "type": "object",
+          "required": ["dialect"],
+          "properties": {
+            "dialect": {
+              "description": "Database dialect",
+              "type": "string",
+              "const": "turso"
+            },
+            "driver": {
+              "description": "Database driver",
+              "type": "string",
+              "enum": ["libsql", "turso"]
+            }
+          }
+        }
+      ]
     },
     "postgresConfig": {
-      "type": "object",
-      "required": ["dialect"],
-      "properties": {
-        "dialect": {
-          "description": "Database dialect",
-          "type": "string",
-          "enum": ["postgresql", "postgres"]
-        },
-        "driver": {
-          "description": "Database driver",
-          "type": "string",
-          "enum": ["postgres-sync", "tokio-postgres"]
-        },
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": {
-          "description": "Output directory for migrations",
-          "type": "string",
-          "default": "./drizzle"
-        },
-        "breakpoints": {
-          "description": "Whether to use SQL breakpoints in generated migrations",
-          "type": "boolean",
-          "default": true
-        },
-        "tablesFilter": {
-          "description": "Table filter for push/introspect commands",
-          "$ref": "#/definitions/filter"
-        },
-        "schemaFilter": {
-          "description": "Schema filter for PostgreSQL",
-          "$ref": "#/definitions/filter"
-        },
-        "verbose": {
-          "description": "Verbose output",
-          "type": "boolean",
-          "default": false
-        },
-        "strict": {
-          "description": "Strict mode (require confirmation)",
-          "type": "boolean",
-          "default": false
-        },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" }
-      },
-      "additionalProperties": false
+      "allOf": [
+        { "$ref": "#/definitions/commonConfig" },
+        {
+          "type": "object",
+          "required": ["dialect"],
+          "properties": {
+            "dialect": {
+              "description": "Database dialect",
+              "type": "string",
+              "enum": ["postgresql", "postgres"]
+            },
+            "driver": {
+              "description": "Database driver",
+              "type": "string",
+              "enum": ["postgres-sync", "tokio-postgres"]
+            },
+            "schemaFilter": {
+              "description": "Schema filter for PostgreSQL (default: ['public'])",
+              "$ref": "#/definitions/filter"
+            },
+            "extensionsFilters": {
+              "$ref": "#/definitions/extensionsFilters"
+            },
+            "entities": {
+              "$ref": "#/definitions/entities"
+            }
+          }
+        }
+      ]
     },
     "multiDbConfig": {
       "type": "object",
       "required": ["databases"],
       "properties": {
-        "schema": { "$ref": "#/definitions/schemaPath" },
-        "out": {
-          "description": "Output directory for migrations",
-          "type": "string",
-          "default": "./drizzle"
-        },
-        "breakpoints": {
-          "description": "Whether to use SQL breakpoints in generated migrations",
-          "type": "boolean",
-          "default": true
-        },
-        "tablesFilter": {
-          "description": "Table filter for push/introspect commands",
-          "$ref": "#/definitions/filter"
-        },
-        "verbose": {
-          "description": "Verbose output",
-          "type": "boolean",
-          "default": false
-        },
-        "strict": {
-          "description": "Strict mode (require confirmation)",
-          "type": "boolean",
-          "default": false
-        },
-        "casing": { "$ref": "#/definitions/casing" },
-        "migrations": { "$ref": "#/definitions/migrations" },
-        "introspect": { "$ref": "#/definitions/introspect" },
-        "dbCredentials": { "$ref": "#/definitions/dbCredentials" },
         "databases": {
           "description": "Named database configurations for multi-database setup",
           "type": "object",
