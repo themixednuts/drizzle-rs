@@ -4,10 +4,9 @@
 
 use std::path::Path;
 
-use colored::Colorize;
-
 use crate::config::{DrizzleConfig, IntrospectCasing};
 use crate::error::CliError;
+use crate::output;
 
 /// Run the introspect command
 pub fn run(
@@ -25,22 +24,22 @@ pub fn run(
     let effective_out = out_override.unwrap_or(db.migrations_dir());
     let _effective_breakpoints = breakpoints_override.unwrap_or(db.breakpoints);
 
-    println!("{}", "Introspecting database...".bright_cyan());
+    println!("{}", output::heading("Introspecting database..."));
     println!();
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("  {}: {}", "Database".bright_blue(), name);
+        println!("  {}: {}", output::label("Database"), name);
     }
 
-    println!("  {}: {}", "Dialect".bright_blue(), db.dialect.as_str());
+    println!("  {}: {}", output::label("Dialect"), db.dialect.as_str());
     if let Some(ref driver) = db.driver {
-        println!("  {}: {:?}", "Driver".bright_blue(), driver);
+        println!("  {}: {:?}", output::label("Driver"), driver);
     }
-    println!("  {}: {}", "Output".bright_blue(), effective_out.display());
+    println!("  {}: {}", output::label("Output"), effective_out.display());
 
     if init_metadata {
-        println!("  {}: enabled", "Init metadata".bright_blue());
+        println!("  {}: enabled", output::label("Init metadata"));
     }
     println!();
 
@@ -50,19 +49,19 @@ pub fn run(
     let credentials = match credentials {
         Some(c) => c,
         None => {
-            println!("{}", "No database credentials configured.".yellow());
+            println!("{}", output::warning("No database credentials configured."));
             println!();
             println!("Add credentials to your drizzle.config.toml:");
             println!();
-            println!("  {}", "[dbCredentials]".bright_black());
+            println!("  {}", output::muted("[dbCredentials]"));
             match db.dialect.to_base() {
                 drizzle_types::Dialect::SQLite => {
-                    println!("  {}", "url = \"./dev.db\"".bright_black());
+                    println!("  {}", output::muted("url = \"./dev.db\""));
                 }
                 drizzle_types::Dialect::PostgreSQL => {
                     println!(
                         "  {}",
-                        "url = \"postgres://user:pass@localhost:5432/db\"".bright_black()
+                        output::muted("url = \"postgres://user:pass@localhost:5432/db\"")
                     );
                 }
                 drizzle_types::Dialect::MySQL => {
@@ -70,15 +69,15 @@ pub fn run(
                     // dialect type includes it, so keep the match exhaustive.
                     println!(
                         "  {}",
-                        "url = \"mysql://user:pass@localhost:3306/db\"".bright_black()
+                        output::muted("url = \"mysql://user:pass@localhost:3306/db\"")
                     );
                 }
             }
             println!();
             println!("Or use an environment variable:");
             println!();
-            println!("  {}", "[dbCredentials]".bright_black());
-            println!("  {}", "url = { env = \"DATABASE_URL\" }".bright_black());
+            println!("  {}", output::muted("[dbCredentials]"));
+            println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
             return Ok(());
         }
     };
@@ -96,19 +95,19 @@ pub fn run(
     println!();
     println!(
         "  {} {} table(s), {} index(es)",
-        "Found".green(),
+        output::success("Found"),
         result.table_count,
         result.index_count
     );
 
     if result.view_count > 0 {
-        println!("  {} {} view(s)", "Found".green(), result.view_count);
+        println!("  {} {} view(s)", output::success("Found"), result.view_count);
     }
 
     println!();
     println!(
         "{} Snapshot saved to {}",
-        "Done!".bright_green(),
+        output::success("Done!"),
         result.snapshot_path.display()
     );
 
@@ -116,7 +115,7 @@ pub fn run(
         println!();
         println!(
             "  {} Migration metadata initialized in database.",
-            "Note:".bright_blue()
+            output::label("Note:")
         );
         println!("  The current database state is now the baseline for future migrations.");
     }

@@ -544,6 +544,7 @@ pub mod queries {
     pub const COLUMNS_QUERY: &str = r#"
         SELECT 
             m.name as "table", 
+            p.cid as "cid",
             p.name as "name", 
             p.type as "columnType",
             p."notnull" as "notNull", 

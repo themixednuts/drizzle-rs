@@ -2,10 +2,9 @@
 //!
 //! Runs pending migrations against the database.
 
-use colored::Colorize;
-
 use crate::config::DrizzleConfig;
 use crate::error::CliError;
+use crate::output;
 
 /// Run the migrate command
 pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError> {
@@ -13,17 +12,17 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("{} {}", "Database:".bright_blue(), name);
+        println!("{}: {}", output::label("Database"), name);
     }
 
-    println!("{}", "Running migrations...".bright_cyan());
+    println!("{}", output::heading("Running migrations..."));
     println!();
 
     let out_dir = db.migrations_dir();
 
     // Check if migrations directory exists
     if !out_dir.exists() {
-        println!("  {}", "No migrations directory found.".yellow());
+        println!("  {}", output::warning("No migrations directory found."));
         println!("  Run 'drizzle generate' to create your first migration.");
         return Ok(());
     }
@@ -34,17 +33,17 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
     let credentials = match credentials {
         Some(c) => c,
         None => {
-            println!("{}", "No database credentials configured.".yellow());
+            println!("{}", output::warning("No database credentials configured."));
             println!();
             println!("Add credentials to your drizzle.config.toml:");
             println!();
-            println!("  {}", "[dbCredentials]".bright_black());
-            println!("  {}", "url = \"./dev.db\"".bright_black());
+            println!("  {}", output::muted("[dbCredentials]"));
+            println!("  {}", output::muted("url = \"./dev.db\""));
             println!();
             println!("Or use an environment variable:");
             println!();
-            println!("  {}", "[dbCredentials]".bright_black());
-            println!("  {}", "url = { env = \"DATABASE_URL\" }".bright_black());
+            println!("  {}", output::muted("[dbCredentials]"));
+            println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
             return Ok(());
         }
     };
@@ -59,20 +58,20 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
     )?;
 
     if result.applied_count == 0 {
-        println!("  {}", "No pending migrations.".green());
+        println!("  {}", output::success("No pending migrations."));
     } else {
         println!(
             "  {} {} migration(s):",
-            "Applied".green(),
+            output::success("Applied"),
             result.applied_count
         );
         for hash in &result.applied_migrations {
-            println!("    {} {}", "->".bright_blue(), hash);
+            println!("    {} {}", output::label("->"), hash);
         }
     }
 
     println!();
-    println!("{}", "Migrations complete!".bright_green());
+    println!("{}", output::success("Migrations complete!"));
 
     Ok(())
 }

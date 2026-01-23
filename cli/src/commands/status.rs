@@ -2,10 +2,9 @@
 //!
 //! Shows migration status (applied vs pending).
 
-use colored::Colorize;
-
 use crate::config::DrizzleConfig;
 use crate::error::CliError;
+use crate::output;
 
 /// Run the status command
 pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError> {
@@ -13,12 +12,12 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
 
     let db = config.database(db_name)?;
 
-    println!("{}", "Migration Status".bright_cyan());
+    println!("{}", output::heading("Migration Status"));
     println!();
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("  {}: {}", "Database".bright_blue(), name);
+        println!("  {}: {}", output::label("Database"), name);
         println!();
     }
 
@@ -27,7 +26,7 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
 
     // Check if migrations directory exists
     if !out_dir.exists() {
-        println!("  {}", "No migrations directory found.".yellow());
+        println!("  {}", output::warning("No migrations directory found."));
         println!("  Run 'drizzle generate' to create your first migration.");
         return Ok(());
     }
@@ -36,13 +35,13 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
     let journal = if journal_path.exists() {
         Journal::load(&journal_path).map_err(|e| CliError::IoError(e.to_string()))?
     } else {
-        println!("  {}", "No migrations journal found.".yellow());
+        println!("  {}", output::warning("No migrations journal found."));
         println!("  Run 'drizzle generate' to create your first migration.");
         return Ok(());
     };
 
     if journal.entries.is_empty() {
-        println!("  {}", "No migrations found.".yellow());
+        println!("  {}", output::warning("No migrations found."));
         return Ok(());
     }
 
@@ -58,33 +57,33 @@ pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError
         let snapshot_exists = snapshot_path.exists();
 
         let status_icon = if sql_exists && snapshot_exists {
-            "✓".green()
+            output::success("✓")
         } else if sql_exists {
-            "○".yellow()
+            output::warning("○")
         } else {
-            "✗".red()
+            output::error("✗")
         };
-        let idx_display = format!("{:3}.", i + 1).bright_black();
+        let idx_display = output::muted(&format!("{:3}.", i + 1));
 
         println!("  {} {} {}", idx_display, status_icon, entry.tag);
 
         if !sql_exists {
-            println!("      {}", "Migration file missing!".red());
+            println!("      {}", output::error("Migration file missing!"));
         }
         if !snapshot_exists && sql_exists {
-            println!("      {}", "Snapshot file missing".yellow());
+            println!("      {}", output::warning("Snapshot file missing"));
         }
     }
 
     println!();
     println!(
         "  {}: {}",
-        "Migrations directory".bright_black(),
+        output::muted("Migrations directory"),
         out_dir.display()
     );
     println!(
         "  {}: {}",
-        "Schema files".bright_black(),
+        output::muted("Schema files"),
         db.schema_display()
     );
 

@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::config::PostgresCreds;
 use crate::config::{Credentials, Dialect};
 use crate::error::CliError;
+use crate::output;
 use drizzle_migrations::MigrationSet;
 use drizzle_migrations::schema::Snapshot;
 
@@ -169,7 +170,6 @@ fn is_destructive_statement(sql: &str) -> bool {
 }
 
 fn confirm_destructive() -> Result<bool, CliError> {
-    use colored::Colorize;
     use std::io::{self, IsTerminal, Write};
 
     if !io::stdin().is_terminal() {
@@ -181,7 +181,9 @@ fn confirm_destructive() -> Result<bool, CliError> {
 
     println!(
         "{}",
-        "⚠️  Potentially destructive changes detected (DROP/TRUNCATE/etc).".bright_yellow()
+        output::warning(
+            "Potentially destructive changes detected (DROP/TRUNCATE/etc)."
+        )
     );
     print!("Apply anyway? [y/N]: ");
     io::stdout()
@@ -586,7 +588,10 @@ async fn execute_postgres_async_inner(
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("PostgreSQL connection error: {}", e);
+            eprintln!(
+                "{}",
+                output::err_line(&format!("PostgreSQL connection error: {e}"))
+            );
         }
     });
 
@@ -642,7 +647,10 @@ async fn run_postgres_async_inner(
     // Spawn connection handler
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("PostgreSQL connection error: {}", e);
+            eprintln!(
+                "{}",
+                output::err_line(&format!("PostgreSQL connection error: {e}"))
+            );
         }
     });
 
@@ -1505,7 +1513,10 @@ async fn init_postgres_async_inner(
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("PostgreSQL connection error: {}", e);
+            eprintln!(
+                "{}",
+                output::err_line(&format!("PostgreSQL connection error: {e}"))
+            );
         }
     });
 
@@ -1704,13 +1715,14 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         .query_map([], |row| {
             Ok(RawColumnInfo {
                 table: row.get(0)?,
-                name: row.get(1)?,
-                column_type: row.get(2)?,
-                not_null: row.get(3)?,
-                default_value: row.get(4)?,
-                pk: row.get(5)?,
-                hidden: row.get(6)?,
-                sql: row.get(7)?,
+                cid: row.get(1)?,
+                name: row.get(2)?,
+                column_type: row.get(3)?,
+                not_null: row.get(4)?,
+                default_value: row.get(5)?,
+                pk: row.get(6)?,
+                hidden: row.get(7)?,
+                sql: row.get(8)?,
             })
         })
         .map_err(|e| CliError::Other(e.to_string()))?
@@ -1954,13 +1966,14 @@ async fn introspect_libsql_inner(
     while let Ok(Some(row)) = columns_rows.next().await {
         raw_columns.push(RawColumnInfo {
             table: row.get(0).unwrap_or_default(),
-            name: row.get(1).unwrap_or_default(),
-            column_type: row.get(2).unwrap_or_default(),
-            not_null: row.get::<i32>(3).unwrap_or(0) != 0,
-            default_value: row.get(4).ok(),
-            pk: row.get(5).unwrap_or(0),
-            hidden: row.get(6).unwrap_or(0),
-            sql: row.get(7).ok(),
+            cid: row.get(1).unwrap_or(0),
+            name: row.get(2).unwrap_or_default(),
+            column_type: row.get(3).unwrap_or_default(),
+            not_null: row.get::<i32>(4).unwrap_or(0) != 0,
+            default_value: row.get(5).ok(),
+            pk: row.get(6).unwrap_or(0),
+            hidden: row.get(7).unwrap_or(0),
+            sql: row.get(8).ok(),
         });
     }
 
@@ -2185,13 +2198,14 @@ async fn introspect_turso_inner(
     while let Ok(Some(row)) = columns_rows.next().await {
         raw_columns.push(RawColumnInfo {
             table: row.get(0).unwrap_or_default(),
-            name: row.get(1).unwrap_or_default(),
-            column_type: row.get(2).unwrap_or_default(),
-            not_null: row.get::<i32>(3).unwrap_or(0) != 0,
-            default_value: row.get(4).ok(),
-            pk: row.get(5).unwrap_or(0),
-            hidden: row.get(6).unwrap_or(0),
-            sql: row.get(7).ok(),
+            cid: row.get(1).unwrap_or(0),
+            name: row.get(2).unwrap_or_default(),
+            column_type: row.get(3).unwrap_or_default(),
+            not_null: row.get::<i32>(4).unwrap_or(0) != 0,
+            default_value: row.get(5).ok(),
+            pk: row.get(6).unwrap_or(0),
+            hidden: row.get(7).unwrap_or(0),
+            sql: row.get(8).ok(),
         });
     }
 
@@ -2669,7 +2683,10 @@ async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<Intros
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("PostgreSQL connection error: {}", e);
+            eprintln!(
+                "{}",
+                output::err_line(&format!("PostgreSQL connection error: {e}"))
+            );
         }
     });
 

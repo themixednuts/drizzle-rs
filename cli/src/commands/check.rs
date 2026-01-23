@@ -2,10 +2,9 @@
 
 use std::path::Path;
 
-use colored::Colorize;
-
 use crate::config::{Config, Credentials, PostgresCreds};
 use crate::error::CliError;
+use crate::output;
 
 pub fn run(
     config: &Config,
@@ -20,37 +19,37 @@ pub fn run(
         .map(Path::to_path_buf)
         .unwrap_or(db.out.clone());
 
-    println!("{}", "Checking configuration...".bright_cyan());
+    println!("{}", output::heading("Checking configuration..."));
     println!();
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("  {}: {}", "Database".bright_blue(), name);
+        println!("  {}: {}", output::label("Database"), name);
     }
 
     let mut warnings = Vec::new();
     let mut has_errors = false;
 
     // Basic info
-    println!("  {}: {}", "Dialect".bright_blue(), db.dialect);
+    println!("  {}: {}", output::label("Dialect"), db.dialect);
     if let Some(driver) = db.driver {
-        println!("  {}: {}", "Driver".bright_blue(), driver);
+        println!("  {}: {}", output::label("Driver"), driver);
     }
-    println!("  {}: {}", "Schema".bright_blue(), db.schema_display());
-    println!("  {}: {}", "Output".bright_blue(), effective_out.display());
+    println!("  {}: {}", output::label("Schema"), db.schema_display());
+    println!("  {}: {}", output::label("Output"), effective_out.display());
 
     // Schema files
     println!();
-    print!("  {} Schema files... ", "Checking".bright_blue());
+    print!("  {} Schema files... ", output::label("Checking"));
     match db.schema_files() {
         Ok(files) => {
-            println!("{}", "OK".green());
+            println!("{}", output::status_ok());
             for f in &files {
                 println!("    {}", f.display());
             }
         }
         Err(e) => {
-            println!("{}", "ERROR".red());
+            println!("{}", output::status_error());
             println!("    {e}");
             has_errors = true;
         }
@@ -58,36 +57,39 @@ pub fn run(
 
     // Migrations dir
     println!();
-    print!("  {} Migrations... ", "Checking".bright_blue());
+    print!("  {} Migrations... ", output::label("Checking"));
     let dir = &effective_out;
     let journal_path = effective_out.join("meta").join("_journal.json");
     if dir.exists() {
-        println!("{}", "OK".green());
+        println!("{}", output::status_ok());
         if journal_path.exists() {
-            println!("    Journal: {}", "found".green());
+            println!("    Journal: {}", output::success("found"));
         } else {
-            println!("    Journal: {} (run generate first)", "missing".yellow());
+            println!(
+                "    Journal: {} (run generate first)",
+                output::warning("missing")
+            );
             warnings.push("No migration journal");
         }
     } else {
-        println!("{}", "NOT CREATED".yellow());
+        println!("{}", output::status_warning("NOT CREATED"));
         warnings.push("Migrations directory doesn't exist yet");
     }
 
     // Credentials
     println!();
-    print!("  {} Credentials... ", "Checking".bright_blue());
+    print!("  {} Credentials... ", output::label("Checking"));
     match db.credentials() {
         Ok(Some(creds)) => {
-            println!("{}", "OK".green());
+            println!("{}", output::status_ok());
             print_credentials(&creds);
         }
         Ok(None) => {
-            println!("{}", "NOT SET".yellow());
+            println!("{}", output::status_warning("NOT SET"));
             warnings.push("No credentials (needed for push/pull/migrate)");
         }
         Err(e) => {
-            println!("{}", "ERROR".red());
+            println!("{}", output::status_error());
             println!("    {}", e);
             has_errors = true;
         }
@@ -96,13 +98,13 @@ pub fn run(
     // Summary
     println!();
     if has_errors {
-        println!("{}", "Configuration has errors.".red().bold());
+        println!("{}", output::error("Configuration has errors."));
         Err(CliError::Other("config check failed".into()))
     } else if warnings.is_empty() {
-        println!("{}", "Configuration OK.".green().bold());
+        println!("{}", output::success("Configuration OK."));
         Ok(())
     } else {
-        println!("{}", format!("{} warning(s):", warnings.len()).yellow());
+        println!("{}", output::warning(&format!("{} warning(s):", warnings.len())));
         for w in warnings {
             println!("  - {w}");
         }
@@ -113,16 +115,18 @@ pub fn run(
 fn print_credentials(creds: &Credentials) {
     match creds {
         Credentials::Sqlite { path } => {
-            println!("    SQLite: {path}");
+            println!("    {}: {path}", output::label("SQLite"));
         }
         Credentials::Turso { url, auth_token } => {
-            println!("    Turso: {}", mask_url(url));
+            println!("    {}: {}", output::label("Turso"), mask_url(url));
             if auth_token.is_some() {
                 println!("    Token: ****");
             }
         }
         Credentials::Postgres(pg) => match pg {
-            PostgresCreds::Url(url) => println!("    PostgreSQL: {}", mask_url(url)),
+            PostgresCreds::Url(url) => {
+                println!("    {}: {}", output::label("PostgreSQL"), mask_url(url))
+            }
             PostgresCreds::Host {
                 host,
                 port,
@@ -130,7 +134,10 @@ fn print_credentials(creds: &Credentials) {
                 user,
                 ..
             } => {
-                println!("    PostgreSQL: {host}:{port}/{database}");
+                println!(
+                    "    {}: {host}:{port}/{database}",
+                    output::label("PostgreSQL")
+                );
                 if let Some(u) = user {
                     println!("    User: {u}");
                 }

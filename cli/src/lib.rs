@@ -47,6 +47,7 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod output;
 pub mod snapshot;
 
 pub use config::{Config, Credentials, Dialect, Driver, Error as ConfigError};

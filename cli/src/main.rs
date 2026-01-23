@@ -4,12 +4,12 @@
 //! CLI interface matches drizzle-kit for TypeScript compatibility.
 
 use clap::{Parser, Subcommand};
-use colored::Colorize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use drizzle_cli::config::{Casing, DrizzleConfig, IntrospectCasing};
 use drizzle_cli::error::CliError;
+use drizzle_cli::output;
 
 /// Default configuration file name
 const DEFAULT_CONFIG_FILE: &str = "drizzle.config.toml";
@@ -192,7 +192,8 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{} {}", "Error:".red().bold(), e);
+            let msg = e.to_string();
+            eprintln!("{}", output::err_line(&msg));
             ExitCode::FAILURE
         }
     }
@@ -315,7 +316,7 @@ fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
 
     println!(
         "{}",
-        format!("✅ Created {}", DEFAULT_CONFIG_FILE).bright_green()
+        output::success(&format!("Created {}", DEFAULT_CONFIG_FILE))
     );
     println!();
     println!("Next steps:");
@@ -325,11 +326,11 @@ fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
     );
     println!(
         "  2. Create your schema file at {}",
-        "src/schema.rs".bright_cyan()
+        output::heading("src/schema.rs")
     );
     println!(
         "  3. Run {} to generate your first migration",
-        "drizzle generate".bright_cyan()
+        output::heading("drizzle generate")
     );
 
     Ok(())

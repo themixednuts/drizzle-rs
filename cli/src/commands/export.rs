@@ -4,10 +4,9 @@
 
 use std::path::PathBuf;
 
-use colored::Colorize;
-
 use crate::config::DrizzleConfig;
 use crate::error::CliError;
+use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the export command
@@ -22,10 +21,10 @@ pub fn run(
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("{} {}", "Database:".bright_blue(), name);
+        println!("{}: {}", output::label("Database"), name);
     }
 
-    println!("{}", "Exporting schema as SQL...".bright_cyan());
+    println!("{}", output::heading("Exporting schema as SQL..."));
     println!();
 
     // Parse schema files
@@ -36,7 +35,7 @@ pub fn run(
 
     println!(
         "  {} {} schema file(s)",
-        "Parsing".bright_blue(),
+        output::label("Parsing"),
         schema_files.len()
     );
 
@@ -51,13 +50,13 @@ pub fn run(
     let parse_result = SchemaParser::parse(&combined_code);
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        println!("{}", "No tables or indexes found in schema files.".yellow());
+        println!("{}", output::warning("No tables or indexes found in schema files."));
         return Ok(());
     }
 
     println!(
         "  {} {} table(s), {} index(es)",
-        "Found".bright_blue(),
+        output::label("Found"),
         parse_result.tables.len(),
         parse_result.indexes.len()
     );
@@ -70,7 +69,7 @@ pub fn run(
     let sql_statements = generate_create_sql(&snapshot, db.breakpoints)?;
 
     if sql_statements.is_empty() {
-        println!("{}", "No SQL statements generated.".yellow());
+        println!("{}", output::warning("No SQL statements generated."));
         return Ok(());
     }
 
@@ -85,21 +84,20 @@ pub fn run(
             println!();
             println!(
                 "{}",
-                format!(
+                output::success(&format!(
                     "Exported {} SQL statement(s) to {}",
                     sql_statements.len(),
                     path.display()
-                )
-                .bright_green()
+                ))
             );
         }
         None => {
             println!();
-            println!("{}", "-- Generated SQL --".bright_black());
+            println!("{}", output::muted("-- Generated SQL --"));
             println!();
             println!("{}", sql_content);
             println!();
-            println!("{}", "-- End of SQL --".bright_black());
+            println!("{}", output::muted("-- End of SQL --"));
         }
     }
 

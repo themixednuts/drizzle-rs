@@ -4,10 +4,9 @@
 
 use std::path::Path;
 
-use colored::Colorize;
-
 use crate::config::{Casing, DrizzleConfig};
 use crate::error::CliError;
+use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the generate command
@@ -29,10 +28,10 @@ pub fn run(
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("{} {}", "Database:".bright_blue(), name);
+        println!("{}: {}", output::label("Database"), name);
     }
 
-    println!("{}", "Generating migration...".bright_cyan());
+    println!("{}", output::heading("Generating migration..."));
 
     // Create output directories if they don't exist
     let out_dir = db.migrations_dir();
@@ -53,7 +52,7 @@ pub fn run(
 
     println!(
         "  {} {} schema file(s)",
-        "Parsing".bright_blue(),
+        output::label("Parsing"),
         schema_files.len()
     );
 
@@ -68,13 +67,13 @@ pub fn run(
     let parse_result = SchemaParser::parse(&combined_code);
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        println!("{}", "No tables or indexes found in schema files.".yellow());
+        println!("{}", output::warning("No tables or indexes found in schema files."));
         return Ok(());
     }
 
     println!(
         "  {} {} table(s), {} index(es)",
-        "Found".bright_blue(),
+        output::label("Found"),
         parse_result.tables.len(),
         parse_result.indexes.len()
     );
@@ -93,13 +92,13 @@ pub fn run(
     let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, db.breakpoints)?;
 
     if sql_statements.is_empty() {
-        println!("{}", "No schema changes detected 😴".yellow());
+        println!("{}", output::warning("No schema changes detected 😴"));
         return Ok(());
     }
 
     println!(
         "  {} {} SQL statement(s)",
-        "Generated".bright_blue(),
+        output::label("Generated"),
         sql_statements.len()
     );
 
@@ -144,7 +143,7 @@ pub fn run(
 
     println!(
         "{}",
-        format!("Migration generated: {}", migration_tag).bright_green()
+        output::success(&format!("Migration generated: {}", migration_tag))
     );
     println!("   {}", migration_dir.display());
 
@@ -195,12 +194,12 @@ fn generate_custom_migration(
 
     println!(
         "{}",
-        format!("✅ Custom migration created: {}", migration_tag).bright_green()
+        output::success(&format!("Custom migration created: {}", migration_tag))
     );
     println!("   {}", migration_dir.display());
     println!(
         "{}",
-        "   Edit the migration file to add your SQL statements.".bright_blue()
+        output::label("   Edit the migration file to add your SQL statements.")
     );
 
     Ok(())

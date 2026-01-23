@@ -5,7 +5,7 @@
 
 use crate::config::DrizzleConfig;
 use crate::error::CliError;
-use colored::Colorize;
+use crate::output;
 use drizzle_migrations::upgrade::upgrade_to_latest;
 use drizzle_migrations::version::{is_supported_version, snapshot_version};
 use drizzle_types::Dialect;
@@ -26,16 +26,20 @@ pub fn run(
     let out_dir = out_override.unwrap_or(db.migrations_dir());
 
     println!(
-        "{} Checking for snapshots to upgrade in {}",
-        "🔍".bright_cyan(),
-        out_dir.display()
+        "{}",
+        output::heading(&format!(
+            "Checking for snapshots to upgrade in {}",
+            out_dir.display()
+        ))
     );
 
     if !out_dir.exists() {
         println!(
-            "{} No migrations folder found at {}",
-            "ℹ️".bright_blue(),
-            out_dir.display()
+            "{}",
+            output::warning(&format!(
+                "No migrations folder found at {}",
+                out_dir.display()
+            ))
         );
         return Ok(());
     }
@@ -44,16 +48,20 @@ pub fn run(
 
     if upgraded == 0 {
         println!(
-            "{} All snapshots are already at the latest version ({})",
-            "✅".bright_green(),
-            snapshot_version(dialect)
+            "{}",
+            output::success(&format!(
+                "All snapshots are already at the latest version ({})",
+                snapshot_version(dialect)
+            ))
         );
     } else {
         println!(
-            "{} Upgraded {} snapshot(s) to version {}",
-            "✅".bright_green(),
-            upgraded,
-            snapshot_version(dialect)
+            "{}",
+            output::success(&format!(
+                "Upgraded {} snapshot(s) to version {}",
+                upgraded,
+                snapshot_version(dialect)
+            ))
         );
     }
 
@@ -158,20 +166,24 @@ fn upgrade_snapshot_file(path: &Path, dialect: Dialect) -> Result<bool, CliError
     let version_num: u32 = version.parse().unwrap_or(0);
     if !is_supported_version(dialect, version) && version_num > 0 {
         println!(
-            "{} Skipping {}: version {} is not supported for upgrade",
-            "⚠️".bright_yellow(),
-            path.display(),
-            version
+            "{}",
+            output::warning(&format!(
+                "Skipping {}: version {} is not supported for upgrade",
+                path.display(),
+                version
+            ))
         );
         return Ok(false);
     }
 
     println!(
-        "{} Upgrading {} from version {} to {}",
-        "📦".bright_cyan(),
-        path.display(),
-        version,
-        latest_version
+        "{}",
+        output::info(&format!(
+            "Upgrading {} from version {} to {}",
+            path.display(),
+            version,
+            latest_version
+        ))
     );
 
     // Upgrade the snapshot

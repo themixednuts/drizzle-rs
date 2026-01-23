@@ -4,10 +4,9 @@
 //! Note: This command requires database connectivity which depends on
 //! driver-specific features being enabled.
 
-use colored::Colorize;
-
 use crate::config::{Casing, DrizzleConfig};
 use crate::error::CliError;
+use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
 #[derive(Debug, Clone)]
@@ -41,17 +40,17 @@ pub fn run(
     if opts.cli_strict {
         println!(
             "{}",
-            "⚠️ Deprecated: Do not use '--strict'. Use '--explain' instead.".yellow()
+            output::warning("Deprecated: Do not use '--strict'. Use '--explain' instead.")
         );
         return Err(CliError::Other("strict flag is deprecated".into()));
     }
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
-        println!("{} {}", "Database:".bright_blue(), name);
+        println!("{}: {}", output::label("Database"), name);
     }
 
-    println!("{}", "Pushing schema to database...".bright_cyan());
+    println!("{}", output::heading("Pushing schema to database..."));
     println!();
 
     // Get credentials
@@ -59,19 +58,19 @@ pub fn run(
     let credentials = match credentials {
         Some(c) => c,
         None => {
-            println!("{}", "No database credentials configured.".yellow());
+            println!("{}", output::warning("No database credentials configured."));
             println!();
             println!("Add credentials to your drizzle.config.toml:");
             println!();
-            println!("  {}", "[dbCredentials]".bright_black());
+            println!("  {}", output::muted("[dbCredentials]"));
             match db.dialect.to_base() {
                 drizzle_types::Dialect::SQLite => {
-                    println!("  {}", "url = \"./dev.db\"".bright_black());
+                    println!("  {}", output::muted("url = \"./dev.db\""));
                 }
                 drizzle_types::Dialect::PostgreSQL => {
                     println!(
                         "  {}",
-                        "url = \"postgres://user:pass@localhost:5432/db\"".bright_black()
+                        output::muted("url = \"postgres://user:pass@localhost:5432/db\"")
                     );
                 }
                 drizzle_types::Dialect::MySQL => {
@@ -79,15 +78,15 @@ pub fn run(
                     // dialect type includes it, so keep the match exhaustive.
                     println!(
                         "  {}",
-                        "url = \"mysql://user:pass@localhost:3306/db\"".bright_black()
+                        output::muted("url = \"mysql://user:pass@localhost:3306/db\"")
                     );
                 }
             }
             println!();
             println!("Or use an environment variable:");
             println!();
-            println!("  {}", "[dbCredentials]".bright_black());
-            println!("  {}", "url = { env = \"DATABASE_URL\" }".bright_black());
+            println!("  {}", output::muted("[dbCredentials]"));
+            println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
             return Ok(());
         }
     };
@@ -100,7 +99,7 @@ pub fn run(
 
     println!(
         "  {} {} schema file(s)",
-        "Parsing".bright_blue(),
+        output::label("Parsing"),
         schema_files.len()
     );
 
@@ -115,13 +114,13 @@ pub fn run(
     let parse_result = SchemaParser::parse(&combined_code);
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        println!("{}", "No tables or indexes found in schema files.".yellow());
+        println!("{}", output::warning("No tables or indexes found in schema files."));
         return Ok(());
     }
 
     println!(
         "  {} {} table(s), {} index(es)",
-        "Found".bright_blue(),
+        output::label("Found"),
         parse_result.tables.len(),
         parse_result.indexes.len()
     );
@@ -134,9 +133,9 @@ pub fn run(
     let plan = crate::db::plan_push(&credentials, db.dialect, &desired_snapshot, db.breakpoints)?;
 
     if !plan.warnings.is_empty() {
-        println!("{}", "Warnings:".bright_yellow());
+        println!("{}", output::warning("Warnings:"));
         for w in &plan.warnings {
-            println!("  {} {}", "-".bright_yellow(), w);
+            println!("  {} {}", output::warning("-"), w);
         }
         println!();
     }
@@ -144,16 +143,16 @@ pub fn run(
     // Print SQL plan for explain/verbose
     if explain || verbose {
         if plan.sql_statements.is_empty() {
-            println!("{}", "No schema changes detected.".green());
+            println!("{}", output::success("No schema changes detected."));
             return Ok(());
         }
 
-        println!("{}", "--- Planned SQL ---".bright_black());
+        println!("{}", output::muted("--- Planned SQL ---"));
         println!();
         for stmt in &plan.sql_statements {
             println!("{stmt}\n");
         }
-        println!("{}", "--- End SQL ---".bright_black());
+        println!("{}", output::muted("--- End SQL ---"));
         println!();
     }
 
@@ -163,14 +162,14 @@ pub fn run(
     }
 
     if plan.sql_statements.is_empty() {
-        println!("{}", "No schema changes detected.".green());
+        println!("{}", output::success("No schema changes detected."));
         return Ok(());
     }
 
     // Apply plan
     crate::db::apply_push(&credentials, db.dialect, &plan, opts.force)?;
 
-    println!("{}", "Push complete!".bright_green());
+    println!("{}", output::success("Push complete!"));
 
     Ok(())
 }
