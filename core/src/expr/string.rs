@@ -256,8 +256,8 @@ where
 
 /// Concatenate two string expressions using || operator.
 ///
-/// Unlike `string_concat`, this function properly propagates nullability:
-/// if either input is nullable, the result is nullable.
+/// Nullability follows SQL concatenation rules: if either input is nullable,
+/// the result is nullable. `string_concat` is a compatibility alias.
 ///
 /// # Type Safety
 ///

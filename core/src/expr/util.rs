@@ -4,7 +4,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{DataType, Textual};
 
-use super::{Expr, NonNull, Null, SQLExpr, Scalar};
+use super::{Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
 
 // =============================================================================
 // ALIAS
@@ -69,6 +69,7 @@ where
 ///
 /// The target type marker specifies the result type for the type system,
 /// while the SQL type string specifies the actual SQL type name (dialect-specific).
+/// Preserves the input expression's nullability and aggregate marker.
 ///
 /// # Example
 ///
@@ -82,39 +83,13 @@ where
 /// // PostgreSQL-specific
 /// let age_text = cast::<_, _, _, Text>(users.age, "VARCHAR(255)");
 /// ```
-pub fn cast<'a, V, E, Target>(expr: E, target_type: &'a str) -> SQLExpr<'a, V, Target, Null, Scalar>
-where
-    V: SQLParam + 'a,
-    E: ToSQL<'a, V>,
-    Target: DataType,
-{
-    SQLExpr::new(SQL::func(
-        "CAST",
-        expr.to_sql().push(Token::AS).append(SQL::raw(target_type)),
-    ))
-}
-
-/// Cast an expression to a different type, preserving non-null status.
-///
-/// Use this when you know the input expression is non-null and the cast
-/// will always succeed (e.g., widening conversions).
-///
-/// # Example
-///
-/// ```ignore
-/// use drizzle_core::expr::cast_non_null;
-/// use drizzle_core::types::BigInt;
-///
-/// // Cast a non-null integer to bigint
-/// let big_id = cast_non_null::<_, _, _, BigInt>(users.id, "BIGINT");
-/// ```
-pub fn cast_non_null<'a, V, E, Target>(
+pub fn cast<'a, V, E, Target>(
     expr: E,
     target_type: &'a str,
-) -> SQLExpr<'a, V, Target, NonNull, Scalar>
+) -> SQLExpr<'a, V, Target, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
-    E: Expr<'a, V, Nullable = NonNull>,
+    E: Expr<'a, V>,
     Target: DataType,
 {
     SQLExpr::new(SQL::func(
@@ -130,6 +105,7 @@ where
 /// Concatenate two string expressions using || operator.
 ///
 /// Requires both operands to be `Textual` (Text or VarChar).
+/// Nullability follows SQL concatenation rules: nullable input -> nullable output.
 ///
 /// # Type Safety
 ///
@@ -155,15 +131,17 @@ where
 pub fn string_concat<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, crate::types::Text, NonNull, Scalar>
+) -> SQLExpr<'a, V, crate::types::Text, <L::Nullable as NullOr<R::Nullable>>::Output, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Textual,
     R::SQLType: Textual,
+    L::Nullable: NullOr<R::Nullable>,
+    R::Nullable: Nullability,
 {
-    SQLExpr::new(left.to_sql().push(Token::CONCAT).append(right.to_sql()))
+    super::concat(left, right)
 }
 
 // =============================================================================
