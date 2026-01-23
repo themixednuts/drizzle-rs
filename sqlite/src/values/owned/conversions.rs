@@ -2,6 +2,7 @@
 
 use super::OwnedSQLiteValue;
 use drizzle_core::error::DrizzleError;
+use std::borrow::Cow;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -67,6 +68,12 @@ impl From<&str> for OwnedSQLiteValue {
     }
 }
 
+impl From<Cow<'_, str>> for OwnedSQLiteValue {
+    fn from(value: Cow<'_, str>) -> Self {
+        OwnedSQLiteValue::Text(value.into_owned())
+    }
+}
+
 impl From<String> for OwnedSQLiteValue {
     fn from(value: String) -> Self {
         OwnedSQLiteValue::Text(value)
@@ -84,6 +91,12 @@ impl From<&String> for OwnedSQLiteValue {
 impl From<&[u8]> for OwnedSQLiteValue {
     fn from(value: &[u8]) -> Self {
         OwnedSQLiteValue::Blob(value.to_vec().into_boxed_slice())
+    }
+}
+
+impl From<Cow<'_, [u8]>> for OwnedSQLiteValue {
+    fn from(value: Cow<'_, [u8]>) -> Self {
+        OwnedSQLiteValue::Blob(value.into_owned().into_boxed_slice())
     }
 }
 

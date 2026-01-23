@@ -35,6 +35,54 @@ pub enum SQLiteValue<'a> {
 }
 
 impl<'a> SQLiteValue<'a> {
+    /// Returns true if this value is NULL.
+    #[inline]
+    pub const fn is_null(&self) -> bool {
+        matches!(self, SQLiteValue::Null)
+    }
+
+    /// Returns the integer value if this is an INTEGER.
+    #[inline]
+    pub const fn as_i64(&self) -> Option<i64> {
+        match self {
+            SQLiteValue::Integer(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Returns the real value if this is a REAL.
+    #[inline]
+    pub const fn as_f64(&self) -> Option<f64> {
+        match self {
+            SQLiteValue::Real(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Returns the text value if this is TEXT.
+    #[inline]
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            SQLiteValue::Text(value) => Some(value.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Returns the blob value if this is BLOB.
+    #[inline]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            SQLiteValue::Blob(value) => Some(value.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Converts this value into an owned representation.
+    #[inline]
+    pub fn into_owned(self) -> OwnedSQLiteValue {
+        self.into()
+    }
+
     /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
     ///
     /// This provides a unified conversion interface for all types that implement
@@ -88,12 +136,6 @@ impl<'a> SQLParam for SQLiteValue<'a> {
 impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {
     fn from(value: SQLiteValue<'a>) -> Self {
         SQL::param(value)
-    }
-}
-
-impl<'a> From<SQL<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
-    fn from(_value: SQL<'a, SQLiteValue<'a>>) -> Self {
-        unimplemented!()
     }
 }
 

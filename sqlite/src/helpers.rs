@@ -1,13 +1,14 @@
-use crate::traits::{SQLiteSQL, SQLiteTable, ToSQLiteSQL};
+use crate::traits::{SQLiteSQL, SQLiteTable};
+use crate::values::SQLiteValue;
 use drizzle_core::{
     SQL, Token, helpers as core_helpers,
-    traits::{SQLColumnInfo, SQLModel},
+    traits::{SQLColumnInfo, SQLModel, ToSQL},
 };
 
 // Re-export core helpers with SQLiteValue type for convenience
 pub(crate) use core_helpers::{
-    delete, from, group_by, having, insert, limit, offset, order_by, select, select_distinct, set,
-    update, r#where,
+    delete, except, except_all, from, group_by, having, insert, intersect, intersect_all, limit,
+    offset, order_by, select, select_distinct, set, union, union_all, update, r#where,
 };
 
 // Re-export Join from core
@@ -15,19 +16,14 @@ pub use drizzle_core::Join;
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQLiteSQL<'a> {
-    // For INSERT statements, we need just column names, not fully qualified names
-    let joined_names = columns
-        .iter()
-        .map(|col| col.name())
-        .collect::<Vec<_>>()
-        .join(", ");
-    SQL::raw(joined_names)
+    // For INSERT statements, use quoted column names only (no table qualifiers)
+    SQL::join(columns.iter().map(|col| SQL::ident(col.name())), Token::COMMA)
 }
 
 // Generate all join helper functions using the shared macro
 drizzle_core::impl_join_helpers!(
     table_trait: SQLiteTable<'a>,
-    condition_trait: ToSQLiteSQL<'a>,
+    condition_trait: ToSQL<'a, SQLiteValue<'a>>,
     sql_type: SQLiteSQL<'a>,
 );
 
@@ -71,7 +67,7 @@ where
 /// Helper function to create a RETURNING clause - SQLite specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQLiteSQL<'a>
 where
-    I: ToSQLiteSQL<'a>,
+    I: ToSQL<'a, SQLiteValue<'a>>,
 {
     SQL::from(Token::RETURNING).append(&columns)
 }

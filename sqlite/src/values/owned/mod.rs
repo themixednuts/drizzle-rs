@@ -25,6 +25,60 @@ pub enum OwnedSQLiteValue {
 }
 
 impl OwnedSQLiteValue {
+    /// Returns true if this value is NULL.
+    #[inline]
+    pub const fn is_null(&self) -> bool {
+        matches!(self, OwnedSQLiteValue::Null)
+    }
+
+    /// Returns the integer value if this is an INTEGER.
+    #[inline]
+    pub const fn as_i64(&self) -> Option<i64> {
+        match self {
+            OwnedSQLiteValue::Integer(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Returns the real value if this is a REAL.
+    #[inline]
+    pub const fn as_f64(&self) -> Option<f64> {
+        match self {
+            OwnedSQLiteValue::Real(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Returns the text value if this is TEXT.
+    #[inline]
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            OwnedSQLiteValue::Text(value) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Returns the blob value if this is BLOB.
+    #[inline]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            OwnedSQLiteValue::Blob(value) => Some(value.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Returns a borrowed SQLiteValue view of this owned value.
+    #[inline]
+    pub fn as_value(&self) -> SQLiteValue<'_> {
+        match self {
+            OwnedSQLiteValue::Integer(value) => SQLiteValue::Integer(*value),
+            OwnedSQLiteValue::Real(value) => SQLiteValue::Real(*value),
+            OwnedSQLiteValue::Text(value) => SQLiteValue::Text(Cow::Borrowed(value)),
+            OwnedSQLiteValue::Blob(value) => SQLiteValue::Blob(Cow::Borrowed(value)),
+            OwnedSQLiteValue::Null => SQLiteValue::Null,
+        }
+    }
+
     /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
     ///
     /// This provides a unified conversion interface for all types that implement

@@ -93,28 +93,14 @@ impl<'a> From<rusqlite::types::ValueRef<'a>> for SQLiteValue<'a> {
 #[cfg(feature = "turso")]
 impl<'a> IntoValue for SQLiteValue<'a> {
     fn into_value(self) -> turso::Result<turso::Value> {
-        let result = match self {
-            SQLiteValue::Integer(i) => turso::Value::Integer(i),
-            SQLiteValue::Real(r) => turso::Value::Real(r),
-            SQLiteValue::Text(cow) => turso::Value::Text(cow.into()),
-            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.into()),
-            SQLiteValue::Null => turso::Value::Null,
-        };
-        Ok(result)
+        Ok(turso::Value::from(self))
     }
 }
 
 #[cfg(feature = "turso")]
 impl<'a> IntoValue for &SQLiteValue<'a> {
     fn into_value(self) -> turso::Result<turso::Value> {
-        let result = match self {
-            SQLiteValue::Integer(i) => turso::Value::Integer(*i),
-            SQLiteValue::Real(r) => turso::Value::Real(*r),
-            SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
-            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
-            SQLiteValue::Null => turso::Value::Null,
-        };
-        Ok(result)
+        Ok(turso::Value::from(self))
     }
 }
 
@@ -137,8 +123,8 @@ impl<'a> From<&SQLiteValue<'a>> for turso::Value {
         match value {
             SQLiteValue::Integer(i) => turso::Value::Integer(*i),
             SQLiteValue::Real(r) => turso::Value::Real(*r),
-            SQLiteValue::Text(cow) => turso::Value::Text(cow.to_string()),
-            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.to_vec()),
+            SQLiteValue::Text(cow) => turso::Value::Text(cow.clone().into_owned()),
+            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.clone().into_owned()),
             SQLiteValue::Null => turso::Value::Null,
         }
     }
@@ -167,8 +153,8 @@ impl<'a> From<&SQLiteValue<'a>> for libsql::Value {
         match value {
             SQLiteValue::Integer(i) => libsql::Value::Integer(*i),
             SQLiteValue::Real(r) => libsql::Value::Real(*r),
-            SQLiteValue::Text(cow) => libsql::Value::Text(cow.to_string()),
-            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.to_vec()),
+            SQLiteValue::Text(cow) => libsql::Value::Text(cow.clone().into_owned()),
+            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.clone().into_owned()),
             SQLiteValue::Null => libsql::Value::Null,
         }
     }

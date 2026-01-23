@@ -55,11 +55,11 @@ macro_rules! params {
 macro_rules! params_internal {
     // Colon-style named parameter
     ({ $key:ident: $value:expr }) => {
-        $crate::ParamBind::new(stringify!($key), $crate::SQLiteValue::from($value))
+        $crate::ParamBind::named(stringify!($key), $crate::SQLiteValue::from($value))
     };
     // Positional parameter
     ($value:expr) => {
-        $crate::ParamBind::new("", $crate::SQLiteValue::from($value))
+        $crate::ParamBind::positional($crate::SQLiteValue::from($value))
     };
 }
 

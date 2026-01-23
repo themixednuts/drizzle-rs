@@ -2,6 +2,8 @@
 
 #[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use super::OwnedSQLiteValue;
+#[cfg(any(feature = "turso", feature = "libsql"))]
+use super::super::SQLiteValue;
 
 //------------------------------------------------------------------------------
 // rusqlite implementations
@@ -85,54 +87,28 @@ impl From<rusqlite::types::ValueRef<'_>> for OwnedSQLiteValue {
 #[cfg(feature = "turso")]
 impl turso::IntoValue for OwnedSQLiteValue {
     fn into_value(self) -> turso::Result<turso::Value> {
-        let result = match self {
-            OwnedSQLiteValue::Integer(i) => turso::Value::Integer(i),
-            OwnedSQLiteValue::Real(r) => turso::Value::Real(r),
-            OwnedSQLiteValue::Text(s) => turso::Value::Text(s),
-            OwnedSQLiteValue::Blob(b) => turso::Value::Blob(b.into_vec()),
-            OwnedSQLiteValue::Null => turso::Value::Null,
-        };
-        Ok(result)
+        Ok(turso::Value::from(self))
     }
 }
 
 #[cfg(feature = "turso")]
 impl turso::IntoValue for &OwnedSQLiteValue {
     fn into_value(self) -> turso::Result<turso::Value> {
-        let result = match self {
-            OwnedSQLiteValue::Integer(i) => turso::Value::Integer(*i),
-            OwnedSQLiteValue::Real(r) => turso::Value::Real(*r),
-            OwnedSQLiteValue::Text(s) => turso::Value::Text(s.clone()),
-            OwnedSQLiteValue::Blob(b) => turso::Value::Blob(b.to_vec()),
-            OwnedSQLiteValue::Null => turso::Value::Null,
-        };
-        Ok(result)
+        Ok(turso::Value::from(self))
     }
 }
 
 #[cfg(feature = "turso")]
 impl From<OwnedSQLiteValue> for turso::Value {
     fn from(value: OwnedSQLiteValue) -> Self {
-        match value {
-            OwnedSQLiteValue::Integer(i) => turso::Value::Integer(i),
-            OwnedSQLiteValue::Real(r) => turso::Value::Real(r),
-            OwnedSQLiteValue::Text(s) => turso::Value::Text(s),
-            OwnedSQLiteValue::Blob(b) => turso::Value::Blob(b.into_vec()),
-            OwnedSQLiteValue::Null => turso::Value::Null,
-        }
+        turso::Value::from(SQLiteValue::from(value))
     }
 }
 
 #[cfg(feature = "turso")]
 impl From<&OwnedSQLiteValue> for turso::Value {
     fn from(value: &OwnedSQLiteValue) -> Self {
-        match value {
-            OwnedSQLiteValue::Integer(i) => turso::Value::Integer(*i),
-            OwnedSQLiteValue::Real(r) => turso::Value::Real(*r),
-            OwnedSQLiteValue::Text(s) => turso::Value::Text(s.clone()),
-            OwnedSQLiteValue::Blob(b) => turso::Value::Blob(b.to_vec()),
-            OwnedSQLiteValue::Null => turso::Value::Null,
-        }
+        turso::Value::from(SQLiteValue::from(value))
     }
 }
 
@@ -143,25 +119,13 @@ impl From<&OwnedSQLiteValue> for turso::Value {
 #[cfg(feature = "libsql")]
 impl From<OwnedSQLiteValue> for libsql::Value {
     fn from(value: OwnedSQLiteValue) -> Self {
-        match value {
-            OwnedSQLiteValue::Integer(i) => libsql::Value::Integer(i),
-            OwnedSQLiteValue::Real(r) => libsql::Value::Real(r),
-            OwnedSQLiteValue::Text(s) => libsql::Value::Text(s),
-            OwnedSQLiteValue::Blob(b) => libsql::Value::Blob(b.into_vec()),
-            OwnedSQLiteValue::Null => libsql::Value::Null,
-        }
+        libsql::Value::from(SQLiteValue::from(value))
     }
 }
 
 #[cfg(feature = "libsql")]
 impl From<&OwnedSQLiteValue> for libsql::Value {
     fn from(value: &OwnedSQLiteValue) -> Self {
-        match value {
-            OwnedSQLiteValue::Integer(i) => libsql::Value::Integer(*i),
-            OwnedSQLiteValue::Real(r) => libsql::Value::Real(*r),
-            OwnedSQLiteValue::Text(s) => libsql::Value::Text(s.clone()),
-            OwnedSQLiteValue::Blob(b) => libsql::Value::Blob(b.to_vec()),
-            OwnedSQLiteValue::Null => libsql::Value::Null,
-        }
+        libsql::Value::from(SQLiteValue::from(value))
     }
 }

@@ -17,13 +17,7 @@ pub trait SQLiteTableInfo: SQLTableInfo {
     fn sqlite_columns(&self) -> &'static [&'static dyn SQLiteColumnInfo];
 
     /// Returns all tables this table depends on via foreign keys
-    fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
-        SQLiteTableInfo::sqlite_columns(self)
-            .iter()
-            .filter_map(|&col| SQLiteColumnInfo::foreign_key(col))
-            .map(|fk_col| SQLiteColumnInfo::table(fk_col))
-            .collect()
-    }
+    fn sqlite_dependencies(&self) -> &'static [&'static dyn SQLiteTableInfo];
 }
 
 // Blanket implementation for static references
@@ -44,7 +38,7 @@ impl<T: SQLiteTableInfo> SQLiteTableInfo for &'static T {
         (*self).sqlite_columns()
     }
 
-    fn sqlite_dependencies(&self) -> Box<[&'static dyn SQLiteTableInfo]> {
+    fn sqlite_dependencies(&self) -> &'static [&'static dyn SQLiteTableInfo] {
         (*self).sqlite_dependencies()
     }
 }

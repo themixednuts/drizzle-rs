@@ -1,5 +1,6 @@
 use drizzle_core::Token;
 // Re-export common enums and traits from core
+pub use drizzle_core::builder::{BuilderInit, ExecutableState, OrderByClause};
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
     traits::{SQLSchema, SQLTable},
@@ -35,36 +36,8 @@ pub use select::{
 };
 pub use update::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet};
 
-//------------------------------------------------------------------------------
-// Common SQL Components
-//------------------------------------------------------------------------------
-
-/// Represents an ORDER BY clause in a query
-#[derive(Debug, Clone)]
-pub struct OrderByClause<'a> {
-    /// The expression to order by
-    pub expr: SQL<'a, SQLiteValue<'a>>,
-    /// The direction to sort (ASC or DESC)
-    pub direction: OrderBy,
-}
-
-impl<'a> OrderByClause<'a> {
-    /// Creates a new ORDER BY clause
-    pub const fn new(expr: SQL<'a, SQLiteValue<'a>>, direction: OrderBy) -> Self {
-        Self { expr, direction }
-    }
-}
-
-pub trait BuilderState {}
-
-#[derive(Debug, Clone)]
-pub struct BuilderInit;
-
 #[derive(Debug, Clone)]
 pub struct CTEInit;
-
-impl BuilderState for BuilderInit {}
-impl ExecutableState for BuilderInit {}
 
 impl ExecutableState for CTEInit {}
 
@@ -355,10 +328,7 @@ impl<'a> QueryBuilder<'a> {
     }
 }
 
-impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
-where
-    State: BuilderState,
-{
+impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// Begins a SELECT query with the specified columns.
     ///
     /// This method starts building a SELECT statement. You can select individual columns,
@@ -491,6 +461,75 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
+    /// Begins an INSERT query after a CTE.
+    pub fn insert<Table>(
+        &self,
+        table: Table,
+    ) -> insert::InsertBuilder<'a, Schema, insert::InsertInitial, Table>
+    where
+        Table: SQLiteTable<'a>,
+    {
+        let sql = self.sql.clone().append(crate::helpers::insert::<
+            'a,
+            Table,
+            SQLiteSchemaType,
+            SQLiteValue<'a>,
+        >(table));
+
+        insert::InsertBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins an UPDATE query after a CTE.
+    pub fn update<Table>(
+        &self,
+        table: Table,
+    ) -> update::UpdateBuilder<'a, Schema, update::UpdateInitial, Table>
+    where
+        Table: SQLiteTable<'a>,
+    {
+        let sql = self.sql.clone().append(crate::helpers::update::<
+            'a,
+            Table,
+            SQLiteSchemaType,
+            SQLiteValue<'a>,
+        >(table));
+
+        update::UpdateBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a DELETE query after a CTE.
+    pub fn delete<Table>(
+        &self,
+        table: Table,
+    ) -> delete::DeleteBuilder<'a, Schema, delete::DeleteInitial, Table>
+    where
+        Table: SQLiteTable<'a>,
+    {
+        let sql = self.sql.clone().append(crate::helpers::delete::<
+            'a,
+            Table,
+            SQLiteSchemaType,
+            SQLiteValue<'a>,
+        >(table));
+
+        delete::DeleteBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
     pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         C: CTEDefinition<'a>,
@@ -509,10 +548,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     }
 }
 
-impl<'a, Schema, State> QueryBuilder<'a, Schema, State>
-where
-    State: BuilderState,
-{
+impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// Begins an INSERT query for the specified table.
     ///
     /// This method starts building an INSERT statement. The table must be part of the schema
@@ -683,9 +719,6 @@ where
     }
 }
 
-// Marker trait to indicate a query builder state is executable
-pub trait ExecutableState {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,14 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_state_trait() {
-        // Test that different states implement BuilderState
-        fn assert_builder_state<T: BuilderState>() {}
-
-        assert_builder_state::<BuilderInit>();
-        // assert_builder_state::<SelectInitial>();
-        // assert_builder_state::<InsertInitial>();
-        // assert_builder_state::<UpdateInitial>();
-        // assert_builder_state::<DeleteInitial>();
+    fn test_builder_init_type() {
+        let _state = BuilderInit;
     }
 }

@@ -136,6 +136,12 @@ impl<'a> From<&'a str> for SQLiteValue<'a> {
     }
 }
 
+impl<'a> From<Cow<'a, str>> for SQLiteValue<'a> {
+    fn from(value: Cow<'a, str>) -> Self {
+        SQLiteValue::Text(value)
+    }
+}
+
 impl<'a> From<String> for SQLiteValue<'a> {
     fn from(value: String) -> Self {
         SQLiteValue::Text(Cow::Owned(value))
@@ -169,6 +175,12 @@ impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for SQLiteValue<'a> {
 impl<'a> From<&'a [u8]> for SQLiteValue<'a> {
     fn from(value: &'a [u8]) -> Self {
         SQLiteValue::Blob(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<Cow<'a, [u8]>> for SQLiteValue<'a> {
+    fn from(value: Cow<'a, [u8]>) -> Self {
+        SQLiteValue::Blob(value)
     }
 }
 
