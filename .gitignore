@@ -3,3 +3,8 @@
 /tmp/
 /.idea/
 /queries/
+
+# act (local GitHub Actions runner)
+.env
+.act-artifacts/
+tmpclaude-*

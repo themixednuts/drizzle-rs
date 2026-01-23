@@ -845,6 +845,49 @@ let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
 
 ---
 
+## Development
+
+### Running Tests
+
+```bash
+cargo test --all-features
+```
+
+### Testing GitHub Actions Locally
+
+Use [act](https://github.com/nektos/act) to run GitHub Actions locally before pushing:
+
+```bash
+# Install act
+winget install nektos.act      # Windows
+brew install act               # macOS/Linux
+
+# Run CI workflow
+bun scripts/act.ts
+
+# Run specific job
+bun scripts/act.ts ci lint
+
+# List all available jobs
+bun scripts/act.ts --list
+
+# Dry run (see what would execute)
+bun scripts/act.ts --dry-run
+
+# Test release workflow
+bun scripts/act.ts release
+
+# Show help
+bun scripts/act.ts --help
+```
+
+Requirements:
+- [Bun](https://bun.sh) installed
+- Docker Desktop running
+- Copy `.env.example` to `.env` and fill in values (optional, for workflows needing secrets)
+
+---
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

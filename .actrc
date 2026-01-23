@@ -1,0 +1,15 @@
+# act configuration for running GitHub Actions locally
+# https://github.com/nektos/act
+
+# Use medium-sized image (good balance of tools vs. disk space)
+# Large image has full GitHub runner parity but is ~17GB
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# Reuse containers between runs for faster iteration
+--reuse
+
+# Bind working directory
+--bind
+
+# Default artifact server (for upload/download-artifact actions)
+--artifact-server-path .act-artifacts
