@@ -134,7 +134,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 ///     /// Trait bound for table types
 ///     table_trait: SQLiteTable<'a>,
 ///     /// Trait bound for condition types
-///     condition_trait: ToSQLiteSQL<'a>,
+///     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
 ///     /// Return type for SQL
 ///     sql_type: SQLiteSQL<'a>,
 /// );

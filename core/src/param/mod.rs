@@ -91,4 +91,14 @@ impl<'a, V: SQLParam> ParamBind<'a, V> {
     pub const fn new(name: &'a str, value: V) -> Self {
         Self { name, value }
     }
+
+    /// Creates a new named parameter binding.
+    pub const fn named(name: &'a str, value: V) -> Self {
+        Self { name, value }
+    }
+
+    /// Creates a new positional parameter binding.
+    pub const fn positional(value: V) -> Self {
+        Self { name: "", value }
+    }
 }

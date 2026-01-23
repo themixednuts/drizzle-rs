@@ -17,6 +17,11 @@ pub trait SQLColumnInfo: Any + Send + Sync {
         None
     }
 
+    /// Returns the foreign key table if this column references one.
+    fn foreign_key_table(&self) -> Option<&'static dyn SQLTableInfo> {
+        self.foreign_key().map(|fk| fk.table())
+    }
+
     fn as_column(&self) -> &dyn SQLColumnInfo
     where
         Self: Sized,
@@ -25,6 +30,7 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     }
 }
 
+/// Column trait tying expression lifetimes to parameter values via `'a`.
 pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value> + Expr<'a, Value>
 {

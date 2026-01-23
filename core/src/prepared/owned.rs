@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use crate::{
-    DialectExt, OwnedParam, ParamBind, SQL, SQLChunk, ToSQL,
-    prepared::{PreparedStatement, bind_parameters_internal},
+    OwnedParam, ParamBind, SQL, SQLChunk, ToSQL,
+    prepared::{PreparedStatement, bind_values_internal},
     traits::SQLParam,
 };
 use compact_str::CompactString;
@@ -15,10 +15,12 @@ pub struct OwnedPreparedStatement<V: SQLParam> {
     pub text_segments: Box<[CompactString]>,
     /// Parameter placeholders (in order) - only placeholders, no values
     pub params: Box<[OwnedParam<V>]>,
+    /// Fully rendered SQL with placeholders for this dialect
+    pub sql: CompactString,
 }
-impl<V: SQLParam + core::fmt::Display + 'static> core::fmt::Display for OwnedPreparedStatement<V> {
+impl<V: SQLParam> core::fmt::Display for OwnedPreparedStatement<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_sql())
+        write!(f, "{}", self.sql())
     }
 }
 
@@ -27,25 +29,31 @@ impl<'a, V: SQLParam> From<PreparedStatement<'a, V>> for OwnedPreparedStatement<
         OwnedPreparedStatement {
             text_segments: prepared.text_segments,
             params: prepared.params.into_iter().map(|p| p.into()).collect(),
+            sql: prepared.sql,
         }
     }
 }
 
 impl<V: SQLParam> OwnedPreparedStatement<V> {
-    /// Bind parameters and render final SQL string with dialect-appropriate placeholders.
+    /// Bind parameters and return SQL with dialect-appropriate placeholders.
     /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL.
     pub fn bind<'a, T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
-    ) -> (String, impl Iterator<Item = V>) {
-        bind_parameters_internal(
-            &self.text_segments,
+    ) -> (&str, impl Iterator<Item = V>) {
+        let bound_params = bind_values_internal(
             &self.params,
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref(), // OwnedParam can store values
-            |_p, idx| V::DIALECT.render_placeholder(idx),
-        )
+        );
+
+        (self.sql.as_str(), bound_params)
+    }
+
+    /// Returns the fully rendered SQL with placeholders.
+    pub fn sql(&self) -> &str {
+        self.sql.as_str()
     }
 }
 

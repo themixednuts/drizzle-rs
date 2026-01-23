@@ -51,11 +51,19 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
+    /// Creates an empty SQL fragment with pre-allocated chunk capacity.
+    #[inline]
+    pub fn with_capacity_chunks(capacity: usize) -> Self {
+        Self {
+            chunks: SmallVec::with_capacity(capacity),
+        }
+    }
+
     /// Creates SQL with a quoted identifier
     #[inline]
-    pub fn ident(name: &'static str) -> Self {
+    pub fn ident(name: impl Into<Cow<'a, str>>) -> Self {
         Self {
-            chunks: smallvec::smallvec![SQLChunk::Ident(Cow::Borrowed(name))],
+            chunks: smallvec::smallvec![SQLChunk::Ident(name.into())],
         }
     }
 
@@ -75,6 +83,22 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 value: Some(value.into()),
                 placeholder: Self::POSITIONAL_PLACEHOLDER,
             })],
+        }
+    }
+
+    /// Creates SQL with a binary parameter value (BLOB/bytea)
+    ///
+    /// Prefer this over `SQL::param(Vec<u8>)` to avoid list semantics.
+    #[inline]
+    pub fn bytes(bytes: impl Into<Cow<'a, [u8]>>) -> Self
+    where
+        V: From<&'a [u8]>,
+        V: From<Vec<u8>>,
+        V: Into<Cow<'a, V>>,
+    {
+        match bytes.into() {
+            Cow::Borrowed(value) => Self::param(V::from(value)),
+            Cow::Owned(value) => Self::param(V::from(value)),
         }
     }
 
@@ -127,7 +151,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     pub fn append(mut self, other: impl Into<SQL<'a, V>>) -> Self {
         #[cfg(feature = "profiling")]
         profile_sql!("append");
-        self.chunks.extend(other.into().chunks);
+        let mut other = other.into();
+        if !other.chunks.is_empty() {
+            self.chunks.reserve(other.chunks.len());
+            self.chunks.extend(other.chunks.drain(..));
+        }
         self
     }
 
@@ -162,6 +190,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         };
 
         let mut result = first.to_sql();
+        let (lower, _) = iter.size_hint();
+        if lower > 0 {
+            // Reserve at least space for separators and minimal chunk growth.
+            result.chunks.reserve(lower * 2);
+        }
         for item in iter {
             result = result.push(separator).append(item.to_sql());
         }
@@ -181,18 +214,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Creates an aliased version: self AS "name"
-    pub fn alias(mut self, name: impl Into<Cow<'a, str>>) -> SQL<'a, V> {
-        if self.chunks.len() == 1 {
-            let inner = self.chunks.pop().unwrap();
-            SQL {
-                chunks: smallvec::smallvec![SQLChunk::Alias {
-                    inner: Box::new(inner),
-                    alias: name.into(),
-                }],
-            }
-        } else {
-            self.push(Token::AS).push(SQLChunk::Ident(name.into()))
-        }
+    pub fn alias(self, name: impl Into<Cow<'a, str>>) -> SQL<'a, V> {
+        self.push(Token::AS).push(SQLChunk::Ident(name.into()))
     }
 
     /// Creates a comma-separated list of parameters

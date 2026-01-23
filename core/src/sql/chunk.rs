@@ -167,20 +167,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
     #[inline]
     pub(crate) const fn is_word_like(&self) -> bool {
         match self {
-            SQLChunk::Token(t) => !matches!(
-                t,
-                Token::LPAREN
-                    | Token::RPAREN
-                    | Token::COMMA
-                    | Token::SEMI
-                    | Token::DOT
-                    | Token::EQ
-                    | Token::NE
-                    | Token::LT
-                    | Token::GT
-                    | Token::LE
-                    | Token::GE
-            ),
+            SQLChunk::Token(t) => !t.is_punctuation() && !t.is_operator(),
             SQLChunk::Ident(_)
             | SQLChunk::Raw(_)
             | SQLChunk::Param(_)

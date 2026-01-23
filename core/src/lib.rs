@@ -45,6 +45,7 @@ pub(crate) mod prelude {
 }
 
 pub mod dialect;
+pub mod builder;
 pub mod error;
 pub mod expr;
 pub mod helpers;
@@ -60,6 +61,7 @@ pub mod traits;
 pub mod types;
 
 // Re-export key types and traits
+pub use builder::{BuilderInit, ExecutableState, OrderByClause};
 pub use dialect::{Dialect, DialectExt};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};

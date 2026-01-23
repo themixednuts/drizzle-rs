@@ -10,10 +10,33 @@ use crate::{
 use uuid::Uuid;
 
 /// Trait for types that can be converted to SQL fragments.
+///
+/// The `'a` lifetime ties any borrowed parameter values to the resulting SQL
+/// fragment, allowing zero-copy SQL construction when inputs are already
+/// borrowed.
 pub trait ToSQL<'a, V: SQLParam> {
     fn to_sql(&self) -> SQL<'a, V>;
     fn alias(&self, alias: &'static str) -> SQL<'a, V> {
         self.to_sql().alias(alias)
+    }
+}
+
+/// Wrapper for byte slices to avoid list semantics (`Vec<u8>` normally becomes a list).
+///
+/// Use this when you want a single BLOB/bytea parameter:
+/// ```ignore
+/// use drizzle_core::{SQLBytes, SQL};
+///
+/// let data = vec![1u8, 2, 3];
+/// let sql = SQL::bytes(&data); // or SQL::param(SQLBytes::new(&data))
+/// ```
+#[derive(Debug, Clone)]
+pub struct SQLBytes<'a>(pub Cow<'a, [u8]>);
+
+impl<'a> SQLBytes<'a> {
+    #[inline]
+    pub fn new(bytes: impl Into<Cow<'a, [u8]>>) -> Self {
+        Self(bytes.into())
     }
 }
 
@@ -109,6 +132,7 @@ where
     }
 }
 
+
 impl<'a, V> ToSQL<'a, V> for String
 where
     V: SQLParam + 'a,
@@ -120,135 +144,69 @@ where
     }
 }
 
-impl<'a, V> ToSQL<'a, V> for i8
+impl<'a, V> ToSQL<'a, V> for Cow<'a, str>
 where
-    V: SQLParam + 'a + From<i8>,
+    V: SQLParam + 'a,
+    V: From<&'a str>,
+    V: From<String>,
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
+        match self {
+            Cow::Borrowed(value) => SQL::param(V::from(*value)),
+            Cow::Owned(value) => SQL::param(V::from(value.clone())),
+        }
     }
 }
 
-impl<'a, V> ToSQL<'a, V> for i16
+
+impl<'a, V> ToSQL<'a, V> for Cow<'a, [u8]>
 where
-    V: SQLParam + 'a + From<i16>,
+    V: SQLParam + 'a,
+    V: From<&'a [u8]>,
+    V: From<Vec<u8>>,
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
+        match self {
+            Cow::Borrowed(value) => SQL::param(V::from(*value)),
+            Cow::Owned(value) => SQL::param(V::from(value.clone())),
+        }
     }
 }
 
-impl<'a, V> ToSQL<'a, V> for i32
+impl<'a, V> ToSQL<'a, V> for SQLBytes<'a>
 where
-    V: SQLParam + 'a + From<i32>,
+    V: SQLParam + 'a,
+    V: From<&'a [u8]>,
+    V: From<Vec<u8>>,
     V: Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
+        match &self.0 {
+            Cow::Borrowed(value) => SQL::param(V::from(*value)),
+            Cow::Owned(value) => SQL::param(V::from(value.clone())),
+        }
     }
 }
 
-impl<'a, V> ToSQL<'a, V> for i64
-where
-    V: SQLParam + 'a + From<i64>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
+macro_rules! impl_tosql_param_copy {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<'a, V> ToSQL<'a, V> for $ty
+            where
+                V: SQLParam + 'a + From<$ty>,
+                V: Into<Cow<'a, V>>,
+            {
+                fn to_sql(&self) -> SQL<'a, V> {
+                    SQL::param(V::from(*self))
+                }
+            }
+        )+
+    };
 }
 
-impl<'a, V> ToSQL<'a, V> for f32
-where
-    V: SQLParam + 'a + From<f32>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for f64
-where
-    V: SQLParam + 'a + From<f64>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for bool
-where
-    V: SQLParam + 'a + From<bool>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for u8
-where
-    V: SQLParam + 'a + From<u8>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for u16
-where
-    V: SQLParam + 'a + From<u16>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for u32
-where
-    V: SQLParam + 'a + From<u32>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for u64
-where
-    V: SQLParam + 'a + From<u64>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for isize
-where
-    V: SQLParam + 'a + From<isize>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
-
-impl<'a, V> ToSQL<'a, V> for usize
-where
-    V: SQLParam + 'a + From<usize>,
-    V: Into<Cow<'a, V>>,
-{
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::param(V::from(*self))
-    }
-}
+impl_tosql_param_copy!(i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize);
 
 impl<'a, V, T> ToSQL<'a, V> for Option<T>
 where

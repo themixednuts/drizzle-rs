@@ -19,6 +19,83 @@ where
     SQL::from_iter([Token::SELECT, Token::DISTINCT]).append(&columns)
 }
 
+fn set_op<'a, Value, L, R>(left: L, op: Token, all: bool, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    let left = left.to_sql().parens();
+    let right = right.to_sql().parens();
+    let op_sql = if all {
+        SQL::from(op).push(Token::ALL)
+    } else {
+        SQL::from(op)
+    };
+
+    left.append(op_sql).append(right)
+}
+
+/// Helper function to create a UNION statement
+pub fn union<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    set_op(left, Token::UNION, false, right)
+}
+
+/// Helper function to create a UNION ALL statement
+pub fn union_all<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    set_op(left, Token::UNION, true, right)
+}
+
+/// Helper function to create an INTERSECT statement
+pub fn intersect<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    set_op(left, Token::INTERSECT, false, right)
+}
+
+/// Helper function to create an INTERSECT ALL statement
+pub fn intersect_all<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    set_op(left, Token::INTERSECT, true, right)
+}
+
+/// Helper function to create an EXCEPT statement
+pub fn except<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    set_op(left, Token::EXCEPT, false, right)
+}
+
+/// Helper function to create an EXCEPT ALL statement
+pub fn except_all<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
+where
+    Value: SQLParam,
+    L: ToSQL<'a, Value>,
+    R: ToSQL<'a, Value>,
+{
+    set_op(left, Token::EXCEPT, true, right)
+}
+
 /// Creates an INSERT INTO statement with the specified table
 pub fn insert<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
 where

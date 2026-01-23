@@ -195,6 +195,15 @@ impl Token {
         )
     }
 
+    /// Returns true if this token is punctuation (no word-like spacing).
+    #[inline]
+    pub const fn is_punctuation(&self) -> bool {
+        matches!(
+            self,
+            Token::LPAREN | Token::RPAREN | Token::COMMA | Token::SEMI | Token::DOT
+        )
+    }
+
     pub const fn as_str(&self) -> &'static str {
         match self {
             Token::ABORT => "ABORT",

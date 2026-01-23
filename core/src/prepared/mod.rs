@@ -21,6 +21,8 @@ pub struct PreparedStatement<'a, V: SQLParam> {
     pub text_segments: Box<[CompactString]>,
     /// Parameter placeholders (in order)
     pub params: Box<[Param<'a, V>]>,
+    /// Fully rendered SQL with placeholders for this dialect
+    pub sql: CompactString,
 }
 
 impl<'a, V: SQLParam> From<OwnedPreparedStatement<V>> for PreparedStatement<'a, V> {
@@ -28,42 +30,77 @@ impl<'a, V: SQLParam> From<OwnedPreparedStatement<V>> for PreparedStatement<'a, 
         Self {
             text_segments: value.text_segments,
             params: value.params.iter().map(|v| v.clone().into()).collect(),
+            sql: value.sql,
         }
     }
 }
 
-impl<'a, V: SQLParam + core::fmt::Display> core::fmt::Display for PreparedStatement<'a, V> {
+impl<'a, V: SQLParam> core::fmt::Display for PreparedStatement<'a, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_sql())
+        write!(f, "{}", self.sql())
     }
 }
 
 /// Internal helper for binding parameters with optimizations
-/// Returns SQL string and an iterator over bound parameter values
-/// placeholder_fn receives the param and the 1-based parameter index
-pub(crate) fn bind_parameters_internal<'a, V, T, P>(
-    text_segments: &[CompactString],
+/// Returns the bound parameter values in order.
+pub(crate) fn bind_values_internal<'a, V, T, P>(
     params: &[P],
     param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
     param_name_fn: impl Fn(&P) -> Option<&str>,
     param_value_fn: impl Fn(&P) -> Option<&V>,
-    placeholder_fn: impl Fn(&P, usize) -> Cow<'static, str>,
-) -> (String, impl Iterator<Item = V>)
+) -> impl Iterator<Item = V>
 where
     V: SQLParam + Clone,
     T: SQLParam + Into<V>,
 {
-    // Collect param binds into HashMap for efficient lookup
-    let param_map: HashMap<&str, V> = param_binds
-        .into_iter()
-        .map(|p| (p.name, p.value.into()))
-        .collect();
+    // Collect param binds into name map and positional list for efficient lookup
+    let mut param_map: HashMap<&str, V> = HashMap::new();
+    let mut positional_params: SmallVec<[V; 8]> = SmallVec::new_const();
+    for bind in param_binds {
+        if bind.name.is_empty() {
+            positional_params.push(bind.value.into());
+        } else {
+            param_map.insert(bind.name, bind.value.into());
+        }
+    }
+    let mut positional_iter = positional_params.into_iter();
 
+    let mut bound_params = SmallVec::<[V; 8]>::new_const();
+
+    for param in params {
+        // For parameters, prioritize internal values first, then external bindings
+        if let Some(value) = param_value_fn(param) {
+            // Use internal parameter value (from prepared statement)
+            bound_params.push(value.clone());
+        } else if let Some(name) = param_name_fn(param) {
+            // If no internal value, try external binding for named parameters
+            if !name.is_empty() {
+                if let Some(value) = param_map.get(name) {
+                    bound_params.push(value.clone());
+                }
+            } else if let Some(value) = positional_iter.next() {
+                bound_params.push(value);
+            }
+        } else if let Some(value) = positional_iter.next() {
+            bound_params.push(value);
+        }
+    }
+
+    // Note: We don't add unmatched external parameters as they should only be used
+    // for parameters that have corresponding placeholders in the SQL
+
+    bound_params.into_iter()
+}
+
+fn render_sql_with_placeholders<P>(
+    text_segments: &[CompactString],
+    params: &[P],
+    placeholder_fn: impl Fn(&P, usize) -> Cow<'static, str>,
+) -> CompactString {
     // Pre-allocate string capacity based on text segments total length
     let estimated_capacity: usize =
         text_segments.iter().map(|s| s.len()).sum::<usize>() + params.len() * 8;
     let mut sql = String::with_capacity(estimated_capacity);
-    let mut bound_params = SmallVec::<[V; 8]>::new_const();
 
     // Use iterator to avoid bounds checking
     let mut param_iter = params.iter().enumerate();
@@ -74,52 +111,32 @@ where
         if let Some((idx, param)) = param_iter.next() {
             // Always add the placeholder (idx + 1 for 1-based indexing)
             sql.push_str(&placeholder_fn(param, idx + 1));
-
-            // For parameters, prioritize internal values first, then external bindings
-            if let Some(value) = param_value_fn(param) {
-                // Use internal parameter value (from prepared statement)
-                bound_params.push(value.clone());
-            } else if let Some(name) = param_name_fn(param) {
-                // If no internal value, try external binding for named parameters
-                if let Some(value) = param_map.get(name) {
-                    bound_params.push(value.clone());
-                }
-            }
         }
     }
 
-    // Note: We don't add unmatched external parameters as they should only be used
-    // for parameters that have corresponding placeholders in the SQL
-
-    (sql, bound_params.into_iter())
+    CompactString::new(sql)
 }
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
-    /// Bind parameters and render final SQL string with dialect-appropriate placeholders.
+    /// Bind parameters and return SQL with dialect-appropriate placeholders.
     /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL.
     pub fn bind<T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
-    ) -> (String, impl Iterator<Item = V>) {
-        use crate::dialect::Dialect;
-        bind_parameters_internal(
-            &self.text_segments,
+    ) -> (&str, impl Iterator<Item = V>) {
+        let bound_params = bind_values_internal(
             &self.params,
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref().map(|v| v.as_ref()),
-            |p, idx| {
-                // Named placeholders use :name syntax only for SQLite
-                // PostgreSQL always uses $N, MySQL always uses ?
-                if let Some(name) = p.placeholder.name
-                    && V::DIALECT == Dialect::SQLite
-                {
-                    Cow::Owned(format!(":{}", name))
-                } else {
-                    V::DIALECT.render_placeholder(idx)
-                }
-            },
-        )
+        );
+
+        (self.sql.as_str(), bound_params)
+    }
+
+    /// Returns the fully rendered SQL with placeholders.
+    pub fn sql(&self) -> &str {
+        self.sql.as_str()
     }
 }
 
@@ -147,6 +164,8 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
 }
 /// Pre-render SQL by processing chunks and separating text from parameters
 pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a, V> {
+    use crate::dialect::Dialect;
+
     let mut text_segments = Vec::new();
     let mut params = Vec::new();
     let mut current_text = String::new();
@@ -175,9 +194,24 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
 
     text_segments.push(CompactString::new(&current_text));
 
+    let text_segments = text_segments.into_boxed_slice();
+    let params = params.into_boxed_slice();
+    let rendered_sql = render_sql_with_placeholders(&text_segments, &params, |p, idx| {
+        // Named placeholders use :name syntax only for SQLite
+        // PostgreSQL always uses $N, MySQL always uses ?
+        if let Some(name) = p.placeholder.name
+            && V::DIALECT == Dialect::SQLite
+        {
+            Cow::Owned(format!(":{}", name))
+        } else {
+            V::DIALECT.render_placeholder(idx)
+        }
+    });
+
     PreparedStatement {
-        text_segments: text_segments.into_boxed_slice(),
-        params: params.into_boxed_slice(),
+        text_segments,
+        params,
+        sql: rendered_sql,
     }
 }
 

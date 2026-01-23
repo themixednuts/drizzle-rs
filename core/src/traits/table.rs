@@ -3,11 +3,9 @@ use crate::{SQL, SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
 use core::any::Any;
 
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
-    /// Columns referenced by this model. Use an associated type so models that
-    /// always return the same columns can expose a static slice, while dynamic
-    /// models (e.g. INSERT with optional fields) can allocate.
-    type Columns: AsRef<[&'static dyn SQLColumnInfo]>;
-    fn columns(&self) -> Self::Columns;
+    /// Columns referenced by this model.
+    /// Static models can return a borrowed slice; dynamic models can allocate.
+    fn columns(&self) -> Cow<'static, [&'static dyn SQLColumnInfo]>;
     fn values(&self) -> SQL<'a, V>;
 }
 
@@ -47,7 +45,12 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
 pub trait SQLTableInfo: Any + Send + Sync {
     fn name(&self) -> &str;
     fn columns(&self) -> &'static [&'static dyn SQLColumnInfo];
-    fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]>;
+    fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo];
+
+    /// Lookup a column by name.
+    fn column_named(&self, name: &str) -> Option<&'static dyn SQLColumnInfo> {
+        self.columns().iter().copied().find(|col| col.name() == name)
+    }
 }
 
 // Blanket implementation for static references
@@ -60,7 +63,7 @@ impl<T: SQLTableInfo> SQLTableInfo for &'static T {
         (*self).columns()
     }
 
-    fn dependencies(&self) -> Box<[&'static dyn SQLTableInfo]> {
+    fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
         (*self).dependencies()
     }
 }

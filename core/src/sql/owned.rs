@@ -17,6 +17,53 @@ pub enum OwnedSQLChunk<V: SQLParam> {
     },
 }
 
+impl<V: SQLParam> OwnedSQLChunk<V> {
+    /// Creates a token chunk.
+    #[inline]
+    pub const fn token(t: Token) -> Self {
+        Self::Token(t)
+    }
+
+    /// Creates a table chunk.
+    #[inline]
+    pub const fn table(table: &'static dyn SQLTableInfo) -> Self {
+        Self::Table(table)
+    }
+
+    /// Creates a column chunk.
+    #[inline]
+    pub const fn column(column: &'static dyn SQLColumnInfo) -> Self {
+        Self::Column(column)
+    }
+
+    /// Creates a quoted identifier from a runtime string.
+    #[inline]
+    pub fn ident(name: impl Into<String>) -> Self {
+        Self::Ident(name.into())
+    }
+
+    /// Creates raw SQL text from a runtime string.
+    #[inline]
+    pub fn raw(text: impl Into<String>) -> Self {
+        Self::Raw(text.into())
+    }
+
+    /// Creates a parameter chunk with owned value.
+    #[inline]
+    pub fn param(value: OwnedParam<V>) -> Self {
+        Self::Param(value)
+    }
+
+    /// Creates an alias chunk wrapping any OwnedSQLChunk.
+    #[inline]
+    pub fn alias(inner: OwnedSQLChunk<V>, alias: impl Into<String>) -> Self {
+        Self::Alias {
+            inner: Box::new(inner),
+            alias: alias.into(),
+        }
+    }
+}
+
 impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
     fn from(value: SQLChunk<'a, V>) -> Self {
         match value {
@@ -74,6 +121,22 @@ impl<'a, V: SQLParam> From<SQL<'a, V>> for OwnedSQL<V> {
 }
 
 impl<V: SQLParam> OwnedSQL<V> {
+    /// Creates an empty SQL fragment with const-friendly initialization.
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            chunks: SmallVec::new_const(),
+        }
+    }
+
+    /// Creates an empty SQL fragment with pre-allocated chunk capacity.
+    #[inline]
+    pub fn with_capacity_chunks(capacity: usize) -> Self {
+        Self {
+            chunks: SmallVec::with_capacity(capacity),
+        }
+    }
+
     /// Convert to SQL with 'static lifetime
     pub fn to_sql(&self) -> SQL<'static, V> {
         SQL {

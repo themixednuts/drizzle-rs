@@ -20,7 +20,9 @@ pub use view::*;
 
 use crate::sql::SQL;
 
-/// Trait for schema elements (tables, columns, etc.)
+/// Trait for schema elements (tables, columns, etc.).
+///
+/// The `'a` lifetime ties any borrowed parameter values to generated SQL.
 pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     const NAME: &'a str;
     const TYPE: T;
