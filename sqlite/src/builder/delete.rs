@@ -67,7 +67,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// #     }
 /// # }
 /// use drizzle::sqlite::prelude::*;
-/// use drizzle::core::expressions::{eq, lt};
+/// use drizzle::core::expr::{eq, lt};
 /// use drizzle::sqlite::builder::QueryBuilder;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -119,7 +119,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::eq;
+/// # use drizzle::core::expr::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -193,7 +193,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::{eq, gt, and, or};
+    /// # use drizzle::core::expr::{eq, gt, and, or};
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }

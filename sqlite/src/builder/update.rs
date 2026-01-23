@@ -74,7 +74,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// #     }
 /// # }
 /// use drizzle::sqlite::prelude::*;
-/// use drizzle::core::expressions::eq;
+/// use drizzle::core::expr::eq;
 /// use drizzle::sqlite::builder::QueryBuilder;
 ///
 /// #[SQLiteTable(name = "users")]
@@ -124,7 +124,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::eq;
+/// # use drizzle::core::expr::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -156,7 +156,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::eq;
+/// # use drizzle::core::expr::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -264,7 +264,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::{eq, gt, and};
+    /// # use drizzle::core::expr::{eq, gt, and};
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }

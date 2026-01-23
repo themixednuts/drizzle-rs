@@ -206,7 +206,7 @@ impl ExecutableState for SelectJoinSet {}
 /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
 ///
 /// // SELECT with WHERE clause
-/// use drizzle::core::expressions::gt;
+/// use drizzle::core::expr::gt;
 /// let query = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
@@ -236,7 +236,7 @@ impl ExecutableState for SelectJoinSet {}
 /// #     }
 /// # }
 /// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::core::expressions::eq;
+/// # use drizzle::core::expr::eq;
 /// # use drizzle::sqlite::builder::QueryBuilder;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
@@ -365,7 +365,7 @@ where
     /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::eq;
+    /// # use drizzle::core::expr::eq;
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
     /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
@@ -400,7 +400,7 @@ where
     /// Adds a WHERE clause to filter query results.
     ///
     /// This method applies conditions to filter the rows returned by the query.
-    /// You can use various condition functions from `drizzle::core::expressions::conditions`.
+    /// You can use various condition functions from `drizzle::core::expr::conditions`.
     ///
     /// ```rust
     /// # mod drizzle {
@@ -419,7 +419,7 @@ where
     /// #     }
     /// # }
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::core::expressions::{gt, and, eq};
+    /// # use drizzle::core::expr::{gt, and, eq};
     /// # use drizzle::sqlite::builder::QueryBuilder;
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, age: Option<i32> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
@@ -582,7 +582,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQLiteSQL<'a>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
             sql: self.sql.append(crate::helpers::r#where(condition)),
