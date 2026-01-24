@@ -1,7 +1,7 @@
 use crate::common::SQLiteSchemaType;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, ToSQL};
+use drizzle_core::ToSQL;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -64,6 +64,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -114,6 +115,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -146,6 +148,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -193,6 +196,7 @@ where
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -204,7 +208,7 @@ where
     /// # }
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::builder::QueryBuilder;
-    /// # use drizzle::core::{ToSQL, expressions::{eq, and}};
+    /// # use drizzle::core::{ToSQL, expr::{eq, and}};
     /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
     /// # #[derive(SQLiteSchema)] struct Schema { user: User }
     /// # let builder = QueryBuilder::new::<Schema>();
@@ -254,6 +258,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -289,7 +294,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {

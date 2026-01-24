@@ -229,10 +229,7 @@ postgres_test!(cte_after_join, SimpleSchema, {
         let joined_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
             .from(simple)
-            .join(
-                simple_alias.clone(),
-                eq(simple.id, simple_alias.id.clone()).into(),
-            )
+            .join(simple_alias.clone(), eq(simple.id, simple_alias.id.clone()))
             .as_cte("joined_simple");
         let joined_alias = joined_simple.table.clone();
 

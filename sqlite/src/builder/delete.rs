@@ -1,5 +1,5 @@
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, ToSQL};
+use drizzle_core::ToSQL;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -57,6 +57,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -109,6 +110,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -143,6 +145,7 @@ impl ExecutableState for DeleteReturningSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -183,6 +186,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -216,7 +220,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> DeleteBuilder<'a, S, DeleteWhereSet, T> {
         let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {

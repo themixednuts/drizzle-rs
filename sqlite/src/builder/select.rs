@@ -1,7 +1,7 @@
 use crate::helpers;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, SQLTable, ToSQL};
+use drizzle_core::{SQLTable, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -184,6 +184,7 @@ impl ExecutableState for SelectSetOpSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -237,6 +238,7 @@ impl ExecutableState for SelectSetOpSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -267,6 +269,7 @@ impl ExecutableState for SelectSetOpSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -311,6 +314,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #             pub use drizzle_sqlite::{*, attrs::*};
     /// #         pub mod prelude {
@@ -363,6 +367,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #             pub use drizzle_sqlite::{*, attrs::*};
     /// #         pub mod prelude {
@@ -417,6 +422,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #             pub use drizzle_sqlite::{*, attrs::*};
     /// #         pub mod prelude {
@@ -465,7 +471,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// Adds a GROUP BY clause to the query
     pub fn group_by(
         self,
-        expressions: Vec<SQL<'a, SQLiteValue<'a>>>,
+        expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::group_by(expressions)),
@@ -533,6 +539,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #             pub use drizzle_sqlite::{*, attrs::*};
     /// #         pub mod prelude {
@@ -665,7 +672,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     /// Adds a GROUP BY clause after a WHERE
     pub fn group_by(
         self,
-        expressions: Vec<SQL<'a, SQLiteValue<'a>>>,
+        expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::group_by(expressions)),
@@ -732,7 +739,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     /// Adds a HAVING clause after GROUP BY
     pub fn having(
         self,
-        condition: SQL<'a, SQLiteValue<'a>>,
+        condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::having(condition)),

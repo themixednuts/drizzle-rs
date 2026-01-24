@@ -115,15 +115,15 @@ impl<'a> Conflict<'a> {
     }
 
     /// Create a DO UPDATE conflict resolution
-    pub fn do_update(
-        target: ConflictTarget<'a>,
-        set: SQL<'a, PostgresValue<'a>>,
-        where_clause: Option<SQL<'a, PostgresValue<'a>>>,
-    ) -> Self {
+    pub fn do_update<S, W>(target: ConflictTarget<'a>, set: S, where_clause: Option<W>) -> Self
+    where
+        S: ToSQL<'a, PostgresValue<'a>>,
+        W: ToSQL<'a, PostgresValue<'a>>,
+    {
         Conflict::DoUpdate {
             target,
-            set,
-            where_clause,
+            set: set.to_sql(),
+            where_clause: where_clause.map(|w| w.to_sql()),
         }
     }
 }
@@ -138,13 +138,14 @@ impl<'a> ConflictTarget<'a> {
     }
 
     /// Create a column target with WHERE clause for partial unique indexes
-    pub fn columns_where<T>(columns: T, where_clause: SQL<'a, PostgresValue<'a>>) -> Self
+    pub fn columns_where<T, W>(columns: T, where_clause: W) -> Self
     where
         T: ToSQL<'a, PostgresValue<'a>>,
+        W: ToSQL<'a, PostgresValue<'a>>,
     {
         ConflictTarget::ColumnsWhere {
             columns: columns.to_sql(),
-            where_clause,
+            where_clause: where_clause.to_sql(),
         }
     }
 

@@ -89,17 +89,22 @@ impl<'a, T> Conflict<'a, T>
 where
     T: IntoIterator<Item: ToSQL<'a, SQLiteValue<'a>>>,
 {
-    pub fn update(
+    pub fn update<S, TW, SW>(
         target: T,
-        set: SQL<'a, SQLiteValue<'a>>,
-        target_where: Option<SQL<'a, SQLiteValue<'a>>>,
-        set_where: Option<SQL<'a, SQLiteValue<'a>>>,
-    ) -> Self {
+        set: S,
+        target_where: Option<TW>,
+        set_where: Option<SW>,
+    ) -> Self
+    where
+        S: ToSQL<'a, SQLiteValue<'a>>,
+        TW: ToSQL<'a, SQLiteValue<'a>>,
+        SW: ToSQL<'a, SQLiteValue<'a>>,
+    {
         Conflict::Update {
             target,
-            set: Box::new(set),
-            target_where: Box::new(target_where),
-            set_where: Box::new(set_where),
+            set: Box::new(set.to_sql()),
+            target_where: Box::new(target_where.map(|w| w.to_sql())),
+            set_where: Box::new(set_where.map(|w| w.to_sql())),
         }
     }
 }
@@ -140,6 +145,7 @@ impl ExecutableState for InsertOnConflictSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -172,7 +178,7 @@ impl ExecutableState for InsertOnConflictSet {}
 /// let query = builder
 ///     .insert(user)
 ///     .values([InsertUser::new("Alice")]);
-/// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" (name) VALUES (?)"#);
+/// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
 ///
 /// // Batch INSERT
 /// let query = builder
@@ -194,6 +200,7 @@ impl ExecutableState for InsertOnConflictSet {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #             pub use drizzle_sqlite::{*, attrs::*};
 /// #         pub mod prelude {
@@ -240,6 +247,7 @@ where
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -259,7 +267,7 @@ where
     /// let query = builder
     ///     .insert(user)
     ///     .values([InsertUser::new("Alice")]);
-    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" (name) VALUES (?)"#);
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
     ///
     /// // Batch insert (all values must have the same fields set)
     /// let query = builder
@@ -270,7 +278,7 @@ where
     ///     ]);
     /// assert_eq!(
     ///     query.to_sql().sql(),
-    ///     r#"INSERT INTO "users" (name, email) VALUES (?, ?), (?, ?)"#
+    ///     r#"INSERT INTO "users" ("name", "email") VALUES (?, ?), (?, ?)"#
     /// );
     /// ```
     #[inline]
@@ -309,6 +317,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -331,7 +340,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///     .on_conflict(Conflict::default());
     /// assert_eq!(
     ///     query.to_sql().sql(),
-    ///     r#"INSERT INTO "users" (name) VALUES (?) ON CONFLICT DO NOTHING"#
+    ///     r#"INSERT INTO "users" ("name") VALUES (?) ON CONFLICT DO NOTHING"#
     /// );
     /// ```
     pub fn on_conflict<TI>(

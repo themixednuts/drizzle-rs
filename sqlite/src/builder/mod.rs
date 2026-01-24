@@ -61,6 +61,7 @@ impl ExecutableState for CTEInit {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -108,6 +109,7 @@ impl ExecutableState for CTEInit {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -136,6 +138,7 @@ impl ExecutableState for CTEInit {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -164,6 +167,7 @@ impl ExecutableState for CTEInit {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -194,6 +198,7 @@ impl ExecutableState for CTEInit {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -226,6 +231,7 @@ impl ExecutableState for CTEInit {}
 /// #     pub mod types { pub use drizzle_types::*; }
 /// #     pub mod migrations { pub use drizzle_migrations::*; }
 /// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
 /// #         pub mod prelude {
@@ -292,6 +298,7 @@ impl<'a> QueryBuilder<'a> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -343,6 +350,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -392,6 +400,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -563,6 +572,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -581,7 +591,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// let query = builder
     ///     .insert(user)
     ///     .values([InsertUser::new("Alice")]);
-    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" (name) VALUES (?)"#);
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
     /// ```
     pub fn insert<Table>(
         &self,
@@ -614,6 +624,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {
@@ -667,6 +678,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub mod types { pub use drizzle_types::*; }
     /// #     pub mod migrations { pub use drizzle_migrations::*; }
     /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
     /// #         pub mod prelude {

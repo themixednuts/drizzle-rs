@@ -1,6 +1,6 @@
 use crate::common::PostgresSchemaType;
 use crate::values::PostgresValue;
-use drizzle_core::{SQL, SQLTable, ToSQL};
+use drizzle_core::{SQLTable, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -92,7 +92,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
@@ -128,7 +128,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {

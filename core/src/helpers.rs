@@ -124,20 +124,24 @@ where
 }
 
 /// Helper function to create a GROUP BY clause
-pub fn group_by<'a, V, I>(expressions: I) -> SQL<'a, V>
+pub fn group_by<'a, V, I, T>(expressions: I) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    I: IntoIterator<Item = SQL<'a, V>>,
+    I: IntoIterator<Item = T>,
+    T: ToSQL<'a, V>,
 {
-    SQL::from_iter([Token::GROUP, Token::BY]).append(SQL::join(expressions, Token::COMMA))
+    SQL::from_iter([Token::GROUP, Token::BY]).append(SQL::join(
+        expressions.into_iter().map(|e| e.to_sql()),
+        Token::COMMA,
+    ))
 }
 
 /// Helper function to create a HAVING clause
-pub fn having<'a, V>(condition: SQL<'a, V>) -> SQL<'a, V>
+pub fn having<'a, V>(condition: impl ToSQL<'a, V>) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
-    SQL::from(Token::HAVING).append(condition)
+    SQL::from(Token::HAVING).append(&condition)
 }
 
 /// Helper function to create an ORDER BY clause

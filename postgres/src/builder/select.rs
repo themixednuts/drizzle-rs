@@ -2,8 +2,8 @@ use crate::common::PostgresSchemaType;
 use crate::helpers;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
+use drizzle_core::ToSQL;
 use drizzle_core::traits::SQLTable;
-use drizzle_core::{SQL, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -240,7 +240,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     pub fn join<U: PostgresTable<'a>>(
         self,
         table: U,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::join(table, condition)),
@@ -255,7 +255,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::r#where(condition)),
@@ -268,7 +268,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// Adds a GROUP BY clause to the query
     pub fn group_by(
         self,
-        expressions: Vec<SQL<'a, PostgresValue<'a>>>,
+        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::group_by(expressions)),
@@ -343,7 +343,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     #[inline]
     pub fn r#where(
         self,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
             sql: self.sql.append(crate::helpers::r#where(condition)),
@@ -373,7 +373,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     pub fn join<U: PostgresTable<'a>>(
         self,
         table: U,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::join(table, condition)),
@@ -412,7 +412,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     /// Adds a GROUP BY clause after a WHERE
     pub fn group_by(
         self,
-        expressions: Vec<SQL<'a, PostgresValue<'a>>>,
+        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::group_by(expressions)),
@@ -476,7 +476,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     /// Adds a HAVING clause after GROUP BY
     pub fn having(
         self,
-        condition: SQL<'a, PostgresValue<'a>>,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::having(condition)),
