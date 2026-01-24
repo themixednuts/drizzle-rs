@@ -5,7 +5,8 @@
 //! that is the current recommended style.
 
 use super::collection::SQLiteDDL;
-use super::ddl::{Column, ForeignKey, Index, Table};
+use super::ddl::{Column, ForeignKey, Index, Table, View};
+use crate::utils::escape_for_rust_literal;
 use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -19,6 +20,8 @@ pub struct GeneratedSchema {
     pub tables: Vec<String>,
     /// Indexes that were generated
     pub indexes: Vec<String>,
+    /// Views that were generated
+    pub views: Vec<String>,
     /// Any warnings during generation
     pub warnings: Vec<String>,
 }
@@ -135,6 +138,20 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         code.push_str(&index_code);
         code.push('\n');
         result.indexes.push(index.name.to_string());
+    }
+
+    // Generate view structs
+    for view in ddl.views.list() {
+        // Skip existing views (not managed by drizzle)
+        if view.is_existing {
+            continue;
+        }
+        let view_name = view.name.to_string();
+        let columns = table_columns.get(&view_name).map(|c| c.as_slice()).unwrap_or(&[]);
+        let view_code = generate_view_struct(view, columns, options.use_pub);
+        code.push_str(&view_code);
+        code.push('\n');
+        result.views.push(view_name);
     }
 
     // Generate schema struct if requested
@@ -391,6 +408,56 @@ fn generate_index_struct(index: &Index, use_pub: bool) -> String {
         columns.join(", ")
     ));
 
+    code
+}
+
+/// Generate a view struct
+fn generate_view_struct(view: &View, columns: &[&Column], use_pub: bool) -> String {
+    let struct_name = view.name.to_pascal_case();
+    let vis = if use_pub { "pub " } else { "" };
+
+    let mut code = String::new();
+
+    // Build view attributes
+    let mut attrs = Vec::new();
+
+    // Check if view name differs from struct name (snake_case version)
+    if struct_name.to_snake_case() != view.name.as_ref() {
+        attrs.push(format!("name = \"{}\"", view.name));
+    }
+
+    // Add definition
+    if let Some(def) = &view.definition {
+        let escaped_def = escape_for_rust_literal(def);
+        attrs.push(format!("definition = \"{}\"", escaped_def));
+    }
+
+    // Build the attribute line
+    if attrs.is_empty() {
+        code.push_str("#[SQLiteView]\n");
+    } else {
+        code.push_str(&format!("#[SQLiteView({})]\n", attrs.join(", ")));
+    }
+
+    // Struct definition with column fields
+    code.push_str(&format!("{vis}struct {struct_name} {{\n"));
+
+    // Sort columns by ordinal position
+    let mut sorted_columns: Vec<&&Column> = columns.iter().collect();
+    sorted_columns.sort_by(|a, b| {
+        let ao = a.ordinal_position.unwrap_or(i32::MAX);
+        let bo = b.ordinal_position.unwrap_or(i32::MAX);
+        ao.cmp(&bo).then_with(|| a.name.cmp(&b.name))
+    });
+
+    // Generate fields for each column
+    for column in sorted_columns {
+        let field_name = column.name.to_snake_case();
+        let rust_type = sql_type_to_rust_type(&column.sql_type, column.not_null);
+        code.push_str(&format!("    {vis}{field_name}: {rust_type},\n"));
+    }
+
+    code.push_str("}\n");
     code
 }
 

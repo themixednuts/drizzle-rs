@@ -66,6 +66,14 @@ pub fn escape_for_sql_default(input: &str, mode: EscapeMode) -> String {
     value
 }
 
+/// Escape a string for use in a Rust string literal (within double quotes)
+///
+/// This escapes backslashes first, then double quotes, to produce valid Rust.
+/// Used when generating Rust code that contains string literals.
+pub fn escape_for_rust_literal(input: &str) -> String {
+    input.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Unescape a string from SQL default value
 pub fn unescape_from_sql_default(input: &str, mode: EscapeMode) -> String {
     let mut res = input.replace("\\\"", "\"").replace("\\\\", "\\");
@@ -314,6 +322,36 @@ mod tests {
         assert_eq!(
             escape_for_sql_default("path\\to\\file", EscapeMode::Default),
             "path\\\\to\\\\file"
+        );
+    }
+
+    #[test]
+    fn test_escape_for_rust_literal() {
+        // Basic escaping
+        assert_eq!(escape_for_rust_literal("hello"), "hello");
+
+        // Escape double quotes
+        assert_eq!(
+            escape_for_rust_literal(r#"say "hello""#),
+            r#"say \"hello\""#
+        );
+
+        // Escape backslashes
+        assert_eq!(
+            escape_for_rust_literal(r"path\to\file"),
+            r"path\\to\\file"
+        );
+
+        // Escape both
+        assert_eq!(
+            escape_for_rust_literal(r#"a "quoted" path\to\file"#),
+            r#"a \"quoted\" path\\to\\file"#
+        );
+
+        // SQL query with quotes (typical view definition)
+        assert_eq!(
+            escape_for_rust_literal(r#"SELECT * FROM "users" WHERE name = 'test'"#),
+            r#"SELECT * FROM \"users\" WHERE name = 'test'"#
         );
     }
 }

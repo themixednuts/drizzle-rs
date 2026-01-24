@@ -118,6 +118,11 @@ pub enum JsonStatement {
     DropView {
         view: View,
     },
+    /// Alter a view by dropping and recreating (PostgreSQL doesn't support ALTER VIEW for definition changes)
+    AlterView {
+        old_view: View,
+        new_view: View,
+    },
     CreateRole {
         role: Role,
     },
@@ -547,6 +552,19 @@ impl PostgresGenerator {
                             })
                         }
                     }
+                    // View alterations: PostgreSQL doesn't support ALTER VIEW for definition changes,
+                    // so we need to drop and recreate the view
+                    (Some(PostgresEntity::View(old)), Some(PostgresEntity::View(new))) => {
+                        // Skip existing views (not managed by drizzle)
+                        if old.is_existing || new.is_existing {
+                            None
+                        } else {
+                            Some(JsonStatement::AlterView {
+                                old_view: old.clone(),
+                                new_view: new.clone(),
+                            })
+                        }
+                    }
                     _ => None,
                 }
             }
@@ -915,6 +933,42 @@ impl PostgresGenerator {
                     ""
                 };
                 format!("DROP {}VIEW {}\"{}\";", mat, schema_prefix, view.name)
+            }
+            JsonStatement::AlterView { old_view, new_view } => {
+                // PostgreSQL doesn't support ALTER VIEW for definition changes,
+                // so we drop and recreate the view
+                let old_schema_prefix = if old_view.schema != "public" {
+                    format!("\"{}\".", old_view.schema)
+                } else {
+                    String::new()
+                };
+                let old_mat = if old_view.materialized {
+                    "MATERIALIZED "
+                } else {
+                    ""
+                };
+                let drop_sql = format!(
+                    "DROP {}VIEW {}\"{}\";",
+                    old_mat, old_schema_prefix, old_view.name
+                );
+
+                let new_schema_prefix = if new_view.schema != "public" {
+                    format!("\"{}\".", new_view.schema)
+                } else {
+                    String::new()
+                };
+                let new_mat = if new_view.materialized {
+                    "MATERIALIZED "
+                } else {
+                    ""
+                };
+                let def = new_view.definition.as_deref().unwrap_or("");
+                let create_sql = format!(
+                    "CREATE {}VIEW {}\"{}\" AS {};",
+                    new_mat, new_schema_prefix, new_view.name, def
+                );
+
+                format!("{}\n{}", drop_sql, create_sql)
             }
             JsonStatement::RenameTable { schema, from, to } => {
                 let schema_prefix = if schema != "public" {

@@ -1262,3 +1262,139 @@ fn test_various_index_types() {
         "Should have regular indexes"
     );
 }
+
+#[test]
+fn test_view_codegen() {
+    use drizzle_migrations::sqlite::ddl::View;
+
+    let mut ddl = SQLiteDDL::new();
+
+    // Add a table that the view references
+    ddl.tables.push(Table::new("users"));
+
+    // Add a simple view
+    let mut view = View::new("active_users");
+    view.definition = Some("SELECT * FROM users WHERE is_active = 1".into());
+    ddl.views.push(view);
+
+    // Add a view with a complex definition containing quotes
+    let mut quoted_view = View::new("user_stats");
+    quoted_view.definition = Some(r#"SELECT id, name, "status" FROM users WHERE name = 'test'"#.into());
+    ddl.views.push(quoted_view);
+
+    let options = CodegenOptions {
+        use_pub: true,
+        ..Default::default()
+    };
+    let generated = generate_rust_schema(&ddl, &options);
+
+    println!("View codegen test:\n{}", generated.code);
+
+    // Check that views are generated
+    assert_eq!(generated.views.len(), 2, "Should generate 2 views");
+    assert!(generated.views.contains(&"active_users".to_string()));
+    assert!(generated.views.contains(&"user_stats".to_string()));
+
+    // Check view struct generation
+    assert!(
+        generated.code.contains("#[SQLiteView("),
+        "Should have SQLiteView attribute"
+    );
+    assert!(
+        generated.code.contains("pub struct ActiveUsers"),
+        "Should generate ActiveUsers struct"
+    );
+    assert!(
+        generated.code.contains("pub struct UserStats"),
+        "Should generate UserStats struct"
+    );
+
+    // Check that definition is properly escaped
+    assert!(
+        generated.code.contains("definition = "),
+        "Should have definition attribute"
+    );
+    // Quotes should be escaped
+    assert!(
+        generated.code.contains(r#"\"status\""#),
+        "Double quotes should be escaped in definition"
+    );
+}
+
+#[test]
+fn test_view_with_columns_codegen() {
+    use drizzle_migrations::sqlite::ddl::{Column, View};
+
+    let mut ddl = SQLiteDDL::new();
+
+    // Add a view
+    let mut view = View::new("user_summary");
+    view.definition = Some("SELECT id, username, email FROM users".into());
+    ddl.views.push(view);
+
+    // Add columns for the view (as if introspected)
+    let mut col1 = Column::new("user_summary", "id", "INTEGER");
+    col1.not_null = true;
+    col1.ordinal_position = Some(0);
+    ddl.columns.push(col1);
+
+    let mut col2 = Column::new("user_summary", "username", "TEXT");
+    col2.not_null = true;
+    col2.ordinal_position = Some(1);
+    ddl.columns.push(col2);
+
+    let mut col3 = Column::new("user_summary", "email", "TEXT");
+    col3.not_null = false;
+    col3.ordinal_position = Some(2);
+    ddl.columns.push(col3);
+
+    let options = CodegenOptions {
+        use_pub: true,
+        ..Default::default()
+    };
+    let generated = generate_rust_schema(&ddl, &options);
+
+    println!("View with columns test:\n{}", generated.code);
+
+    // Check view struct has column fields
+    assert!(
+        generated.code.contains("pub id: i64"),
+        "View should have id field"
+    );
+    assert!(
+        generated.code.contains("pub username: String"),
+        "View should have username field"
+    );
+    assert!(
+        generated.code.contains("pub email: Option<String>"),
+        "View should have email field (nullable)"
+    );
+}
+
+#[test]
+fn test_existing_view_skipped() {
+    use drizzle_migrations::sqlite::ddl::View;
+
+    let mut ddl = SQLiteDDL::new();
+
+    // Add an existing view (should be skipped in codegen)
+    let mut existing_view = View::new("existing_view");
+    existing_view.definition = Some("SELECT 1".into());
+    existing_view.is_existing = true;
+    ddl.views.push(existing_view);
+
+    // Add a regular view
+    let mut regular_view = View::new("regular_view");
+    regular_view.definition = Some("SELECT 2".into());
+    ddl.views.push(regular_view);
+
+    let options = CodegenOptions::default();
+    let generated = generate_rust_schema(&ddl, &options);
+
+    println!("Existing view test:\n{}", generated.code);
+
+    // Only regular view should be generated
+    assert_eq!(generated.views.len(), 1, "Should only generate 1 view");
+    assert!(generated.views.contains(&"regular_view".to_string()));
+    assert!(!generated.views.contains(&"existing_view".to_string()));
+}

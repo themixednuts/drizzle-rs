@@ -586,6 +586,31 @@ pub mod queries {
         ORDER BY name COLLATE NOCASE
     "#;
 
+    /// Query to get all columns for views using pragma_table_xinfo
+    pub const VIEW_COLUMNS_QUERY: &str = r#"
+        SELECT
+            m.name as "table",
+            p.cid as "cid",
+            p.name as "name",
+            p.type as "columnType",
+            p."notnull" as "notNull",
+            p.dflt_value as "defaultValue",
+            p.pk as pk,
+            p.hidden as hidden,
+            m.sql
+        FROM sqlite_master AS m
+            JOIN pragma_table_xinfo(m.name) AS p
+        WHERE
+            m.type = 'view'
+            AND m.tbl_name != '__drizzle_migrations'
+            AND m.tbl_name NOT LIKE '\_cf\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE '\_litestream\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'libsql\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'sqlite\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'd1\_%' ESCAPE '\'
+        ORDER BY m.name, p.cid
+    "#;
+
     /// Query template to get indexes for a table
     pub fn indexes_query(table_name: &str) -> String {
         format!("PRAGMA index_list(\"{}\")", table_name)

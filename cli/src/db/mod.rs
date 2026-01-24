@@ -1711,7 +1711,7 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         .prepare(queries::COLUMNS_QUERY)
         .map_err(|e| CliError::Other(format!("Failed to prepare columns query: {}", e)))?;
 
-    let raw_columns: Vec<RawColumnInfo> = columns_stmt
+    let mut raw_columns: Vec<RawColumnInfo> = columns_stmt
         .query_map([], |row| {
             Ok(RawColumnInfo {
                 table: row.get(0)?,
@@ -1803,6 +1803,25 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         })
     {
         all_views.extend(view_iter.filter_map(Result::ok));
+    }
+
+    // View columns (for codegen with column fields)
+    if let Ok(mut view_cols_stmt) = conn.prepare(queries::VIEW_COLUMNS_QUERY)
+        && let Ok(col_iter) = view_cols_stmt.query_map([], |row| {
+            Ok(RawColumnInfo {
+                table: row.get(0)?,
+                cid: row.get(1)?,
+                name: row.get(2)?,
+                column_type: row.get(3)?,
+                not_null: row.get::<_, i32>(4)? != 0,
+                default_value: row.get(5)?,
+                pk: row.get(6)?,
+                hidden: row.get(7)?,
+                sql: row.get(8)?,
+            })
+        })
+    {
+        raw_columns.extend(col_iter.filter_map(Result::ok));
     }
 
     // Process raw data into DDL entities
@@ -2046,6 +2065,23 @@ async fn introspect_libsql_inner(
         }
     }
 
+    // View columns (for codegen with column fields)
+    if let Ok(mut view_cols_rows) = conn.query(queries::VIEW_COLUMNS_QUERY, ()).await {
+        while let Ok(Some(row)) = view_cols_rows.next().await {
+            raw_columns.push(RawColumnInfo {
+                table: row.get(0).unwrap_or_default(),
+                cid: row.get(1).unwrap_or(0),
+                name: row.get(2).unwrap_or_default(),
+                column_type: row.get(3).unwrap_or_default(),
+                not_null: row.get::<i32>(4).unwrap_or(0) != 0,
+                default_value: row.get(5).ok(),
+                pk: row.get(6).unwrap_or(0),
+                hidden: row.get(7).unwrap_or(0),
+                sql: row.get(8).ok(),
+            });
+        }
+    }
+
     // Process into DDL
     let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
         HashMap::new();
@@ -2275,6 +2311,23 @@ async fn introspect_turso_inner(
             let name: String = row.get(0).unwrap_or_default();
             let sql: String = row.get(1).unwrap_or_default();
             all_views.push(RawViewInfo { name, sql });
+        }
+    }
+
+    // View columns (for codegen with column fields)
+    if let Ok(mut view_cols_rows) = conn.query(queries::VIEW_COLUMNS_QUERY, ()).await {
+        while let Ok(Some(row)) = view_cols_rows.next().await {
+            raw_columns.push(RawColumnInfo {
+                table: row.get(0).unwrap_or_default(),
+                cid: row.get(1).unwrap_or(0),
+                name: row.get(2).unwrap_or_default(),
+                column_type: row.get(3).unwrap_or_default(),
+                not_null: row.get::<i32>(4).unwrap_or(0) != 0,
+                default_value: row.get(5).ok(),
+                pk: row.get(6).unwrap_or(0),
+                hidden: row.get(7).unwrap_or(0),
+                sql: row.get(8).ok(),
+            });
         }
     }
 
