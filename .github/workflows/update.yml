@@ -12,10 +12,15 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: update-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   update:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 15
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
@@ -42,6 +47,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      # Format before release-plz so any formatting changes are included in the release PR
       - name: Format code with nightly
         run: cargo +nightly fmt
 
@@ -50,7 +56,11 @@ jobs:
         with:
           tool: release-plz
 
-      - name: Update versions and create PR
+      - name: Create release PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: release-plz update
+        run: |
+          release-plz release-pr --git-token "$GITHUB_TOKEN" || {
+            echo "::error::release-plz release-pr failed"
+            exit 1
+          }
