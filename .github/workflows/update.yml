@@ -46,6 +46,8 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: msrv
 
       # Format before release-plz so any formatting changes are included in the release PR
       - name: Format code with nightly
