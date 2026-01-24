@@ -213,6 +213,79 @@ postgres_test!(select_with_offset, SimpleSchema, {
     assert_eq!(results[1].name, "three");
 });
 
+postgres_test!(cte_after_join, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = [
+        InsertSimple::new("alpha"),
+        InsertSimple::new("beta"),
+        InsertSimple::new("gamma"),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    let results: Vec<PgSimpleResult> = {
+        let simple_alias = Simple::alias("simple_alias");
+        let builder = drizzle::postgres::QueryBuilder::new::<SimpleSchema>();
+        let joined_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
+            .select((simple.id, simple.name))
+            .from(simple)
+            .join(
+                simple_alias.clone(),
+                eq(simple.id, simple_alias.id.clone()).into(),
+            )
+            .as_cte("joined_simple");
+        let joined_alias = joined_simple.table.clone();
+
+        drizzle_exec!(
+            db.with(&joined_simple)
+                .select((joined_alias.id.clone(), joined_alias.name.clone()))
+                .from(&joined_simple)
+                .order_by([OrderBy::asc(joined_alias.id.clone())])
+                .all()
+        )
+    };
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alpha");
+    assert_eq!(results[2].name, "gamma");
+});
+
+postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = [
+        InsertSimple::new("one"),
+        InsertSimple::new("two"),
+        InsertSimple::new("three"),
+        InsertSimple::new("four"),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    let results: Vec<PgSimpleResult> = {
+        let builder = drizzle::postgres::QueryBuilder::new::<SimpleSchema>();
+        let paged_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
+            .select((simple.id, simple.name))
+            .from(simple)
+            .order_by([OrderBy::asc(simple.id)])
+            .limit(2)
+            .offset(1)
+            .as_cte("paged_simple");
+        let paged_alias = paged_simple.table.clone();
+
+        drizzle_exec!(
+            db.with(&paged_simple)
+                .select((paged_alias.id.clone(), paged_alias.name.clone()))
+                .from(&paged_simple)
+                .order_by([OrderBy::asc(paged_alias.id.clone())])
+                .all()
+        )
+    };
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].id, 2);
+    assert_eq!(results[1].id, 3);
+});
+
 // Validate that the generated Select model can be used directly
 postgres_test!(select_with_generated_model, SimpleSchema, {
     let SimpleSchema { simple } = schema;

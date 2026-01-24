@@ -234,10 +234,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
 // Post-FROM State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T>
-where
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-{
+impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// Adds a JOIN clause to the query
     #[inline]
     pub fn join<U: PostgresTable<'a>>(
@@ -319,6 +316,26 @@ where
             table: PhantomData,
         }
     }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    >
+    where
+        T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+    {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -372,6 +389,28 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     join_impl!();
 }
 
+impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T>
+where
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    > {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
+    }
+}
+
 //------------------------------------------------------------------------------
 // Post-WHERE State Implementation
 //------------------------------------------------------------------------------
@@ -417,6 +456,28 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     }
 }
 
+impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T>
+where
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    > {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
+    }
+}
+
 //------------------------------------------------------------------------------
 // Post-GROUP BY State Implementation
 //------------------------------------------------------------------------------
@@ -452,6 +513,28 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     }
 }
 
+impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T>
+where
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    > {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
+    }
+}
+
 //------------------------------------------------------------------------------
 // Post-ORDER BY State Implementation
 //------------------------------------------------------------------------------
@@ -468,6 +551,28 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
     }
 }
 
+impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T>
+where
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    > {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
+    }
+}
+
 //------------------------------------------------------------------------------
 // Post-LIMIT State Implementation
 //------------------------------------------------------------------------------
@@ -481,6 +586,50 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
             state: PhantomData,
             table: PhantomData,
         }
+    }
+}
+
+impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T>
+where
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    > {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
+    }
+}
+
+impl<'a, S, T> SelectBuilder<'a, S, SelectOffsetSet, T>
+where
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> super::CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
+        Self,
+    > {
+        super::CTEView::new(
+            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
+            name,
+            self,
+        )
     }
 }
 

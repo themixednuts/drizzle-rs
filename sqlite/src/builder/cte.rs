@@ -108,6 +108,6 @@ where
 {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         // Just output the CTE name - it's already defined in the WITH clause
-        SQL::raw(format!(r#""{}""#, self.name))
+        SQL::ident(self.name)
     }
 }

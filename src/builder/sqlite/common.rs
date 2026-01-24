@@ -199,7 +199,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     }
 }
 
-impl<'a, Conn, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'a, Conn, S, T, State>
+impl<'d, 'a, Conn, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'d, Conn, S, T, State>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -208,8 +208,8 @@ where
     }
 }
 
-impl<'a, Conn, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
-    for DrizzleBuilder<'a, Conn, S, T, State>
+impl<'d, 'a, Conn, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
+    for DrizzleBuilder<'d, Conn, S, T, State>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -219,15 +219,15 @@ where
 }
 
 // CTE (WITH) Builder Implementation
-impl<'a, Conn, Schema>
-    DrizzleBuilder<'a, Conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+impl<'d, 'a, Conn, Schema>
+    DrizzleBuilder<'d, Conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
     #[inline]
     pub fn select<T>(
         self,
         query: T,
     ) -> DrizzleBuilder<
-        'a,
+        'd,
         Conn,
         Schema,
         SelectBuilder<'a, Schema, builder::select::SelectInitial>,
@@ -249,7 +249,7 @@ impl<'a, Conn, Schema>
         self,
         query: T,
     ) -> DrizzleBuilder<
-        'a,
+        'd,
         Conn,
         Schema,
         SelectBuilder<'a, Schema, builder::select::SelectInitial>,
@@ -270,7 +270,7 @@ impl<'a, Conn, Schema>
     pub fn with<C>(
         self,
         cte: C,
-    ) -> DrizzleBuilder<'a, Conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<'d, Conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -287,14 +287,14 @@ impl<'a, Conn, Schema>
 // SELECT builder wrappers
 //------------------------------------------------------------------------------
 
-impl<'a, Conn, Schema>
-    DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
+impl<'d, 'a, Conn, Schema>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
 {
     #[inline]
     pub fn from<T>(
         self,
         table: T,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -307,16 +307,14 @@ impl<'a, Conn, Schema>
     }
 }
 
-impl<'a, Conn, Schema, T>
-    DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
-where
-    T: SQLiteTable<'a>,
+impl<'d, 'a, Conn, Schema, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
 {
     #[inline]
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
     {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
@@ -330,7 +328,7 @@ where
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
     {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
@@ -343,7 +341,7 @@ where
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -360,7 +358,7 @@ where
         self,
         table: U,
         on_condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
         U: SQLiteTable<'a>,
     {
@@ -382,22 +380,23 @@ where
         'a,
         <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
         SelectBuilder<'a, Schema, SelectFromSet, T>,
-    > {
+    >
+    where
+        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    {
         self.builder.as_cte(name)
     }
 
     crate::drizzle_builder_join_impl!();
 }
 
-impl<'a, Conn, Schema, T>
-    DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-where
-    T: SQLiteTable<'a>,
+impl<'d, 'a, Conn, Schema, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
 {
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
     {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
@@ -410,7 +409,7 @@ where
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -426,7 +425,7 @@ where
         self,
         table: U,
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
     where
         U: SQLiteTable<'a>,
     {
@@ -438,18 +437,32 @@ where
         }
     }
 
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+    >
+    where
+        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    {
+        self.builder.as_cte(name)
+    }
+
     crate::drizzle_builder_join_impl!();
 }
 
-impl<'a, Conn, Schema, T>
-    DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
-where
-    T: SQLiteTable<'a>,
+impl<'d, 'a, Conn, Schema, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
 {
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
     {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
@@ -462,7 +475,7 @@ where
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -483,20 +496,21 @@ where
         'a,
         <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
         SelectBuilder<'a, Schema, SelectWhereSet, T>,
-    > {
+    >
+    where
+        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    {
         self.builder.as_cte(name)
     }
 }
 
-impl<'a, Conn, Schema, T>
-    DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-where
-    T: SQLiteTable<'a>,
+impl<'d, 'a, Conn, Schema, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
 {
     pub fn offset(
         self,
         offset: usize,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
     {
         let builder = self.builder.offset(offset);
         DrizzleBuilder {
@@ -505,17 +519,51 @@ where
             state: PhantomData,
         }
     }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+    >
+    where
+        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    {
+        self.builder.as_cte(name)
+    }
 }
 
-impl<'a, Conn, Schema, T>
-    DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
-where
-    T: SQLiteTable<'a>,
+impl<'d, 'a, Conn, Schema, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
+{
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+    >
+    where
+        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    {
+        self.builder.as_cte(name)
+    }
+}
+
+impl<'d, 'a, Conn, Schema, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
 {
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'a, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
+    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
     {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
@@ -523,6 +571,22 @@ where
             builder,
             state: PhantomData,
         }
+    }
+
+    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    #[inline]
+    pub fn as_cte(
+        self,
+        name: &'static str,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+    >
+    where
+        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    {
+        self.builder.as_cte(name)
     }
 }
 

@@ -2,7 +2,7 @@
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{ComplexSchema, InsertComplex};
-use crate::common::schema::sqlite::{InsertSimple, Role, SelectSimple, SimpleSchema};
+use crate::common::schema::sqlite::{InsertSimple, Role, SelectSimple, Simple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::core::expr::*;
 use drizzle::sql;
@@ -596,6 +596,68 @@ sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3); // Should have 3 users with id > 2 (Charlie, David, Eve)
     assert_eq!(result[0].category, "high_id_users");
+});
+
+sqlite_test!(test_cte_after_join, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = [
+        InsertSimple::new("Alpha").with_id(1),
+        InsertSimple::new("Beta").with_id(2),
+        InsertSimple::new("Gamma").with_id(3),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    let simple_alias = Simple::alias("simple_alias");
+    let joined_simple = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .join(simple_alias, eq(simple.id, simple_alias.id))
+        .as_cte("joined_simple");
+
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.with(&joined_simple)
+            .select((joined_simple.id, joined_simple.name))
+            .from(&joined_simple)
+            .order_by([OrderBy::asc(joined_simple.id)])
+            .all()
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "Alpha");
+    assert_eq!(results[2].name, "Gamma");
+});
+
+sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = [
+        InsertSimple::new("One").with_id(1),
+        InsertSimple::new("Two").with_id(2),
+        InsertSimple::new("Three").with_id(3),
+        InsertSimple::new("Four").with_id(4),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data).execute());
+
+    let paged_simple = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([OrderBy::asc(simple.id)])
+        .limit(2)
+        .offset(1)
+        .as_cte("paged_simple");
+
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.with(&paged_simple)
+            .select((paged_simple.id, paged_simple.name))
+            .from(&paged_simple)
+            .order_by([OrderBy::asc(paged_simple.id)])
+            .all()
+    );
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].id, 2);
+    assert_eq!(results[1].id, 3);
 });
 
 // =============================================================================

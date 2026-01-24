@@ -24,7 +24,7 @@ macro_rules! drizzle_builder_join_impl {
                 table: U,
                 on_condition: impl drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>>,
             ) -> DrizzleBuilder<
-                'a,
+                'd,
                 Conn,
                 Schema,
                 SelectBuilder<'a, Schema, SelectJoinSet, T>,
