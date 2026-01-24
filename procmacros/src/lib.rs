@@ -6,12 +6,14 @@
 //!
 //! ### SQLite
 //! - [`SQLiteTable`] - Define SQLite table schemas with type safety
+//! - [`SQLiteView`] - Define SQLite view schemas with type safety
 //! - [`SQLiteEnum`] - Define enums that can be stored in SQLite
 //! - [`SQLiteIndex`] - Define indexes on SQLite tables
 //! - [`SQLiteSchema`] - Derive macro to group tables and indexes into a schema
 //!
 //! ### PostgreSQL
 //! - [`PostgresTable`] - Define PostgreSQL table schemas with type safety
+//! - [`PostgresView`] - Define PostgreSQL view schemas with type safety
 //! - [`PostgresEnum`] - Define enums for PostgreSQL (text, integer, or native ENUM)
 
 // Allow dead code for WIP features
@@ -349,6 +351,28 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_result = syn::parse_macro_input!(attr as crate::sqlite::table::TableAttributes);
 
     match crate::sqlite::table::table_attr_macro(input, attr_result) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Attribute macro for defining SQLite views.
+///
+/// This macro generates a typed view schema with column accessors and view metadata.
+///
+/// # Attributes
+///
+/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in snake_case)
+/// - `definition/DEFINITION = "SELECT ..."` - View definition SQL
+/// - `existing/EXISTING` - Mark view as existing (skip creation)
+#[cfg(feature = "sqlite")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let attr_result = syn::parse_macro_input!(attr as crate::sqlite::view::ViewAttributes);
+
+    match crate::sqlite::view::view_attr_macro(input, attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -1286,6 +1310,34 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_result = syn::parse_macro_input!(attr as crate::postgres::table::TableAttributes);
 
     match crate::postgres::table::table_attr_macro(input, attr_result) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Attribute macro for defining PostgreSQL views.
+///
+/// This macro generates a typed view schema with column accessors and view metadata.
+///
+/// # Attributes
+///
+/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in snake_case)
+/// - `schema/SCHEMA = "schema_name"` - Optional schema (defaults to public)
+/// - `definition/DEFINITION = "SELECT ..."` - View definition SQL
+/// - `materialized/MATERIALIZED` - Mark as materialized view
+/// - `with/WITH = ViewWithOptionDef::new()...` - WITH options
+/// - `with_no_data/WITH_NO_DATA` - Materialized view WITH NO DATA
+/// - `using/USING = "..."` - USING clause for materialized views
+/// - `tablespace/TABLESPACE = "..."` - Tablespace for materialized views
+/// - `existing/EXISTING` - Mark view as existing (skip creation)
+#[cfg(feature = "postgres")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let attr_result = syn::parse_macro_input!(attr as crate::postgres::view::ViewAttributes);
+
+    match crate::postgres::view::view_attr_macro(input, attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

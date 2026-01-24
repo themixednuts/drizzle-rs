@@ -1,3 +1,4 @@
+use crate::prelude::Cow;
 use crate::traits::SQLSchemaType;
 use crate::{SQL, SQLParam, SQLTable, SQLTableInfo};
 use core::any::Any;
@@ -19,12 +20,37 @@ pub trait SQLView<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
 
 /// Metadata information about a database view.
 pub trait SQLViewInfo: SQLTableInfo + Any {
-    /// Returns the SQL definition of this view as a static string.
-    fn definition_sql(&self) -> &'static str;
+    /// Returns the SQL definition of this view.
+    fn definition_sql(&self) -> Cow<'static, str>;
+
+    /// Returns the schema name for this view (default: public).
+    fn schema(&self) -> &'static str {
+        "public"
+    }
+
+    /// Returns true if this is an existing view in the database not managed by Drizzle.
+    fn is_existing(&self) -> bool {
+        false
+    }
 
     /// Returns true if this is a materialized view.
     fn is_materialized(&self) -> bool {
         false
+    }
+
+    /// Returns WITH NO DATA flag for materialized views.
+    fn with_no_data(&self) -> Option<bool> {
+        None
+    }
+
+    /// Returns USING clause for materialized views.
+    fn using_clause(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Returns TABLESPACE for materialized views.
+    fn tablespace(&self) -> Option<&'static str> {
+        None
     }
 
     /// Erased access to the view info.
@@ -40,7 +66,9 @@ impl core::fmt::Debug for dyn SQLViewInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLViewInfo")
             .field("name", &self.name())
+            .field("schema", &self.schema())
             .field("definition", &self.definition_sql())
+            .field("existing", &self.is_existing())
             .field("materialized", &self.is_materialized())
             .finish()
     }

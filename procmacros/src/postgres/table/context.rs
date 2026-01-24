@@ -6,7 +6,7 @@ use syn::{Ident, Visibility};
 pub(crate) use crate::common::ModelType;
 
 /// Context object containing all the information needed for PostgreSQL table macro generation
-pub(super) struct MacroContext<'a> {
+pub(crate) struct MacroContext<'a> {
     /// Original struct identifier
     pub struct_ident: &'a Ident,
     /// Struct visibility

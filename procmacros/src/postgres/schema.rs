@@ -81,6 +81,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let mig_pg_primary_key = mig_paths::postgres::primary_key();
     let mig_pg_unique_constraint = mig_paths::postgres::unique_constraint();
     let mig_pg_enum = mig_paths::postgres::enum_type();
+    let mig_pg_view = mig_paths::postgres::view();
 
     Ok(quote! {
         impl Default for #struct_name {
@@ -134,6 +135,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 type MigPrimaryKey = #mig_pg_primary_key;
                 type MigUniqueConstraint = #mig_pg_unique_constraint;
                 type MigEnum = #mig_pg_enum;
+                type MigView = #mig_pg_view;
 
                 let mut snapshot = MigSnapshot::new();
 
@@ -220,8 +222,20 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                 enum_info.variants().iter().map(|v| v.to_string()).collect(),
                             )));
                         }
-                        #postgres_schema_type::View => {
-                            // Views not implemented yet
+                        #postgres_schema_type::View(view_info) => {
+                            let mut view = MigView::new(view_info.schema(), #sql_table_info::name(view_info));
+                            let definition = view_info.definition_sql();
+                            if !definition.is_empty() {
+                                view.definition = ::std::option::Option::Some(definition);
+                            }
+                            view.materialized = view_info.is_materialized();
+                            if view_info.is_existing() {
+                                view.is_existing = true;
+                            }
+                            view.with_no_data = view_info.with_no_data();
+                            view.using = view_info.using_clause().map(::std::borrow::Cow::Borrowed);
+                            view.tablespace = view_info.tablespace().map(::std::borrow::Cow::Borrowed);
+                            snapshot.add_entity(MigEntity::View(view));
                         }
                         #postgres_schema_type::Trigger => {
                             // Triggers not implemented yet
@@ -251,6 +265,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         let mut tables: ::std::vec::Vec<(&str, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
         let mut indexes: ::std::collections::HashMap<&str, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
         let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
+        let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
         // Collect all tables, indexes, and enums
         #(
@@ -272,8 +287,11 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                     let enum_sql = enum_info.create_type_sql();
                     enums.push(enum_sql);
                 }
-                #postgres_schema_type::View => {
-                    // Views not implemented yet
+                #postgres_schema_type::View(view_info) => {
+                    if !view_info.is_existing() {
+                        let view_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
+                        views.push(view_sql);
+                    }
                 }
                 #postgres_schema_type::Trigger => {
                     // Triggers not implemented yet
@@ -314,6 +332,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                 }
             }
         }
+
+        // Add views last (they depend on tables)
+        sql_statements.extend(views);
 
         sql_statements
     }

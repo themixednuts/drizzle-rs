@@ -353,7 +353,7 @@ pub struct NameMarker;
 
 /// Specifies a custom name in the database.
 ///
-/// By default, table and column names are automatically converted to snake_case
+/// By default, table, view, and column names are automatically converted to snake_case
 /// from the Rust struct/field name. Use NAME to override this behavior.
 ///
 /// ## Column Example
@@ -375,7 +375,98 @@ pub struct NameMarker;
 /// #[PostgresTable(NAME = "user_accounts")]
 /// struct UserAccount { ... }
 /// ```
+///
+/// ## View Example
+/// ```ignore
+/// #[PostgresView(NAME = "active_users")]
+/// struct ActiveUsers { ... }
+/// ```
 pub const NAME: NameMarker = NameMarker;
+
+//------------------------------------------------------------------------------
+// View Attribute Markers
+//------------------------------------------------------------------------------
+
+/// Marker struct for view attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewMarker;
+
+/// Specifies a view definition SQL string or expression.
+///
+/// ## Examples
+/// ```ignore
+/// #[PostgresView(DEFINITION = "SELECT id, name FROM users")]
+/// struct UserNames { id: i32, name: String }
+/// ```
+///
+/// ```ignore
+/// #[PostgresView(
+///     DEFINITION = {
+///         let builder = drizzle::postgres::QueryBuilder::new::<Schema>();
+///         let Schema { user } = Schema::new();
+///         builder.select((user.id, user.name)).from(user)
+///     }
+/// )]
+/// struct UserNames { id: i32, name: String }
+/// ```
+pub const DEFINITION: ViewMarker = ViewMarker;
+
+/// Specifies a view schema name.
+///
+/// ## Example
+/// ```ignore
+/// #[PostgresView(SCHEMA = "auth")]
+/// struct AuthUsers { ... }
+/// ```
+pub const SCHEMA: ViewMarker = ViewMarker;
+
+/// Marks the view as materialized.
+///
+/// ## Example
+/// ```ignore
+/// #[PostgresView(MATERIALIZED)]
+/// struct ActiveUsers { ... }
+/// ```
+pub const MATERIALIZED: ViewMarker = ViewMarker;
+
+/// Sets WITH options for a view definition.
+///
+/// ## Example
+/// ```ignore
+/// #[PostgresView(WITH = ViewWithOptionDef::new().security_barrier())]
+/// struct ActiveUsers { ... }
+/// ```
+pub const WITH: ViewMarker = ViewMarker;
+
+/// Alias for [`WITH`].
+pub const WITH_OPTIONS: ViewMarker = ViewMarker;
+
+/// Create a materialized view WITH NO DATA.
+///
+/// ## Example
+/// ```ignore
+/// #[PostgresView(MATERIALIZED, WITH_NO_DATA)]
+/// struct ActiveUsers { ... }
+/// ```
+pub const WITH_NO_DATA: ViewMarker = ViewMarker;
+
+/// Specifies a USING clause for materialized views.
+///
+/// ## Example
+/// ```ignore
+/// #[PostgresView(USING = "heap")]
+/// struct ActiveUsers { ... }
+/// ```
+pub const USING: ViewMarker = ViewMarker;
+
+/// Marks the view as existing (skip creation).
+///
+/// ## Example
+/// ```ignore
+/// #[PostgresView(EXISTING)]
+/// struct ExistingView { ... }
+/// ```
+pub const EXISTING: ViewMarker = ViewMarker;
 
 //------------------------------------------------------------------------------
 // Table Attribute Markers
@@ -448,6 +539,9 @@ pub const INHERITS: TableMarker = TableMarker;
 ///     #[column(PRIMARY)]
 ///     id: i32,
 /// }
+///
+/// #[PostgresView(MATERIALIZED, TABLESPACE = "fast_storage")]
+/// struct ActiveUsers { id: i32 }
 /// ```
 ///
 /// See: <https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-TABLESPACE>

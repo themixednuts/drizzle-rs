@@ -622,22 +622,117 @@ impl View {
             ""
         };
 
-        if let Some(def) = self.definition.as_ref() {
-            format!(
-                "CREATE {}VIEW {}\"{}\" AS {};",
-                materialized,
-                schema_prefix,
-                self.name(),
-                def
-            )
-        } else {
-            format!(
+        let Some(def) = self.definition.as_ref() else {
+            return format!(
                 "-- {}View {}\"{}\" has no definition",
                 materialized,
                 schema_prefix,
                 self.name()
-            )
+            );
+        };
+
+        let mut sql = format!(
+            "CREATE {}VIEW {}\"{}\"",
+            materialized,
+            schema_prefix,
+            self.name(),
+        );
+
+        if let Some(using) = self.using.as_ref() {
+            sql.push_str(&format!(" USING {}", using));
         }
+
+        let mut check_option_clause = None;
+        if let Some(with_opts) = self.with.as_ref() {
+            let mut options = Vec::new();
+
+            if let Some(check_option) = with_opts.check_option.as_ref() {
+                check_option_clause = Some(check_option.as_ref().to_uppercase());
+            }
+
+            if let Some(value) = with_opts.security_barrier {
+                options.push(format!("security_barrier = {}", value));
+            }
+            if let Some(value) = with_opts.security_invoker {
+                options.push(format!("security_invoker = {}", value));
+            }
+            if let Some(value) = with_opts.fillfactor {
+                options.push(format!("fillfactor = {}", value));
+            }
+            if let Some(value) = with_opts.toast_tuple_target {
+                options.push(format!("toast_tuple_target = {}", value));
+            }
+            if let Some(value) = with_opts.parallel_workers {
+                options.push(format!("parallel_workers = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_enabled {
+                options.push(format!("autovacuum_enabled = {}", value));
+            }
+            if let Some(value) = with_opts.vacuum_index_cleanup.as_ref() {
+                options.push(format!("vacuum_index_cleanup = {}", value));
+            }
+            if let Some(value) = with_opts.vacuum_truncate {
+                options.push(format!("vacuum_truncate = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_vacuum_threshold {
+                options.push(format!("autovacuum_vacuum_threshold = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_vacuum_scale_factor {
+                options.push(format!("autovacuum_vacuum_scale_factor = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_vacuum_cost_delay {
+                options.push(format!("autovacuum_vacuum_cost_delay = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_vacuum_cost_limit {
+                options.push(format!("autovacuum_vacuum_cost_limit = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_freeze_min_age {
+                options.push(format!("autovacuum_freeze_min_age = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_freeze_max_age {
+                options.push(format!("autovacuum_freeze_max_age = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_freeze_table_age {
+                options.push(format!("autovacuum_freeze_table_age = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_multixact_freeze_min_age {
+                options.push(format!("autovacuum_multixact_freeze_min_age = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_multixact_freeze_max_age {
+                options.push(format!("autovacuum_multixact_freeze_max_age = {}", value));
+            }
+            if let Some(value) = with_opts.autovacuum_multixact_freeze_table_age {
+                options.push(format!("autovacuum_multixact_freeze_table_age = {}", value));
+            }
+            if let Some(value) = with_opts.log_autovacuum_min_duration {
+                options.push(format!("log_autovacuum_min_duration = {}", value));
+            }
+            if let Some(value) = with_opts.user_catalog_table {
+                options.push(format!("user_catalog_table = {}", value));
+            }
+
+            if !options.is_empty() {
+                sql.push_str(&format!(" WITH ({})", options.join(", ")));
+            }
+        }
+
+        sql.push_str(" AS ");
+        sql.push_str(def);
+
+        if let Some(check_option) = check_option_clause {
+            sql.push_str(&format!(" WITH {} CHECK OPTION", check_option));
+        }
+
+        if self.materialized && matches!(self.with_no_data, Some(true)) {
+            sql.push_str(" WITH NO DATA");
+        }
+
+        if let Some(tablespace) = self.tablespace.as_ref() {
+            sql.push_str(&format!(" TABLESPACE \"{}\"", tablespace));
+        }
+
+        sql.push(';');
+        sql
     }
 
     /// Generate DROP VIEW SQL

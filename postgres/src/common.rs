@@ -1,5 +1,6 @@
 use drizzle_core::schema::SQLEnumInfo;
 use drizzle_core::{SQLIndexInfo, SQLSchemaType};
+use drizzle_core::traits::SQLViewInfo;
 
 use crate::traits::PostgresTableInfo;
 
@@ -9,7 +10,7 @@ pub enum PostgresSchemaType {
     /// A regular table
     Table(&'static dyn PostgresTableInfo),
     /// A view
-    View,
+    View(&'static dyn SQLViewInfo),
     /// An index
     Index(&'static dyn SQLIndexInfo),
     /// A trigger

@@ -34,7 +34,7 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
 }
 
 /// Generate column type definitions and zero-sized types for each column
-pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, Vec<Ident>)> {
+pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, Vec<Ident>)> {
     let mut all_column_code = TokenStream::new();
     let mut column_zst_idents = Vec::new();
     let MacroContext {
@@ -367,7 +367,7 @@ pub(super) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 }
 
 /// Generate column field definitions for the main struct
-pub(super) fn generate_column_fields(
+pub(crate) fn generate_column_fields(
     ctx: &MacroContext,
     column_zst_idents: &[Ident],
 ) -> Result<TokenStream> {
@@ -390,7 +390,7 @@ pub(super) fn generate_column_fields(
 }
 
 /// Generate column accessor methods and implementations
-pub(super) fn generate_column_accessors(
+pub(crate) fn generate_column_accessors(
     ctx: &MacroContext,
     column_zst_idents: &[Ident],
 ) -> Result<TokenStream> {

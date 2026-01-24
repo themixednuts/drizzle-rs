@@ -204,7 +204,7 @@ pub mod core {
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
     // Macros
-    pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable};
+    pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView};
     pub use drizzle_sqlite::params;
 
     // Query builder
@@ -247,7 +247,7 @@ pub mod sqlite {
     pub mod prelude {
         // Macros for schema declarations
         pub use drizzle_macros::{
-            SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable,
+            SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
         };
 
         // Parameter macro for prepared statements
@@ -280,7 +280,7 @@ pub mod sqlite {
 pub mod postgres {
     // Macros
     pub use drizzle_macros::{
-        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
+        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
     pub use drizzle_postgres::params;
 
@@ -325,6 +325,7 @@ pub mod postgres {
         // Macros for schema declarations
         pub use drizzle_macros::{
             PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
+            PostgresView,
         };
 
         // Core types and traits (but not expressions/conditions)

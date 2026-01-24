@@ -1,13 +1,13 @@
-mod alias;
-mod attributes;
-mod column_definitions;
-mod context;
+pub(crate) mod alias;
+pub(crate) mod attributes;
+pub(crate) mod column_definitions;
+pub(crate) mod context;
 mod ddl;
-mod drivers;
+pub(crate) mod drivers;
 mod errors;
 mod json;
-mod models;
-mod traits;
+pub(crate) mod models;
+pub(crate) mod traits;
 
 use super::field::{FieldInfo, generate_table_meta_json};
 use alias::generate_aliased_table;

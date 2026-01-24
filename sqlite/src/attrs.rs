@@ -257,7 +257,7 @@ pub struct NameMarker;
 
 /// Specifies a custom name in the database.
 ///
-/// By default, table and column names are automatically converted to snake_case
+/// By default, table, view, and column names are automatically converted to snake_case
 /// from the Rust struct/field name. Use NAME to override this behavior.
 ///
 /// ## Column Example
@@ -279,7 +279,50 @@ pub struct NameMarker;
 /// #[SQLiteTable(name = "user_accounts")]
 /// struct UserAccount { ... }
 /// ```
+///
+/// ## View Example
+/// ```ignore
+/// #[SQLiteView(NAME = "active_users")]
+/// struct ActiveUsers { ... }
+/// ```
 pub const NAME: NameMarker = NameMarker;
+
+//------------------------------------------------------------------------------
+// View Attribute Markers
+//------------------------------------------------------------------------------
+
+/// Marker struct for view attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewMarker;
+
+/// Specifies a view definition SQL string or expression.
+///
+/// ## Examples
+/// ```ignore
+/// #[SQLiteView(DEFINITION = "SELECT id, email FROM users")]
+/// struct UserEmails { id: i32, email: String }
+/// ```
+///
+/// ```ignore
+/// #[SQLiteView(
+///     DEFINITION = {
+///         let builder = drizzle::sqlite::QueryBuilder::new::<Schema>();
+///         let Schema { user } = Schema::new();
+///         builder.select((user.id, user.email)).from(user)
+///     }
+/// )]
+/// struct UserEmails { id: i32, email: String }
+/// ```
+pub const DEFINITION: ViewMarker = ViewMarker;
+
+/// Marks the view as existing (skip creation).
+///
+/// ## Example
+/// ```ignore
+/// #[SQLiteView(EXISTING)]
+/// struct ExistingView { ... }
+/// ```
+pub const EXISTING: ViewMarker = ViewMarker;
 
 //------------------------------------------------------------------------------
 // Table Attribute Markers

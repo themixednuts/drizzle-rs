@@ -78,6 +78,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     let mig_sqlite_index = mig_paths::sqlite::index();
     let mig_sqlite_primary_key = mig_paths::sqlite::primary_key();
     let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
+    let mig_sqlite_view = mig_paths::sqlite::view();
 
     Ok(quote! {
         impl Default for #struct_name {
@@ -128,6 +129,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                 type MigIndex = #mig_sqlite_index;
                 type MigPrimaryKey = #mig_sqlite_primary_key;
                 type MigUniqueConstraint = #mig_sqlite_unique_constraint;
+                type MigView = #mig_sqlite_view;
 
                 let mut snapshot = MigSnapshot::new();
 
@@ -193,8 +195,16 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                             }
                             snapshot.add_entity(MigEntity::Index(idx));
                         }
-                        #sqlite_schema_type::View => {
-                            // Views not implemented yet
+                        #sqlite_schema_type::View(view_info) => {
+                            let mut view = MigView::new(#sql_table_info::name(view_info));
+                            let definition = view_info.definition_sql();
+                            if !definition.is_empty() {
+                                view.definition = ::std::option::Option::Some(definition);
+                            }
+                            if view_info.is_existing() {
+                                view.is_existing = true;
+                            }
+                            snapshot.add_entity(MigEntity::View(view));
                         }
                         #sqlite_schema_type::Trigger => {
                             // Triggers not implemented yet
@@ -227,6 +237,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let impl_tokens = quote! {
         let mut tables: ::std::vec::Vec<(&str, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
         let mut indexes: ::std::collections::HashMap<&str, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
         // Collect all tables and indexes
         #(
@@ -244,8 +255,11 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                         .or_insert_with(::std::vec::Vec::new)
                         .push(index_sql);
                 }
-                #sqlite_schema_type::View => {
-                    // Views not implemented yet
+                #sqlite_schema_type::View(view_info) => {
+                    if !view_info.is_existing() {
+                        let view_sql = <_ as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::sql(&self.#field_names).sql();
+                        views.push(view_sql);
+                    }
                 }
                 #sqlite_schema_type::Trigger => {
                     // Triggers not implemented yet
@@ -281,6 +295,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                 }
             }
         }
+
+        // Add views last (they depend on tables)
+        sql_statements.extend(views);
 
         sql_statements
     };

@@ -1,4 +1,5 @@
 use drizzle_core::{SQLIndexInfo, SQLSchemaType};
+use drizzle_core::traits::SQLViewInfo;
 
 use crate::traits::SQLiteTableInfo;
 
@@ -8,7 +9,7 @@ pub enum SQLiteSchemaType {
     /// A regular table
     Table(&'static dyn SQLiteTableInfo),
     /// A view
-    View,
+    View(&'static dyn SQLViewInfo),
     /// An index
     Index(&'static dyn SQLIndexInfo),
     /// A trigger

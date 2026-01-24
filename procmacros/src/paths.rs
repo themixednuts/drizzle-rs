@@ -75,6 +75,14 @@ pub mod core {
         quote!(drizzle::core::SQLTable)
     }
 
+    pub fn sql_view() -> TokenStream {
+        quote!(drizzle::core::SQLView)
+    }
+
+    pub fn sql_view_info() -> TokenStream {
+        quote!(drizzle::core::SQLViewInfo)
+    }
+
     pub fn sql_schema() -> TokenStream {
         quote!(drizzle::core::SQLSchema)
     }
@@ -242,6 +250,14 @@ pub mod ddl {
             quote!(drizzle::ddl::sqlite::ddl::UniqueConstraintDef)
         }
 
+        pub fn view() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::View)
+        }
+
+        pub fn view_def() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::ViewDef)
+        }
+
         pub fn index_def() -> TokenStream {
             quote!(drizzle::ddl::sqlite::ddl::IndexDef)
         }
@@ -257,6 +273,7 @@ pub mod ddl {
         pub fn table_sql() -> TokenStream {
             quote!(drizzle::ddl::sqlite::ddl::sql::TableSql)
         }
+
     }
 
     pub mod postgres {
@@ -283,6 +300,14 @@ pub mod ddl {
             quote!(drizzle::ddl::postgres::ddl::UniqueConstraintDef)
         }
 
+        pub fn view() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::View)
+        }
+
+        pub fn view_def() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::ViewDef)
+        }
+
         pub fn index_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::IndexDef)
         }
@@ -301,6 +326,10 @@ pub mod ddl {
 
         pub fn table_sql() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::sql::TableSql)
+        }
+
+        pub fn view_with_option_def() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::ViewWithOptionDef)
         }
     }
 }
@@ -388,6 +417,14 @@ pub mod migrations {
             quote!(drizzle::ddl::sqlite::ddl::UniqueConstraintDef)
         }
 
+        pub fn view() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::View)
+        }
+
+        pub fn view_def() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::ViewDef)
+        }
+
         pub fn foreign_key() -> TokenStream {
             quote!(drizzle::ddl::sqlite::ddl::ForeignKey)
         }
@@ -467,6 +504,14 @@ pub mod migrations {
 
         pub fn unique_constraint_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::UniqueConstraintDef)
+        }
+
+        pub fn view() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::View)
+        }
+
+        pub fn view_def() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::ViewDef)
         }
 
         pub fn foreign_key() -> TokenStream {

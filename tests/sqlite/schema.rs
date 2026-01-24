@@ -87,6 +87,25 @@ struct AppTestSchema {
     user_name_idx: UserNameIdx,
 }
 
+#[SQLiteView(
+    NAME = "user_emails",
+    DEFINITION = {
+        let builder = drizzle::sqlite::QueryBuilder::new::<AppTestSchema>();
+        let AppTestSchema { user, .. } = AppTestSchema::new();
+        builder.select((user.id, user.email)).from(user)
+    }
+)]
+struct UserEmailsView {
+    id: i32,
+    email: String,
+}
+
+#[derive(SQLiteSchema)]
+struct ViewTestSchema {
+    user: User,
+    user_emails: UserEmailsView,
+}
+
 sqlite_test!(test_schema_derive, AppTestSchema, {
     // Test table SQL generation (DDL-based format)
     let user_sql = User::create_table_sql();
@@ -167,6 +186,33 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "destructured@example.com");
     assert_eq!(users[0].name, "Destructured User");
+});
+
+sqlite_test!(test_schema_with_view, ViewTestSchema, {
+    let ViewTestSchema { user, user_emails } = schema;
+
+    let insert_data = [
+        InsertUser::new("a@example.com", "User A"),
+        InsertUser::new("b@example.com", "User B"),
+    ];
+    let result = drizzle_exec!(db.insert(user).values(insert_data).execute());
+    assert_eq!(result, 2);
+
+    let results: Vec<SelectUserEmailsView> = drizzle_exec!(
+        db.select((user_emails.id, user_emails.email))
+            .from(user_emails)
+            .order_by(OrderBy::asc(user_emails.id))
+            .all()
+    );
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].email, "a@example.com");
+
+    let statements = schema.create_statements();
+    assert!(
+        statements.iter().any(|sql| sql.contains("CREATE VIEW")),
+        "Expected CREATE VIEW statement"
+    );
 });
 
 // Multi-table schema with foreign key dependencies for deterministic ordering tests

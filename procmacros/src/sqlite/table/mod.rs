@@ -1,14 +1,14 @@
-mod alias;
-mod attributes;
-mod column_definitions;
-mod context;
+pub(crate) mod alias;
+pub(crate) mod attributes;
+pub(crate) mod column_definitions;
+pub(crate) mod context;
 mod ddl;
 mod drivers;
 mod enum_impls;
 mod errors;
 mod json;
-mod models;
-mod traits;
+pub(crate) mod models;
+pub(crate) mod traits;
 mod validation;
 
 #[cfg(feature = "rusqlite")]
