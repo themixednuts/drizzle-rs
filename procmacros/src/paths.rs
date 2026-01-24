@@ -273,7 +273,6 @@ pub mod ddl {
         pub fn table_sql() -> TokenStream {
             quote!(drizzle::ddl::sqlite::ddl::sql::TableSql)
         }
-
     }
 
     pub mod postgres {

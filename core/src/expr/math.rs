@@ -87,9 +87,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "ROUND",
-        expr.to_sql()
-            .push(Token::COMMA)
-            .append(precision.to_sql()),
+        expr.to_sql().push(Token::COMMA).append(precision.to_sql()),
     ))
 }
 
@@ -208,9 +206,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "POWER",
-        base.to_sql()
-            .push(Token::COMMA)
-            .append(exponent.to_sql()),
+        base.to_sql().push(Token::COMMA).append(exponent.to_sql()),
     ))
 }
 
@@ -366,10 +362,5 @@ where
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
 {
-    SQLExpr::new(
-        dividend
-            .to_sql()
-            .push(Token::REM)
-            .append(divisor.to_sql()),
-    )
+    SQLExpr::new(dividend.to_sql().push(Token::REM).append(divisor.to_sql()))
 }

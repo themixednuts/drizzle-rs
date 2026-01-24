@@ -13,7 +13,10 @@ pub(crate) use helpers::{
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> PostgresSQL<'a> {
     // For INSERT statements, use quoted column names only (no table qualifiers)
-    SQL::join(columns.iter().map(|col| SQL::ident(col.name())), Token::COMMA)
+    SQL::join(
+        columns.iter().map(|col| SQL::ident(col.name())),
+        Token::COMMA,
+    )
 }
 
 // Generate all join helper functions using the shared macro
@@ -62,21 +65,30 @@ where
 // USING clause versions of JOIN functions (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
-pub fn join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
+pub fn join_using<'a, Table>(
+    table: Table,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
+) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
     join_using_internal(table, Join::new(), columns)
 }
 
-pub fn inner_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
+pub fn inner_join_using<'a, Table>(
+    table: Table,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
+) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
     join_using_internal(table, Join::new().inner(), columns)
 }
 
-pub fn left_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
+pub fn left_join_using<'a, Table>(
+    table: Table,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
+) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
@@ -93,7 +105,10 @@ where
     join_using_internal(table, Join::new().left().outer(), columns)
 }
 
-pub fn right_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
+pub fn right_join_using<'a, Table>(
+    table: Table,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
+) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
@@ -110,7 +125,10 @@ where
     join_using_internal(table, Join::new().right().outer(), columns)
 }
 
-pub fn full_join_using<'a, Table>(table: Table, columns: impl ToSQL<'a, PostgresValue<'a>>) -> PostgresSQL<'a>
+pub fn full_join_using<'a, Table>(
+    table: Table,
+    columns: impl ToSQL<'a, PostgresValue<'a>>,
+) -> PostgresSQL<'a>
 where
     Table: PostgresTable<'a>,
 {
@@ -192,4 +210,3 @@ pub(crate) fn on_conflict<'a>(
 
     sql.append(action.to_sql())
 }
-

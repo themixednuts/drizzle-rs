@@ -83,4 +83,3 @@ url = '{db_url}'
         .unwrap();
     assert_eq!(exists, 1, "custom migrations table should exist");
 }
-

@@ -261,7 +261,10 @@ where
 /// // SELECT DATE_TRUNC('month', users.created_at)
 /// let month_start = date_trunc("month", users.created_at);
 /// ```
-pub fn date_trunc<'a, V, P, E>(precision: P, expr: E) -> SQLExpr<'a, V, Timestamp, E::Nullable, Scalar>
+pub fn date_trunc<'a, V, P, E>(
+    precision: P,
+    expr: E,
+) -> SQLExpr<'a, V, Timestamp, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     P: Expr<'a, V>,

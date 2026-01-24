@@ -22,7 +22,8 @@ fn main() {
         use drizzle::core::expr::eq;
 
         let conn = Connection::open_in_memory().expect("open connection");
-        let (db, Schema { users, posts }) = drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
+        let (db, Schema { users, posts }) =
+            drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
         // create tables do not have IF NOT EXISTS so we can support migrations in the furture, so only do this on a fresh db
         db.create().expect("create tables");
 

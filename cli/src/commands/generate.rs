@@ -19,7 +19,7 @@ pub fn run(
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::parser::SchemaParser;
-    use drizzle_migrations::words::{generate_migration_tag_with_mode, PrefixMode};
+    use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
     let db = config.database(db_name)?;
 
@@ -67,7 +67,10 @@ pub fn run(
     let parse_result = SchemaParser::parse(&combined_code);
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        println!("{}", output::warning("No tables or indexes found in schema files."));
+        println!(
+            "{}",
+            output::warning("No tables or indexes found in schema files.")
+        );
         return Ok(());
     }
 
@@ -113,7 +116,8 @@ pub fn run(
         .map(map_prefix_mode)
         .unwrap_or(PrefixMode::Timestamp);
 
-    let migration_tag = generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), name.as_deref());
+    let migration_tag =
+        generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), name.as_deref());
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -156,15 +160,15 @@ fn generate_custom_migration(
     name: Option<String>,
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
-    use drizzle_migrations::words::{generate_migration_tag_with_mode, PrefixMode};
+    use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
     let out_dir = db.migrations_dir();
     let journal_path = db.journal_path();
     let dialect = db.dialect.to_base();
 
     let custom_name = name.unwrap_or_else(|| "custom".to_string());
-    let mut journal =
-        Journal::load_or_create(&journal_path, dialect).map_err(|e| CliError::IoError(e.to_string()))?;
+    let mut journal = Journal::load_or_create(&journal_path, dialect)
+        .map_err(|e| CliError::IoError(e.to_string()))?;
 
     let prefix_mode = db
         .migrations
@@ -227,8 +231,7 @@ fn load_previous_snapshot(
     // If a journal exists, it must be readable. Silently ignoring parse errors can
     // lead to generating incorrect diffs and destructive migrations.
     if journal_path.exists() {
-        let journal =
-            Journal::load(journal_path).map_err(|e| CliError::IoError(e.to_string()))?;
+        let journal = Journal::load(journal_path).map_err(|e| CliError::IoError(e.to_string()))?;
         if let Some(latest) = journal.entries.last() {
             // Snapshot is in {out}/{tag}/snapshot.json
             let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");

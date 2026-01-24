@@ -7,8 +7,8 @@ use super::ddl::{
     Column, ForeignKey, Index, IndexColumn, IndexOrigin, PrimaryKey, SqliteEntity, Table,
     UniqueConstraint, View,
 };
-use super::snapshot::SQLiteSnapshot;
 use super::ddl::{GeneratedType, ParsedGenerated};
+use super::snapshot::SQLiteSnapshot;
 use std::collections::HashMap;
 
 /// Error type for introspection operations
@@ -172,7 +172,10 @@ pub fn process_columns(
         let Some(sql) = c.sql.as_deref() else {
             continue;
         };
-        autoinc_by_table.insert(c.table.clone(), parse_autoincrement_columns_from_table_sql(sql));
+        autoinc_by_table.insert(
+            c.table.clone(),
+            parse_autoincrement_columns_from_table_sql(sql),
+        );
     }
 
     let columns: Vec<Column> = raw_columns
@@ -383,7 +386,11 @@ pub fn process_unique_constraints_from_indexes(
             let mut cols: Vec<(i32, Cow<'static, str>)> = index_columns
                 .iter()
                 .filter(|c| c.index_name == idx.name && c.key)
-                .filter_map(|c| c.name.as_ref().map(|name| (c.seqno, Cow::Owned(name.clone()))))
+                .filter_map(|c| {
+                    c.name
+                        .as_ref()
+                        .map(|name| (c.seqno, Cow::Owned(name.clone())))
+                })
                 .collect();
 
             cols.sort_by_key(|(seq, _)| *seq);
@@ -617,7 +624,10 @@ pub fn parse_view_sql(sql: &str) -> Option<String> {
 /// SQLite syntax for generated columns:
 /// - `col TYPE GENERATED ALWAYS AS (expr) STORED`
 /// - `col TYPE GENERATED ALWAYS AS (expr) VIRTUAL`
-pub fn parse_generated_columns_from_table_sql(table: &str, sql: &str) -> HashMap<String, ParsedGenerated> {
+pub fn parse_generated_columns_from_table_sql(
+    table: &str,
+    sql: &str,
+) -> HashMap<String, ParsedGenerated> {
     let mut out: HashMap<String, ParsedGenerated> = HashMap::new();
 
     let sql = sql.trim();

@@ -101,7 +101,8 @@ fn setup_rusqlite_drizzle() -> (drizzle::sqlite::rusqlite::Drizzle<Schema>, User
 #[cfg(feature = "rusqlite")]
 fn setup_rusqlite_blog_drizzle() -> (drizzle::sqlite::rusqlite::Drizzle<BlogSchema>, User, Post) {
     let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    let (db, BlogSchema { user, post }) = drizzle::sqlite::rusqlite::Drizzle::new(conn, BlogSchema::new());
+    let (db, BlogSchema { user, post }) =
+        drizzle::sqlite::rusqlite::Drizzle::new(conn, BlogSchema::new());
     db.create().expect("create tables");
     (db, user, post)
 }

@@ -1,4 +1,4 @@
-use crate::{traits::SQLParam, OrderBy, SQL};
+use crate::{OrderBy, SQL, traits::SQLParam};
 
 /// Marker trait for executable builder states.
 pub trait ExecutableState {}

@@ -44,8 +44,8 @@ pub(crate) mod prelude {
     pub use hashbrown::HashMap;
 }
 
-pub mod dialect;
 pub mod builder;
+pub mod dialect;
 pub mod error;
 pub mod expr;
 pub mod helpers;

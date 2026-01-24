@@ -889,7 +889,10 @@ where
     State: ExecutableState,
 {
     /// Combines this query with another using UNION.
-    pub fn union(self, other: impl ToSQL<'a, SQLiteValue<'a>>) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    pub fn union(
+        self,
+        other: impl ToSQL<'a, SQLiteValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
         SelectBuilder {
             sql: helpers::union(self.sql, other),
             schema: PhantomData,
@@ -938,7 +941,10 @@ where
     }
 
     /// Combines this query with another using EXCEPT.
-    pub fn except(self, other: impl ToSQL<'a, SQLiteValue<'a>>) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    pub fn except(
+        self,
+        other: impl ToSQL<'a, SQLiteValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
         SelectBuilder {
             sql: helpers::except(self.sql, other),
             schema: PhantomData,
@@ -998,4 +1004,3 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
         }
     }
 }
-

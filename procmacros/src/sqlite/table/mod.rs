@@ -21,6 +21,9 @@ pub mod turso;
 pub mod libsql;
 
 use super::field::{FieldInfo, generate_table_meta_json};
+use crate::common::{
+    count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
+};
 use alias::generate_aliased_table;
 pub use attributes::TableAttributes;
 use column_definitions::{
@@ -28,9 +31,6 @@ use column_definitions::{
 };
 use context::MacroContext;
 use ddl::generate_const_ddl;
-use crate::common::{
-    count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
-};
 use json::generate_json_impls;
 use models::generate_model_definitions;
 use traits::generate_table_impls;

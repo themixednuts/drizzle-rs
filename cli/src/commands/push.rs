@@ -114,7 +114,10 @@ pub fn run(
     let parse_result = SchemaParser::parse(&combined_code);
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        println!("{}", output::warning("No tables or indexes found in schema files."));
+        println!(
+            "{}",
+            output::warning("No tables or indexes found in schema files.")
+        );
         return Ok(());
     }
 

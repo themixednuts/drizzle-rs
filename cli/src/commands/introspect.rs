@@ -101,7 +101,11 @@ pub fn run(
     );
 
     if result.view_count > 0 {
-        println!("  {} {} view(s)", output::success("Found"), result.view_count);
+        println!(
+            "  {} {} view(s)",
+            output::success("Found"),
+            result.view_count
+        );
     }
 
     println!();

@@ -421,4 +421,3 @@ where
         self.builder.to_sql()
     }
 }
-

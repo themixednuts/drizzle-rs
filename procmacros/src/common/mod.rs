@@ -4,14 +4,15 @@
 //! the dialect-specific macro implementations.
 
 mod context;
+mod diagnostics;
 pub(crate) mod generators;
 mod helpers;
 mod table_pipeline;
 pub(crate) mod type_mapping;
 mod type_utils;
-mod diagnostics;
 
 pub(crate) use context::ModelType;
+pub(crate) use diagnostics::references_required_message;
 pub(crate) use helpers::{
     extract_struct_fields, generate_try_from_impl, make_uppercase_path, parse_column_reference,
 };
@@ -32,7 +33,6 @@ pub(crate) use type_utils::{
     type_is_primitive_date_time, type_is_string_like, type_is_time_date, type_is_time_time,
     type_is_uuid, type_is_vec_u8, unwrap_option,
 };
-pub(crate) use diagnostics::references_required_message;
 
 // Re-export dialect traits (always available)
 #[allow(unused_imports)]

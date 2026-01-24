@@ -81,9 +81,7 @@ pub trait FromPostgresValue: Sized {
     }
 
     /// Convert from an ARRAY value
-    fn from_postgres_array<'a>(
-        _value: Vec<PostgresValue<'a>>,
-    ) -> Result<Self, DrizzleError> {
+    fn from_postgres_array<'a>(_value: Vec<PostgresValue<'a>>) -> Result<Self, DrizzleError> {
         Err(DrizzleError::ConversionError(
             "cannot convert ARRAY to target type".into(),
         ))
@@ -884,7 +882,6 @@ mod postgres_row_impl {
             return T::from_postgres_array(array_values(values));
         }
 
-
         #[cfg(feature = "cidr")]
         if let Ok(Some(values)) = row.try_get_array_inet(&column) {
             return T::from_postgres_array(array_values(values));
@@ -1055,13 +1052,10 @@ mod postgres_row_impl {
             column: &impl ColumnRef,
         ) -> Result<Option<geo_types::LineString<f64>>, ()>;
         #[cfg(feature = "geo-types")]
-        fn try_get_rect(
-            &self,
-            column: &impl ColumnRef,
-        ) -> Result<Option<geo_types::Rect<f64>>, ()>;
+        fn try_get_rect(&self, column: &impl ColumnRef)
+        -> Result<Option<geo_types::Rect<f64>>, ()>;
         #[cfg(feature = "bit-vec")]
-        fn try_get_bitvec(&self, column: &impl ColumnRef)
-            -> Result<Option<bit_vec::BitVec>, ()>;
+        fn try_get_bitvec(&self, column: &impl ColumnRef) -> Result<Option<bit_vec::BitVec>, ()>;
 
         fn try_get_array_bool(
             &self,
@@ -1332,12 +1326,10 @@ mod postgres_row_impl {
             }
         }
 
-
         #[cfg(feature = "cidr")]
         fn try_get_inet(&self, column: &impl ColumnRef) -> Result<Option<cidr::IpInet>, ()> {
             if let Some(idx) = column.to_index() {
-                self.try_get::<_, Option<cidr::IpInet>>(idx)
-                    .map_err(|_| ())
+                self.try_get::<_, Option<cidr::IpInet>>(idx).map_err(|_| ())
             } else if let Some(name) = column.to_name() {
                 self.try_get::<_, Option<cidr::IpInet>>(name)
                     .map_err(|_| ())
@@ -1349,8 +1341,7 @@ mod postgres_row_impl {
         #[cfg(feature = "cidr")]
         fn try_get_cidr(&self, column: &impl ColumnRef) -> Result<Option<cidr::IpCidr>, ()> {
             if let Some(idx) = column.to_index() {
-                self.try_get::<_, Option<cidr::IpCidr>>(idx)
-                    .map_err(|_| ())
+                self.try_get::<_, Option<cidr::IpCidr>>(idx).map_err(|_| ())
             } else if let Some(name) = column.to_name() {
                 self.try_get::<_, Option<cidr::IpCidr>>(name)
                     .map_err(|_| ())
@@ -1426,10 +1417,7 @@ mod postgres_row_impl {
         }
 
         #[cfg(feature = "bit-vec")]
-        fn try_get_bitvec(
-            &self,
-            column: &impl ColumnRef,
-        ) -> Result<Option<bit_vec::BitVec>, ()> {
+        fn try_get_bitvec(&self, column: &impl ColumnRef) -> Result<Option<bit_vec::BitVec>, ()> {
             if let Some(idx) = column.to_index() {
                 self.try_get::<_, Option<bit_vec::BitVec>>(idx)
                     .map_err(|_| ())
@@ -1656,7 +1644,6 @@ mod postgres_row_impl {
                 Err(())
             }
         }
-
 
         #[cfg(feature = "cidr")]
         fn try_get_array_inet(
@@ -1957,12 +1944,10 @@ mod postgres_row_impl {
             }
         }
 
-
         #[cfg(feature = "cidr")]
         fn try_get_inet(&self, column: &impl ColumnRef) -> Result<Option<cidr::IpInet>, ()> {
             if let Some(idx) = column.to_index() {
-                self.try_get::<_, Option<cidr::IpInet>>(idx)
-                    .map_err(|_| ())
+                self.try_get::<_, Option<cidr::IpInet>>(idx).map_err(|_| ())
             } else if let Some(name) = column.to_name() {
                 self.try_get::<_, Option<cidr::IpInet>>(name)
                     .map_err(|_| ())
@@ -1974,8 +1959,7 @@ mod postgres_row_impl {
         #[cfg(feature = "cidr")]
         fn try_get_cidr(&self, column: &impl ColumnRef) -> Result<Option<cidr::IpCidr>, ()> {
             if let Some(idx) = column.to_index() {
-                self.try_get::<_, Option<cidr::IpCidr>>(idx)
-                    .map_err(|_| ())
+                self.try_get::<_, Option<cidr::IpCidr>>(idx).map_err(|_| ())
             } else if let Some(name) = column.to_name() {
                 self.try_get::<_, Option<cidr::IpCidr>>(name)
                     .map_err(|_| ())
@@ -2051,10 +2035,7 @@ mod postgres_row_impl {
         }
 
         #[cfg(feature = "bit-vec")]
-        fn try_get_bitvec(
-            &self,
-            column: &impl ColumnRef,
-        ) -> Result<Option<bit_vec::BitVec>, ()> {
+        fn try_get_bitvec(&self, column: &impl ColumnRef) -> Result<Option<bit_vec::BitVec>, ()> {
             if let Some(idx) = column.to_index() {
                 self.try_get::<_, Option<bit_vec::BitVec>>(idx)
                     .map_err(|_| ())
@@ -2281,7 +2262,6 @@ mod postgres_row_impl {
                 Err(())
             }
         }
-
 
         #[cfg(feature = "cidr")]
         fn try_get_array_inet(
@@ -2743,9 +2723,7 @@ impl FromPostgresValue for geo_types::Point<f64> {
 impl FromPostgresValue for geo_types::LineString<f64> {
     impl_from_postgres_value_errors!("LineString");
 
-    fn from_postgres_linestring(
-        value: geo_types::LineString<f64>,
-    ) -> Result<Self, DrizzleError> {
+    fn from_postgres_linestring(value: geo_types::LineString<f64>) -> Result<Self, DrizzleError> {
         Ok(value)
     }
 }

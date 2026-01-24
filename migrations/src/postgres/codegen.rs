@@ -492,7 +492,9 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
 
         // Floating point
         s if s.eq_ignore_ascii_case("float4") || s.eq_ignore_ascii_case("real") => "f32",
-        s if s.eq_ignore_ascii_case("float8") || s.eq_ignore_ascii_case("double precision") => "f64",
+        s if s.eq_ignore_ascii_case("float8") || s.eq_ignore_ascii_case("double precision") => {
+            "f64"
+        }
         s if s.eq_ignore_ascii_case("numeric") || s.eq_ignore_ascii_case("decimal") => "String", // Use String for precise decimals
 
         // Boolean
@@ -521,7 +523,9 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
         s if s.eq_ignore_ascii_case("timestamptz") => "chrono::DateTime<chrono::Utc>",
 
         // JSON
-        s if s.eq_ignore_ascii_case("json") || s.eq_ignore_ascii_case("jsonb") => "serde_json::Value",
+        s if s.eq_ignore_ascii_case("json") || s.eq_ignore_ascii_case("jsonb") => {
+            "serde_json::Value"
+        }
 
         // Default to String for unknown types
         _ => "String",

@@ -10,6 +10,9 @@ pub(crate) mod models;
 pub(crate) mod traits;
 
 use super::field::{FieldInfo, generate_table_meta_json};
+use crate::common::{
+    count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
+};
 use alias::generate_aliased_table;
 pub use attributes::TableAttributes;
 use column_definitions::{
@@ -17,9 +20,6 @@ use column_definitions::{
 };
 use context::MacroContext;
 use ddl::{generate_const_ddl, generate_create_table_sql, generate_create_table_sql_from_params};
-use crate::common::{
-    count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
-};
 use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -64,7 +64,12 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let create_table_sql = if has_foreign_keys {
         String::new()
     } else {
-        generate_create_table_sql_from_params(schema_name, &table_name, &field_infos, is_composite_pk)
+        generate_create_table_sql_from_params(
+            schema_name,
+            &table_name,
+            &field_infos,
+            is_composite_pk,
+        )
     };
 
     let ctx = MacroContext {

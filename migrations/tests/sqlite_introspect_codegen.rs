@@ -12,7 +12,8 @@ use drizzle_migrations::{
         ddl::{Table, parse_table_ddl},
         introspect::{
             IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
-            process_columns, process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
+            process_columns, process_foreign_keys, process_indexes,
+            process_unique_constraints_from_indexes,
         },
     },
 };

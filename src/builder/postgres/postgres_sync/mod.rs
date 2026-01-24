@@ -363,5 +363,3 @@ where
         R::try_from(&row).map_err(Into::into)
     }
 }
-
-

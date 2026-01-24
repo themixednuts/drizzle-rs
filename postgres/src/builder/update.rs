@@ -193,4 +193,3 @@ mod tests {
         assert_eq!(builder.to_sql().sql(), "UPDATE test");
     }
 }
-

@@ -16,10 +16,7 @@ pub(crate) fn table_name_from_attrs(
 }
 
 /// Extract struct fields for table macros, returning a helpful error for non-struct inputs.
-pub(crate) fn struct_fields<'a>(
-    input: &'a DeriveInput,
-    macro_name: &str,
-) -> Result<&'a Fields> {
+pub(crate) fn struct_fields<'a>(input: &'a DeriveInput, macro_name: &str) -> Result<&'a Fields> {
     match &input.data {
         Data::Struct(data) => Ok(&data.fields),
         _ => Err(syn::Error::new(

@@ -5,7 +5,7 @@
 
 use core::marker::PhantomData;
 
-use crate::sql::{Token, SQL};
+use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{ArithmeticOutput, Numeric};
 
@@ -85,10 +85,7 @@ where
     Op: BinOpToken,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        self.lhs
-            .to_sql()
-            .push(Op::TOKEN)
-            .append(self.rhs.to_sql())
+        self.lhs.to_sql().push(Op::TOKEN).append(self.rhs.to_sql())
     }
 }
 

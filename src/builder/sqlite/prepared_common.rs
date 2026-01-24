@@ -32,8 +32,7 @@ macro_rules! sqlite_async_prepared_impl {
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error:
-                    Into<drizzle_core::error::DrizzleError>,
+                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
 
@@ -61,8 +60,7 @@ macro_rules! sqlite_async_prepared_impl {
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error:
-                    Into<drizzle_core::error::DrizzleError>,
+                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
                 let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;
@@ -107,8 +105,7 @@ macro_rules! sqlite_async_prepared_impl {
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error:
-                    Into<drizzle_core::error::DrizzleError>,
+                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
                 let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;
@@ -135,8 +132,7 @@ macro_rules! sqlite_async_prepared_impl {
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error:
-                    Into<drizzle_core::error::DrizzleError>,
+                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
                 let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;

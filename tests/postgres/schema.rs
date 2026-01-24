@@ -6,8 +6,8 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::schema::postgres::*;
-use drizzle::postgres::prelude::*;
 use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
+use drizzle::postgres::prelude::*;
 use drizzle_core::OrderBy;
 use drizzle_macros::postgres_test;
 
@@ -107,10 +107,9 @@ postgres_test!(schema_with_view, ViewTestSchema, {
         existing_simple_view: _,
     } = schema;
 
-    let stmt = db.insert(simple).values([
-        InsertSimple::new("alpha"),
-        InsertSimple::new("beta"),
-    ]);
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
     drizzle_exec!(stmt.execute());
 
     let stmt = db
@@ -131,15 +130,21 @@ postgres_test!(schema_with_view, ViewTestSchema, {
         "Expected CREATE VIEW statement"
     );
     assert!(
-        statements.iter().any(|sql| sql.contains("CREATE MATERIALIZED VIEW")),
+        statements
+            .iter()
+            .any(|sql| sql.contains("CREATE MATERIALIZED VIEW")),
         "Expected CREATE MATERIALIZED VIEW statement"
     );
     assert!(
-        statements.iter().any(|sql| sql.contains("default_name_view")),
+        statements
+            .iter()
+            .any(|sql| sql.contains("default_name_view")),
         "Expected default name view statement"
     );
     assert!(
-        !statements.iter().any(|sql| sql.contains("existing_simple_view")),
+        !statements
+            .iter()
+            .any(|sql| sql.contains("existing_simple_view")),
         "Existing view should not be created"
     );
 });

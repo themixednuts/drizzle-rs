@@ -204,7 +204,9 @@ pub mod core {
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
     // Macros
-    pub use drizzle_macros::{SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView};
+    pub use drizzle_macros::{
+        SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
+    };
     pub use drizzle_sqlite::params;
 
     // Query builder

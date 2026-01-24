@@ -161,11 +161,15 @@ impl RolesFilter {
                 exclude,
             } => {
                 // Check provider exclusions
-                if let Some(p) = provider && is_provider_role(p, role_name) {
+                if let Some(p) = provider
+                    && is_provider_role(p, role_name)
+                {
                     return false;
                 }
                 // Check explicit exclude list
-                if let Some(excl) = exclude && excl.iter().any(|e| e == role_name) {
+                if let Some(excl) = exclude
+                    && excl.iter().any(|e| e == role_name)
+                {
                     return false;
                 }
                 // Check explicit include list (if specified, only include those)

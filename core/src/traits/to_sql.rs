@@ -132,7 +132,6 @@ where
     }
 }
 
-
 impl<'a, V> ToSQL<'a, V> for String
 where
     V: SQLParam + 'a,
@@ -158,7 +157,6 @@ where
         }
     }
 }
-
 
 impl<'a, V> ToSQL<'a, V> for Cow<'a, [u8]>
 where
@@ -206,7 +204,9 @@ macro_rules! impl_tosql_param_copy {
     };
 }
 
-impl_tosql_param_copy!(i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize);
+impl_tosql_param_copy!(
+    i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize
+);
 
 impl<'a, V, T> ToSQL<'a, V> for Option<T>
 where

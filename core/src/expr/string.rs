@@ -192,11 +192,7 @@ where
 /// // SELECT REPLACE(users.email, '@old.com', '@new.com')
 /// let new_email = replace(users.email, "@old.com", "@new.com");
 /// ```
-pub fn replace<'a, V, E, F, T>(
-    expr: E,
-    from: F,
-    to: T,
-) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn replace<'a, V, E, F, T>(expr: E, from: F, to: T) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -244,9 +240,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "INSTR",
-        expr.to_sql()
-            .push(Token::COMMA)
-            .append(search.to_sql()),
+        expr.to_sql().push(Token::COMMA).append(search.to_sql()),
     ))
 }
 
@@ -293,10 +287,5 @@ where
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
 {
-    SQLExpr::new(
-        expr1
-            .to_sql()
-            .push(Token::CONCAT)
-            .append(expr2.to_sql()),
-    )
+    SQLExpr::new(expr1.to_sql().push(Token::CONCAT).append(expr2.to_sql()))
 }

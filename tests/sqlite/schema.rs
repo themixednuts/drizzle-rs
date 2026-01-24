@@ -240,7 +240,9 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
         "Expected CREATE VIEW statement"
     );
     assert!(
-        statements.iter().any(|sql| sql.contains("default_name_view")),
+        statements
+            .iter()
+            .any(|sql| sql.contains("default_name_view")),
         "Expected default name view statement"
     );
     assert!(

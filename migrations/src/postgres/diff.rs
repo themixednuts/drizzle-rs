@@ -156,7 +156,12 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
     let mut column_renames: Vec<ColumnRename> = Vec::new();
     let mut rename_sql: Vec<String> = Vec::new();
 
-    detect_and_apply_postgres_column_renames(&mut prev_normalized, cur, &mut column_renames, &mut rename_sql);
+    detect_and_apply_postgres_column_renames(
+        &mut prev_normalized,
+        cur,
+        &mut column_renames,
+        &mut rename_sql,
+    );
 
     let schema_diff = diff_collections(&prev_normalized, cur);
     let generator = PostgresGenerator::new();
@@ -239,7 +244,12 @@ fn apply_postgres_column_rename(
     }
 
     // PKs
-    for pk in ddl.pks.list_mut().iter_mut().filter(|p| p.schema.as_ref() == schema && p.table.as_ref() == table) {
+    for pk in ddl
+        .pks
+        .list_mut()
+        .iter_mut()
+        .filter(|p| p.schema.as_ref() == schema && p.table.as_ref() == table)
+    {
         for col in pk.columns.to_mut().iter_mut() {
             if col.as_ref() == from {
                 *col = to.clone().into();

@@ -181,9 +181,7 @@ fn confirm_destructive() -> Result<bool, CliError> {
 
     println!(
         "{}",
-        output::warning(
-            "Potentially destructive changes detected (DROP/TRUNCATE/etc)."
-        )
+        output::warning("Potentially destructive changes detected (DROP/TRUNCATE/etc).")
     );
     print!("Apply anyway? [y/N]: ");
     io::stdout()
@@ -333,7 +331,8 @@ fn process_sqlite_uniques_from_indexes(
             drizzle_migrations::sqlite::ddl::name_for_unique(&idx.table, &refs)
         };
 
-        let mut uniq = UniqueConstraint::from_strings(idx.table.clone(), constraint_name, col_names);
+        let mut uniq =
+            UniqueConstraint::from_strings(idx.table.clone(), constraint_name, col_names);
         uniq.name_explicit = name_explicit;
         uniques.push(uniq);
     }
@@ -476,9 +475,8 @@ fn execute_postgres_sync_statements(
         if s.is_empty() {
             continue;
         }
-        tx.execute(s, &[]).map_err(|e| {
-            CliError::MigrationError(format!("Statement failed: {}\n{}", e, s))
-        })?;
+        tx.execute(s, &[])
+            .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
     }
 
     tx.commit()
@@ -584,7 +582,9 @@ async fn execute_postgres_async_inner(
     let url = creds.connection_url();
     let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e)))?;
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+        })?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -605,9 +605,9 @@ async fn execute_postgres_async_inner(
         if s.is_empty() {
             continue;
         }
-        tx.execute(s, &[]).await.map_err(|e| {
-            CliError::MigrationError(format!("Statement failed: {}\n{}", e, s))
-        })?;
+        tx.execute(s, &[])
+            .await
+            .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
     }
 
     tx.commit()
@@ -1679,9 +1679,9 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         SQLiteDDL, Table, View,
         codegen::{CodegenOptions, generate_rust_schema},
         introspect::{
-            parse_generated_columns_from_table_sql, parse_view_sql, RawColumnInfo, RawForeignKey,
-            RawIndexColumn, RawIndexInfo, RawViewInfo, process_columns, process_foreign_keys,
-            process_indexes, queries,
+            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
+            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
+            process_foreign_keys, process_indexes, queries,
         },
     };
     use std::collections::{HashMap, HashSet};
@@ -1920,9 +1920,9 @@ async fn introspect_libsql_inner(
         SQLiteDDL, Table, View,
         codegen::{CodegenOptions, generate_rust_schema},
         introspect::{
-            parse_generated_columns_from_table_sql, parse_view_sql, RawColumnInfo, RawForeignKey,
-            RawIndexColumn, RawIndexInfo, RawViewInfo, process_columns, process_foreign_keys,
-            process_indexes, queries,
+            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
+            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
+            process_foreign_keys, process_indexes, queries,
         },
     };
     use std::collections::{HashMap, HashSet};
@@ -2152,9 +2152,9 @@ async fn introspect_turso_inner(
         SQLiteDDL, Table, View,
         codegen::{CodegenOptions, generate_rust_schema},
         introspect::{
-            parse_generated_columns_from_table_sql, parse_view_sql, RawColumnInfo, RawForeignKey,
-            RawIndexColumn, RawIndexInfo, RawViewInfo, process_columns, process_foreign_keys,
-            process_indexes, queries,
+            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
+            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
+            process_foreign_keys, process_indexes, queries,
         },
     };
     use std::collections::{HashMap, HashSet};
@@ -2372,12 +2372,12 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         codegen::{CodegenOptions, generate_rust_schema},
         ddl::Schema,
         introspect::{
-            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo, RawPolicyInfo,
-            RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo,
-            RawTableInfo, RawUniqueInfo, RawViewInfo, process_check_constraints, process_columns,
-            process_enums, process_foreign_keys, process_indexes, process_policies,
-            process_primary_keys, process_roles, process_sequences, process_tables,
-            process_unique_constraints, process_views,
+            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
+            RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
+            RawUniqueInfo, RawViewInfo, process_check_constraints, process_columns, process_enums,
+            process_foreign_keys, process_indexes, process_policies, process_primary_keys,
+            process_roles, process_sequences, process_tables, process_unique_constraints,
+            process_views,
         },
     };
 
@@ -2388,7 +2388,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Schemas
     let raw_schemas: Vec<RawSchemaInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::SCHEMAS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::SCHEMAS_QUERY,
+            &[],
+        )
         .map_err(|e| CliError::Other(format!("Failed to query schemas: {}", e)))?
         .into_iter()
         .map(|row| RawSchemaInfo {
@@ -2398,7 +2401,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Tables
     let raw_tables: Vec<RawTableInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::TABLES_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::TABLES_QUERY,
+            &[],
+        )
         .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?
         .into_iter()
         .map(|row| RawTableInfo {
@@ -2410,7 +2416,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Columns
     let raw_columns: Vec<RawColumnInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::COLUMNS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::COLUMNS_QUERY,
+            &[],
+        )
         .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?
         .into_iter()
         .map(|row| RawColumnInfo {
@@ -2431,7 +2440,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Enums
     let raw_enums: Vec<RawEnumInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::ENUMS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::ENUMS_QUERY,
+            &[],
+        )
         .map_err(|e| CliError::Other(format!("Failed to query enums: {}", e)))?
         .into_iter()
         .map(|row| RawEnumInfo {
@@ -2443,7 +2455,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Sequences
     let raw_sequences: Vec<RawSequenceInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::SEQUENCES_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::SEQUENCES_QUERY,
+            &[],
+        )
         .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
         .into_iter()
         .map(|row| RawSequenceInfo {
@@ -2461,7 +2476,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Views
     let raw_views: Vec<RawViewInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::VIEWS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::VIEWS_QUERY,
+            &[],
+        )
         .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
         .into_iter()
         .map(|row| RawViewInfo {
@@ -2662,24 +2680,29 @@ fn introspect_postgres_async(creds: &PostgresCreds) -> Result<IntrospectResult, 
 }
 
 #[cfg(feature = "tokio-postgres")]
-async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<IntrospectResult, CliError> {
+async fn introspect_postgres_async_inner(
+    creds: &PostgresCreds,
+) -> Result<IntrospectResult, CliError> {
     use drizzle_migrations::postgres::{
         PostgresDDL,
         codegen::{CodegenOptions, generate_rust_schema},
         ddl::Schema,
         introspect::{
-            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo, RawPolicyInfo,
-            RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo, RawUniqueInfo, RawViewInfo,
-            process_check_constraints, process_columns, process_enums, process_foreign_keys,
-            process_indexes, process_policies, process_primary_keys, process_roles,
-            process_sequences, process_tables, process_unique_constraints, process_views,
+            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
+            RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
+            RawUniqueInfo, RawViewInfo, process_check_constraints, process_columns, process_enums,
+            process_foreign_keys, process_indexes, process_policies, process_primary_keys,
+            process_roles, process_sequences, process_tables, process_unique_constraints,
+            process_views,
         },
     };
 
     let url = creds.connection_url();
     let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e)))?;
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+        })?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -2691,15 +2714,23 @@ async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<Intros
     });
 
     let raw_schemas: Vec<RawSchemaInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::SCHEMAS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::SCHEMAS_QUERY,
+            &[],
+        )
         .await
         .map_err(|e| CliError::Other(format!("Failed to query schemas: {}", e)))?
         .into_iter()
-        .map(|row| RawSchemaInfo { name: row.get::<_, String>(0) })
+        .map(|row| RawSchemaInfo {
+            name: row.get::<_, String>(0),
+        })
         .collect();
 
     let raw_tables: Vec<RawTableInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::TABLES_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::TABLES_QUERY,
+            &[],
+        )
         .await
         .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?
         .into_iter()
@@ -2711,7 +2742,10 @@ async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<Intros
         .collect();
 
     let raw_columns: Vec<RawColumnInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::COLUMNS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::COLUMNS_QUERY,
+            &[],
+        )
         .await
         .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?
         .into_iter()
@@ -2732,7 +2766,10 @@ async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<Intros
         .collect();
 
     let raw_enums: Vec<RawEnumInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::ENUMS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::ENUMS_QUERY,
+            &[],
+        )
         .await
         .map_err(|e| CliError::Other(format!("Failed to query enums: {}", e)))?
         .into_iter()
@@ -2744,7 +2781,10 @@ async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<Intros
         .collect();
 
     let raw_sequences: Vec<RawSequenceInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::SEQUENCES_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::SEQUENCES_QUERY,
+            &[],
+        )
         .await
         .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
         .into_iter()
@@ -2762,7 +2802,10 @@ async fn introspect_postgres_async_inner(creds: &PostgresCreds) -> Result<Intros
         .collect();
 
     let raw_views: Vec<RawViewInfo> = client
-        .query(drizzle_migrations::postgres::introspect::queries::VIEWS_QUERY, &[])
+        .query(
+            drizzle_migrations::postgres::introspect::queries::VIEWS_QUERY,
+            &[],
+        )
         .await
         .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
         .into_iter()
@@ -3130,8 +3173,10 @@ fn parse_postgres_index_columns(
             let core = core.trim().to_string();
 
             // Heuristic: treat as expression if it contains parentheses or spaces.
-            let is_expression =
-                core.contains('(') || core.contains(')') || core.contains(' ') || core.contains("::");
+            let is_expression = core.contains('(')
+                || core.contains(')')
+                || core.contains(' ')
+                || core.contains("::");
 
             // Heuristic opclass parsing: split whitespace and take second token if it looks like opclass.
             let mut opclass: Option<String> = None;

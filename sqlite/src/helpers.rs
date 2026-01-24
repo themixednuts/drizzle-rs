@@ -17,7 +17,10 @@ pub use drizzle_core::Join;
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQLiteSQL<'a> {
     // For INSERT statements, use quoted column names only (no table qualifiers)
-    SQL::join(columns.iter().map(|col| SQL::ident(col.name())), Token::COMMA)
+    SQL::join(
+        columns.iter().map(|col| SQL::ident(col.name())),
+        Token::COMMA,
+    )
 }
 
 // Generate all join helper functions using the shared macro

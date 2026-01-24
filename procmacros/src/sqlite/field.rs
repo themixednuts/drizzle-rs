@@ -7,6 +7,7 @@ use syn::{
     parse::ParseStream,
 };
 
+use crate::common::make_uppercase_path;
 use crate::common::{
     is_option_type, option_inner_type, references_required_message, type_is_array_string,
     type_is_array_u8, type_is_arrayvec_u8, type_is_bool, type_is_byte_slice, type_is_datetime_tz,
@@ -14,7 +15,6 @@ use crate::common::{
     type_is_naive_time, type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like,
     type_is_time_date, type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option,
 };
-use crate::common::make_uppercase_path;
 
 // =============================================================================
 // Re-export shared types from drizzle-types

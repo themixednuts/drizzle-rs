@@ -70,7 +70,11 @@ pub(crate) fn type_is_string_like(ty: &Type) -> bool {
     if let Type::Reference(reference) = ty
         && let Type::Path(path) = reference.elem.as_ref()
     {
-        return path.path.segments.last().is_some_and(|seg| seg.ident == "str");
+        return path
+            .path
+            .segments
+            .last()
+            .is_some_and(|seg| seg.ident == "str");
     }
     false
 }
@@ -90,7 +94,11 @@ pub(crate) fn type_is_vec_u8(ty: &Type) -> bool {
     };
     args.args.iter().any(|arg| {
         if let GenericArgument::Type(Type::Path(inner)) = arg {
-            inner.path.segments.last().is_some_and(|seg| seg.ident == "u8")
+            inner
+                .path
+                .segments
+                .last()
+                .is_some_and(|seg| seg.ident == "u8")
         } else {
             false
         }
@@ -159,7 +167,11 @@ pub(crate) fn type_is_arrayvec_u8(ty: &Type) -> bool {
     };
     args.args.iter().any(|arg| {
         if let GenericArgument::Type(Type::Path(inner)) = arg {
-            inner.path.segments.last().is_some_and(|seg| seg.ident == "u8")
+            inner
+                .path
+                .segments
+                .last()
+                .is_some_and(|seg| seg.ident == "u8")
         } else {
             false
         }

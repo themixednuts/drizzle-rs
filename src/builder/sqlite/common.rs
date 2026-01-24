@@ -6,10 +6,10 @@ use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_sqlite::{
     builder::{
         self, CTEView, Conflict, DeleteInitial, DeleteWhereSet, InsertInitial, InsertOnConflictSet,
-        InsertReturningSet, InsertValuesSet, SelectFromSet, SelectInitial, SelectJoinSet,
-        SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet, UpdateInitial,
-        UpdateSetClauseSet, UpdateWhereSet, delete::DeleteBuilder, insert::InsertBuilder,
-        select::SelectBuilder, update::UpdateBuilder, QueryBuilder,
+        InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet, SelectInitial,
+        SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
+        UpdateInitial, UpdateSetClauseSet, UpdateWhereSet, delete::DeleteBuilder,
+        insert::InsertBuilder, select::SelectBuilder, update::UpdateBuilder,
     },
     common::SQLiteSchemaType,
     traits::SQLiteTable,
@@ -186,7 +186,13 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     pub fn with<'a, 'b, C>(
         &'a self,
         cte: C,
-    ) -> DrizzleBuilder<'a, Conn, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        QueryBuilder<'b, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
     where
         C: builder::CTEDefinition<'b>,
     {
@@ -270,7 +276,13 @@ impl<'d, 'a, Conn, Schema>
     pub fn with<C>(
         self,
         cte: C,
-    ) -> DrizzleBuilder<'d, Conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -314,8 +326,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -328,8 +345,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    > {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -341,7 +363,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -373,6 +401,7 @@ impl<'d, 'a, Conn, Schema, T>
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     /// Returns a CTEView with typed field access via Deref to the aliased table.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -396,8 +425,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -409,7 +443,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -439,6 +479,7 @@ impl<'d, 'a, Conn, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -462,8 +503,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    > {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -475,7 +521,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -489,6 +541,7 @@ impl<'d, 'a, Conn, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -510,8 +563,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn offset(
         self,
         offset: usize,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+        SelectOffsetSet,
+    > {
         let builder = self.builder.offset(offset);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -522,6 +580,7 @@ impl<'d, 'a, Conn, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -542,6 +601,7 @@ impl<'d, 'a, Conn, Schema, T>
 {
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -563,8 +623,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    > {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -575,6 +640,7 @@ impl<'d, 'a, Conn, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -622,7 +688,13 @@ impl<'a, 'b, Conn, Schema, Table>
 }
 
 impl<'a, 'b, Conn, Schema, Table>
-    DrizzleBuilder<'a, Conn, Schema, InsertBuilder<'b, Schema, InsertValuesSet, Table>, InsertValuesSet>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
 where
     Table: SQLiteTable<'b>,
 {
@@ -739,8 +811,13 @@ impl<'a, 'b, Conn, Schema, Table>
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'b, SQLiteValue<'b>>,
-    ) -> DrizzleBuilder<'a, Conn, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -762,8 +839,13 @@ where
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'b, SQLiteValue<'b>>,
-    ) -> DrizzleBuilder<'a, Conn, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, T>, DeleteWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        DeleteBuilder<'b, Schema, DeleteWhereSet, T>,
+        DeleteWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,

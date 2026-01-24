@@ -1,6 +1,6 @@
 use drizzle_core::schema::SQLEnumInfo;
-use drizzle_core::{SQLIndexInfo, SQLSchemaType};
 use drizzle_core::traits::SQLViewInfo;
+use drizzle_core::{SQLIndexInfo, SQLSchemaType};
 
 use crate::traits::PostgresTableInfo;
 

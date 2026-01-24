@@ -1,9 +1,9 @@
 use crate::common::PostgresSchemaType;
+use crate::helpers;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use crate::helpers;
-use drizzle_core::{SQL, ToSQL};
 use drizzle_core::traits::SQLTable;
+use drizzle_core::{SQL, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -322,11 +322,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    >
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
     where
         T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
     {
@@ -398,11 +394,8 @@ where
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    > {
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
+    {
         super::CTEView::new(
             <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
             name,
@@ -465,11 +458,8 @@ where
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    > {
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
+    {
         super::CTEView::new(
             <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
             name,
@@ -522,11 +512,8 @@ where
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    > {
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
+    {
         super::CTEView::new(
             <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
             name,
@@ -560,11 +547,8 @@ where
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    > {
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
+    {
         super::CTEView::new(
             <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
             name,
@@ -598,11 +582,8 @@ where
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    > {
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
+    {
         super::CTEView::new(
             <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
             name,
@@ -620,11 +601,8 @@ where
     pub fn as_cte(
         self,
         name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        Self,
-    > {
+    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
+    {
         super::CTEView::new(
             <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
             name,
@@ -642,7 +620,10 @@ where
     State: ExecutableState,
 {
     /// Combines this query with another using UNION.
-    pub fn union(self, other: impl ToSQL<'a, PostgresValue<'a>>) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    pub fn union(
+        self,
+        other: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
         SelectBuilder {
             sql: helpers::union(self.sql, other),
             schema: PhantomData,
@@ -691,7 +672,10 @@ where
     }
 
     /// Combines this query with another using EXCEPT.
-    pub fn except(self, other: impl ToSQL<'a, PostgresValue<'a>>) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    pub fn except(
+        self,
+        other: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
         SelectBuilder {
             sql: helpers::except(self.sql, other),
             schema: PhantomData,
@@ -769,4 +753,3 @@ mod tests {
         assert_eq!(builder.to_sql().sql(), "SELECT *");
     }
 }
-

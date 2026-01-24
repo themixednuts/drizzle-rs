@@ -1230,11 +1230,8 @@ sqlite_test!(test_datetime_current, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
     // Test CURRENT_DATE - returns format YYYY-MM-DD
-    let result: Vec<CurrentDateResult> = drizzle_exec!(
-        db.select(alias(current_date(), "today"))
-            .from(simple)
-            .all()
-    );
+    let result: Vec<CurrentDateResult> =
+        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple).all());
     // Just verify it's in the expected format (YYYY-MM-DD)
     assert!(result[0].today.len() == 10);
     assert!(result[0].today.contains('-'));

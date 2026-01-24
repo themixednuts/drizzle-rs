@@ -2,7 +2,7 @@
 
 use super::{OwnedPostgresValue, PostgresValue};
 use drizzle_core::{
-    param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam, ToSQL,
+    ToSQL, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam,
 };
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -154,4 +154,3 @@ impl<'a> From<&'a Uuid> for PostgresInsertValue<'a, PostgresValue<'a>, String> {
         PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, String>::new(sql))
     }
 }
-

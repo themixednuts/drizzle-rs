@@ -3,7 +3,9 @@ use crate::common::{
     table_name_from_attrs,
 };
 use crate::generators::generate_sql_table_info;
-use crate::paths::{core as core_paths, ddl as ddl_paths, postgres as postgres_paths, std as std_paths};
+use crate::paths::{
+    core as core_paths, ddl as ddl_paths, postgres as postgres_paths, std as std_paths,
+};
 use crate::postgres::field::FieldInfo;
 use crate::postgres::generators::{
     generate_postgres_table, generate_postgres_table_info, generate_sql_schema, generate_sql_table,
@@ -67,7 +69,9 @@ impl Parse for ViewAttributes {
                                     && let syn::Lit::Str(str_lit) = lit.lit
                                 {
                                     attrs.schema = Some(str_lit.value());
-                                    attrs.marker_exprs.push(make_uppercase_path(ident, "SCHEMA"));
+                                    attrs
+                                        .marker_exprs
+                                        .push(make_uppercase_path(ident, "SCHEMA"));
                                     continue;
                                 }
                                 return Err(syn::Error::new(
@@ -80,7 +84,8 @@ impl Parse for ViewAttributes {
                                 if let syn::Expr::Lit(lit) = value.clone()
                                     && let syn::Lit::Str(str_lit) = lit.lit
                                 {
-                                    attrs.definition = Some(ViewDefinition::Literal(str_lit.value()));
+                                    attrs.definition =
+                                        Some(ViewDefinition::Literal(str_lit.value()));
                                     attrs
                                         .marker_exprs
                                         .push(make_uppercase_path(ident, "DEFINITION"));
@@ -122,7 +127,11 @@ impl Parse for ViewAttributes {
                             }
                             "WITH" | "WITH_OPTIONS" => {
                                 attrs.with_options = Some(nv.clone().value);
-                                let marker = if upper == "WITH" { "WITH" } else { "WITH_OPTIONS" };
+                                let marker = if upper == "WITH" {
+                                    "WITH"
+                                } else {
+                                    "WITH_OPTIONS"
+                                };
                                 attrs.marker_exprs.push(make_uppercase_path(ident, marker));
                                 continue;
                             }
@@ -242,11 +251,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         column_definitions::generate_column_definitions(&ctx)?;
     let column_fields = column_definitions::generate_column_fields(&ctx, &column_zst_idents)?;
     let column_accessors = column_definitions::generate_column_accessors(&ctx, &column_zst_idents)?;
-    let model_definitions = models::generate_model_definitions(
-        &ctx,
-        &column_zst_idents,
-        &required_fields_pattern,
-    )?;
+    let model_definitions =
+        models::generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let alias_definitions = alias::generate_aliased_table(&ctx)?;
     let driver_impls = drivers::generate_all_driver_impls(&ctx)?;
     let view_marker_const = generate_view_marker_const(struct_ident, &attrs.marker_exprs);
@@ -495,7 +501,10 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     })
 }
 
-fn generate_view_marker_const(struct_ident: &syn::Ident, marker_exprs: &[syn::ExprPath]) -> TokenStream {
+fn generate_view_marker_const(
+    struct_ident: &syn::Ident,
+    marker_exprs: &[syn::ExprPath],
+) -> TokenStream {
     if marker_exprs.is_empty() {
         return TokenStream::new();
     }

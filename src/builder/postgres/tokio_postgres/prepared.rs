@@ -96,7 +96,6 @@ impl OwnedPreparedStatement {
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
     }
-
 }
 
 postgres_prepared_async_impl!(Client, Row, ToSql);

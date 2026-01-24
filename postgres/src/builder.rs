@@ -1,11 +1,9 @@
 use drizzle_core::Token;
 // Re-export common enums and traits from core
+pub use drizzle_core::builder::{BuilderInit, ExecutableState, OrderByClause};
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
     traits::{SQLSchema, SQLTable},
-};
-pub use drizzle_core::builder::{
-    BuilderInit, ExecutableState, OrderByClause,
 };
 
 // Local imports
@@ -212,10 +210,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     where
         Table: PostgresTable<'a>,
     {
-        let sql = self
-            .sql
-            .clone()
-            .append(crate::helpers::update::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(table));
+        let sql = self.sql.clone().append(crate::helpers::update::<
+            'a,
+            Table,
+            PostgresSchemaType,
+            PostgresValue<'a>,
+        >(table));
 
         update::UpdateBuilder {
             sql,
@@ -233,10 +233,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     where
         Table: PostgresTable<'a>,
     {
-        let sql = self
-            .sql
-            .clone()
-            .append(crate::helpers::delete::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(table));
+        let sql = self.sql.clone().append(crate::helpers::delete::<
+            'a,
+            Table,
+            PostgresSchemaType,
+            PostgresValue<'a>,
+        >(table));
 
         delete::DeleteBuilder {
             sql,
@@ -348,4 +350,3 @@ mod tests {
         let _state = BuilderInit;
     }
 }
-

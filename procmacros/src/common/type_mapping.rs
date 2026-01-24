@@ -7,12 +7,12 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Type;
 
-use crate::paths::core as core_paths;
 use crate::common::{
     is_option_type, option_inner_type, type_is_array_u8, type_is_bool, type_is_byte_slice,
     type_is_chrono_date, type_is_chrono_time, type_is_datetime_tz, type_is_float, type_is_int,
     type_is_json_value, type_is_naive_datetime, type_is_string_like, type_is_uuid, type_is_vec_u8,
 };
+use crate::paths::core as core_paths;
 
 /// Determines the SQL DataType marker for a given Rust type.
 ///

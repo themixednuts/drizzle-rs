@@ -2,15 +2,14 @@ use std::marker::PhantomData;
 
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_postgres::{
-    PostgresSchemaType,
-    PostgresValue,
+    PostgresSchemaType, PostgresValue,
     builder::{
         self, CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
-        InsertOnConflictSet, InsertReturningSet, InsertValuesSet, SelectFromSet, SelectInitial,
-        SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
-        UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
-        delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder, update::UpdateBuilder,
-        QueryBuilder,
+        InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet,
+        SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet,
+        SelectWhereSet, UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet,
+        UpdateWhereSet, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+        update::UpdateBuilder,
     },
     traits::PostgresTable,
 };
@@ -45,7 +44,13 @@ where
 
 // CTE (WITH) Builder Implementation
 impl<'d, 'a, DrizzleRef, Schema>
-    DrizzleBuilder<'d, DrizzleRef, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
 {
     #[inline]
     pub fn select<T>(
@@ -119,7 +124,13 @@ impl<'d, 'a, DrizzleRef, Schema>
     pub fn with<C>(
         self,
         cte: C,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        QueryBuilder<'a, Schema, builder::CTEInit>,
+        builder::CTEInit,
+    >
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -143,7 +154,13 @@ impl<'d, 'a, DrizzleRef, Schema>
     pub fn from<T>(
         self,
         table: T,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectFromSet, T>,
+        SelectFromSet,
+    >
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -157,14 +174,25 @@ impl<'d, 'a, DrizzleRef, Schema>
 }
 
 impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectFromSet, T>,
+        SelectFromSet,
+    >
 {
     #[inline]
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -177,8 +205,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    > {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -190,7 +223,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
     {
@@ -207,7 +246,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         self,
         table: U,
         on_condition: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectJoinSet,
+    >
     where
         U: PostgresTable<'a>,
     {
@@ -221,6 +266,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -234,17 +280,27 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     {
         self.builder.as_cte(name)
     }
-
 }
 
 impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectJoinSet,
+    >
 {
     pub fn r#where(
         self,
         condition: impl drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -256,7 +312,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
     {
@@ -272,7 +334,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         self,
         table: U,
         condition: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectJoinSet,
+    >
     where
         U: PostgresTable<'a>,
     {
@@ -286,6 +354,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -302,13 +371,24 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 }
 
 impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectWhereSet,
+    >
 {
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    > {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -320,7 +400,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
     where
         TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
     {
@@ -334,6 +420,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -347,17 +434,27 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     {
         self.builder.as_cte(name)
     }
-
 }
 
 impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    >
 {
     pub fn offset(
         self,
         offset: usize,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+        SelectOffsetSet,
+    > {
         let builder = self.builder.offset(offset);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -368,6 +465,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -384,10 +482,17 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 }
 
 impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+        SelectOffsetSet,
+    >
 {
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -404,13 +509,24 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 }
 
 impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectOrderSet,
+    >
 {
     pub fn limit(
         self,
         limit: usize,
-    ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectLimitSet,
+    > {
         let builder = self.builder.limit(limit);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -421,6 +537,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_cte(
         self,
         name: &'static str,
@@ -441,7 +558,13 @@ impl<'d, 'a, DrizzleRef, Schema, T>
 //------------------------------------------------------------------------------
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertInitial, Table>,
+        InsertInitial,
+    >
 {
     #[inline]
     pub fn values<T>(
@@ -468,7 +591,13 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 }
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, InsertBuilder<'b, Schema, InsertValuesSet, Table>, InsertValuesSet>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
 where
     Table: PostgresTable<'b>,
 {
@@ -545,7 +674,13 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 //------------------------------------------------------------------------------
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateInitial, Table>,
+        UpdateInitial,
+    >
 where
     Table: PostgresTable<'b>,
 {
@@ -581,8 +716,13 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     pub fn from(
         self,
         source: impl ToSQL<'b, PostgresValue<'b>>,
-    ) -> DrizzleBuilder<'a, DrizzleRef, Schema, UpdateBuilder<'b, Schema, UpdateFromSet, Table>, UpdateFromSet>
-    {
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateFromSet, Table>,
+        UpdateFromSet,
+    > {
         let builder = self.builder.from(source.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -594,8 +734,13 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     pub fn r#where(
         self,
         condition: impl ToSQL<'b, PostgresValue<'b>>,
-    ) -> DrizzleBuilder<'a, DrizzleRef, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -624,13 +769,24 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 }
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, UpdateBuilder<'b, Schema, UpdateFromSet, Table>, UpdateFromSet>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateFromSet, Table>,
+        UpdateFromSet,
+    >
 {
     pub fn r#where(
         self,
         condition: impl ToSQL<'b, PostgresValue<'b>>,
-    ) -> DrizzleBuilder<'a, DrizzleRef, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -659,7 +815,13 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 }
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, UpdateBuilder<'b, Schema, UpdateWhereSet, Table>, UpdateWhereSet>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateWhereSet,
+    >
 {
     pub fn returning(
         self,
@@ -685,15 +847,26 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 //------------------------------------------------------------------------------
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, DeleteBuilder<'b, Schema, DeleteInitial, Table>, DeleteInitial>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        DeleteBuilder<'b, Schema, DeleteInitial, Table>,
+        DeleteInitial,
+    >
 where
     Table: PostgresTable<'b>,
 {
     pub fn r#where(
         self,
         condition: impl ToSQL<'b, PostgresValue<'b>>,
-    ) -> DrizzleBuilder<'a, DrizzleRef, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
-    {
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        DeleteBuilder<'b, Schema, DeleteWhereSet, Table>,
+        DeleteWhereSet,
+    > {
         let builder = self.builder.r#where(condition.to_sql());
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -722,7 +895,13 @@ where
 }
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleBuilder<'a, DrizzleRef, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, Table>, DeleteWhereSet>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        DeleteBuilder<'b, Schema, DeleteWhereSet, Table>,
+        DeleteWhereSet,
+    >
 {
     pub fn returning(
         self,
@@ -742,4 +921,3 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         }
     }
 }
-

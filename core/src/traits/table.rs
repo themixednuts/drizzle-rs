@@ -49,7 +49,10 @@ pub trait SQLTableInfo: Any + Send + Sync {
 
     /// Lookup a column by name.
     fn column_named(&self, name: &str) -> Option<&'static dyn SQLColumnInfo> {
-        self.columns().iter().copied().find(|col| col.name() == name)
+        self.columns()
+            .iter()
+            .copied()
+            .find(|col| col.name() == name)
     }
 }
 

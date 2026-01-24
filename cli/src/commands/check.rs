@@ -104,7 +104,10 @@ pub fn run(
         println!("{}", output::success("Configuration OK."));
         Ok(())
     } else {
-        println!("{}", output::warning(&format!("{} warning(s):", warnings.len())));
+        println!(
+            "{}",
+            output::warning(&format!("{} warning(s):", warnings.len()))
+        );
         for w in warnings {
             println!("  - {w}");
         }

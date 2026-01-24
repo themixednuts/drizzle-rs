@@ -593,8 +593,18 @@ fn detect_and_apply_sqlite_renames(
     column_renames: &mut Vec<ColumnRename>,
 ) {
     // Table renames: exact match of signatures, different table name.
-    let prev_tables: Vec<String> = prev.tables.list().iter().map(|t| t.name.to_string()).collect();
-    let cur_tables: Vec<String> = cur.tables.list().iter().map(|t| t.name.to_string()).collect();
+    let prev_tables: Vec<String> = prev
+        .tables
+        .list()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect();
+    let cur_tables: Vec<String> = cur
+        .tables
+        .list()
+        .iter()
+        .map(|t| t.name.to_string())
+        .collect();
 
     let dropped: Vec<String> = prev_tables
         .iter()
