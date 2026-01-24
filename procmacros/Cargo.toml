@@ -22,7 +22,7 @@ heck = { version = "0.5" }
 proc-macro-crate = "3.4"
 paste = { workspace = true }
 # Migration types for metadata generation
-drizzle-migrations = { path = "../migrations" }
+drizzle-migrations = { workspace = true }
 # Shared type definitions
 drizzle-types = { workspace = true }
 serde_json = { workspace = true }
