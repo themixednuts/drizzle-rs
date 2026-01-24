@@ -27,16 +27,16 @@ pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 pub use insert::{
     Conflict, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
 };
+pub use refresh::{
+    RefreshConcurrently, RefreshInitial, RefreshMaterializedView, RefreshWithNoData,
+    refresh_materialized_view,
+};
 pub use select::{
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
     SelectOrderSet, SelectWhereSet,
 };
 pub use update::{
     UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
-};
-pub use refresh::{
-    RefreshConcurrently, RefreshInitial, RefreshMaterializedView, RefreshWithNoData,
-    refresh_materialized_view,
 };
 
 // Re-export SQLViewInfo for convenience when using refresh_materialized_view

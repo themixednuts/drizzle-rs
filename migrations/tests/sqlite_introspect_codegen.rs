@@ -1279,7 +1279,8 @@ fn test_view_codegen() {
 
     // Add a view with a complex definition containing quotes
     let mut quoted_view = View::new("user_stats");
-    quoted_view.definition = Some(r#"SELECT id, name, "status" FROM users WHERE name = 'test'"#.into());
+    quoted_view.definition =
+        Some(r#"SELECT id, name, "status" FROM users WHERE name = 'test'"#.into());
     ddl.views.push(quoted_view);
 
     let options = CodegenOptions {

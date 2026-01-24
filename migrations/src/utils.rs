@@ -337,10 +337,7 @@ mod tests {
         );
 
         // Escape backslashes
-        assert_eq!(
-            escape_for_rust_literal(r"path\to\file"),
-            r"path\\to\\file"
-        );
+        assert_eq!(escape_for_rust_literal(r"path\to\file"), r"path\\to\\file");
 
         // Escape both
         assert_eq!(

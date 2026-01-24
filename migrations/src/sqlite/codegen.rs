@@ -147,7 +147,10 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             continue;
         }
         let view_name = view.name.to_string();
-        let columns = table_columns.get(&view_name).map(|c| c.as_slice()).unwrap_or(&[]);
+        let columns = table_columns
+            .get(&view_name)
+            .map(|c| c.as_slice())
+            .unwrap_or(&[]);
         let view_code = generate_view_struct(view, columns, options.use_pub);
         code.push_str(&view_code);
         code.push('\n');

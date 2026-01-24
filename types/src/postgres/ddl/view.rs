@@ -765,8 +765,14 @@ mod tests {
         assert_eq!(OPTIONS.autovacuum_freeze_max_age, Some(200_000_000));
         assert_eq!(OPTIONS.autovacuum_freeze_table_age, Some(150_000_000));
         assert_eq!(OPTIONS.autovacuum_multixact_freeze_min_age, Some(5_000_000));
-        assert_eq!(OPTIONS.autovacuum_multixact_freeze_max_age, Some(400_000_000));
-        assert_eq!(OPTIONS.autovacuum_multixact_freeze_table_age, Some(150_000_000));
+        assert_eq!(
+            OPTIONS.autovacuum_multixact_freeze_max_age,
+            Some(400_000_000)
+        );
+        assert_eq!(
+            OPTIONS.autovacuum_multixact_freeze_table_age,
+            Some(150_000_000)
+        );
         assert_eq!(OPTIONS.log_autovacuum_min_duration, Some(1000));
         assert_eq!(OPTIONS.user_catalog_table, Some(false));
         assert_eq!(OPTIONS.toast_tuple_target, Some(128));
@@ -794,11 +800,7 @@ mod tests {
             .with_no_data()
             .using("btree")
             .tablespace("fast_ssd")
-            .with_options(
-                ViewWithOptionDef::new()
-                    .fillfactor(90)
-                    .parallel_workers(2),
-            )
+            .with_options(ViewWithOptionDef::new().fillfactor(90).parallel_workers(2))
             .definition("SELECT * FROM sales WHERE date > now() - interval '30 days'");
 
         assert!(MAT_VIEW.materialized);

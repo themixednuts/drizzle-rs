@@ -120,8 +120,8 @@ pub enum JsonStatement {
     },
     /// Alter a view by dropping and recreating (PostgreSQL doesn't support ALTER VIEW for definition changes)
     AlterView {
-        old_view: View,
-        new_view: View,
+        old_view: Box<View>,
+        new_view: Box<View>,
     },
     CreateRole {
         role: Role,
@@ -560,8 +560,8 @@ impl PostgresGenerator {
                             None
                         } else {
                             Some(JsonStatement::AlterView {
-                                old_view: old.clone(),
-                                new_view: new.clone(),
+                                old_view: Box::new(old.clone()),
+                                new_view: Box::new(new.clone()),
                             })
                         }
                     }
