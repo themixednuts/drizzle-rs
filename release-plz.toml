@@ -34,6 +34,14 @@ changelog_update = true
 git_tag_name = "v{{ version }}"
 
 [[package]]
+name = "drizzle-types"
+changelog_update = false
+
+[[package]]
+name = "drizzle-migrations"
+changelog_update = false
+
+[[package]]
 name = "drizzle-core"
 changelog_update = false
 
