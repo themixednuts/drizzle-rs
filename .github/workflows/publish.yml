@@ -21,7 +21,7 @@ jobs:
     if: >-
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release') &&
-      github.actor == 'github-actions[bot]'
+      github.event.pull_request.user.login == 'github-actions[bot]'
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
