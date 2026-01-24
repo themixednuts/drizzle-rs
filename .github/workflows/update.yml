@@ -2,11 +2,6 @@ name: Update
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
-    branches: [main]
 
 permissions:
   contents: write
@@ -20,7 +15,6 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Clone repository
         uses: actions/checkout@v4
