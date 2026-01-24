@@ -1393,3 +1393,208 @@ fn test_enum_with_special_values() {
     assert!(generated.code.contains("Post,"));
     assert!(generated.code.contains("Delete,"));
 }
+
+// =============================================================================
+// Materialized View Tests
+// =============================================================================
+
+#[test]
+fn test_materialized_view_codegen() {
+    use drizzle_migrations::postgres::ddl::View;
+
+    let mut ddl = PostgresDDL::new();
+
+    // Add a regular view
+    ddl.views.push(View {
+        schema: "public".into(),
+        name: "active_users".into(),
+        definition: Some("SELECT * FROM users WHERE active = true".into()),
+        materialized: false,
+        with: None,
+        is_existing: false,
+        with_no_data: None,
+        using: None,
+        tablespace: None,
+    });
+
+    // Add columns for the view
+    ddl.columns.push(Column {
+        schema: "public".into(),
+        table: "active_users".into(),
+        name: "id".into(),
+        sql_type: "int4".into(),
+        type_schema: None,
+        not_null: true,
+        default: None,
+        generated: None,
+        identity: None,
+        dimensions: None,
+        ordinal_position: Some(1),
+    });
+
+    ddl.columns.push(Column {
+        schema: "public".into(),
+        table: "active_users".into(),
+        name: "name".into(),
+        sql_type: "text".into(),
+        type_schema: None,
+        not_null: true,
+        default: None,
+        generated: None,
+        identity: None,
+        dimensions: None,
+        ordinal_position: Some(2),
+    });
+
+    // Add a materialized view
+    ddl.views.push(View {
+        schema: "analytics".into(),
+        name: "monthly_sales".into(),
+        definition: Some("SELECT * FROM sales WHERE date > now() - interval '30 days'".into()),
+        materialized: true,
+        with: None,
+        is_existing: false,
+        with_no_data: None,
+        using: None,
+        tablespace: None,
+    });
+
+    // Add columns for the materialized view
+    ddl.columns.push(Column {
+        schema: "analytics".into(),
+        table: "monthly_sales".into(),
+        name: "id".into(),
+        sql_type: "int4".into(),
+        type_schema: None,
+        not_null: true,
+        default: None,
+        generated: None,
+        identity: None,
+        dimensions: None,
+        ordinal_position: Some(1),
+    });
+
+    ddl.columns.push(Column {
+        schema: "analytics".into(),
+        table: "monthly_sales".into(),
+        name: "amount".into(),
+        sql_type: "numeric".into(),
+        type_schema: None,
+        not_null: true,
+        default: None,
+        generated: None,
+        identity: None,
+        dimensions: None,
+        ordinal_position: Some(2),
+    });
+
+    let options = CodegenOptions::default();
+    let generated = generate_rust_schema(&ddl, &options);
+
+    println!("Generated code with views:\n{}", generated.code);
+
+    // Verify regular view was generated without materialized flag
+    assert!(generated.views.contains(&"active_users".into()));
+    assert!(generated.code.contains("struct ActiveUsers {"));
+    assert!(
+        generated.code.contains("#[PostgresView(definition ="),
+        "Regular view should have definition attribute"
+    );
+
+    // Verify materialized view was generated with materialized flag
+    assert!(generated.views.contains(&"monthly_sales".into()));
+    assert!(generated.code.contains("struct MonthlySales {"));
+    assert!(
+        generated.code.contains("materialized"),
+        "Materialized view should have materialized attribute"
+    );
+    assert!(
+        generated.code.contains("schema = \"analytics\""),
+        "View should have schema attribute when not public"
+    );
+}
+
+#[test]
+fn test_materialized_view_with_options_codegen() {
+    use drizzle_migrations::postgres::ddl::View;
+
+    let mut ddl = PostgresDDL::new();
+
+    // Add a materialized view with all options
+    ddl.views.push(View {
+        schema: "public".into(),
+        name: "user_stats".into(),
+        definition: Some("SELECT user_id, count(*) as count FROM events GROUP BY user_id".into()),
+        materialized: true,
+        with: None,
+        is_existing: false,
+        with_no_data: Some(true),
+        using: Some("heap".into()),
+        tablespace: Some("fast_ssd".into()),
+    });
+
+    // Add columns for the view
+    ddl.columns.push(Column {
+        schema: "public".into(),
+        table: "user_stats".into(),
+        name: "user_id".into(),
+        sql_type: "int4".into(),
+        type_schema: None,
+        not_null: true,
+        default: None,
+        generated: None,
+        identity: None,
+        dimensions: None,
+        ordinal_position: Some(1),
+    });
+
+    ddl.columns.push(Column {
+        schema: "public".into(),
+        table: "user_stats".into(),
+        name: "count".into(),
+        sql_type: "int8".into(),
+        type_schema: None,
+        not_null: true,
+        default: None,
+        generated: None,
+        identity: None,
+        dimensions: None,
+        ordinal_position: Some(2),
+    });
+
+    let options = CodegenOptions::default();
+    let generated = generate_rust_schema(&ddl, &options);
+
+    println!(
+        "Generated code with materialized view options:\n{}",
+        generated.code
+    );
+
+    // Verify the materialized view was generated
+    assert!(generated.views.contains(&"user_stats".into()));
+    assert!(generated.code.contains("struct UserStats {"));
+
+    // Verify materialized attribute
+    assert!(
+        generated.code.contains("materialized"),
+        "Should have materialized attribute"
+    );
+
+    // Verify with_no_data attribute
+    assert!(
+        generated.code.contains("with_no_data"),
+        "Should have with_no_data attribute"
+    );
+
+    // Verify using attribute
+    assert!(
+        generated.code.contains("using = \"heap\""),
+        "Should have using attribute with 'heap' value"
+    );
+
+    // Verify tablespace attribute
+    assert!(
+        generated.code.contains("tablespace = \"fast_ssd\""),
+        "Should have tablespace attribute"
+    );
+}

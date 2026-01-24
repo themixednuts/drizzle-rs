@@ -5,7 +5,8 @@
 //! that is the current recommended style.
 
 use super::collection::PostgresDDL;
-use super::ddl::{Column, Enum, ForeignKey, Index, Table};
+use super::ddl::{Column, Enum, ForeignKey, Index, Table, View};
+use crate::utils::escape_for_rust_literal;
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
@@ -20,6 +21,8 @@ pub struct GeneratedSchema {
     pub tables: Vec<String>,
     /// Indexes that were generated
     pub indexes: Vec<String>,
+    /// Views that were generated
+    pub views: Vec<String>,
     /// Any warnings during generation
     pub warnings: Vec<String>,
 }
@@ -144,6 +147,20 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
         code.push_str(&index_code);
         code.push('\n');
         result.indexes.push(index.name.to_string());
+    }
+
+    // Generate view structs
+    for view in ddl.views.list() {
+        // Skip existing views (not managed by drizzle)
+        if view.is_existing {
+            continue;
+        }
+        let key = (view.schema.to_string(), view.name.to_string());
+        let columns = table_columns.get(&key).map(|c| c.as_slice()).unwrap_or(&[]);
+        let view_code = generate_view_struct(view, columns, &enum_map, options.use_pub);
+        code.push_str(&view_code);
+        code.push('\n');
+        result.views.push(view.name.to_string());
     }
 
     // Generate schema struct if requested
@@ -571,6 +588,101 @@ fn generate_index_struct(index: &Index, use_pub: bool) -> String {
         "{vis}struct {struct_name}({});\n",
         columns.join(", ")
     ));
+    code
+}
+
+/// Generate a view struct
+fn generate_view_struct(
+    view: &View,
+    columns: &[&Column],
+    enum_map: &HashMap<(String, String), String>,
+    use_pub: bool,
+) -> String {
+    let struct_name = view.name.to_pascal_case();
+    let vis = if use_pub { "pub " } else { "" };
+
+    let mut code = String::new();
+
+    // Build view attributes
+    let mut attrs = Vec::new();
+
+    // Check if view name differs from struct name (snake_case version)
+    if struct_name.to_snake_case() != view.name.as_ref() {
+        attrs.push(format!("name = \"{}\"", view.name));
+    }
+
+    // Add schema if not public
+    if view.schema != "public" {
+        attrs.push(format!("schema = \"{}\"", view.schema));
+    }
+
+    // Add materialized flag if true
+    if view.materialized {
+        attrs.push("materialized".to_string());
+    }
+
+    // Add WITH NO DATA for materialized views
+    if view.with_no_data == Some(true) {
+        attrs.push("with_no_data".to_string());
+    }
+
+    // Add USING clause for materialized views
+    if let Some(using) = &view.using {
+        attrs.push(format!("using = \"{}\"", using));
+    }
+
+    // Add TABLESPACE for materialized views
+    if let Some(tablespace) = &view.tablespace {
+        attrs.push(format!("tablespace = \"{}\"", tablespace));
+    }
+
+    // Add definition
+    if let Some(def) = &view.definition {
+        let escaped_def = escape_for_rust_literal(def);
+        attrs.push(format!("definition = \"{}\"", escaped_def));
+    }
+
+    // Build the attribute line
+    if attrs.is_empty() {
+        code.push_str("#[PostgresView]\n");
+    } else {
+        code.push_str(&format!("#[PostgresView({})]\n", attrs.join(", ")));
+    }
+
+    // Struct definition with column fields
+    code.push_str(&format!("{vis}struct {struct_name} {{\n"));
+
+    // Sort columns by ordinal position
+    let mut sorted_columns: Vec<&&Column> = columns.iter().collect();
+    sorted_columns.sort_by(|a, b| {
+        let ao = a.ordinal_position.unwrap_or(i32::MAX);
+        let bo = b.ordinal_position.unwrap_or(i32::MAX);
+        ao.cmp(&bo).then_with(|| a.name.cmp(&b.name))
+    });
+
+    // Generate fields for each column
+    for column in sorted_columns {
+        let field_name = column.name.to_snake_case();
+
+        // Check if this column uses an enum type
+        let type_schema = column.type_schema.as_deref().unwrap_or(&column.schema);
+        let enum_type = enum_map.get(&(type_schema.to_string(), column.sql_type.to_string()));
+
+        // Determine Rust type - use enum type if available, otherwise map SQL type
+        let rust_type = if let Some(enum_name) = enum_type {
+            if column.not_null {
+                enum_name.clone()
+            } else {
+                format!("Option<{}>", enum_name)
+            }
+        } else {
+            sql_type_to_rust_type(&column.sql_type, column.not_null)
+        };
+
+        code.push_str(&format!("    {vis}{field_name}: {rust_type},\n"));
+    }
+
+    code.push_str("}\n");
     code
 }
 

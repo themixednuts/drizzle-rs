@@ -15,6 +15,7 @@ pub mod cte;
 pub mod delete;
 pub mod insert;
 pub mod prepared;
+pub mod refresh;
 pub mod select;
 pub mod update;
 
@@ -33,6 +34,13 @@ pub use select::{
 pub use update::{
     UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
 };
+pub use refresh::{
+    RefreshConcurrently, RefreshInitial, RefreshMaterializedView, RefreshWithNoData,
+    refresh_materialized_view,
+};
+
+// Re-export SQLViewInfo for convenience when using refresh_materialized_view
+pub use drizzle_core::traits::SQLViewInfo;
 
 #[derive(Debug, Clone)]
 pub struct CTEInit;

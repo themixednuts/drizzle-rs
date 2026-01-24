@@ -120,6 +120,168 @@ impl ViewWithOptionDef {
         }
     }
 
+    /// Set fillfactor (for materialized views)
+    #[must_use]
+    pub const fn fillfactor(self, value: i32) -> Self {
+        Self {
+            fillfactor: Some(value),
+            ..self
+        }
+    }
+
+    /// Set toast tuple target (for materialized views)
+    #[must_use]
+    pub const fn toast_tuple_target(self, value: i32) -> Self {
+        Self {
+            toast_tuple_target: Some(value),
+            ..self
+        }
+    }
+
+    /// Set parallel workers (for materialized views)
+    #[must_use]
+    pub const fn parallel_workers(self, value: i32) -> Self {
+        Self {
+            parallel_workers: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum enabled (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_enabled(self, value: bool) -> Self {
+        Self {
+            autovacuum_enabled: Some(value),
+            ..self
+        }
+    }
+
+    /// Set vacuum index cleanup (for materialized views): "auto", "on", or "off"
+    #[must_use]
+    pub const fn vacuum_index_cleanup(self, value: &'static str) -> Self {
+        Self {
+            vacuum_index_cleanup: Some(value),
+            ..self
+        }
+    }
+
+    /// Set vacuum truncate (for materialized views)
+    #[must_use]
+    pub const fn vacuum_truncate(self, value: bool) -> Self {
+        Self {
+            vacuum_truncate: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum vacuum threshold (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_vacuum_threshold(self, value: i32) -> Self {
+        Self {
+            autovacuum_vacuum_threshold: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum vacuum scale factor (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_vacuum_scale_factor(self, value: i32) -> Self {
+        Self {
+            autovacuum_vacuum_scale_factor: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum vacuum cost delay (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_vacuum_cost_delay(self, value: i32) -> Self {
+        Self {
+            autovacuum_vacuum_cost_delay: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum vacuum cost limit (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_vacuum_cost_limit(self, value: i32) -> Self {
+        Self {
+            autovacuum_vacuum_cost_limit: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum freeze min age (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_freeze_min_age(self, value: i64) -> Self {
+        Self {
+            autovacuum_freeze_min_age: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum freeze max age (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_freeze_max_age(self, value: i64) -> Self {
+        Self {
+            autovacuum_freeze_max_age: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum freeze table age (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_freeze_table_age(self, value: i64) -> Self {
+        Self {
+            autovacuum_freeze_table_age: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum multixact freeze min age (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_multixact_freeze_min_age(self, value: i64) -> Self {
+        Self {
+            autovacuum_multixact_freeze_min_age: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum multixact freeze max age (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_multixact_freeze_max_age(self, value: i64) -> Self {
+        Self {
+            autovacuum_multixact_freeze_max_age: Some(value),
+            ..self
+        }
+    }
+
+    /// Set autovacuum multixact freeze table age (for materialized views)
+    #[must_use]
+    pub const fn autovacuum_multixact_freeze_table_age(self, value: i64) -> Self {
+        Self {
+            autovacuum_multixact_freeze_table_age: Some(value),
+            ..self
+        }
+    }
+
+    /// Set log autovacuum min duration (for materialized views)
+    #[must_use]
+    pub const fn log_autovacuum_min_duration(self, value: i32) -> Self {
+        Self {
+            log_autovacuum_min_duration: Some(value),
+            ..self
+        }
+    }
+
+    /// Set user catalog table (for materialized views)
+    #[must_use]
+    pub const fn user_catalog_table(self, value: bool) -> Self {
+        Self {
+            user_catalog_table: Some(value),
+            ..self
+        }
+    }
+
     /// Convert to runtime type
     #[must_use]
     pub const fn into_view_with_option(self) -> ViewWithOption {
@@ -565,5 +727,88 @@ mod tests {
         let view = DEF.into_view();
         assert_eq!(view.name(), "view");
         assert_eq!(view.schema(), "public");
+    }
+
+    #[test]
+    fn test_view_with_option_def_builders() {
+        // Test const builder methods for materialized view options
+        const OPTIONS: ViewWithOptionDef = ViewWithOptionDef::new()
+            .fillfactor(80)
+            .parallel_workers(4)
+            .autovacuum_enabled(true)
+            .vacuum_index_cleanup("auto")
+            .vacuum_truncate(false)
+            .autovacuum_vacuum_threshold(100)
+            .autovacuum_vacuum_scale_factor(20)
+            .autovacuum_vacuum_cost_delay(10)
+            .autovacuum_vacuum_cost_limit(200)
+            .autovacuum_freeze_min_age(50_000_000)
+            .autovacuum_freeze_max_age(200_000_000)
+            .autovacuum_freeze_table_age(150_000_000)
+            .autovacuum_multixact_freeze_min_age(5_000_000)
+            .autovacuum_multixact_freeze_max_age(400_000_000)
+            .autovacuum_multixact_freeze_table_age(150_000_000)
+            .log_autovacuum_min_duration(1000)
+            .user_catalog_table(false)
+            .toast_tuple_target(128);
+
+        assert_eq!(OPTIONS.fillfactor, Some(80));
+        assert_eq!(OPTIONS.parallel_workers, Some(4));
+        assert_eq!(OPTIONS.autovacuum_enabled, Some(true));
+        assert_eq!(OPTIONS.vacuum_index_cleanup, Some("auto"));
+        assert_eq!(OPTIONS.vacuum_truncate, Some(false));
+        assert_eq!(OPTIONS.autovacuum_vacuum_threshold, Some(100));
+        assert_eq!(OPTIONS.autovacuum_vacuum_scale_factor, Some(20));
+        assert_eq!(OPTIONS.autovacuum_vacuum_cost_delay, Some(10));
+        assert_eq!(OPTIONS.autovacuum_vacuum_cost_limit, Some(200));
+        assert_eq!(OPTIONS.autovacuum_freeze_min_age, Some(50_000_000));
+        assert_eq!(OPTIONS.autovacuum_freeze_max_age, Some(200_000_000));
+        assert_eq!(OPTIONS.autovacuum_freeze_table_age, Some(150_000_000));
+        assert_eq!(OPTIONS.autovacuum_multixact_freeze_min_age, Some(5_000_000));
+        assert_eq!(OPTIONS.autovacuum_multixact_freeze_max_age, Some(400_000_000));
+        assert_eq!(OPTIONS.autovacuum_multixact_freeze_table_age, Some(150_000_000));
+        assert_eq!(OPTIONS.log_autovacuum_min_duration, Some(1000));
+        assert_eq!(OPTIONS.user_catalog_table, Some(false));
+        assert_eq!(OPTIONS.toast_tuple_target, Some(128));
+    }
+
+    #[test]
+    fn test_view_with_option_def_to_runtime() {
+        const OPTIONS: ViewWithOptionDef = ViewWithOptionDef::new()
+            .fillfactor(90)
+            .security_barrier()
+            .security_invoker()
+            .check_option("cascaded");
+
+        let runtime = OPTIONS.into_view_with_option();
+        assert_eq!(runtime.fillfactor, Some(90));
+        assert_eq!(runtime.security_barrier, Some(true));
+        assert_eq!(runtime.security_invoker, Some(true));
+        assert_eq!(runtime.check_option.as_deref(), Some("cascaded"));
+    }
+
+    #[test]
+    fn test_materialized_view_with_all_options() {
+        const MAT_VIEW: ViewDef = ViewDef::new("analytics", "monthly_sales")
+            .materialized()
+            .with_no_data()
+            .using("btree")
+            .tablespace("fast_ssd")
+            .with_options(
+                ViewWithOptionDef::new()
+                    .fillfactor(90)
+                    .parallel_workers(2),
+            )
+            .definition("SELECT * FROM sales WHERE date > now() - interval '30 days'");
+
+        assert!(MAT_VIEW.materialized);
+        assert!(MAT_VIEW.with_no_data);
+        assert_eq!(MAT_VIEW.using, Some("btree"));
+        assert_eq!(MAT_VIEW.tablespace, Some("fast_ssd"));
+        assert!(MAT_VIEW.with.is_some());
+
+        let options = MAT_VIEW.with.unwrap();
+        assert_eq!(options.fillfactor, Some(90));
+        assert_eq!(options.parallel_workers, Some(2));
     }
 }
