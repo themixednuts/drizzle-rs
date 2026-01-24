@@ -100,10 +100,23 @@ struct UserEmailsView {
     email: String,
 }
 
+#[SQLiteView(DEFINITION = "SELECT id FROM users")]
+struct DefaultNameView {
+    id: i32,
+}
+
+#[SQLiteView(EXISTING, NAME = "existing_users")]
+struct ExistingUsersView {
+    id: i32,
+    email: String,
+}
+
 #[derive(SQLiteSchema)]
 struct ViewTestSchema {
     user: User,
     user_emails: UserEmailsView,
+    default_name_view: DefaultNameView,
+    existing_users: ExistingUsersView,
 }
 
 sqlite_test!(test_schema_derive, AppTestSchema, {
@@ -189,7 +202,12 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
 });
 
 sqlite_test!(test_schema_with_view, ViewTestSchema, {
-    let ViewTestSchema { user, user_emails } = schema;
+    let ViewTestSchema {
+        user,
+        user_emails,
+        default_name_view,
+        existing_users: _,
+    } = schema;
 
     let insert_data = [
         InsertUser::new("a@example.com", "User A"),
@@ -208,10 +226,26 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].email, "a@example.com");
 
+    let view_sql = UserEmailsView::create_view_sql();
+    assert!(view_sql.contains("CREATE VIEW"));
+    assert!(view_sql.contains("SELECT"));
+    assert!(view_sql.contains("users"));
+
+    assert_eq!(DefaultNameView::VIEW_NAME, "default_name_view");
+    assert_eq!(default_name_view.name(), "default_name_view");
+
     let statements = schema.create_statements();
     assert!(
         statements.iter().any(|sql| sql.contains("CREATE VIEW")),
         "Expected CREATE VIEW statement"
+    );
+    assert!(
+        statements.iter().any(|sql| sql.contains("default_name_view")),
+        "Expected default name view statement"
+    );
+    assert!(
+        !statements.iter().any(|sql| sql.contains("existing_users")),
+        "Existing view should not be created"
     );
 });
 

@@ -7,6 +7,7 @@
 
 use crate::common::schema::postgres::*;
 use drizzle::postgres::prelude::*;
+use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
 use drizzle_core::OrderBy;
 use drizzle_macros::postgres_test;
 
@@ -44,11 +45,37 @@ struct SimpleViewMat {
     name: String,
 }
 
+#[PostgresView(DEFINITION = "SELECT id FROM simple")]
+struct DefaultNameView {
+    id: i32,
+}
+
+#[PostgresView(EXISTING, NAME = "existing_simple_view")]
+struct ExistingSimpleView {
+    id: i32,
+}
+
+#[PostgresView(
+    NAME = "simple_view_opts",
+    DEFINITION = "SELECT id, name FROM simple",
+    MATERIALIZED,
+    WITH = ViewWithOptionDef::new().security_barrier(),
+    WITH_NO_DATA,
+    USING = "heap",
+    TABLESPACE = "fast_storage"
+)]
+struct SimpleViewWithOptions {
+    id: i32,
+    name: String,
+}
+
 #[derive(PostgresSchema)]
 struct ViewTestSchema {
     simple: Simple,
     simple_view: SimpleView,
     simple_view_mat: SimpleViewMat,
+    default_name_view: DefaultNameView,
+    existing_simple_view: ExistingSimpleView,
 }
 
 #[cfg(feature = "uuid")]
@@ -76,6 +103,8 @@ postgres_test!(schema_with_view, ViewTestSchema, {
         simple,
         simple_view,
         simple_view_mat: _,
+        default_name_view,
+        existing_simple_view: _,
     } = schema;
 
     let stmt = db.insert(simple).values([
@@ -93,6 +122,9 @@ postgres_test!(schema_with_view, ViewTestSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alpha");
 
+    assert_eq!(DefaultNameView::VIEW_NAME, "default_name_view");
+    assert_eq!(default_name_view.name(), "default_name_view");
+
     let statements = schema.create_statements();
     assert!(
         statements.iter().any(|sql| sql.contains("CREATE VIEW")),
@@ -102,6 +134,26 @@ postgres_test!(schema_with_view, ViewTestSchema, {
         statements.iter().any(|sql| sql.contains("CREATE MATERIALIZED VIEW")),
         "Expected CREATE MATERIALIZED VIEW statement"
     );
+    assert!(
+        statements.iter().any(|sql| sql.contains("default_name_view")),
+        "Expected default name view statement"
+    );
+    assert!(
+        !statements.iter().any(|sql| sql.contains("existing_simple_view")),
+        "Existing view should not be created"
+    );
+});
+
+postgres_test!(view_definition_with_options_sql, SimpleSchema, {
+    let sql = SimpleViewWithOptions::create_view_sql();
+    assert!(sql.contains("CREATE MATERIALIZED VIEW"));
+    assert!(sql.contains("WITH ("));
+    assert!(sql.contains("security_barrier"));
+    assert!(sql.contains("WITH NO DATA"));
+    assert!(sql.contains("USING"));
+    assert!(sql.contains("heap"));
+    assert!(sql.contains("TABLESPACE"));
+    assert!(sql.contains("fast_storage"));
 });
 
 #[cfg(feature = "uuid")]
