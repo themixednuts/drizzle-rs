@@ -631,7 +631,11 @@ impl View {
             );
         };
 
-        let mut sql = format!(
+        use core::fmt::Write;
+
+        let mut sql = String::with_capacity(def.len() + 64);
+        let _ = write!(
+            sql,
             "CREATE {}VIEW {}\"{}\"",
             materialized,
             schema_prefix,
@@ -639,96 +643,108 @@ impl View {
         );
 
         if let Some(using) = self.using.as_ref() {
-            sql.push_str(&format!(" USING {}", using));
+            let _ = write!(sql, " USING {}", using);
         }
 
         let mut check_option_clause = None;
         if let Some(with_opts) = self.with.as_ref() {
-            let mut options = Vec::new();
+            let mut options = String::new();
+            let mut has_option = false;
 
-            if let Some(check_option) = with_opts.check_option.as_ref() {
-                check_option_clause = Some(check_option.as_ref().to_uppercase());
+            macro_rules! push_option {
+                ($name:expr, $value:expr) => {{
+                    if has_option {
+                        options.push_str(", ");
+                    } else {
+                        has_option = true;
+                    }
+                    let _ = write!(options, "{} = {}", $name, $value);
+                }};
+            }
+
+            if let Some(check_option) = with_opts.check_option.as_deref() {
+                check_option_clause = Some(check_option.to_ascii_uppercase());
             }
 
             if let Some(value) = with_opts.security_barrier {
-                options.push(format!("security_barrier = {}", value));
+                push_option!("security_barrier", value);
             }
             if let Some(value) = with_opts.security_invoker {
-                options.push(format!("security_invoker = {}", value));
+                push_option!("security_invoker", value);
             }
             if let Some(value) = with_opts.fillfactor {
-                options.push(format!("fillfactor = {}", value));
+                push_option!("fillfactor", value);
             }
             if let Some(value) = with_opts.toast_tuple_target {
-                options.push(format!("toast_tuple_target = {}", value));
+                push_option!("toast_tuple_target", value);
             }
             if let Some(value) = with_opts.parallel_workers {
-                options.push(format!("parallel_workers = {}", value));
+                push_option!("parallel_workers", value);
             }
             if let Some(value) = with_opts.autovacuum_enabled {
-                options.push(format!("autovacuum_enabled = {}", value));
+                push_option!("autovacuum_enabled", value);
             }
             if let Some(value) = with_opts.vacuum_index_cleanup.as_ref() {
-                options.push(format!("vacuum_index_cleanup = {}", value));
+                push_option!("vacuum_index_cleanup", value);
             }
             if let Some(value) = with_opts.vacuum_truncate {
-                options.push(format!("vacuum_truncate = {}", value));
+                push_option!("vacuum_truncate", value);
             }
             if let Some(value) = with_opts.autovacuum_vacuum_threshold {
-                options.push(format!("autovacuum_vacuum_threshold = {}", value));
+                push_option!("autovacuum_vacuum_threshold", value);
             }
             if let Some(value) = with_opts.autovacuum_vacuum_scale_factor {
-                options.push(format!("autovacuum_vacuum_scale_factor = {}", value));
+                push_option!("autovacuum_vacuum_scale_factor", value);
             }
             if let Some(value) = with_opts.autovacuum_vacuum_cost_delay {
-                options.push(format!("autovacuum_vacuum_cost_delay = {}", value));
+                push_option!("autovacuum_vacuum_cost_delay", value);
             }
             if let Some(value) = with_opts.autovacuum_vacuum_cost_limit {
-                options.push(format!("autovacuum_vacuum_cost_limit = {}", value));
+                push_option!("autovacuum_vacuum_cost_limit", value);
             }
             if let Some(value) = with_opts.autovacuum_freeze_min_age {
-                options.push(format!("autovacuum_freeze_min_age = {}", value));
+                push_option!("autovacuum_freeze_min_age", value);
             }
             if let Some(value) = with_opts.autovacuum_freeze_max_age {
-                options.push(format!("autovacuum_freeze_max_age = {}", value));
+                push_option!("autovacuum_freeze_max_age", value);
             }
             if let Some(value) = with_opts.autovacuum_freeze_table_age {
-                options.push(format!("autovacuum_freeze_table_age = {}", value));
+                push_option!("autovacuum_freeze_table_age", value);
             }
             if let Some(value) = with_opts.autovacuum_multixact_freeze_min_age {
-                options.push(format!("autovacuum_multixact_freeze_min_age = {}", value));
+                push_option!("autovacuum_multixact_freeze_min_age", value);
             }
             if let Some(value) = with_opts.autovacuum_multixact_freeze_max_age {
-                options.push(format!("autovacuum_multixact_freeze_max_age = {}", value));
+                push_option!("autovacuum_multixact_freeze_max_age", value);
             }
             if let Some(value) = with_opts.autovacuum_multixact_freeze_table_age {
-                options.push(format!("autovacuum_multixact_freeze_table_age = {}", value));
+                push_option!("autovacuum_multixact_freeze_table_age", value);
             }
             if let Some(value) = with_opts.log_autovacuum_min_duration {
-                options.push(format!("log_autovacuum_min_duration = {}", value));
+                push_option!("log_autovacuum_min_duration", value);
             }
             if let Some(value) = with_opts.user_catalog_table {
-                options.push(format!("user_catalog_table = {}", value));
+                push_option!("user_catalog_table", value);
             }
 
-            if !options.is_empty() {
-                sql.push_str(&format!(" WITH ({})", options.join(", ")));
+            if has_option {
+                let _ = write!(sql, " WITH ({})", options);
             }
+        }
+
+        if let Some(tablespace) = self.tablespace.as_ref() {
+            let _ = write!(sql, " TABLESPACE \"{}\"", tablespace);
         }
 
         sql.push_str(" AS ");
         sql.push_str(def);
 
         if let Some(check_option) = check_option_clause {
-            sql.push_str(&format!(" WITH {} CHECK OPTION", check_option));
+            let _ = write!(sql, " WITH {} CHECK OPTION", check_option);
         }
 
         if self.materialized && matches!(self.with_no_data, Some(true)) {
             sql.push_str(" WITH NO DATA");
-        }
-
-        if let Some(tablespace) = self.tablespace.as_ref() {
-            sql.push_str(&format!(" TABLESPACE \"{}\"", tablespace));
         }
 
         sql.push(';');
