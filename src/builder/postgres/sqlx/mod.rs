@@ -60,7 +60,6 @@ use crate::builder::postgres::common;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, &'a Drizzle<Schema>, Schema, Builder, State>;
 
-// Generic prepare method for DrizzleBuilder
 crate::drizzle_prepare_impl!();
 
 /// Async PostgreSQL database wrapper using [`sqlx::PgPool`].
@@ -111,10 +110,8 @@ impl<Schema> Drizzle<Schema> {
         let sql = query.sql();
         let params = query.params();
 
-        // Build sqlx query with proper parameter binding using the Encode trait
         let mut sqlx_query = sqlx::query(&sql);
 
-        // Bind each parameter - PostgresValue implements sqlx::Encode
         for param_value in params {
             sqlx_query = sqlx_query.bind(param_value);
         }
@@ -136,10 +133,8 @@ impl<Schema> Drizzle<Schema> {
         let sql = query_sql.sql();
         let params = query_sql.params();
 
-        // Build sqlx query with proper parameter binding using the Encode trait
         let mut sqlx_query = sqlx::query(&sql);
 
-        // Bind each parameter - PostgresValue implements sqlx::Encode
         for param_value in params {
             sqlx_query = sqlx_query.bind(param_value);
         }
@@ -169,10 +164,8 @@ impl<Schema> Drizzle<Schema> {
         let sql = query_sql.sql();
         let params = query_sql.params();
 
-        // Build sqlx query with proper parameter binding using the Encode trait
         let mut sqlx_query = sqlx::query(&sql);
 
-        // Bind each parameter - PostgresValue implements sqlx::Encode
         for param_value in params {
             sqlx_query = sqlx_query.bind(param_value);
         }
@@ -201,7 +194,6 @@ impl<Schema> Drizzle<Schema> {
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-        // Set isolation level
         sqlx::query(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type))
             .execute(&mut *tx)
             .await
@@ -222,7 +214,6 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-// Implementation for schemas that implement SQLSchemaImpl
 impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
@@ -243,7 +234,6 @@ where
     }
 }
 
-// Sqlx-specific execution methods for all ExecutableState QueryBuilders
 impl<'a, 'b, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
@@ -254,10 +244,8 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Build sqlx query with proper parameter binding using the Encode trait
         let mut sqlx_query = sqlx::query(&sql_str);
 
-        // Bind each parameter - PostgresValue implements sqlx::Encode
         for param_value in params {
             sqlx_query = sqlx_query.bind(param_value);
         }
@@ -281,10 +269,8 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Build sqlx query with proper parameter binding using the Encode trait
         let mut sqlx_query = sqlx::query(&sql_str);
 
-        // Bind each parameter - PostgresValue implements sqlx::Encode
         for param_value in params {
             sqlx_query = sqlx_query.bind(param_value);
         }
@@ -312,10 +298,8 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Build sqlx query with proper parameter binding using the Encode trait
         let mut sqlx_query = sqlx::query(&sql_str);
 
-        // Bind each parameter - PostgresValue implements sqlx::Encode
         for param_value in params {
             sqlx_query = sqlx_query.bind(param_value);
         }

@@ -42,7 +42,6 @@ where
     type Aggregate = drizzle_core::expr::Scalar;
 }
 
-// CTE (WITH) Builder Implementation
 impl<'d, 'a, DrizzleRef, Schema>
     DrizzleBuilder<
         'd,
@@ -142,10 +141,6 @@ impl<'d, 'a, DrizzleRef, Schema>
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// SELECT builder wrappers
-//------------------------------------------------------------------------------
 
 impl<'d, 'a, DrizzleRef, Schema>
     DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
@@ -553,10 +548,6 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 }
 
-//------------------------------------------------------------------------------
-// INSERT builder wrappers
-//------------------------------------------------------------------------------
-
 impl<'a, 'b, DrizzleRef, Schema, Table>
     DrizzleBuilder<
         'a,
@@ -668,10 +659,6 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// UPDATE builder wrappers
-//------------------------------------------------------------------------------
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
     DrizzleBuilder<
@@ -841,10 +828,6 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// DELETE builder wrappers
-//------------------------------------------------------------------------------
 
 impl<'a, 'b, DrizzleRef, Schema, Table>
     DrizzleBuilder<

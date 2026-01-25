@@ -1,4 +1,3 @@
-// Driver modules
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite;
 

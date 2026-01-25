@@ -59,7 +59,6 @@ pub type DrizzleBuilder<'a, Schema, Builder, State> =
 
 use crate::transaction::postgres::postgres_sync::Transaction;
 
-// Generic prepare method for DrizzleBuilder
 crate::drizzle_prepare_impl!();
 
 /// Synchronous PostgreSQL database wrapper using [`postgres::Client`].
@@ -114,7 +113,6 @@ impl<Schema> Drizzle<Schema> {
         let sql = query.sql();
         let params = query.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
@@ -134,7 +132,6 @@ impl<Schema> Drizzle<Schema> {
         let sql_str = sql.sql();
         let params = sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
@@ -160,7 +157,6 @@ impl<Schema> Drizzle<Schema> {
         let sql_str = sql.sql();
         let params = sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
@@ -179,15 +175,11 @@ impl<Schema> Drizzle<Schema> {
     where
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        // Begin transaction
         let mut tx = self.client.transaction()?;
-
-        // Set isolation level
         tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])?;
 
         let transaction = Transaction::new(tx, tx_type);
 
-        // Use catch_unwind to handle panics and ensure rollback
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
 
         match result {
@@ -202,7 +194,6 @@ impl<Schema> Drizzle<Schema> {
                 }
             },
             Err(panic_payload) => {
-                // Rollback on panic and resume unwinding
                 let _ = transaction.rollback();
                 std::panic::resume_unwind(panic_payload);
             }
@@ -210,12 +201,11 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-// Implementation for schemas that implement SQLSchemaImpl
 impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects using SQLSchemaImpl trait
+    /// Create schema objects from `SQLSchemaImpl`.
     pub fn create(&mut self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements();
@@ -228,57 +218,26 @@ where
     }
 }
 
-// Migration support
 impl<Schema> Drizzle<Schema> {
-    /// Run pending migrations from a MigrationSet.
+    /// Apply pending migrations from a MigrationSet.
     ///
-    /// This method follows the drizzle-orm migration spec:
-    /// - Creates the `drizzle` schema if it doesn't exist
-    /// - Creates the migrations table if it doesn't exist (idempotent)
-    /// - Queries the last applied migration by `created_at`
-    /// - Runs all pending migrations in a single transaction
-    /// - Records each migration after execution
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use drizzle::postgres::sync::Drizzle;
-    /// use drizzle_migrations::{migrations, MigrationSet};
-    /// use drizzle_types::Dialect;
-    ///
-    /// let migrations = migrations![
-    ///     ("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
-    ///     ("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
-    /// ];
-    /// let set = MigrationSet::new(migrations, Dialect::PostgreSQL);
-    ///
-    /// let client = postgres::Client::connect("host=localhost dbname=mydb", postgres::NoTls)?;
-    /// let (mut db, _) = Drizzle::new(client, ());
-    ///
-    /// db.migrate(&set)?;
-    /// ```
+    /// Creates the drizzle schema if needed and runs pending migrations in a transaction.
     pub fn migrate(
         &mut self,
         migrations: &drizzle_migrations::MigrationSet,
     ) -> drizzle_core::error::Result<()> {
-        // 1. Create schema and migrations table (idempotent)
         if let Some(schema_sql) = migrations.create_schema_sql() {
             self.client.execute(&schema_sql, &[])?;
         }
         self.client.execute(&migrations.create_table_sql(), &[])?;
-
-        // 2. Query all applied hashes
         let rows = self.client.query(&migrations.query_all_hashes_sql(), &[])?;
         let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
-
-        // 3. Get pending migrations
         let pending: Vec<_> = migrations.pending(&applied_hashes).collect();
 
         if pending.is_empty() {
             return Ok(());
         }
 
-        // 4. Execute all pending in a single transaction
         let mut tx = self.client.transaction()?;
 
         for migration in &pending {
@@ -287,7 +246,6 @@ impl<Schema> Drizzle<Schema> {
                     tx.execute(stmt, &[])?;
                 }
             }
-            // Record migration
             tx.execute(
                 &migrations.record_migration_sql(migration.hash(), migration.created_at()),
                 &[],
@@ -300,7 +258,6 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-// Postgres-specific execution methods for all ExecutableState QueryBuilders
 impl<'a, 'b, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
@@ -311,7 +268,6 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
@@ -329,7 +285,6 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
@@ -353,7 +308,6 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();

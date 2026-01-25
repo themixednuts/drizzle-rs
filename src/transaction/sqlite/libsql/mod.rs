@@ -213,7 +213,6 @@ impl<Schema> Transaction<Schema> {
     }
 }
 
-// libsql-specific execution methods for all ExecutableState QueryBuilders in transactions
 #[cfg(feature = "libsql")]
 impl<'a, S, Schema, State, Table>
     TransactionBuilder<'a, S, QueryBuilder<'a, Schema, State, Table>, State>

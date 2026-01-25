@@ -40,7 +40,6 @@ impl<'a> PreparedStatement<'a> {
         params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
     ) -> Result<usize> {
         let (sql_str, params) = self.inner.bind(params);
-        // Execute with connection
         conn.execute(sql_str, params_from_iter(params))
             .map_err(Into::into)
     }
@@ -57,7 +56,6 @@ impl<'a> PreparedStatement<'a> {
     {
         let (sql_str, params) = self.inner.bind(params);
 
-        // Execute with connection
         let mut stmt = conn.prepare(sql_str)?;
 
         let rows = stmt.query_map(params_from_iter(params), |row| {
@@ -84,7 +82,6 @@ impl<'a> PreparedStatement<'a> {
     {
         let (sql_str, params) = self.inner.bind(params);
 
-        // Execute with connection
         let mut stmt = conn.prepare(sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {
@@ -129,7 +126,6 @@ impl OwnedPreparedStatement {
         params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
     ) -> Result<usize> {
         let (sql_str, params) = self.inner.bind(params);
-        // Execute with connection
         Ok(conn.execute(sql_str, params_from_iter(params))?)
     }
 
@@ -145,7 +141,6 @@ impl OwnedPreparedStatement {
     {
         let (sql_str, params) = self.inner.bind(params);
 
-        // Execute with connection
         let mut stmt = conn.prepare(sql_str)?;
 
         let rows = stmt.query_and_then(params_from_iter(params), |row| {
@@ -172,7 +167,6 @@ impl OwnedPreparedStatement {
     {
         let (sql_str, params) = self.inner.bind(params);
 
-        // Execute with connection
         let mut stmt = conn.prepare(sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {

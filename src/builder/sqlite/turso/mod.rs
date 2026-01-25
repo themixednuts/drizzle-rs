@@ -50,7 +50,6 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-// Generic prepare method for DrizzleBuilder
 crate::drizzle_prepare_impl!();
 use crate::builder::sqlite::common;
 use crate::transaction::sqlite::turso::Transaction;
@@ -183,12 +182,11 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 }
 
-// Implementation for schemas that implement SQLSchemaImpl
 impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects using SQLSchemaImpl trait
+    /// Create schema objects from `SQLSchemaImpl`.
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements();
@@ -199,46 +197,18 @@ where
     }
 }
 
-// Migration support
 impl<Schema> common::Drizzle<Connection, Schema> {
-    /// Run pending migrations from a MigrationSet.
+    /// Apply pending migrations from a MigrationSet.
     ///
-    /// This method follows the drizzle-orm migration spec:
-    /// - Creates the migrations table if it doesn't exist (idempotent)
-    /// - Queries the last applied migration by `created_at`
-    /// - Runs all pending migrations in a single transaction
-    /// - Records each migration after execution
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use drizzle::sqlite::turso::Drizzle;
-    /// use drizzle_migrations::{migrations, MigrationSet};
-    /// use drizzle_types::Dialect;
-    ///
-    /// let migrations = migrations![
-    ///     ("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
-    ///     ("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
-    /// ];
-    /// let set = MigrationSet::new(migrations, Dialect::SQLite);
-    ///
-    /// let db = turso::Client::from_url("libsql://...", "token")?;
-    /// let conn = db.connect();
-    /// let (drizzle, _) = Drizzle::new(conn, ());
-    ///
-    /// drizzle.migrate(&set).await?;
-    /// ```
+    /// Creates the migrations table if needed and runs pending migrations in a transaction.
     pub async fn migrate(
         &mut self,
         migrations: &drizzle_migrations::MigrationSet,
     ) -> drizzle_core::error::Result<()> {
-        // 1. Create migrations table (idempotent)
         self.conn
             .execute(&migrations.create_table_sql(), ())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
-        // 2. Query all applied hashes
         let mut rows = self
             .conn
             .query(&migrations.query_all_hashes_sql(), ())
@@ -256,14 +226,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
         }
 
-        // 3. Get pending migrations
         let pending: Vec<_> = migrations.pending(&applied_hashes).collect();
 
         if pending.is_empty() {
             return Ok(());
         }
 
-        // 4. Execute all pending in a single transaction
         let tx = self
             .conn
             .transaction()
@@ -278,7 +246,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
                 }
             }
-            // Record migration
             tx.execute(
                 &migrations.record_migration_sql(migration.hash(), migration.created_at()),
                 (),
@@ -295,7 +262,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 }
 
-// Generic execution methods for all ExecutableState QueryBuilders (Turso)
 impl<'a, 'b, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where

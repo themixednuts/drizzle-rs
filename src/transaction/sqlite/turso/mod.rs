@@ -208,7 +208,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Commits the transaction (turso transactions are auto-committed)
     pub async fn commit(self) -> Result<(), DrizzleError> {
-        // For turso, we execute COMMIT manually
         Ok(self.tx.commit().await?)
     }
 
@@ -218,7 +217,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 }
 
-// turso-specific execution methods for all ExecutableState QueryBuilders in transactions
 #[cfg(feature = "turso")]
 impl<'a, 'conn, S, Schema, State, Table>
     TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>

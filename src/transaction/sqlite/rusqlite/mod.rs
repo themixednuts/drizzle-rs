@@ -228,7 +228,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 }
 
-// Rusqlite-specific execution methods for all ExecutableState QueryBuilders in transactions
 #[cfg(feature = "rusqlite")]
 impl<'a, 'conn, S, Schema, State, Table>
     TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>

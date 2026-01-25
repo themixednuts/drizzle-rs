@@ -180,7 +180,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let sql = query_sql.sql();
         let params = query_sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
@@ -202,7 +201,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let sql_str = sql.sql();
         let params = sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
@@ -234,7 +232,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let sql_str = sql.sql();
         let params = sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
@@ -275,7 +272,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 }
 
-// CTE (WITH) Builder Implementation for Transaction
 impl<'a, 'conn, Schema>
     TransactionBuilder<
         'a,
@@ -330,7 +326,6 @@ impl<'a, 'conn, Schema>
     }
 }
 
-// Tokio-postgres-specific execution methods for all ExecutableState QueryBuilders in Transaction
 impl<'a, 'conn, S, Schema, State, Table>
     TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>
 where
@@ -341,7 +336,6 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
@@ -365,7 +359,6 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
@@ -395,7 +388,6 @@ where
         let sql_str = self.builder.sql.sql();
         let params = self.builder.sql.params();
 
-        // Convert PostgresValue to &dyn ToSql
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
             .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();

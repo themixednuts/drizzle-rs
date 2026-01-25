@@ -53,7 +53,6 @@ pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, Connection, Schema, Builder, State>;
 
-// Generic prepare method for DrizzleBuilder
 crate::drizzle_prepare_impl!();
 
 impl<Schema> common::Drizzle<Connection, Schema> {
@@ -105,7 +104,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let sql = query.to_sql();
         let sql_str = sql.sql();
 
-        // Get parameters and handle potential errors from IntoParams
         let params = sql.params();
 
         let mut stmt = self.conn.prepare(&sql_str)?;
@@ -128,7 +126,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
 
         let transaction = Transaction::new(tx, tx_type);
 
-        // Use catch_unwind to handle panics and ensure rollback
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
 
         match result {
@@ -143,7 +140,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 }
             },
             Err(panic_payload) => {
-                // Rollback on panic and resume unwinding
                 let _ = transaction.rollback();
                 std::panic::resume_unwind(panic_payload);
             }
@@ -151,12 +147,11 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 }
 
-// Implementation for schemas that implement SQLSchemaImpl
 impl<Schema> common::Drizzle<Connection, Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects using SQLSchemaImpl trait
+    /// Create schema objects from `SQLSchemaImpl`.
     pub fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements();
@@ -168,44 +163,17 @@ where
     }
 }
 
-// Migration support
 impl<Schema> common::Drizzle<Connection, Schema> {
-    /// Run pending migrations from a MigrationSet.
+    /// Apply pending migrations from a MigrationSet.
     ///
-    /// This method follows the drizzle-orm migration spec:
-    /// - Creates the migrations table if it doesn't exist (idempotent)
-    /// - Queries the last applied migration by `created_at`
-    /// - Runs all pending migrations in a single transaction
-    /// - Records each migration after execution
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use drizzle::sqlite::rusqlite::Drizzle;
-    /// use drizzle_migrations::{migrations, MigrationSet};
-    /// use drizzle_types::Dialect;
-    ///
-    /// let migrations = migrations![
-    ///     ("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
-    ///     ("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
-    /// ];
-    /// let set = MigrationSet::new(migrations, Dialect::SQLite);
-    ///
-    /// let conn = rusqlite::Connection::open("./dev.db")?;
-    /// let (db, _) = Drizzle::new(conn, ());
-    ///
-    /// db.migrate(&set)?;
-    /// ```
+    /// Creates the migrations table if needed and runs pending migrations in a transaction.
     pub fn migrate(
         &self,
         migrations: &drizzle_migrations::MigrationSet,
     ) -> drizzle_core::error::Result<()> {
         use rusqlite::OptionalExtension;
 
-        // 1. Create migrations table (idempotent)
         self.conn.execute(&migrations.create_table_sql(), [])?;
-
-        // 2. Query last applied migration
         let last_created_at: Option<i64> = self
             .conn
             .query_row(
@@ -214,10 +182,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 |row| row.get::<_, i64>(2), // created_at is the 3rd column
             )
             .optional()?;
-
-        // 3. Get pending migrations
         let applied_hashes: Vec<String> = if last_created_at.is_some() {
-            // Get all applied hashes
             let mut stmt = self.conn.prepare(&migrations.query_all_hashes_sql())?;
             let rows = stmt.query_map([], |row| row.get(0))?;
             rows.collect::<Result<Vec<_>, _>>()?
@@ -231,7 +196,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             return Ok(());
         }
 
-        // 4. Execute all pending in a single transaction
         self.conn.execute("BEGIN", [])?;
 
         let result = (|| -> drizzle_core::error::Result<()> {
@@ -241,7 +205,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                         self.conn.execute(stmt, [])?;
                     }
                 }
-                // Record migration
                 self.conn.execute(
                     &migrations.record_migration_sql(migration.hash(), migration.created_at()),
                     [],
@@ -263,7 +226,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 }
 
-// Rusqlite-specific execution methods for all ExecutableState QueryBuilders
 impl<'a, 'b, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where

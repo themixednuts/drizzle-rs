@@ -224,7 +224,6 @@ where
     type Aggregate = drizzle_core::expr::Scalar;
 }
 
-// CTE (WITH) Builder Implementation
 impl<'d, 'a, Conn, Schema>
     DrizzleBuilder<'d, Conn, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
@@ -294,10 +293,6 @@ impl<'d, 'a, Conn, Schema>
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// SELECT builder wrappers
-//------------------------------------------------------------------------------
 
 impl<'d, 'a, Conn, Schema>
     DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
@@ -656,10 +651,6 @@ impl<'d, 'a, Conn, Schema, T>
     }
 }
 
-//------------------------------------------------------------------------------
-// INSERT builder wrappers
-//------------------------------------------------------------------------------
-
 impl<'a, 'b, Conn, Schema, Table>
     DrizzleBuilder<'a, Conn, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
 {
@@ -770,10 +761,6 @@ impl<'a, 'b, Conn, Schema, Table>
     }
 }
 
-//------------------------------------------------------------------------------
-// UPDATE builder wrappers
-//------------------------------------------------------------------------------
-
 impl<'a, 'b, Conn, Schema, Table>
     DrizzleBuilder<'a, Conn, Schema, UpdateBuilder<'b, Schema, UpdateInitial, Table>, UpdateInitial>
 where
@@ -826,10 +813,6 @@ impl<'a, 'b, Conn, Schema, Table>
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// DELETE builder wrappers
-//------------------------------------------------------------------------------
 
 impl<'a, 'b, Conn, Schema, T>
     DrizzleBuilder<'a, Conn, Schema, DeleteBuilder<'b, Schema, DeleteInitial, T>, DeleteInitial>

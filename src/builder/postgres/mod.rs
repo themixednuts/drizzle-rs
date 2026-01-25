@@ -233,7 +233,6 @@ macro_rules! postgres_builder_constructors {
     };
 }
 
-// Driver modules
 #[cfg(feature = "postgres-sync")]
 pub(crate) mod postgres_sync;
 
@@ -242,6 +241,3 @@ pub(crate) mod tokio_postgres;
 
 pub(crate) mod common;
 pub(crate) mod prepared_common;
-
-// #[cfg(feature = "sqlx-postgres")]
-// pub(crate) mod sqlx;

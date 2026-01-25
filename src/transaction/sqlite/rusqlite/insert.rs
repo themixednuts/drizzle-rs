@@ -43,10 +43,6 @@ impl<'a, 'conn, Schema, Table>
     }
 }
 
-//------------------------------------------------------------------------------
-// INSERT ValuesSet State Implementation
-//------------------------------------------------------------------------------
-
 impl<'a, 'conn, Schema, Table>
     TransactionBuilder<
         'a,
@@ -100,10 +96,6 @@ where
         }
     }
 }
-
-//------------------------------------------------------------------------------
-// INSERT OnConflict State Implementation
-//------------------------------------------------------------------------------
 
 impl<'a, 'conn, Schema, Table>
     TransactionBuilder<
