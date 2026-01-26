@@ -40,7 +40,7 @@ use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
-use postgres::{Client, Row};
+use postgres::{Client, IsolationLevel, Row};
 use std::marker::PhantomData;
 
 use drizzle_postgres::{
@@ -175,8 +175,19 @@ impl<Schema> Drizzle<Schema> {
     where
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let mut tx = self.client.transaction()?;
-        tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])?;
+        let builder = self.client.build_transaction();
+        let builder = if tx_type != PostgresTransactionType::default() {
+            let isolation = match tx_type {
+                PostgresTransactionType::ReadUncommitted => IsolationLevel::ReadUncommitted,
+                PostgresTransactionType::ReadCommitted => IsolationLevel::ReadCommitted,
+                PostgresTransactionType::RepeatableRead => IsolationLevel::RepeatableRead,
+                PostgresTransactionType::Serializable => IsolationLevel::Serializable,
+            };
+            builder.isolation_level(isolation)
+        } else {
+            builder
+        };
+        let tx = builder.start()?;
 
         let transaction = Transaction::new(tx, tx_type);
 
