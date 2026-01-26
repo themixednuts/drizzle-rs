@@ -71,8 +71,9 @@ fn main() -> drizzle::Result<()> {
 }
 ```
 
-Note: `db.create()` statements are intentionally not `IF NOT EXISTS` so migrations can
-own schema creation. Use it only for fresh databases.
+> [!NOTE]
+> `db.create()` statements are intentionally not `IF NOT EXISTS` so migrations can
+> own schema creation. Use it only for fresh databases.
 
 ## Query patterns (SQLite)
 
