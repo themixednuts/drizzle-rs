@@ -52,7 +52,9 @@ use drizzle_postgres::{
     },
 };
 use sqlx::PgPool;
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 use crate::builder::postgres::common;
 
@@ -179,14 +181,16 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Executes a transaction with the given callback
-    pub async fn transaction<F, R, Fut>(
+    pub async fn transaction<F, R>(
         &mut self,
         tx_type: PostgresTransactionType,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
-        F: FnOnce(&Transaction<Schema>) -> Fut,
-        Fut: std::future::Future<Output = drizzle_core::error::Result<R>>,
+        F: for<'t> FnOnce(
+            &'t Transaction<Schema>,
+        )
+            -> Pin<Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>>,
     {
         let mut tx = self
             .pool
@@ -194,10 +198,12 @@ impl<Schema> Drizzle<Schema> {
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-        sqlx::query(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type))
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        if tx_type != PostgresTransactionType::default() {
+            sqlx::query(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type))
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        }
 
         let transaction = Transaction::new(tx, tx_type);
 

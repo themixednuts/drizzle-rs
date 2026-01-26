@@ -43,8 +43,10 @@ use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
+use std::future::Future;
 use std::marker::PhantomData;
-use tokio_postgres::{Client, Row};
+use std::pin::Pin;
+use tokio_postgres::{Client, IsolationLevel, Row};
 
 use drizzle_postgres::{
     PostgresTransactionType, PostgresValue,
@@ -172,18 +174,31 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Executes a transaction with the given callback
-    pub async fn transaction<F, R, Fut>(
+    pub async fn transaction<F, R>(
         &mut self,
         tx_type: PostgresTransactionType,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
-        F: FnOnce(&Transaction<Schema>) -> Fut,
-        Fut: std::future::Future<Output = drizzle_core::error::Result<R>>,
+        F: for<'t> FnOnce(
+            &'t Transaction<Schema>,
+        ) -> Pin<
+            Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
+        >,
     {
-        let mut tx = self.client.transaction().await?;
-        tx.execute(&format!("SET TRANSACTION ISOLATION LEVEL {}", tx_type), &[])
-            .await?;
+        let builder = self.client.build_transaction();
+        let builder = if tx_type != PostgresTransactionType::default() {
+            let isolation = match tx_type {
+                PostgresTransactionType::ReadUncommitted => IsolationLevel::ReadUncommitted,
+                PostgresTransactionType::ReadCommitted => IsolationLevel::ReadCommitted,
+                PostgresTransactionType::RepeatableRead => IsolationLevel::RepeatableRead,
+                PostgresTransactionType::Serializable => IsolationLevel::Serializable,
+            };
+            builder.isolation_level(isolation)
+        } else {
+            builder
+        };
+        let tx = builder.start().await?;
 
         let transaction = Transaction::new(tx, tx_type);
 
