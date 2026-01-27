@@ -63,7 +63,7 @@ pub use drizzle_core::{Join, JoinType};
 #[cfg(test)]
 mod tests {
     use crate::common::{Join, JoinType, Number};
-    use crate::*;
+    use crate::values::SQLiteValue;
     use std::borrow::Cow;
 
     #[test]
