@@ -2,11 +2,13 @@
 //!
 //! End-to-end tests that verify database operations work correctly.
 
+pub mod array_ops;
 #[cfg(feature = "arrayvec")]
 pub mod arrayvec;
 pub mod conditions;
 pub mod delete;
 pub mod r#enum;
+pub mod for_update;
 pub mod foreign_keys;
 pub mod fromrow;
 pub mod index;

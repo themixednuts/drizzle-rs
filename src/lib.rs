@@ -194,7 +194,9 @@ pub mod postgres {
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
     pub use drizzle_postgres::params;
-    pub use drizzle_postgres::{attrs, builder, common, expressions, helpers, traits, values};
+    pub use drizzle_postgres::{
+        attrs, builder, common, expr, expressions, helpers, traits, values,
+    };
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
     pub use drizzle_postgres::Row;

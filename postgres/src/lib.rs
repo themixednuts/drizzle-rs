@@ -7,6 +7,7 @@
 pub mod attrs;
 pub mod builder;
 pub mod common;
+pub mod expr;
 pub mod expressions;
 pub mod helpers;
 pub mod traits;
