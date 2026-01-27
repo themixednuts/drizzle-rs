@@ -32,8 +32,8 @@ pub use refresh::{
     refresh_materialized_view,
 };
 pub use select::{
-    SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
-    SelectOrderSet, SelectWhereSet,
+    SelectForSet, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
+    SelectOffsetSet, SelectOrderSet, SelectWhereSet,
 };
 pub use update::{
     UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,

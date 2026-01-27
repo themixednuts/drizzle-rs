@@ -3,10 +3,11 @@ use std::marker::PhantomData;
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_postgres::builder::{
     self, CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
-    InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet,
-    SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
-    UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
-    delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder, update::UpdateBuilder,
+    InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectForSet,
+    SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
+    SelectOrderSet, SelectWhereSet, UpdateFromSet, UpdateInitial, UpdateReturningSet,
+    UpdateSetClauseSet, UpdateWhereSet, delete::DeleteBuilder, insert::InsertBuilder,
+    select::SelectBuilder, update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresSchemaType;
 use drizzle_postgres::traits::PostgresTable;
@@ -895,6 +896,179 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         DeleteReturningSet,
     > {
         let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            state: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// FOR UPDATE/SHARE Row Locking (PostgreSQL-specific)
+//------------------------------------------------------------------------------
+
+/// Macro to implement FOR UPDATE/SHARE methods on DrizzleBuilder for a given state
+macro_rules! impl_for_update_methods {
+    ($state:ty) => {
+        impl<'d, 'a, DrizzleRef, Schema, T>
+            DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, $state, T>, $state>
+        {
+            /// Adds FOR UPDATE clause to lock selected rows for update.
+            pub fn for_update(
+                self,
+            ) -> DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectForSet,
+            > {
+                let builder = self.builder.for_update();
+                DrizzleBuilder {
+                    drizzle: self.drizzle,
+                    builder,
+                    state: PhantomData,
+                }
+            }
+
+            /// Adds FOR SHARE clause to lock selected rows for shared access.
+            pub fn for_share(
+                self,
+            ) -> DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectForSet,
+            > {
+                let builder = self.builder.for_share();
+                DrizzleBuilder {
+                    drizzle: self.drizzle,
+                    builder,
+                    state: PhantomData,
+                }
+            }
+
+            /// Adds FOR NO KEY UPDATE clause.
+            pub fn for_no_key_update(
+                self,
+            ) -> DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectForSet,
+            > {
+                let builder = self.builder.for_no_key_update();
+                DrizzleBuilder {
+                    drizzle: self.drizzle,
+                    builder,
+                    state: PhantomData,
+                }
+            }
+
+            /// Adds FOR KEY SHARE clause.
+            pub fn for_key_share(
+                self,
+            ) -> DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectForSet,
+            > {
+                let builder = self.builder.for_key_share();
+                DrizzleBuilder {
+                    drizzle: self.drizzle,
+                    builder,
+                    state: PhantomData,
+                }
+            }
+
+            /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
+            pub fn for_update_of<U: PostgresTable<'a>>(
+                self,
+                table: U,
+            ) -> DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectForSet,
+            > {
+                let builder = self.builder.for_update_of(table);
+                DrizzleBuilder {
+                    drizzle: self.drizzle,
+                    builder,
+                    state: PhantomData,
+                }
+            }
+
+            /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
+            pub fn for_share_of<U: PostgresTable<'a>>(
+                self,
+                table: U,
+            ) -> DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectForSet,
+            > {
+                let builder = self.builder.for_share_of(table);
+                DrizzleBuilder {
+                    drizzle: self.drizzle,
+                    builder,
+                    state: PhantomData,
+                }
+            }
+        }
+    };
+}
+
+// Implement FOR UPDATE methods for all ForLockableState states
+impl_for_update_methods!(SelectFromSet);
+impl_for_update_methods!(SelectWhereSet);
+impl_for_update_methods!(SelectOrderSet);
+impl_for_update_methods!(SelectLimitSet);
+impl_for_update_methods!(SelectOffsetSet);
+impl_for_update_methods!(SelectJoinSet);
+impl_for_update_methods!(SelectGroupSet);
+
+// Implement NOWAIT and SKIP LOCKED on SelectForSet
+impl<'d, 'a, DrizzleRef, Schema, T>
+    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T>, SelectForSet>
+{
+    /// Adds NOWAIT option to fail immediately if rows are locked.
+    pub fn nowait(
+        self,
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectForSet, T>,
+        SelectForSet,
+    > {
+        let builder = self.builder.nowait();
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    /// Adds SKIP LOCKED option to skip over locked rows.
+    pub fn skip_locked(
+        self,
+    ) -> DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectForSet, T>,
+        SelectForSet,
+    > {
+        let builder = self.builder.skip_locked();
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,

@@ -59,6 +59,10 @@ pub struct SelectOffsetSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectSetOpSet;
 
+/// Marker for the state after FOR UPDATE/SHARE clause
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectForSet;
+
 // Const constructors for all marker types
 impl SelectFromSet {
     #[inline]
@@ -103,6 +107,12 @@ impl SelectOffsetSet {
     }
 }
 impl SelectSetOpSet {
+    #[inline]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl SelectForSet {
     #[inline]
     pub const fn new() -> Self {
         Self
@@ -201,6 +211,7 @@ impl ExecutableState for SelectOrderSet {}
 impl ExecutableState for SelectGroupSet {}
 impl ExecutableState for SelectJoinSet {}
 impl ExecutableState for SelectSetOpSet {}
+impl ExecutableState for SelectForSet {}
 
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
@@ -729,6 +740,203 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// FOR UPDATE/SHARE Row Locking (PostgreSQL-specific)
+//------------------------------------------------------------------------------
+
+/// Trait for states that can have FOR UPDATE/SHARE clauses applied.
+/// This is a subset of executable states - specifically those after filtering/ordering.
+pub trait ForLockableState {}
+
+impl ForLockableState for SelectFromSet {}
+impl ForLockableState for SelectWhereSet {}
+impl ForLockableState for SelectOrderSet {}
+impl ForLockableState for SelectLimitSet {}
+impl ForLockableState for SelectOffsetSet {}
+impl ForLockableState for SelectJoinSet {}
+impl ForLockableState for SelectGroupSet {}
+
+impl<'a, S, State, T> SelectBuilder<'a, S, State, T>
+where
+    State: ForLockableState,
+{
+    /// Adds FOR UPDATE clause to lock selected rows for update.
+    ///
+    /// This prevents other transactions from modifying or locking the selected rows
+    /// until the current transaction ends.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(()).from(users).where(eq(users.id, 1)).for_update()
+    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR UPDATE
+    /// ```
+    pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::for_update()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds FOR SHARE clause to lock selected rows for shared access.
+    ///
+    /// This allows other transactions to read the rows but prevents them from
+    /// modifying or exclusively locking them.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(()).from(users).where(eq(users.id, 1)).for_share()
+    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR SHARE
+    /// ```
+    pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::for_share()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds FOR NO KEY UPDATE clause.
+    ///
+    /// Similar to FOR UPDATE but weaker - allows SELECT FOR KEY SHARE on the same rows.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(()).from(users).where(eq(users.id, 1)).for_no_key_update()
+    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR NO KEY UPDATE
+    /// ```
+    pub fn for_no_key_update(self) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::for_no_key_update()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds FOR KEY SHARE clause.
+    ///
+    /// The weakest lock - only blocks SELECT FOR UPDATE.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(()).from(users).where(eq(users.id, 1)).for_key_share()
+    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR KEY SHARE
+    /// ```
+    pub fn for_key_share(self) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::for_key_share()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
+    ///
+    /// Useful in joins to specify which table's rows should be locked.
+    /// Note: Uses unqualified table name per PostgreSQL requirements.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(())
+    ///     .from(users)
+    ///     .join(orders, eq(users.id, orders.user_id))
+    ///     .for_update_of(users)
+    /// // SELECT ... FOR UPDATE OF "users"
+    /// ```
+    pub fn for_update_of<U: PostgresTable<'a>>(
+        self,
+        table: U,
+    ) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::for_update_of(table.name())),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
+    ///
+    /// Useful in joins to specify which table's rows should be locked.
+    /// Note: Uses unqualified table name per PostgreSQL requirements.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(())
+    ///     .from(users)
+    ///     .join(orders, eq(users.id, orders.user_id))
+    ///     .for_share_of(users)
+    /// // SELECT ... FOR SHARE OF "users"
+    /// ```
+    pub fn for_share_of<U: PostgresTable<'a>>(
+        self,
+        table: U,
+    ) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::for_share_of(table.name())),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Post-FOR State Implementation (NOWAIT / SKIP LOCKED)
+//------------------------------------------------------------------------------
+
+impl<'a, S, T> SelectBuilder<'a, S, SelectForSet, T> {
+    /// Adds NOWAIT option to fail immediately if rows are locked.
+    ///
+    /// Instead of waiting for locked rows to become available, the query
+    /// will fail with an error if any selected rows are currently locked.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(()).from(users).for_update().nowait()
+    /// // SELECT ... FOR UPDATE NOWAIT
+    /// ```
+    pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::nowait()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds SKIP LOCKED option to skip over locked rows.
+    ///
+    /// Instead of waiting for locked rows, the query will skip them and
+    /// only return/lock rows that are currently available.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.select(()).from(jobs).where(eq(jobs.status, "pending")).for_update().skip_locked()
+    /// // SELECT ... FOR UPDATE SKIP LOCKED
+    /// ```
+    pub fn skip_locked(self) -> SelectBuilder<'a, S, SelectForSet, T> {
+        SelectBuilder {
+            sql: self.sql.append(helpers::skip_locked()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

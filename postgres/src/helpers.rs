@@ -210,3 +210,49 @@ pub(crate) fn on_conflict<'a>(
 
     sql.append(action.to_sql())
 }
+
+//------------------------------------------------------------------------------
+// FOR UPDATE/SHARE row locking (PostgreSQL-specific)
+//------------------------------------------------------------------------------
+
+/// Helper function to create a FOR UPDATE clause
+pub(crate) fn for_update<'a>() -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::FOR, Token::UPDATE])
+}
+
+/// Helper function to create a FOR SHARE clause
+pub(crate) fn for_share<'a>() -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::FOR, Token::SHARE])
+}
+
+/// Helper function to create a FOR NO KEY UPDATE clause
+pub(crate) fn for_no_key_update<'a>() -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::FOR, Token::NO, Token::KEY, Token::UPDATE])
+}
+
+/// Helper function to create a FOR KEY SHARE clause
+pub(crate) fn for_key_share<'a>() -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::FOR, Token::KEY, Token::SHARE])
+}
+
+/// Helper function to create a FOR UPDATE OF table clause
+/// Note: Uses UNQUALIFIED table name per drizzle-orm beta-12 fix (#4950)
+pub(crate) fn for_update_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::FOR, Token::UPDATE, Token::OF]).append(SQL::ident(table_name.to_owned()))
+}
+
+/// Helper function to create a FOR SHARE OF table clause
+/// Note: Uses UNQUALIFIED table name per drizzle-orm beta-12 fix (#4950)
+pub(crate) fn for_share_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::FOR, Token::SHARE, Token::OF]).append(SQL::ident(table_name.to_owned()))
+}
+
+/// Helper function to add NOWAIT to a FOR clause
+pub(crate) fn nowait<'a>() -> SQL<'a, PostgresValue<'a>> {
+    SQL::from(Token::NOWAIT)
+}
+
+/// Helper function to add SKIP LOCKED to a FOR clause
+pub(crate) fn skip_locked<'a>() -> SQL<'a, PostgresValue<'a>> {
+    SQL::from_iter([Token::SKIP, Token::LOCKED])
+}
