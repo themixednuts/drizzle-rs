@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use drizzle_cli::config::{Casing, DrizzleConfig, IntrospectCasing};
+use drizzle_cli::config::{Casing, Config, IntrospectCasing};
 use drizzle_cli::error::CliError;
 use drizzle_cli::output;
 
@@ -285,7 +285,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
 }
 
 /// Load configuration with fallback to default path
-fn load_config(custom_path: Option<&std::path::Path>) -> Result<DrizzleConfig, CliError> {
+fn load_config(custom_path: Option<&std::path::Path>) -> Result<Config, CliError> {
     match custom_path {
         Some(path) => {
             // If the user points at a config in a different directory, also try to load a `.env`
@@ -293,9 +293,9 @@ fn load_config(custom_path: Option<&std::path::Path>) -> Result<DrizzleConfig, C
             if let Some(dir) = path.parent() {
                 let _ = dotenvy::from_path(dir.join(".env"));
             }
-            DrizzleConfig::load_from(path).map_err(Into::into)
+            Config::load_from(path).map_err(Into::into)
         }
-        None => DrizzleConfig::load().map_err(Into::into),
+        None => Config::load().map_err(Into::into),
     }
 }
 

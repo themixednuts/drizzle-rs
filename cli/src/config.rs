@@ -1216,9 +1216,6 @@ impl Config {
     }
 }
 
-// Re-export as DrizzleConfig for compatibility
-pub type DrizzleConfig = Config;
-
 // ============================================================================
 // Errors
 // ============================================================================
@@ -1261,8 +1258,6 @@ pub enum Error {
     #[error("multiple databases configured, use --db to specify: {}", .0.join(", "))]
     DatabaseRequired(Vec<String>),
 }
-
-pub type ConfigError = Error;
 
 // ============================================================================
 // Tests

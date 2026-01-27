@@ -1,13 +1,24 @@
-// SQLite specific condition functions, particularly for JSON
+//! SQLite-specific SQL expressions and JSON helpers.
+//!
+//! This module provides SQLite dialect functions and JSON expressions.
+//! For standard SQL expressions, use `drizzle_core::expr`.
 
-use crate::{traits::SQLiteSQL, values::SQLiteValue};
+use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
+
+pub fn json<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
+    SQL::func("json", value.to_sql())
+}
+
+pub fn jsonb<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
+    SQL::func("jsonb", value.to_sql())
+}
 
 /// Create a JSON field equality condition using SQLite ->> operator
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_eq;
+/// # use drizzle_sqlite::expressions::json_eq;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -16,7 +27,7 @@ use drizzle_core::{SQL, ToSQL};
 /// assert_eq!(condition.sql(), "metadata ->>'theme' = ?");
 /// # }
 /// ```
-pub fn json_eq<'a, L, R>(left: L, field: &'a str, value: R) -> SQLiteSQL<'a>
+pub fn json_eq<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -30,7 +41,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_ne;
+/// # use drizzle_sqlite::expressions::json_ne;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -39,7 +50,7 @@ where
 /// assert_eq!(condition.sql(), "metadata ->>'theme' != ?");
 /// # }
 /// ```
-pub fn json_ne<'a, L, R>(left: L, field: &'a str, value: R) -> SQLiteSQL<'a>
+pub fn json_ne<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -53,7 +64,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_contains;
+/// # use drizzle_sqlite::expressions::json_contains;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -62,7 +73,7 @@ where
 /// assert_eq!(condition.sql(), "json_extract( metadata , '$.preferences[0]') = ?");
 /// # }
 /// ```
-pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
+pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -77,7 +88,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_exists;
+/// # use drizzle_sqlite::expressions::json_exists;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -86,7 +97,7 @@ where
 /// assert_eq!(condition.sql(), "json_type( metadata , '$.theme') IS NOT NULL");
 /// # }
 /// ```
-pub fn json_exists<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
+pub fn json_exists<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -99,7 +110,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_not_exists;
+/// # use drizzle_sqlite::expressions::json_not_exists;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -108,7 +119,7 @@ where
 /// assert_eq!(condition.sql(), "json_type( metadata , '$.theme') IS NULL");
 /// # }
 /// ```
-pub fn json_not_exists<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
+pub fn json_not_exists<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -121,16 +132,19 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_array_contains;
+/// # use drizzle_sqlite::expressions::json_array_contains;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_array_contains(column, "$.preferences", "dark_theme");
-/// assert_eq!(condition.sql(), "EXISTS(SELECT 1 FROM json_each( metadata , '$.preferences') WHERE value = ? )");
+/// assert_eq!(
+///     condition.sql(),
+///     "EXISTS(SELECT 1 FROM json_each( metadata , '$.preferences') WHERE value = ? )"
+/// );
 /// # }
 /// ```
-pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
+pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -146,7 +160,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_object_contains_key;
+/// # use drizzle_sqlite::expressions::json_object_contains_key;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -155,7 +169,11 @@ where
 /// assert_eq!(condition.sql(), "json_type( metadata , '$.theme') IS NOT NULL");
 /// # }
 /// ```
-pub fn json_object_contains_key<'a, L>(left: L, path: &'a str, key: &'a str) -> SQLiteSQL<'a>
+pub fn json_object_contains_key<'a, L>(
+    left: L,
+    path: &'a str,
+    key: &'a str,
+) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -174,16 +192,19 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_text_contains;
+/// # use drizzle_sqlite::expressions::json_text_contains;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_text_contains(column, "$.description", "user");
-/// assert_eq!(condition.sql(), "instr(lower(json_extract( metadata , '$.description'))), lower( ? )) > 0");
+/// assert_eq!(
+///     condition.sql(),
+///     "instr(lower(json_extract( metadata , '$.description'))), lower( ? )) > 0"
+/// );
 /// # }
 /// ```
-pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
+pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -199,14 +220,14 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_gt;
+/// # use drizzle_sqlite::expressions::json_gt;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// let column = SQL::<SQLiteValue>::raw("metadata");
 /// let condition = json_gt(column, "$.score", 85.0);
 /// assert_eq!(condition.sql(), "CAST(json_extract( metadata , '$.score') AS NUMERIC) > ?");
 /// ```
-pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQLiteSQL<'a>
+pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
     R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
@@ -221,7 +242,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_extract;
+/// # use drizzle_sqlite::expressions::json_extract;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -230,7 +251,7 @@ where
 /// assert_eq!(extract_expr.sql(), "metadata ->>'theme'");
 /// # }
 /// ```
-pub fn json_extract<'a, L>(left: L, path: impl AsRef<str>) -> SQLiteSQL<'a>
+pub fn json_extract<'a, L>(left: L, path: impl AsRef<str>) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -242,7 +263,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::conditions::json_extract_text;
+/// # use drizzle_sqlite::expressions::json_extract_text;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -251,7 +272,7 @@ where
 /// assert_eq!(extract_expr.sql(), "metadata ->'preferences'");
 /// # }
 /// ```
-pub fn json_extract_text<'a, L>(left: L, path: &'a str) -> SQLiteSQL<'a>
+pub fn json_extract_text<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {

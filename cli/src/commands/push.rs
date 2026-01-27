@@ -4,7 +4,7 @@
 //! Note: This command requires database connectivity which depends on
 //! driver-specific features being enabled.
 
-use crate::config::{Casing, DrizzleConfig};
+use crate::config::{Casing, Config};
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
@@ -20,11 +20,7 @@ pub struct PushOptions {
 }
 
 /// Run the push command
-pub fn run(
-    config: &DrizzleConfig,
-    db_name: Option<&str>,
-    opts: PushOptions,
-) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 
     let db = config.database(db_name)?;

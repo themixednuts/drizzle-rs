@@ -43,13 +43,12 @@ use drizzle_postgres::traits::PostgresTable;
 use postgres::{Client, IsolationLevel, Row};
 use std::marker::PhantomData;
 
-use drizzle_postgres::{
-    PostgresTransactionType, PostgresValue,
-    builder::{
-        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-        update::UpdateBuilder,
-    },
+use drizzle_postgres::builder::{
+    self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+    update::UpdateBuilder,
 };
+use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::common;
 

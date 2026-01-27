@@ -1,12 +1,9 @@
 use drizzle_core::ToSQL;
-use drizzle_postgres::{
-    PostgresValue,
-    builder::{
-        UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
-        update::UpdateBuilder,
-    },
-    traits::PostgresTable,
+use drizzle_postgres::builder::{
+    UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet, update::UpdateBuilder,
 };
+use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
 use crate::transaction::postgres::tokio_postgres::TransactionBuilder;

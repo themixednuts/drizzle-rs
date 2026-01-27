@@ -1,10 +1,10 @@
 //! PostgreSQL-specific expressions
 //!
 //! This module provides PostgreSQL dialect-specific SQL expressions.
-//! For standard SQL expressions, use `drizzle_core::expressions`.
+//! For standard SQL expressions, use `drizzle_core::expr`.
 
-use crate::{PostgresSQL, PostgresValue};
-use drizzle_core::traits::ToSQL;
+use crate::values::PostgresValue;
+use drizzle_core::{SQL, traits::ToSQL};
 
 /// Case-insensitive LIKE pattern matching (PostgreSQL-specific)
 ///
@@ -16,7 +16,7 @@ use drizzle_core::traits::ToSQL;
 /// let query = ilike(user.name, "%john%");
 /// // Generates: "name" ILIKE '%john%'
 /// ```
-pub fn ilike<'a, L, R>(left: L, pattern: R) -> PostgresSQL<'a>
+pub fn ilike<'a, L, R>(left: L, pattern: R) -> SQL<'a, PostgresValue<'a>>
 where
     L: ToSQL<'a, PostgresValue<'a>>,
     R: Into<PostgresValue<'a>> + ToSQL<'a, PostgresValue<'a>>,
@@ -37,7 +37,7 @@ where
 /// let query = not_ilike(user.name, "%admin%");
 /// // Generates: "name" NOT ILIKE '%admin%'
 /// ```
-pub fn not_ilike<'a, L, R>(left: L, pattern: R) -> PostgresSQL<'a>
+pub fn not_ilike<'a, L, R>(left: L, pattern: R) -> SQL<'a, PostgresValue<'a>>
 where
     L: ToSQL<'a, PostgresValue<'a>>,
     R: Into<PostgresValue<'a>> + ToSQL<'a, PostgresValue<'a>>,

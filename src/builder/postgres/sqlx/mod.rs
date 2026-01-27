@@ -44,13 +44,12 @@ use drizzle_core::traits::SQLTable;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
-use drizzle_postgres::{
-    PostgresTransactionType, PostgresValue,
-    builder::{
-        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-        update::UpdateBuilder,
-    },
+use drizzle_postgres::builder::{
+    self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+    update::UpdateBuilder,
 };
+use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::values::PostgresValue;
 use sqlx::PgPool;
 use std::future::Future;
 use std::marker::PhantomData;

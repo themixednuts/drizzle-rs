@@ -1,14 +1,3 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+//! MySQL support for drizzle-rs (WIP).
+//!
+//! This crate will host the MySQL query builder and driver integrations.

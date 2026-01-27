@@ -52,6 +52,32 @@ impl From<f64> for Number {
     }
 }
 
+/// PostgreSQL transaction isolation levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PostgresTransactionType {
+    /// READ UNCOMMITTED isolation level
+    ReadUncommitted,
+    /// READ COMMITTED isolation level (PostgreSQL default)
+    #[default]
+    ReadCommitted,
+    /// REPEATABLE READ isolation level
+    RepeatableRead,
+    /// SERIALIZABLE isolation level
+    Serializable,
+}
+
+impl std::fmt::Display for PostgresTransactionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let level = match self {
+            PostgresTransactionType::ReadUncommitted => "READ UNCOMMITTED",
+            PostgresTransactionType::ReadCommitted => "READ COMMITTED",
+            PostgresTransactionType::RepeatableRead => "REPEATABLE READ",
+            PostgresTransactionType::Serializable => "SERIALIZABLE",
+        };
+        write!(f, "{}", level)
+    }
+}
+
 // Note: Generic From implementation is removed to avoid conflicts.
 // The table macro will generate specific implementations using PostgresEnumVisitor.
 

@@ -1,10 +1,10 @@
 use crate::transaction::postgres::tokio_postgres::TransactionBuilder;
 use drizzle_core::ToSQL;
-use drizzle_postgres::{
-    PostgresValue,
-    builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSet, delete::DeleteBuilder},
-    traits::PostgresTable,
+use drizzle_postgres::builder::{
+    DeleteInitial, DeleteReturningSet, DeleteWhereSet, delete::DeleteBuilder,
 };
+use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
 impl<'a, 'conn, S, T>

@@ -4,14 +4,14 @@
 
 use std::path::Path;
 
-use crate::config::{Casing, DrizzleConfig};
+use crate::config::{Casing, Config};
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the generate command
 pub fn run(
-    config: &DrizzleConfig,
+    config: &Config,
     db_name: Option<&str>,
     name: Option<String>,
     custom: bool,

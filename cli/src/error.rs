@@ -2,14 +2,14 @@
 
 use thiserror::Error;
 
-use crate::config::ConfigError;
+use crate::config::Error;
 
 /// CLI errors
 #[derive(Debug, Error)]
 pub enum CliError {
     /// Configuration error
     #[error("Configuration error: {0}")]
-    Config(#[from] ConfigError),
+    Config(#[from] Error),
 
     /// I/O error
     #[error("I/O error: {0}")]

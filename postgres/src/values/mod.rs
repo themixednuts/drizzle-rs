@@ -27,7 +27,7 @@ use bit_vec::BitVec;
 
 use std::borrow::Cow;
 
-use crate::{PostgresEnum, traits::FromPostgresValue};
+use crate::traits::{FromPostgresValue, PostgresEnum};
 
 //------------------------------------------------------------------------------
 // PostgresValue Definition

@@ -3,7 +3,7 @@
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
 use drizzle::core::expr::*;
 use drizzle::error::DrizzleError;
-use drizzle::sqlite::SQLiteTransactionType;
+use drizzle::sqlite::connection::SQLiteTransactionType;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 

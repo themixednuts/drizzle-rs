@@ -1,4 +1,4 @@
-use crate::traits::{SQLiteSQL, SQLiteTable};
+use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use drizzle_core::{
     SQL, Token, helpers as core_helpers,
@@ -15,7 +15,7 @@ pub(crate) use core_helpers::{
 pub use drizzle_core::Join;
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQLiteSQL<'a> {
+fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, SQLiteValue<'a>> {
     // For INSERT statements, use quoted column names only (no table qualifiers)
     SQL::join(
         columns.iter().map(|col| SQL::ident(col.name())),
@@ -27,18 +27,18 @@ fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQLiteSQL<
 drizzle_core::impl_join_helpers!(
     table_trait: SQLiteTable<'a>,
     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
-    sql_type: SQLiteSQL<'a>,
+    sql_type: SQL<'a, SQLiteValue<'a>>,
 );
 
 /// Helper function to create VALUES clause for INSERT with pattern validation
 /// All rows must have the same column pattern (enforced by type parameter)
 pub(crate) fn values<'a, Table, T>(
     rows: impl IntoIterator<Item = Table::Insert<T>>,
-) -> SQLiteSQL<'a>
+) -> SQL<'a, SQLiteValue<'a>>
 where
     Table: SQLiteTable<'a> + Default,
 {
-    let rows: Vec<_> = rows.into_iter().collect();
+    let rows: Vec<Table::Insert<T>> = rows.into_iter().collect();
 
     if rows.is_empty() {
         return SQL::from(Token::VALUES);
@@ -55,7 +55,7 @@ where
     }
 
     let columns_sql = columns_info_to_sql(columns_slice);
-    let value_clauses = rows.iter().map(|row| {
+    let value_clauses = rows.iter().map(|row: &Table::Insert<T>| {
         SQL::from(Token::LPAREN)
             .append(row.values())
             .push(Token::RPAREN)
@@ -68,7 +68,7 @@ where
 }
 
 /// Helper function to create a RETURNING clause - SQLite specific
-pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQLiteSQL<'a>
+pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
     I: ToSQL<'a, SQLiteValue<'a>>,
 {

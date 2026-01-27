@@ -20,7 +20,7 @@ struct PgSimpleResult {
 #[PostgresView(
     NAME = "simple_view",
     DEFINITION = {
-        let builder = drizzle::postgres::QueryBuilder::new::<SimpleSchema>();
+        let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
         let SimpleSchema { simple } = SimpleSchema::new();
         builder.select((simple.id, simple.name)).from(simple)
     }
@@ -33,7 +33,7 @@ struct SimpleView {
 #[PostgresView(
     NAME = "simple_view_mat",
     DEFINITION = {
-        let builder = drizzle::postgres::QueryBuilder::new::<SimpleSchema>();
+        let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
         let SimpleSchema { simple } = SimpleSchema::new();
         builder.select((simple.id, simple.name)).from(simple)
     },

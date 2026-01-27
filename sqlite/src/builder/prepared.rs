@@ -8,7 +8,7 @@ use drizzle_core::{
     },
 };
 
-use crate::{SQLiteValue, values::OwnedSQLiteValue};
+use crate::values::{OwnedSQLiteValue, SQLiteValue};
 
 /// SQLite-specific prepared statement wrapper.
 ///
@@ -29,7 +29,7 @@ use crate::{SQLiteValue, values::OwnedSQLiteValue};
 /// ```rust,ignore
 /// use drizzle_sqlite::builder::QueryBuilder;
 /// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::{ToSQL, expressions::eq};
+/// use drizzle_core::{ToSQL, expr::eq};
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
@@ -69,7 +69,7 @@ use crate::{SQLiteValue, values::OwnedSQLiteValue};
 /// store the prepared statement long-term or use it immediately.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, crate::SQLiteValue<'a>>,
+    pub inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
 impl<'a> PreparedStatement<'a> {
@@ -214,7 +214,7 @@ impl std::fmt::Display for OwnedPreparedStatement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SQLiteValue;
+    use crate::values::SQLiteValue;
     use drizzle_core::{SQL, prepared::prepare_render};
 
     #[test]

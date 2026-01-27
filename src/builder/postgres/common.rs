@@ -1,18 +1,16 @@
 use std::marker::PhantomData;
 
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
-use drizzle_postgres::{
-    PostgresSchemaType, PostgresValue,
-    builder::{
-        self, CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
-        InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet,
-        SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet,
-        SelectWhereSet, UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet,
-        UpdateWhereSet, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-        update::UpdateBuilder,
-    },
-    traits::PostgresTable,
+use drizzle_postgres::builder::{
+    self, CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
+    InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet,
+    SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
+    UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
+    delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder, update::UpdateBuilder,
 };
+use drizzle_postgres::common::PostgresSchemaType;
+use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::values::PostgresValue;
 
 /// Shared Postgres drizzle builder wrapper.
 #[derive(Debug)]

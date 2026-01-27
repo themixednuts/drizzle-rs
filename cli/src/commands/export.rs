@@ -4,14 +4,14 @@
 
 use std::path::PathBuf;
 
-use crate::config::DrizzleConfig;
+use crate::config::Config;
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
 /// Run the export command
 pub fn run(
-    config: &DrizzleConfig,
+    config: &Config,
     db_name: Option<&str>,
     output_path: Option<PathBuf>,
 ) -> Result<(), CliError> {

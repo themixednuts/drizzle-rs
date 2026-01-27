@@ -1,7 +1,8 @@
 use drizzle_core::{SQLColumn, SQLColumnInfo};
 use std::any::Any;
 
-use crate::{PostgresValue, traits::PostgresTableInfo};
+use crate::traits::PostgresTableInfo;
+use crate::values::PostgresValue;
 pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {
     const SERIAL: bool = false;
     const BIGSERIAL: bool = false;

@@ -11,13 +11,12 @@ pub mod insert;
 pub mod select;
 pub mod update;
 
-use drizzle_postgres::{
-    PostgresTransactionType, PostgresValue,
-    builder::{
-        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-        update::UpdateBuilder,
-    },
+use drizzle_postgres::builder::{
+    self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+    update::UpdateBuilder,
 };
+use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::values::PostgresValue;
 
 /// Tokio-postgres-specific transaction builder
 #[derive(Debug)]

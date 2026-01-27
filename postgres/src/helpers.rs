@@ -1,4 +1,4 @@
-use crate::{PostgresSQL, traits::PostgresTable, values::PostgresValue};
+use crate::{traits::PostgresTable, values::PostgresValue};
 use drizzle_core::{
     Join, SQL, ToSQL, Token, helpers,
     traits::{SQLColumnInfo, SQLModel},
@@ -11,7 +11,7 @@ pub(crate) use helpers::{
 };
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> PostgresSQL<'a> {
+fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, PostgresValue<'a>> {
     // For INSERT statements, use quoted column names only (no table qualifiers)
     SQL::join(
         columns.iter().map(|col| SQL::ident(col.name())),
@@ -23,7 +23,7 @@ fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> PostgresSQ
 drizzle_core::impl_join_helpers!(
     table_trait: PostgresTable<'a>,
     condition_trait: ToSQL<'a, PostgresValue<'a>>,
-    sql_type: PostgresSQL<'a>,
+    sql_type: SQL<'a, PostgresValue<'a>>,
 );
 
 /// Helper function to create a SELECT DISTINCT ON statement (PostgreSQL-specific)
@@ -49,7 +49,7 @@ fn join_using_internal<'a, Table>(
     table: Table,
     join: Join,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -68,7 +68,7 @@ where
 pub fn join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -78,7 +78,7 @@ where
 pub fn inner_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -88,7 +88,7 @@ where
 pub fn left_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -98,7 +98,7 @@ where
 pub fn left_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -108,7 +108,7 @@ where
 pub fn right_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -118,7 +118,7 @@ where
 pub fn right_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -128,7 +128,7 @@ where
 pub fn full_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -138,7 +138,7 @@ where
 pub fn full_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a>
+) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
@@ -189,7 +189,7 @@ where
 }
 
 /// Helper function to create a RETURNING clause - PostgreSQL specific
-pub(crate) fn returning<'a, 'b, I>(columns: I) -> PostgresSQL<'a>
+pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, PostgresValue<'a>>
 where
     I: ToSQL<'a, PostgresValue<'a>>,
 {
@@ -199,9 +199,9 @@ where
 /// Helper function to create an UPSERT (ON CONFLICT) clause - PostgreSQL specific
 #[allow(dead_code)]
 pub(crate) fn on_conflict<'a>(
-    conflict_target: Option<PostgresSQL<'a>>,
+    conflict_target: Option<SQL<'a, PostgresValue<'a>>>,
     action: impl ToSQL<'a, PostgresValue<'a>>,
-) -> PostgresSQL<'a> {
+) -> SQL<'a, PostgresValue<'a>> {
     let mut sql = SQL::from_iter([Token::ON, Token::CONFLICT]);
 
     if let Some(target) = conflict_target {

@@ -94,14 +94,14 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
         if info.is_nullable {
             quote! {
                 #name: {
-                    use drizzle::postgres::DrizzleRow;
+                    use drizzle::postgres::traits::DrizzleRow;
                     DrizzleRow::get_column_by_name::<Option<#base_type>>(row, #name_str)?
                 },
             }
         } else {
             quote! {
                 #name: {
-                    use drizzle::postgres::DrizzleRow;
+                    use drizzle::postgres::traits::DrizzleRow;
                     DrizzleRow::get_column_by_name::<#base_type>(row, #name_str)?
                 },
             }
@@ -205,7 +205,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
             // Original is Option<T>, partial is Option<Option<T>>
             quote! {
                 #name: {
-                    use drizzle::postgres::DrizzleRow;
+                    use drizzle::postgres::traits::DrizzleRow;
                     Some(DrizzleRow::get_column_by_name::<Option<#base_type>>(row, #name_str).ok().flatten())
                 },
             }
@@ -213,7 +213,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
             // Original is T, partial is Option<T>
             quote! {
                 #name: {
-                    use drizzle::postgres::DrizzleRow;
+                    use drizzle::postgres::traits::DrizzleRow;
                     DrizzleRow::get_column_by_name::<#base_type>(row, #name_str).ok()
                 },
             }
@@ -289,7 +289,7 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
         // Use DrizzleRow for FromPostgresValue types
         quote! {
             #name: {
-                use drizzle::postgres::DrizzleRow;
+                use drizzle::postgres::traits::DrizzleRow;
                 Some(DrizzleRow::get_column_by_name::<#base_type>(row, #name_str)?)
             },
         }
@@ -314,14 +314,10 @@ fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
 // Public API
 // =============================================================================
 
-// =============================================================================
-// Public API
-// =============================================================================
-
 /// Generate TryFrom implementations for PostgreSQL drivers.
 ///
-/// This generates `TryFrom<&drizzle_postgres::Row>` implementations.
-/// The Row type is re-exported by drizzle-postgres from whichever driver is active
+/// This generates `TryFrom<&drizzle::postgres::Row>` implementations.
+/// The Row type is re-exported from whichever driver is active
 /// (tokio-postgres or postgres-sync), so this single implementation works for both.
 #[cfg(feature = "postgres")]
 pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStream> {
@@ -349,7 +345,7 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         .map(generate_update_field_conversion)
         .collect();
 
-    // Generate implementation using drizzle_postgres::Row which re-exports
+    // Generate implementation using drizzle::postgres::Row which re-exports
     // the Row type from whichever driver is active
     Ok(quote! {
         impl ::std::convert::TryFrom<&drizzle::postgres::Row> for #select_model_ident {

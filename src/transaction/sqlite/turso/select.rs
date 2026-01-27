@@ -4,8 +4,8 @@ use drizzle_core::ToSQL;
 use drizzle_sqlite::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
 use drizzle_sqlite::traits::SQLiteTable;
 use drizzle_sqlite::{
-    SQLiteValue,
     builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
+    values::SQLiteValue,
 };
 use std::marker::PhantomData;
 

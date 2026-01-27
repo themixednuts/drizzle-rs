@@ -90,7 +90,7 @@ struct AppTestSchema {
 #[SQLiteView(
     NAME = "user_emails",
     DEFINITION = {
-        let builder = drizzle::sqlite::QueryBuilder::new::<AppTestSchema>();
+        let builder = drizzle::sqlite::builder::QueryBuilder::new::<AppTestSchema>();
         let AppTestSchema { user, .. } = AppTestSchema::new();
         builder.select((user.id, user.email)).from(user)
     }
@@ -388,7 +388,7 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
         panic!("department_id should have foreign key reference");
     }
 
-    let manager_id_col = &employee.columns()[3]; // manager_id column  
+    let manager_id_col = &employee.columns()[3]; // manager_id column
     assert_eq!(manager_id_col.name(), "manager_id");
 
     if let Some(fk_col) = manager_id_col.foreign_key() {

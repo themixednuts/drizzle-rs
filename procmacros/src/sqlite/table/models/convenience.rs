@@ -51,7 +51,7 @@ fn generate_insert_convenience_method(
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
     let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expression();
+    let expression = sqlite_paths::expressions();
 
     // Create generic parameters: field names as markers (UserName, UserEmail)
     let generic_params: Vec<_> = ctx
@@ -204,7 +204,7 @@ fn generate_json_insert_method(
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
     let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expression();
+    let expression = sqlite_paths::expressions();
 
     let json_wrapper = match field.column_type {
         SQLiteType::Text => quote! {

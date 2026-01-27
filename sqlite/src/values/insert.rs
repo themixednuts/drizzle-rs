@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use drizzle_core::{Placeholder, SQL, SQLParam};
 
-use crate::{OwnedSQLiteValue, SQLiteValue};
+use super::{OwnedSQLiteValue, SQLiteValue};
 
 /// Wrapper for SQL with type information
 #[derive(Debug, Clone)]

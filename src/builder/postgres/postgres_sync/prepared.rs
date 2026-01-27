@@ -8,7 +8,7 @@ use drizzle_core::{
     },
     traits::ToSQL,
 };
-use drizzle_postgres::{PostgresValue, values::OwnedPostgresValue};
+use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
 use postgres::{Client, Row, types::ToSql};
 
 use crate::builder::postgres::prepared_common::postgres_prepared_sync_impl;

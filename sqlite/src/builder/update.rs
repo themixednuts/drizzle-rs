@@ -184,8 +184,8 @@ where
     /// Specifies which columns to update and their new values.
     ///
     /// This method accepts update expressions that specify which columns should
-    /// be modified. You can update single or multiple columns using condition
-    /// functions from `drizzle_core::expressions::conditions`.
+    /// be modified. You can update single or multiple columns using the generated
+    /// update model's `with_*` setters.
     ///
     /// # Examples
     ///

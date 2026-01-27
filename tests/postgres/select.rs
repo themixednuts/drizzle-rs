@@ -225,7 +225,7 @@ postgres_test!(cte_after_join, SimpleSchema, {
 
     let results: Vec<PgSimpleResult> = {
         let simple_alias = Simple::alias("simple_alias");
-        let builder = drizzle::postgres::QueryBuilder::new::<SimpleSchema>();
+        let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
         let joined_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
             .from(simple)
@@ -259,7 +259,7 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data).execute());
 
     let results: Vec<PgSimpleResult> = {
-        let builder = drizzle::postgres::QueryBuilder::new::<SimpleSchema>();
+        let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
         let paged_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
             .from(simple)

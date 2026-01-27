@@ -8,7 +8,7 @@ use drizzle_core::{
     },
 };
 
-use crate::{PostgresValue, values::OwnedPostgresValue};
+use crate::values::{OwnedPostgresValue, PostgresValue};
 
 /// PostgreSQL-specific prepared statement wrapper.
 ///
@@ -29,7 +29,7 @@ use crate::{PostgresValue, values::OwnedPostgresValue};
 /// ```rust,ignore
 /// use drizzle_postgres::builder::QueryBuilder;
 /// use drizzle_macros::{PostgresTable, PostgresSchema};
-/// use drizzle_core::{ToSQL, SQL, expressions::conditions::eq};
+/// use drizzle_core::{ToSQL, SQL, expr::eq};
 ///
 /// #[PostgresTable(name = "users")]
 /// struct User {
@@ -68,7 +68,7 @@ use crate::{PostgresValue, values::OwnedPostgresValue};
 /// store the prepared statement long-term or use it immediately.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, crate::PostgresValue<'a>>,
+    pub inner: CorePreparedStatement<'a, PostgresValue<'a>>,
 }
 
 impl<'a> PreparedStatement<'a> {

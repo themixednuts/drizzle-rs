@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use drizzle_sqlite::{
-    SQLiteValue,
-    builder::{UpdateInitial, UpdateSetClauseSet, UpdateWhereSet, update::UpdateBuilder},
-    traits::SQLiteTable,
+use drizzle_sqlite::builder::{
+    UpdateInitial, UpdateSetClauseSet, UpdateWhereSet, update::UpdateBuilder,
 };
+use drizzle_sqlite::traits::SQLiteTable;
+use drizzle_sqlite::values::SQLiteValue;
 
 use crate::transaction::sqlite::libsql::TransactionBuilder;
 

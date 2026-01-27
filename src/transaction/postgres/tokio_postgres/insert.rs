@@ -1,13 +1,11 @@
 use crate::transaction::postgres::tokio_postgres::TransactionBuilder;
 use drizzle_core::{SQLModel, ToSQL};
-use drizzle_postgres::{
-    PostgresValue,
-    builder::{
-        Conflict, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
-        insert::InsertBuilder,
-    },
-    traits::PostgresTable,
+use drizzle_postgres::builder::{
+    Conflict, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+    insert::InsertBuilder,
 };
+use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
 impl<'a, 'conn, Schema, Table>

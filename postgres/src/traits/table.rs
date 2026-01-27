@@ -1,6 +1,8 @@
 use drizzle_core::{SQLTable, SQLTableInfo};
 
-use crate::{PostgresColumnInfo, PostgresValue, common::PostgresSchemaType};
+use super::PostgresColumnInfo;
+use crate::common::PostgresSchemaType;
+use crate::values::PostgresValue;
 
 pub trait PostgresTable<'a>:
     SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> + PostgresTableInfo

@@ -6,11 +6,15 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'a>> = bound_params.collect();
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'a>> =
+                    bound_params.collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
                     .map(|p| p as &(dyn $to_sql + Sync))
@@ -24,7 +28,10 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<Vec<T>>
             where
@@ -32,7 +39,8 @@ macro_rules! postgres_prepared_sync_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'a>> = bound_params.collect();
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'a>> =
+                    bound_params.collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
                     .map(|p| p as &(dyn $to_sql + Sync))
@@ -53,7 +61,10 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<T>
             where
@@ -61,7 +72,8 @@ macro_rules! postgres_prepared_sync_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'a>> = bound_params.collect();
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'a>> =
+                    bound_params.collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
                     .map(|p| p as &(dyn $to_sql + Sync))
@@ -78,12 +90,15 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'_>> = bound_params
-                    .map(drizzle_postgres::PostgresValue::from)
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'_>> = bound_params
+                    .map(drizzle_postgres::values::PostgresValue::from)
                     .collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
@@ -98,7 +113,10 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<Vec<T>>
             where
@@ -106,8 +124,8 @@ macro_rules! postgres_prepared_sync_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'_>> = bound_params
-                    .map(drizzle_postgres::PostgresValue::from)
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'_>> = bound_params
+                    .map(drizzle_postgres::values::PostgresValue::from)
                     .collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
@@ -129,7 +147,10 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<T>
             where
@@ -137,8 +158,8 @@ macro_rules! postgres_prepared_sync_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'_>> = bound_params
-                    .map(drizzle_postgres::PostgresValue::from)
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'_>> = bound_params
+                    .map(drizzle_postgres::values::PostgresValue::from)
                     .collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
@@ -160,11 +181,15 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'a>> = bound_params.collect();
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'a>> =
+                    bound_params.collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
                     .map(|p| p as &(dyn $to_sql + Sync))
@@ -181,7 +206,10 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<Vec<T>>
             where
@@ -189,7 +217,8 @@ macro_rules! postgres_prepared_async_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'a>> = bound_params.collect();
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'a>> =
+                    bound_params.collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
                     .map(|p| p as &(dyn $to_sql + Sync))
@@ -210,7 +239,10 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<T>
             where
@@ -218,7 +250,8 @@ macro_rules! postgres_prepared_async_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'a>> = bound_params.collect();
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'a>> =
+                    bound_params.collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
                     .map(|p| p as &(dyn $to_sql + Sync))
@@ -235,12 +268,15 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'_>> = bound_params
-                    .map(drizzle_postgres::PostgresValue::from)
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'_>> = bound_params
+                    .map(drizzle_postgres::values::PostgresValue::from)
                     .collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
@@ -258,7 +294,10 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<Vec<T>>
             where
@@ -266,8 +305,8 @@ macro_rules! postgres_prepared_async_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'_>> = bound_params
-                    .map(drizzle_postgres::PostgresValue::from)
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'_>> = bound_params
+                    .map(drizzle_postgres::values::PostgresValue::from)
                     .collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()
@@ -289,7 +328,10 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<'a, drizzle_postgres::PostgresValue<'a>>,
+                    Item = drizzle_core::param::ParamBind<
+                        'a,
+                        drizzle_postgres::values::PostgresValue<'a>,
+                    >,
                 >,
             ) -> drizzle_core::error::Result<T>
             where
@@ -297,8 +339,8 @@ macro_rules! postgres_prepared_async_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, bound_params) = self.inner.bind(params);
-                let params_vec: Vec<drizzle_postgres::PostgresValue<'_>> = bound_params
-                    .map(drizzle_postgres::PostgresValue::from)
+                let params_vec: Vec<drizzle_postgres::values::PostgresValue<'_>> = bound_params
+                    .map(drizzle_postgres::values::PostgresValue::from)
                     .collect();
                 let params_refs: Vec<&(dyn $to_sql + Sync)> = params_vec
                     .iter()

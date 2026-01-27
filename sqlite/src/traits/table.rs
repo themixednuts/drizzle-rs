@@ -1,6 +1,8 @@
 use drizzle_core::{SQLTable, SQLTableInfo};
 
-use crate::{SQLiteValue, common::SQLiteSchemaType, traits::SQLiteColumnInfo};
+use crate::common::SQLiteSchemaType;
+use crate::traits::SQLiteColumnInfo;
+use crate::values::SQLiteValue;
 
 pub trait SQLiteTable<'a>:
     SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>> + SQLiteTableInfo

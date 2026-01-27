@@ -29,7 +29,7 @@ pub(crate) fn generate_insert_model(
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
     let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expression();
+    let expression = sqlite_paths::expressions();
 
     // Convert bool slice to tuple literal for required fields pattern
     let required_fields_pattern_literal = generate_pattern_literal(ctx, required_fields_pattern);
@@ -215,7 +215,7 @@ fn generate_constructor_param(
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
     let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expression();
+    let expression = sqlite_paths::expressions();
 
     match category {
         TypeCategory::Json => {

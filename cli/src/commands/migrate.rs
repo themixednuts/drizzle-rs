@@ -2,12 +2,12 @@
 //!
 //! Runs pending migrations against the database.
 
-use crate::config::DrizzleConfig;
+use crate::config::Config;
 use crate::error::CliError;
 use crate::output;
 
 /// Run the migrate command
-pub fn run(config: &DrizzleConfig, db_name: Option<&str>) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
     if !config.is_single_database() {

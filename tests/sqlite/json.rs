@@ -3,7 +3,6 @@
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
-use drizzle_sqlite::SQLiteValue;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "uuid")]
@@ -68,7 +67,7 @@ sqlite_test!(json_storage, Schema, {
     let stmt = db
         .select((
             jsonuser.id,
-            drizzle::sqlite::conditions::json_extract(jsonuser.profile, "age").alias("age"),
+            drizzle::sqlite::expressions::json_extract(jsonuser.profile, "age").alias("age"),
         ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));

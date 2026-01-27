@@ -1,11 +1,11 @@
 use crate::transaction::postgres::postgres_sync::TransactionBuilder;
 use drizzle_core::ToSQL;
-use drizzle_postgres::builder::{SelectJoinSet, SelectLimitSet, SelectOrderSet, SelectWhereSet};
-use drizzle_postgres::traits::PostgresTable;
-use drizzle_postgres::{
-    PostgresValue,
-    builder::{SelectFromSet, SelectInitial, SelectOffsetSet, select::SelectBuilder},
+use drizzle_postgres::builder::{
+    SelectFromSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet,
+    SelectWhereSet, select::SelectBuilder,
 };
+use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
 impl<'a, 'conn, Schema>

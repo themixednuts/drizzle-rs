@@ -5,7 +5,7 @@ use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_core::{SQL, prepared::prepare_render};
 use drizzle_macros::sqlite_test;
-use drizzle_sqlite::{SQLiteValue, params};
+use drizzle_sqlite::{params, values::SQLiteValue};
 
 #[test]
 fn test_params_macro_named() {

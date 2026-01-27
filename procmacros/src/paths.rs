@@ -211,8 +211,8 @@ pub mod sqlite {
         quote!(drizzle::sqlite::traits::DrizzleRow)
     }
 
-    pub fn expression() -> TokenStream {
-        quote!(drizzle::sqlite::expression)
+    pub fn expressions() -> TokenStream {
+        quote!(drizzle::sqlite::expressions)
     }
 
     pub fn column_marker() -> TokenStream {

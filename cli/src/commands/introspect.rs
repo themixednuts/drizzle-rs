@@ -4,13 +4,13 @@
 
 use std::path::Path;
 
-use crate::config::{DrizzleConfig, IntrospectCasing};
+use crate::config::{Config, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
 
 /// Run the introspect command
 pub fn run(
-    config: &DrizzleConfig,
+    config: &Config,
     db_name: Option<&str>,
     init_metadata: bool,
     casing: Option<IntrospectCasing>,

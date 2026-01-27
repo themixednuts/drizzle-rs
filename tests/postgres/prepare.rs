@@ -9,7 +9,7 @@ use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_core::SQL;
 use drizzle_macros::postgres_test;
-use drizzle_postgres::{PostgresValue, params};
+use drizzle_postgres::{params, values::PostgresValue};
 
 // =============================================================================
 // Placeholder Indexing Tests (verify $1, $2, $3... are correct)

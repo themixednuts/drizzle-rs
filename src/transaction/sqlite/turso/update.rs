@@ -1,7 +1,7 @@
 use drizzle_sqlite::{
-    SQLiteValue,
     builder::{UpdateInitial, UpdateSetClauseSet, UpdateWhereSet, update::UpdateBuilder},
     traits::SQLiteTable,
+    values::SQLiteValue,
 };
 use std::marker::PhantomData;
 

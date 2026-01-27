@@ -1,6 +1,7 @@
 //! Owned PostgreSQL value types for static lifetime scenarios
 
-use crate::{PostgresValue, traits::FromPostgresValue};
+use super::PostgresValue;
+use crate::traits::FromPostgresValue;
 use drizzle_core::{SQLParam, error::DrizzleError, sql::SQL};
 use std::borrow::Cow;
 #[cfg(feature = "uuid")]

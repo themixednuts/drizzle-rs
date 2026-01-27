@@ -43,8 +43,8 @@
 //! assert_eq!(pragma.to_sql().sql(), "PRAGMA integrity_check");
 //! ```
 
-use crate::{traits::SQLiteSQL, values::SQLiteValue};
-use drizzle_core::{ToSQL, sql::SQL};
+use crate::values::SQLiteValue;
+use drizzle_core::{SQL, ToSQL};
 
 /// Auto-vacuum modes for SQLite databases
 ///
@@ -731,7 +731,7 @@ pub enum Pragma {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for AutoVacuum {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             AutoVacuum::None => SQL::raw("NONE"),
             AutoVacuum::Full => SQL::raw("FULL"),
@@ -741,7 +741,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for AutoVacuum {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for JournalMode {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             JournalMode::Delete => SQL::raw("DELETE"),
             JournalMode::Truncate => SQL::raw("TRUNCATE"),
@@ -754,7 +754,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for JournalMode {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for Synchronous {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             Synchronous::Off => SQL::raw("OFF"),
             Synchronous::Normal => SQL::raw("NORMAL"),
@@ -765,7 +765,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for Synchronous {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for TempStore {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             TempStore::Default => SQL::raw("DEFAULT"),
             TempStore::File => SQL::raw("FILE"),
@@ -775,7 +775,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for TempStore {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for LockingMode {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             LockingMode::Normal => SQL::raw("NORMAL"),
             LockingMode::Exclusive => SQL::raw("EXCLUSIVE"),
@@ -784,7 +784,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for LockingMode {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for SecureDelete {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             SecureDelete::Off => SQL::raw("OFF"),
             SecureDelete::On => SQL::raw("ON"),
@@ -794,7 +794,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for SecureDelete {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for Encoding {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             Encoding::Utf8 => SQL::raw("UTF-8"),
             Encoding::Utf16Le => SQL::raw("UTF-16LE"),
@@ -804,7 +804,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for Encoding {
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for Pragma {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
             // Read/Write Configuration Pragmas
             Pragma::ApplicationId(id) => SQL::raw(format!("PRAGMA application_id = {}", id)),

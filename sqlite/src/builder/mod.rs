@@ -7,11 +7,7 @@ pub use drizzle_core::{
 };
 
 // Local imports
-use crate::{
-    common::SQLiteSchemaType,
-    traits::{SQLiteSQL, SQLiteTable},
-    values::SQLiteValue,
-};
+use crate::{common::SQLiteSchemaType, traits::SQLiteTable, values::SQLiteValue};
 use std::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
@@ -278,7 +274,7 @@ pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
 impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
     for QueryBuilder<'a, Schema, State, Table>
 {
-    fn to_sql(&self) -> SQLiteSQL<'a> {
+    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         self.sql.clone()
     }
 }

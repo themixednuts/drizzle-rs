@@ -93,11 +93,16 @@ pub mod error {
     pub use drizzle_core::error::DrizzleError;
 }
 
-/// Schema and DDL types used by migrations.
-pub use drizzle_types as ddl;
+/// DDL types and schema definitions.
+pub mod ddl {
+    pub use drizzle_types::postgres;
+    pub use drizzle_types::sqlite;
+}
 
 /// Migration helpers and schema snapshots.
-pub use drizzle_migrations as migrations;
+pub mod migrations {
+    pub use drizzle_migrations::*;
+}
 
 /// Core traits, SQL types, and expressions shared across drivers.
 pub mod core {
@@ -136,13 +141,10 @@ pub mod sqlite {
     pub use drizzle_macros::{
         SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
     };
-    pub use drizzle_sqlite::QueryBuilder;
     pub use drizzle_sqlite::params;
     pub use drizzle_sqlite::{
-        DrizzleRow, FromSQLiteValue, SQLiteColumn, SQLiteColumnInfo, SQLiteSchemaType, SQLiteTable,
-        SQLiteTableInfo, SQLiteTransactionType, SQLiteValue,
+        attrs, builder, common, connection, expressions, helpers, pragma, traits, values,
     };
-    pub use drizzle_sqlite::{attrs, builder, common, conditions, expression, traits, values};
 
     #[cfg(feature = "rusqlite")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
@@ -167,9 +169,6 @@ pub mod sqlite {
 
     /// SQLite prelude for schema declarations.
     pub mod prelude {
-        pub use super::{
-            SQLiteColumn, SQLiteColumnInfo, SQLiteSchemaType, SQLiteTableInfo, SQLiteValue,
-        };
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use crate::core::{SQLComparable, ToSQL};
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
@@ -178,8 +177,12 @@ pub mod sqlite {
             SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
         };
         pub use drizzle_sqlite::attrs::*;
+        pub use drizzle_sqlite::common::SQLiteSchemaType;
         pub use drizzle_sqlite::params;
-        pub use drizzle_sqlite::{SQLiteInsertValue, SQLiteTable};
+        pub use drizzle_sqlite::traits::{
+            SQLiteColumn, SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo,
+        };
+        pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue};
     }
 }
 
@@ -190,20 +193,13 @@ pub mod postgres {
     pub use drizzle_macros::{
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
-    pub use drizzle_postgres::QueryBuilder;
     pub use drizzle_postgres::params;
-    pub use drizzle_postgres::{
-        DrizzleRow, FromPostgresValue, PostgresColumn, PostgresColumnInfo, PostgresEnum,
-        PostgresSchemaType, PostgresTable, PostgresTableInfo, PostgresTransactionType,
-        PostgresValue,
-    };
+    pub use drizzle_postgres::{attrs, builder, common, expressions, helpers, traits, values};
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
     pub use drizzle_postgres::Row;
     #[cfg(feature = "tokio-postgres")]
     pub use drizzle_postgres::Row;
-
-    pub use drizzle_postgres::{attrs, builder, common, traits, values};
 
     #[cfg(feature = "postgres-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
@@ -221,10 +217,6 @@ pub mod postgres {
 
     /// PostgreSQL prelude for schema declarations.
     pub mod prelude {
-        pub use super::{
-            PostgresColumn, PostgresColumnInfo, PostgresSchemaType, PostgresTableInfo,
-            PostgresValue,
-        };
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use crate::core::{SQLComparable, ToSQL};
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
@@ -234,7 +226,11 @@ pub mod postgres {
             PostgresView,
         };
         pub use drizzle_postgres::attrs::*;
-        pub use drizzle_postgres::{PostgresInsertValue, PostgresTable};
+        pub use drizzle_postgres::common::PostgresSchemaType;
+        pub use drizzle_postgres::traits::{
+            PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo,
+        };
+        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue};
     }
 }
 

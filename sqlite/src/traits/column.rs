@@ -1,6 +1,7 @@
 use drizzle_core::{SQLColumn, SQLColumnInfo};
 
-use crate::{SQLiteValue, traits::SQLiteTableInfo};
+use crate::traits::SQLiteTableInfo;
+use crate::values::SQLiteValue;
 
 pub trait SQLiteColumn<'a>: SQLColumn<'a, SQLiteValue<'a>> {
     const AUTOINCREMENT: bool = false;
