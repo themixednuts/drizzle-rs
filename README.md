@@ -5,13 +5,6 @@ A type-safe SQL query builder / ORM-ish layer for Rust, inspired by Drizzle ORM.
 > [!WARNING]
 > This project is still evolving. Expect breaking changes.
 
-## Highlights
-
-- **Type-safe SQL builder**: compile-time checked expressions and query building.
-- **Schema macros**: `#[SQLiteTable]`, `#[PostgresTable]`, `#[derive(SQLiteSchema)]`, `#[derive(PostgresSchema)]`.
-- **Multiple drivers**: rusqlite, libsql/turso, and PostgreSQL (sync + tokio).
-- **Migrations + CLI**: generate/apply migrations and introspect schema via the `drizzle` binary.
-
 ## Install
 
 ### Library
@@ -25,7 +18,7 @@ drizzle = { version = "0.1.3", features = ["rusqlite"] } # or: libsql / turso / 
 
 ### CLI
 
-Install the `drizzle` binary with all drivers enabled:
+Install the `drizzle` binary:
 
 ```bash
 cargo install drizzle-cli --locked --all-features
@@ -161,30 +154,6 @@ drizzle init -d sqlite          # dialects: sqlite, turso, postgresql, mysql, si
 drizzle generate                # generate migrations from schema changes
 drizzle migrate                 # apply pending migrations
 ```
-
-## Feature flags (library)
-
-| Feature                                     | Enables                                                    |
-| ------------------------------------------- | ---------------------------------------------------------- |
-| `sqlite`                                    | SQLite dialect module re-exports (`drizzle::sqlite`)       |
-| `postgres`                                  | PostgreSQL dialect module re-exports (`drizzle::postgres`) |
-| `rusqlite`                                  | SQLite sync driver (`drizzle::sqlite::rusqlite`)           |
-| `libsql`                                    | SQLite async driver (`drizzle::sqlite::libsql`)            |
-| `turso`                                     | Turso/LibSQL async driver (`drizzle::sqlite::turso`)       |
-| `postgres-sync`                             | PostgreSQL sync driver (`drizzle::postgres::sync`)         |
-| `tokio-postgres`                            | PostgreSQL async driver (`drizzle::postgres::tokio`)       |
-| `uuid`                                      | UUID support                                               |
-| `serde`                                     | JSON support (serde/serde_json integration)                |
-| `chrono` / `cidr` / `geo-types` / `bit-vec` | Optional PostgreSQL types                                  |
-| `arrayvec`                                  | Fixed-capacity strings/arrays support                      |
-
-## Development
-
-- **Build**: `cargo build --all-features`
-- **Test (SQLite)**: `cargo test --features "rusqlite,uuid"`
-- **Test (PostgreSQL, Docker)**: `just test-pg`
-- **Lint (nightly)**: `cargo clippy --all-features -- -D warnings`
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
