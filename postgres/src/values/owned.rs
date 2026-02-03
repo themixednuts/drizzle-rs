@@ -3,7 +3,7 @@
 use super::PostgresValue;
 use crate::traits::FromPostgresValue;
 use drizzle_core::{SQLParam, error::DrizzleError, sql::SQL};
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc, sync::Arc};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -869,15 +869,135 @@ impl From<f64> for OwnedPostgresValue {
     }
 }
 
+impl From<&str> for OwnedPostgresValue {
+    fn from(value: &str) -> Self {
+        OwnedPostgresValue::Text(value.to_string())
+    }
+}
+
+impl From<&String> for OwnedPostgresValue {
+    fn from(value: &String) -> Self {
+        OwnedPostgresValue::Text(value.clone())
+    }
+}
+
+impl From<Box<str>> for OwnedPostgresValue {
+    fn from(value: Box<str>) -> Self {
+        OwnedPostgresValue::Text(value.into())
+    }
+}
+
+impl From<&Box<str>> for OwnedPostgresValue {
+    fn from(value: &Box<str>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<Rc<str>> for OwnedPostgresValue {
+    fn from(value: Rc<str>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<&Rc<str>> for OwnedPostgresValue {
+    fn from(value: &Rc<str>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<Arc<str>> for OwnedPostgresValue {
+    fn from(value: Arc<str>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<&Arc<str>> for OwnedPostgresValue {
+    fn from(value: &Arc<str>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().to_string())
+    }
+}
+
 impl From<String> for OwnedPostgresValue {
     fn from(value: String) -> Self {
         OwnedPostgresValue::Text(value)
     }
 }
 
+impl From<Box<String>> for OwnedPostgresValue {
+    fn from(value: Box<String>) -> Self {
+        OwnedPostgresValue::Text(*value)
+    }
+}
+
+impl From<&Box<String>> for OwnedPostgresValue {
+    fn from(value: &Box<String>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<Rc<String>> for OwnedPostgresValue {
+    fn from(value: Rc<String>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<&Rc<String>> for OwnedPostgresValue {
+    fn from(value: &Rc<String>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<Arc<String>> for OwnedPostgresValue {
+    fn from(value: Arc<String>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<&Arc<String>> for OwnedPostgresValue {
+    fn from(value: &Arc<String>) -> Self {
+        OwnedPostgresValue::Text(value.as_ref().clone())
+    }
+}
+
 impl From<Vec<u8>> for OwnedPostgresValue {
     fn from(value: Vec<u8>) -> Self {
         OwnedPostgresValue::Bytea(value)
+    }
+}
+
+impl From<Box<Vec<u8>>> for OwnedPostgresValue {
+    fn from(value: Box<Vec<u8>>) -> Self {
+        OwnedPostgresValue::Bytea(*value)
+    }
+}
+
+impl From<&Box<Vec<u8>>> for OwnedPostgresValue {
+    fn from(value: &Box<Vec<u8>>) -> Self {
+        OwnedPostgresValue::Bytea(value.as_ref().clone())
+    }
+}
+
+impl From<Rc<Vec<u8>>> for OwnedPostgresValue {
+    fn from(value: Rc<Vec<u8>>) -> Self {
+        OwnedPostgresValue::Bytea(value.as_ref().clone())
+    }
+}
+
+impl From<&Rc<Vec<u8>>> for OwnedPostgresValue {
+    fn from(value: &Rc<Vec<u8>>) -> Self {
+        OwnedPostgresValue::Bytea(value.as_ref().clone())
+    }
+}
+
+impl From<Arc<Vec<u8>>> for OwnedPostgresValue {
+    fn from(value: Arc<Vec<u8>>) -> Self {
+        OwnedPostgresValue::Bytea(value.as_ref().clone())
+    }
+}
+
+impl From<&Arc<Vec<u8>>> for OwnedPostgresValue {
+    fn from(value: &Arc<Vec<u8>>) -> Self {
+        OwnedPostgresValue::Bytea(value.as_ref().clone())
     }
 }
 
@@ -1008,6 +1128,69 @@ impl TryFrom<OwnedPostgresValue> for String {
     }
 }
 
+impl TryFrom<OwnedPostgresValue> for Box<String> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        String::try_from(value).map(Box::new)
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Rc<String> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        String::try_from(value).map(Rc::new)
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Arc<String> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        String::try_from(value).map(Arc::new)
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Box<str> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::Text(s) => Ok(s.into_boxed_str()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to Box<str>", value).into(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Rc<str> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::Text(s) => Ok(Rc::from(s)),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to Rc<str>", value).into(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Arc<str> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::Text(s) => Ok(Arc::from(s)),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to Arc<str>", value).into(),
+            )),
+        }
+    }
+}
+
 impl TryFrom<OwnedPostgresValue> for Vec<u8> {
     type Error = DrizzleError;
 
@@ -1018,6 +1201,30 @@ impl TryFrom<OwnedPostgresValue> for Vec<u8> {
                 format!("Cannot convert {:?} to Vec<u8>", value).into(),
             )),
         }
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Box<Vec<u8>> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(Box::new)
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Rc<Vec<u8>> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(Rc::new)
+    }
+}
+
+impl TryFrom<OwnedPostgresValue> for Arc<Vec<u8>> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(Arc::new)
     }
 }
 

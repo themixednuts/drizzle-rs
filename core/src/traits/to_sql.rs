@@ -6,6 +6,12 @@ use crate::{
     traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
 };
 
+#[cfg(feature = "std")]
+use std::{rc::Rc, sync::Arc};
+
+#[cfg(all(feature = "alloc", not(feature = "std")))]
+use alloc::{rc::Rc, sync::Arc};
+
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -129,6 +135,73 @@ where
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self))
+    }
+}
+
+impl<'a, V> ToSQL<'a, V> for Box<str>
+where
+    V: SQLParam + 'a,
+    V: From<String>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.to_string()))
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<'a, V> ToSQL<'a, V> for Rc<str>
+where
+    V: SQLParam + 'a,
+    V: From<String>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.as_ref().to_string()))
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<'a, V> ToSQL<'a, V> for Arc<str>
+where
+    V: SQLParam + 'a,
+    V: From<String>,
+    V: Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.as_ref().to_string()))
+    }
+}
+
+impl<'a, V, T> ToSQL<'a, V> for Box<T>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        (**self).to_sql()
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<'a, V, T> ToSQL<'a, V> for Rc<T>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        (**self).to_sql()
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<'a, V, T> ToSQL<'a, V> for Arc<T>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        (**self).to_sql()
     }
 }
 

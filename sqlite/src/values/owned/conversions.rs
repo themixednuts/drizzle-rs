@@ -2,7 +2,7 @@
 
 use super::OwnedSQLiteValue;
 use drizzle_core::error::DrizzleError;
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc, sync::Arc};
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -86,6 +86,78 @@ impl From<&String> for OwnedSQLiteValue {
     }
 }
 
+impl From<Box<String>> for OwnedSQLiteValue {
+    fn from(value: Box<String>) -> Self {
+        OwnedSQLiteValue::Text(*value)
+    }
+}
+
+impl From<&Box<String>> for OwnedSQLiteValue {
+    fn from(value: &Box<String>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<Rc<String>> for OwnedSQLiteValue {
+    fn from(value: Rc<String>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<&Rc<String>> for OwnedSQLiteValue {
+    fn from(value: &Rc<String>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<Arc<String>> for OwnedSQLiteValue {
+    fn from(value: Arc<String>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<&Arc<String>> for OwnedSQLiteValue {
+    fn from(value: &Arc<String>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().clone())
+    }
+}
+
+impl From<Box<str>> for OwnedSQLiteValue {
+    fn from(value: Box<str>) -> Self {
+        OwnedSQLiteValue::Text(value.into())
+    }
+}
+
+impl From<&Box<str>> for OwnedSQLiteValue {
+    fn from(value: &Box<str>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<Rc<str>> for OwnedSQLiteValue {
+    fn from(value: Rc<str>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<&Rc<str>> for OwnedSQLiteValue {
+    fn from(value: &Rc<str>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<Arc<str>> for OwnedSQLiteValue {
+    fn from(value: Arc<str>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().to_string())
+    }
+}
+
+impl From<&Arc<str>> for OwnedSQLiteValue {
+    fn from(value: &Arc<str>) -> Self {
+        OwnedSQLiteValue::Text(value.as_ref().to_string())
+    }
+}
+
 // --- Binary Data ---
 
 impl From<&[u8]> for OwnedSQLiteValue {
@@ -103,6 +175,42 @@ impl From<Cow<'_, [u8]>> for OwnedSQLiteValue {
 impl From<Vec<u8>> for OwnedSQLiteValue {
     fn from(value: Vec<u8>) -> Self {
         OwnedSQLiteValue::Blob(value.into_boxed_slice())
+    }
+}
+
+impl From<Box<Vec<u8>>> for OwnedSQLiteValue {
+    fn from(value: Box<Vec<u8>>) -> Self {
+        OwnedSQLiteValue::Blob(value.into_boxed_slice())
+    }
+}
+
+impl From<&Box<Vec<u8>>> for OwnedSQLiteValue {
+    fn from(value: &Box<Vec<u8>>) -> Self {
+        OwnedSQLiteValue::Blob(value.as_slice().to_vec().into_boxed_slice())
+    }
+}
+
+impl From<Rc<Vec<u8>>> for OwnedSQLiteValue {
+    fn from(value: Rc<Vec<u8>>) -> Self {
+        OwnedSQLiteValue::Blob(value.as_slice().to_vec().into_boxed_slice())
+    }
+}
+
+impl From<&Rc<Vec<u8>>> for OwnedSQLiteValue {
+    fn from(value: &Rc<Vec<u8>>) -> Self {
+        OwnedSQLiteValue::Blob(value.as_slice().to_vec().into_boxed_slice())
+    }
+}
+
+impl From<Arc<Vec<u8>>> for OwnedSQLiteValue {
+    fn from(value: Arc<Vec<u8>>) -> Self {
+        OwnedSQLiteValue::Blob(value.as_slice().to_vec().into_boxed_slice())
+    }
+}
+
+impl From<&Arc<Vec<u8>>> for OwnedSQLiteValue {
+    fn from(value: &Arc<Vec<u8>>) -> Self {
+        OwnedSQLiteValue::Blob(value.as_slice().to_vec().into_boxed_slice())
     }
 }
 
@@ -185,6 +293,15 @@ impl_try_from_owned_sqlite_value!(
     f64,
     bool,
     String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
     Vec<u8>,
 );
 
@@ -270,6 +387,15 @@ impl_try_from_owned_sqlite_value_ref!(
     f64,
     bool,
     String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
     Vec<u8>,
 );
 

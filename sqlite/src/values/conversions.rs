@@ -2,7 +2,7 @@
 
 use super::{OwnedSQLiteValue, SQLiteValue};
 use drizzle_core::{error::DrizzleError, sql::SQL, traits::ToSQL};
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc, sync::Arc};
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -154,6 +154,78 @@ impl<'a> From<&'a String> for SQLiteValue<'a> {
     }
 }
 
+impl<'a> From<Box<String>> for SQLiteValue<'a> {
+    fn from(value: Box<String>) -> Self {
+        SQLiteValue::Text(Cow::Owned(*value))
+    }
+}
+
+impl<'a> From<&'a Box<String>> for SQLiteValue<'a> {
+    fn from(value: &'a Box<String>) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_str()))
+    }
+}
+
+impl<'a> From<Rc<String>> for SQLiteValue<'a> {
+    fn from(value: Rc<String>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.as_ref().clone()))
+    }
+}
+
+impl<'a> From<&'a Rc<String>> for SQLiteValue<'a> {
+    fn from(value: &'a Rc<String>) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_str()))
+    }
+}
+
+impl<'a> From<Arc<String>> for SQLiteValue<'a> {
+    fn from(value: Arc<String>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.as_ref().clone()))
+    }
+}
+
+impl<'a> From<&'a Arc<String>> for SQLiteValue<'a> {
+    fn from(value: &'a Arc<String>) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_str()))
+    }
+}
+
+impl<'a> From<Box<str>> for SQLiteValue<'a> {
+    fn from(value: Box<str>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.into()))
+    }
+}
+
+impl<'a> From<&'a Box<str>> for SQLiteValue<'a> {
+    fn from(value: &'a Box<str>) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_ref()))
+    }
+}
+
+impl<'a> From<Rc<str>> for SQLiteValue<'a> {
+    fn from(value: Rc<str>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.as_ref().to_string()))
+    }
+}
+
+impl<'a> From<&'a Rc<str>> for SQLiteValue<'a> {
+    fn from(value: &'a Rc<str>) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_ref()))
+    }
+}
+
+impl<'a> From<Arc<str>> for SQLiteValue<'a> {
+    fn from(value: Arc<str>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.as_ref().to_string()))
+    }
+}
+
+impl<'a> From<&'a Arc<str>> for SQLiteValue<'a> {
+    fn from(value: &'a Arc<str>) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_ref()))
+    }
+}
+
 // --- ArrayString ---
 
 #[cfg(feature = "arrayvec")]
@@ -187,6 +259,42 @@ impl<'a> From<Cow<'a, [u8]>> for SQLiteValue<'a> {
 impl<'a> From<Vec<u8>> for SQLiteValue<'a> {
     fn from(value: Vec<u8>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value))
+    }
+}
+
+impl<'a> From<Box<Vec<u8>>> for SQLiteValue<'a> {
+    fn from(value: Box<Vec<u8>>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(*value))
+    }
+}
+
+impl<'a> From<&'a Box<Vec<u8>>> for SQLiteValue<'a> {
+    fn from(value: &'a Box<Vec<u8>>) -> Self {
+        SQLiteValue::Blob(Cow::Borrowed(value.as_slice()))
+    }
+}
+
+impl<'a> From<Rc<Vec<u8>>> for SQLiteValue<'a> {
+    fn from(value: Rc<Vec<u8>>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.as_ref().clone()))
+    }
+}
+
+impl<'a> From<&'a Rc<Vec<u8>>> for SQLiteValue<'a> {
+    fn from(value: &'a Rc<Vec<u8>>) -> Self {
+        SQLiteValue::Blob(Cow::Borrowed(value.as_slice()))
+    }
+}
+
+impl<'a> From<Arc<Vec<u8>>> for SQLiteValue<'a> {
+    fn from(value: Arc<Vec<u8>>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.as_ref().clone()))
+    }
+}
+
+impl<'a> From<&'a Arc<Vec<u8>>> for SQLiteValue<'a> {
+    fn from(value: &'a Arc<Vec<u8>>) -> Self {
+        SQLiteValue::Blob(Cow::Borrowed(value.as_slice()))
     }
 }
 
@@ -284,6 +392,15 @@ impl_try_from_sqlite_value!(
     f64,
     bool,
     String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
     Vec<u8>,
 );
 
@@ -326,6 +443,15 @@ impl_try_from_sqlite_value_ref!(
     f64,
     bool,
     String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
     Vec<u8>,
 );
 

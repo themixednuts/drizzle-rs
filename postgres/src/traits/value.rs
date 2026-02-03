@@ -8,6 +8,7 @@
 
 use crate::values::{OwnedPostgresValue, PostgresValue};
 use drizzle_core::error::DrizzleError;
+use std::{rc::Rc, sync::Arc};
 
 /// Trait for types that can be converted from PostgreSQL values.
 ///
@@ -532,6 +533,210 @@ impl FromPostgresValue for String {
     }
 }
 
+impl FromPostgresValue for Box<String> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        String::from_postgres_bool(value).map(Box::new)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        String::from_postgres_i16(value).map(Box::new)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        String::from_postgres_i32(value).map(Box::new)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        String::from_postgres_i64(value).map(Box::new)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        String::from_postgres_f32(value).map(Box::new)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        String::from_postgres_f64(value).map(Box::new)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_postgres_text(value).map(Box::new)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_postgres_bytes(value).map(Box::new)
+    }
+}
+
+impl FromPostgresValue for Rc<String> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        String::from_postgres_bool(value).map(Rc::new)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        String::from_postgres_i16(value).map(Rc::new)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        String::from_postgres_i32(value).map(Rc::new)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        String::from_postgres_i64(value).map(Rc::new)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        String::from_postgres_f32(value).map(Rc::new)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        String::from_postgres_f64(value).map(Rc::new)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_postgres_text(value).map(Rc::new)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_postgres_bytes(value).map(Rc::new)
+    }
+}
+
+impl FromPostgresValue for Arc<String> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        String::from_postgres_bool(value).map(Arc::new)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        String::from_postgres_i16(value).map(Arc::new)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        String::from_postgres_i32(value).map(Arc::new)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        String::from_postgres_i64(value).map(Arc::new)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        String::from_postgres_f32(value).map(Arc::new)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        String::from_postgres_f64(value).map(Arc::new)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_postgres_text(value).map(Arc::new)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_postgres_bytes(value).map(Arc::new)
+    }
+}
+
+impl FromPostgresValue for Box<str> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        String::from_postgres_bool(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        String::from_postgres_i16(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        String::from_postgres_i32(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        String::from_postgres_i64(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        String::from_postgres_f32(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        String::from_postgres_f64(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_postgres_text(value).map(String::into_boxed_str)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_postgres_bytes(value).map(String::into_boxed_str)
+    }
+}
+
+impl FromPostgresValue for Rc<str> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        String::from_postgres_bool(value).map(Rc::from)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        String::from_postgres_i16(value).map(Rc::from)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        String::from_postgres_i32(value).map(Rc::from)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        String::from_postgres_i64(value).map(Rc::from)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        String::from_postgres_f32(value).map(Rc::from)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        String::from_postgres_f64(value).map(Rc::from)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_postgres_text(value).map(Rc::from)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_postgres_bytes(value).map(Rc::from)
+    }
+}
+
+impl FromPostgresValue for Arc<str> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        String::from_postgres_bool(value).map(Arc::from)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        String::from_postgres_i16(value).map(Arc::from)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        String::from_postgres_i32(value).map(Arc::from)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        String::from_postgres_i64(value).map(Arc::from)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        String::from_postgres_f32(value).map(Arc::from)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        String::from_postgres_f64(value).map(Arc::from)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_postgres_text(value).map(Arc::from)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_postgres_bytes(value).map(Arc::from)
+    }
+}
+
 impl FromPostgresValue for Vec<u8> {
     fn from_postgres_bool(_value: bool) -> Result<Self, DrizzleError> {
         Err(DrizzleError::ConversionError(
@@ -565,6 +770,108 @@ impl FromPostgresValue for Vec<u8> {
 
     fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
         Ok(value.to_vec())
+    }
+}
+
+impl FromPostgresValue for Box<Vec<u8>> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bool(value).map(Box::new)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i16(value).map(Box::new)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i32(value).map(Box::new)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i64(value).map(Box::new)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f32(value).map(Box::new)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f64(value).map(Box::new)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_text(value).map(Box::new)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bytes(value).map(Box::new)
+    }
+}
+
+impl FromPostgresValue for Rc<Vec<u8>> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bool(value).map(Rc::new)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i16(value).map(Rc::new)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i32(value).map(Rc::new)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i64(value).map(Rc::new)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f32(value).map(Rc::new)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f64(value).map(Rc::new)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_text(value).map(Rc::new)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bytes(value).map(Rc::new)
+    }
+}
+
+impl FromPostgresValue for Arc<Vec<u8>> {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bool(value).map(Arc::new)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i16(value).map(Arc::new)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i32(value).map(Arc::new)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i64(value).map(Arc::new)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f32(value).map(Arc::new)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f64(value).map(Arc::new)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_text(value).map(Arc::new)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bytes(value).map(Arc::new)
     }
 }
 

@@ -4,6 +4,7 @@
 //! to Rust types, and the `DrizzleRow` trait for unified row access across drivers.
 
 use drizzle_core::error::DrizzleError;
+use std::{rc::Rc, sync::Arc};
 
 /// Trait for types that can be converted from SQLite values.
 ///
@@ -211,6 +212,114 @@ impl FromSQLiteValue for String {
     }
 }
 
+impl FromSQLiteValue for Box<String> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_integer(value).map(Box::new)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_sqlite_text(value).map(Box::new)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_real(value).map(Box::new)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_sqlite_blob(value).map(Box::new)
+    }
+}
+
+impl FromSQLiteValue for Rc<String> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_integer(value).map(Rc::new)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_sqlite_text(value).map(Rc::new)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_real(value).map(Rc::new)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_sqlite_blob(value).map(Rc::new)
+    }
+}
+
+impl FromSQLiteValue for Arc<String> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_integer(value).map(Arc::new)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_sqlite_text(value).map(Arc::new)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_real(value).map(Arc::new)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_sqlite_blob(value).map(Arc::new)
+    }
+}
+
+impl FromSQLiteValue for Box<str> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_integer(value).map(String::into_boxed_str)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_sqlite_text(value).map(String::into_boxed_str)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_real(value).map(String::into_boxed_str)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_sqlite_blob(value).map(String::into_boxed_str)
+    }
+}
+
+impl FromSQLiteValue for Rc<str> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_integer(value).map(Rc::from)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_sqlite_text(value).map(Rc::from)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_real(value).map(Rc::from)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_sqlite_blob(value).map(Rc::from)
+    }
+}
+
+impl FromSQLiteValue for Arc<str> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_integer(value).map(Arc::from)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        String::from_sqlite_text(value).map(Arc::from)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        String::from_sqlite_real(value).map(Arc::from)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        String::from_sqlite_blob(value).map(Arc::from)
+    }
+}
+
 impl FromSQLiteValue for Vec<u8> {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
         Ok(value.to_le_bytes().to_vec())
@@ -226,6 +335,60 @@ impl FromSQLiteValue for Vec<u8> {
 
     fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
         Ok(value.to_vec())
+    }
+}
+
+impl FromSQLiteValue for Box<Vec<u8>> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_integer(value).map(Box::new)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_text(value).map(Box::new)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_real(value).map(Box::new)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_blob(value).map(Box::new)
+    }
+}
+
+impl FromSQLiteValue for Rc<Vec<u8>> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_integer(value).map(Rc::new)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_text(value).map(Rc::new)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_real(value).map(Rc::new)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_blob(value).map(Rc::new)
+    }
+}
+
+impl FromSQLiteValue for Arc<Vec<u8>> {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_integer(value).map(Arc::new)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_text(value).map(Arc::new)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_real(value).map(Arc::new)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_blob(value).map(Arc::new)
     }
 }
 
