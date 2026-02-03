@@ -24,9 +24,10 @@ pub struct Placeholder {
 impl Placeholder {
     /// Creates a named placeholder.
     ///
-    /// The actual SQL syntax is determined by the `Dialect` at render time:
-    /// - PostgreSQL: `$1`, `$2`, ...
-    /// - SQLite/MySQL: `?`
+    /// The name is used for binding; rendering is dialect-specific:
+    /// - PostgreSQL: `$1`, `$2`, ... (name ignored)
+    /// - SQLite: `:name` for named placeholders, `?` for positional
+    /// - MySQL: `?` (name ignored)
     pub const fn named(name: &'static str) -> Self {
         Placeholder { name: Some(name) }
     }
@@ -39,6 +40,10 @@ impl Placeholder {
     }
 
     /// Renders this placeholder for the given dialect and 1-based index.
+    ///
+    /// Note: this ignores the placeholder name and uses dialect positional
+    /// syntax. `SQL::write_to` handles SQLite `:name` placeholders when
+    /// rendering full SQL.
     #[inline]
     pub fn render(&self, dialect: Dialect, index: usize) -> Cow<'static, str> {
         dialect.render_placeholder(index)

@@ -17,18 +17,19 @@ pub use drizzle_core::ParamBind;
 /// Creates an array of SQL parameters for binding values to placeholders.
 ///
 /// # Syntax
-/// - `{ name: value }` - Colon parameter (creates :name placeholder)
+/// - `{ name: value }` - Named parameter (creates :name placeholder)
+/// - `value` - Positional parameter (creates next positional placeholder)
 ///
 /// # Examples
 ///
 /// ```
 /// use drizzle_sqlite::params;
 ///
-/// let params = params![{ name: "alice" }, { active: true }];
+/// let params = params![{ name: "alice" }, true];
 /// ```
 #[macro_export]
 macro_rules! params {
-    // Multiple parameters - creates a fixed-size array of Param structs
+    // Multiple parameters - creates a fixed-size array of ParamBind values
     [$($param:tt),+ $(,)?] => {
         [
             $(
@@ -38,10 +39,10 @@ macro_rules! params {
     };
 }
 
-/// Internal helper macro for params! - converts individual items to Param structs
+/// Internal helper macro for params! - converts individual items to ParamBind values
 #[macro_export]
 macro_rules! params_internal {
-    // Colon-style named parameter
+    // Named parameter
     ({ $key:ident: $value:expr }) => {
         $crate::ParamBind::named(stringify!($key), $crate::values::SQLiteValue::from($value))
     };

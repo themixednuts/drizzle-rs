@@ -200,7 +200,7 @@ where
 /// let condition = json_text_contains(column, "$.description", "user");
 /// assert_eq!(
 ///     condition.sql(),
-///     "instr(lower(json_extract( metadata , '$.description'))), lower( ? )) > 0"
+///     "instr(lower(json_extract( metadata , '$.description')), lower( ? )) > 0"
 /// );
 /// # }
 /// ```
@@ -211,7 +211,7 @@ where
 {
     SQL::raw("instr(lower(json_extract(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}'))), lower(", path)))
+        .append(SQL::raw(format!(", '{}')), lower(", path)))
         .append(value.to_sql())
         .append(SQL::raw(")) > 0"))
 }

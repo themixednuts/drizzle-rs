@@ -229,6 +229,7 @@ pub mod postgres {
         };
         pub use drizzle_postgres::attrs::*;
         pub use drizzle_postgres::common::PostgresSchemaType;
+        pub use drizzle_postgres::params;
         pub use drizzle_postgres::traits::{
             PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo,
         };

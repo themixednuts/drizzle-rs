@@ -4,14 +4,14 @@
 //! For standard SQL expressions, use `drizzle_core::expr`.
 
 use crate::values::PostgresValue;
-use drizzle_core::{SQL, traits::ToSQL};
+use drizzle_core::{SQL, ToSQL};
 
 /// Case-insensitive LIKE pattern matching (PostgreSQL-specific)
 ///
 /// # Example
 ///
 /// ```ignore
-/// use drizzle::postgres::expressions::ilike;
+/// use drizzle_postgres::expressions::ilike;
 ///
 /// let query = ilike(user.name, "%john%");
 /// // Generates: "name" ILIKE '%john%'
@@ -32,7 +32,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// use drizzle::postgres::expressions::not_ilike;
+/// use drizzle_postgres::expressions::not_ilike;
 ///
 /// let query = not_ilike(user.name, "%admin%");
 /// // Generates: "name" NOT ILIKE '%admin%'

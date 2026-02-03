@@ -17,9 +17,9 @@
 //! ```
 
 use crate::values::PostgresValue;
+use drizzle_core::ToSQL;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
 use drizzle_core::sql::SQLChunk;
-use drizzle_core::traits::ToSQL;
 use drizzle_core::types::Bool;
 
 /// PostgreSQL `@>` operator - array contains.

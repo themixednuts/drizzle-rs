@@ -24,13 +24,14 @@ pub use drizzle_core::ParamBind;
 ///
 /// # Syntax
 /// - `{ name: value }` - Named parameter (creates :name placeholder)
+/// - `value` - Positional parameter (creates next positional placeholder)
 ///
 /// # Examples
 ///
 /// ```
 /// use drizzle_postgres::params;
 ///
-/// let params = params![{ name: "alice" }, { active: true }];
+/// let params = params![{ name: "alice" }, true];
 /// ```
 #[macro_export]
 macro_rules! params {
@@ -43,7 +44,7 @@ macro_rules! params {
     };
 }
 
-/// Internal helper macro for params!
+/// Internal helper macro for params! - converts items to ParamBind values
 #[macro_export]
 macro_rules! params_internal {
     ({ $key:ident: $value:expr }) => {

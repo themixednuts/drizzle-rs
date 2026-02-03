@@ -6,7 +6,7 @@ use crate::dialect::Dialect;
 /// It ensures type safety when building SQL queries with parameters.
 pub trait SQLParam: Clone + core::fmt::Debug {
     /// The SQL dialect for this parameter type
-    /// Default is SQLite (uses `?` placeholders)
+    /// Default is SQLite (uses `?` or `:name` placeholders)
     const DIALECT: Dialect = Dialect::SQLite;
 }
 

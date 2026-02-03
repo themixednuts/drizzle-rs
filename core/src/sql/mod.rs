@@ -249,7 +249,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Returns the SQL string with dialect-appropriate placeholders
-    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL
+    /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL
     pub fn sql(&self) -> String {
         #[cfg(feature = "profiling")]
         profile_sql!("sql");

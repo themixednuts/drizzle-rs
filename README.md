@@ -13,7 +13,7 @@ Pick a database driver feature (drivers imply the corresponding dialect module):
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1.3", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
+drizzle = { version = "0.1.4", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
 ```
 
 ### CLI
