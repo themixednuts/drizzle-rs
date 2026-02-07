@@ -165,6 +165,7 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
 /// Pre-render SQL by processing chunks and separating text from parameters
 pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a, V> {
     use crate::dialect::Dialect;
+    use crate::sql::chunk_needs_space;
 
     let mut text_segments = Vec::new();
     let mut params = Vec::new();
@@ -182,13 +183,13 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
             }
         }
 
-        // Add space if needed between chunks (matching chunk_needs_space logic)
-        if let Some(next) = sql.chunks.get(i + 1) {
-            // Check if we need spacing between these chunks
-            let needs_space = chunk_needs_space_for_prepare(chunk, next, &current_text);
-            if needs_space {
-                current_text.push(' ');
-            }
+        // Use the canonical spacing logic, with an extra check for trailing spaces
+        // already in the accumulated text buffer
+        if let Some(next) = sql.chunks.get(i + 1)
+            && !current_text.ends_with(' ')
+            && chunk_needs_space(chunk, next)
+        {
+            current_text.push(' ');
         }
     }
 
@@ -213,26 +214,4 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
         params,
         sql: rendered_sql,
     }
-}
-
-/// Check if space is needed between chunks during prepare_render
-fn chunk_needs_space_for_prepare<V: SQLParam>(
-    current: &SQLChunk<'_, V>,
-    next: &SQLChunk<'_, V>,
-    current_text: &str,
-) -> bool {
-    // No space if current text already ends with space
-    if current_text.ends_with(' ') {
-        return false;
-    }
-
-    // No space if next raw text starts with space
-    if let SQLChunk::Raw(text) = next
-        && text.starts_with(' ')
-    {
-        return false;
-    }
-
-    // Space between word-like chunks
-    current.is_word_like() && next.is_word_like()
 }

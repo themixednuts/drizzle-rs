@@ -29,7 +29,7 @@ pub struct SQL<'a, V: SQLParam> {
 }
 
 impl<'a, V: SQLParam> SQL<'a, V> {
-    const POSITIONAL_PLACEHOLDER: Placeholder = Placeholder::positional();
+    const POSITIONAL_PLACEHOLDER: Placeholder = Placeholder::anonymous();
 
     // ==================== constructors ====================
 
@@ -108,7 +108,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Param(Param {
                 value: None,
-                placeholder: Placeholder::colon(name),
+                placeholder: Placeholder::named(name),
             })],
         }
     }
@@ -151,10 +151,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     pub fn append(mut self, other: impl Into<SQL<'a, V>>) -> Self {
         #[cfg(feature = "profiling")]
         profile_sql!("append");
-        let mut other = other.into();
+        let other = other.into();
         if !other.chunks.is_empty() {
             self.chunks.reserve(other.chunks.len());
-            self.chunks.extend(other.chunks.drain(..));
+            self.chunks.extend(other.chunks);
         }
         self
     }
@@ -189,14 +189,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             return SQL::empty();
         };
 
-        let mut result = first.to_sql();
+        let mut result = first.into_sql();
         let (lower, _) = iter.size_hint();
         if lower > 0 {
             // Reserve at least space for separators and minimal chunk growth.
             result.chunks.reserve(lower * 2);
         }
         for item in iter {
-            result = result.push(separator).append(item.to_sql());
+            result = result.push(separator).append(item.into_sql());
         }
         result
     }
@@ -218,43 +218,74 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         self.push(Token::AS).push(SQLChunk::Ident(name.into()))
     }
 
-    /// Creates a comma-separated list of parameters
+    /// Creates a comma-separated list of parameters.
+    /// Builds chunks directly without intermediate SQL allocations.
     pub fn param_list<I>(values: I) -> Self
     where
         I: IntoIterator,
         I::Item: Into<Cow<'a, V>>,
     {
-        Self::join(values.into_iter().map(Self::param), Token::COMMA)
+        let iter = values.into_iter();
+        let (lower, _) = iter.size_hint();
+        let mut chunks = SmallVec::with_capacity(lower.saturating_mul(2));
+        for (i, v) in iter.enumerate() {
+            if i > 0 {
+                chunks.push(SQLChunk::Token(Token::COMMA));
+            }
+            chunks.push(SQLChunk::Param(Param {
+                value: Some(v.into()),
+                placeholder: Self::POSITIONAL_PLACEHOLDER,
+            }));
+        }
+        SQL { chunks }
     }
 
     /// Creates a comma-separated list of column assignments: "col" = ?
+    /// Builds chunks directly without intermediate SQL allocations.
     pub fn assignments<I, T>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (&'static str, T)>,
         T: Into<Cow<'a, V>>,
     {
-        Self::join(
-            pairs
-                .into_iter()
-                .map(|(col, val)| SQL::ident(col).push(Token::EQ).append(SQL::param(val))),
-            Token::COMMA,
-        )
+        let iter = pairs.into_iter();
+        let (lower, _) = iter.size_hint();
+        // Each assignment: Ident + EQ + Param = 3 chunks, plus commas
+        let mut chunks = SmallVec::with_capacity(lower.saturating_mul(4));
+        for (i, (col, val)) in iter.enumerate() {
+            if i > 0 {
+                chunks.push(SQLChunk::Token(Token::COMMA));
+            }
+            chunks.push(SQLChunk::Ident(Cow::Borrowed(col)));
+            chunks.push(SQLChunk::Token(Token::EQ));
+            chunks.push(SQLChunk::Param(Param {
+                value: Some(val.into()),
+                placeholder: Self::POSITIONAL_PLACEHOLDER,
+            }));
+        }
+        SQL { chunks }
     }
 
     /// Creates a comma-separated list of column assignments from pre-built SQL fragments: "col" = <sql>
     ///
     /// Unlike `assignments()` which wraps each value in `SQL::param()`, this variant
     /// accepts pre-built `SQL` fragments, preserving placeholders and raw expressions.
+    /// Builds chunks directly without intermediate SQL allocations.
     pub fn assignments_sql<I>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (&'static str, SQL<'a, V>)>,
     {
-        Self::join(
-            pairs
-                .into_iter()
-                .map(|(col, sql)| SQL::ident(col).push(Token::EQ).append(sql)),
-            Token::COMMA,
-        )
+        let iter = pairs.into_iter();
+        let (lower, _) = iter.size_hint();
+        let mut chunks = SmallVec::with_capacity(lower.saturating_mul(4));
+        for (i, (col, sql)) in iter.enumerate() {
+            if i > 0 {
+                chunks.push(SQLChunk::Token(Token::COMMA));
+            }
+            chunks.push(SQLChunk::Ident(Cow::Borrowed(col)));
+            chunks.push(SQLChunk::Token(Token::EQ));
+            chunks.extend(sql.chunks);
+        }
+        SQL { chunks }
     }
 
     // ==================== output methods ====================
@@ -369,7 +400,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         const PLACEHOLDER_SIZE: usize = 2;
         const IDENT_OVERHEAD: usize = 2;
         const COLUMN_OVERHEAD: usize = 5;
-        const ALIAS_OVERHEAD: usize = 6;
 
         self.chunks
             .iter()
@@ -380,15 +410,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 SQLChunk::Param { .. } => PLACEHOLDER_SIZE,
                 SQLChunk::Table(t) => t.name().len() + IDENT_OVERHEAD,
                 SQLChunk::Column(c) => c.table().name().len() + c.name().len() + COLUMN_OVERHEAD,
-                SQLChunk::Alias { inner, alias } => {
-                    alias.len()
-                        + ALIAS_OVERHEAD
-                        + match inner.as_ref() {
-                            SQLChunk::Ident(s) => s.len() + IDENT_OVERHEAD,
-                            SQLChunk::Raw(s) => s.len(),
-                            _ => 10,
-                        }
-                }
             })
             .sum::<usize>()
             + self.chunks.len()
@@ -455,8 +476,9 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 }
 
-/// Simplified spacing logic
-fn chunk_needs_space<V: SQLParam>(current: &SQLChunk<'_, V>, next: &SQLChunk<'_, V>) -> bool {
+/// Canonical spacing logic for SQL chunk rendering.
+/// Used by both `SQL::write_to()` and `prepare_render()`.
+pub(crate) fn chunk_needs_space<V: SQLParam>(current: &SQLChunk<'_, V>, next: &SQLChunk<'_, V>) -> bool {
     // No space if current raw text ends with space
     if let SQLChunk::Raw(text) = current
         && text.ends_with(' ')
@@ -527,6 +549,10 @@ impl<'a, V: SQLParam + core::fmt::Display> Display for SQL<'a, V> {
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for SQL<'a, V> {
     fn to_sql(&self) -> SQL<'a, V> {
         self.clone()
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self
     }
 }
 
