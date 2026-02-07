@@ -101,7 +101,7 @@ fn generate_model_trait_impls(
             type Partial = #select_model_partial;
         }
 
-        impl<'a> #sql_model<'a, #postgres_value<'a>> for #update_model {
+        impl<'a> #sql_model<'a, #postgres_value<'a>> for #update_model<'a> {
             fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
@@ -109,13 +109,12 @@ fn generate_model_trait_impls(
             }
 
             fn values(&self) -> #sql<'a, #postgres_value<'a>> {
-                // Note: Update model's to_sql() uses SQL::assignments() directly
-                // This method is not typically used for updates
+                // Update model uses assignments_sql() via ToSQL; values() returns empty
                 #sql::empty()
             }
         }
 
-        // ToSQL impl for Update model is generated in update.rs using SQL::assignments()
+        // ToSQL impl for Update model is generated in update.rs using SQL::assignments_sql()
 
         #partial_impl
 

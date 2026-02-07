@@ -369,7 +369,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         struct_ident,
         quote! { #select_model_ident },
         quote! { #insert_model_ident<'a, T> },
-        quote! { #update_model_ident },
+        quote! { #update_model_ident<'a> },
         quote! { #aliased_table_ident },
     );
     let postgres_table_impl = generate_postgres_table(struct_ident);

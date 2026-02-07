@@ -24,20 +24,18 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
     let MacroContext {
         field_infos,
         select_model_ident,
-        update_model_ident,
         ..
     } = ctx;
 
-    let (select, update, partial) = field_infos
+    let (select, partial) = field_infos
         .iter()
         .map(|info| {
             Ok((
                 generate_field_from_row(info)?,
-                generate_update_field_from_row(info)?,
                 generate_partial_field_from_row(info)?,
             ))
         })
-        .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
+        .collect::<Result<(Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #select_model_ident {
@@ -65,22 +63,9 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         }
     };
 
-    let update_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #update_model_ident {
-            type Error = #drizzle_error;
-
-            fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#update)*
-                })
-            }
-        }
-    };
-
     Ok(quote! {
         #select_model_try_from_impl
         #partial_select_model_try_from_impl
-        #update_model_try_from_impl
     })
 }
 
@@ -127,35 +112,6 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
             },
         })
     }
-}
-
-/// Generate field conversion for UpdateModel (always wraps in Some)
-fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
-    let from_sqlite_value = paths::sqlite::from_sqlite_value();
-    let name = info.ident;
-    let column_name = &info.column_name;
-    let base_type = info.base_type;
-
-    // JSON fields use rusqlite's FromSql directly
-    if info.type_category() == TypeCategory::Json {
-        if !cfg!(feature = "serde") {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::json::SERDE_REQUIRED,
-            ));
-        }
-        return Ok(quote! {
-            #name: Some(row.get(#column_name)?),
-        });
-    }
-
-    // Update models wrap all values in Some()
-    Ok(quote! {
-        #name: {
-            let value_ref = row.get_ref(#column_name)?;
-            Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?)
-        },
-    })
 }
 
 /// Generate field conversion for PartialSelectModel (all fields are Option<T>)

@@ -755,7 +755,9 @@ fn select_type(base_type: &Type, is_nullable: bool, has_default: bool) -> TokenS
 
 /// Generate the appropriate type for update models
 fn update_type(base_type: &Type) -> TokenStream {
-    quote!(::std::option::Option<#base_type>)
+    let sqlite_update_value = crate::paths::sqlite::sqlite_update_value();
+    let sqlite_value = crate::paths::sqlite::sqlite_value();
+    quote!(#sqlite_update_value<'a, #sqlite_value<'a>, #base_type>)
 }
 
 impl<'a> FieldInfo<'a> {

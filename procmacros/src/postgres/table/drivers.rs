@@ -247,69 +247,6 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
     }
 }
 
-/// Generate field conversion for UPDATE model.
-///
-/// In update models, ALL fields are Option<BaseType>. We get the base type value
-/// from the row and wrap it in Some().
-fn generate_update_field_conversion(info: &FieldInfo) -> TokenStream {
-    let drizzle_error = paths::core::drizzle_error();
-    let name = &info.ident;
-    let name_str = name.to_string();
-    let base_type = &info.base_type;
-    let type_category = TypeCategory::from_type(base_type);
-
-    // Determine if we need special handling via FromPostgresValue
-    let needs_from_postgres_value = matches!(
-        type_category,
-        TypeCategory::ArrayString | TypeCategory::ArrayVec
-    );
-
-    // Handle enums - check column type for storage format, then wrap in Some()
-    if info.is_enum || info.is_pgenum {
-        let is_integer_enum = info.is_enum && is_integer_column(&info.column_type);
-
-        if is_integer_enum {
-            // Integer-stored enum
-            quote! {
-                #name: {
-                    let v: i32 = row.get::<_, i32>(#name_str);
-                    Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?)
-                },
-            }
-        } else {
-            // Text-stored or native pg enum
-            quote! {
-                #name: {
-                    let s: String = row.get::<_, String>(#name_str);
-                    Some(s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?)
-                },
-            }
-        }
-    } else if needs_from_postgres_value {
-        // Use DrizzleRow for FromPostgresValue types
-        quote! {
-            #name: {
-                use drizzle::postgres::traits::DrizzleRow;
-                Some(DrizzleRow::get_column_by_name::<#base_type>(row, #name_str)?)
-            },
-        }
-    } else if info.is_json && type_category != TypeCategory::Json {
-        // JSON/JSONB with custom struct (not serde_json::Value)
-        // Read as serde_json::Value and deserialize to target type
-        quote! {
-            #name: {
-                let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#name_str);
-                Some(::serde_json::from_value(json_val).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?)
-            },
-        }
-    } else {
-        // Standard types - get base_type (not the original ty which might be Option<T>)
-        quote! {
-            #name: Some(row.get::<_, #base_type>(#name_str)),
-        }
-    }
-}
-
 // =============================================================================
 // Public API
 // =============================================================================
@@ -326,7 +263,6 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         field_infos,
         select_model_ident,
         select_model_partial_ident,
-        update_model_ident,
         ..
     } = ctx;
 
@@ -338,11 +274,6 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
     let partial_field_inits: Vec<_> = field_infos
         .iter()
         .map(generate_partial_field_conversion)
-        .collect();
-
-    let update_field_inits: Vec<_> = field_infos
-        .iter()
-        .map(generate_update_field_conversion)
         .collect();
 
     // Generate implementation using drizzle::postgres::Row which re-exports
@@ -364,16 +295,6 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
             fn try_from(row: &drizzle::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#partial_field_inits)*
-                })
-            }
-        }
-
-        impl ::std::convert::TryFrom<&drizzle::postgres::Row> for #update_model_ident {
-            type Error = #drizzle_error;
-
-            fn try_from(row: &drizzle::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#update_field_inits)*
                 })
             }
         }

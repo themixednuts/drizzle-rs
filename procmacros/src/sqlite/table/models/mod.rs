@@ -56,14 +56,6 @@ fn generate_model_trait_impls(
     let sql_table_info = core_paths::sql_table_info();
     let sqlite_value = sqlite_paths::sqlite_value();
 
-    // Collect field names for update model
-    let mut update_field_names = Vec::new();
-
-    for info in ctx.field_infos.iter() {
-        let name = info.ident;
-        update_field_names.push(name);
-    }
-
     let partial_impl = quote! {
         impl<'a> #sql_model<'a, #sqlite_value<'a>> for #select_model_partial {
             fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
@@ -108,7 +100,7 @@ fn generate_model_trait_impls(
             type Partial = #select_model_partial;
         }
 
-        impl<'a> #sql_model<'a, #sqlite_value<'a>> for #update_model {
+        impl<'a> #sql_model<'a, #sqlite_value<'a>> for #update_model<'a> {
             fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();
@@ -116,18 +108,12 @@ fn generate_model_trait_impls(
             }
 
             fn values(&self) -> #sql<'a, #sqlite_value<'a>> {
-                let mut values = ::std::vec::Vec::new();
-                // For Update model, only include values that are Some()
-                #(
-                    if let ::std::option::Option::Some(val) = &self.#update_field_names {
-                        values.push(val.clone().try_into().unwrap_or(#sqlite_value::Null));
-                    }
-                )*
-                #sql::param_list(values)
+                // Update model uses assignments_sql() via ToSQL; values() returns empty
+                #sql::empty()
             }
         }
 
-        // ToSQL impl for Update model is generated in update.rs using SQL::assignments()
+        // ToSQL impl for Update model is generated in update.rs using SQL::assignments_sql()
 
         #partial_impl
 

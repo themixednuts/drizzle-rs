@@ -12,20 +12,18 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
         field_infos,
         select_model_ident,
         select_model_partial_ident,
-        update_model_ident,
         ..
     } = ctx;
 
-    let (select, update, partial) = field_infos
+    let (select, partial) = field_infos
         .iter()
         .map(|info| {
             Ok((
                 generate_field_from_row(info)?,
-                generate_update_field_from_row(info)?,
                 generate_partial_field_from_row(info)?,
             ))
         })
-        .collect::<Result<(Vec<_>, Vec<_>, Vec<_>)>>()?;
+        .collect::<Result<(Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #select_model_ident {
@@ -53,24 +51,10 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
-    let update_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::sqlx::postgres::PgRow> for #update_model_ident {
-            type Error = #drizzle_error;
-
-            fn try_from(row: &::sqlx::postgres::PgRow) -> ::std::result::Result<Self, Self::Error> {
-                use ::sqlx::Row;
-                Ok(Self {
-                    #(#update)*
-                })
-            }
-        }
-    };
-
     // Final return with all implementations combined
     Ok(quote! {
         #select_model_try_from_impl
         #partial_select_model_try_from_impl
-        #update_model_try_from_impl
     })
 }
 
@@ -262,24 +246,6 @@ fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     // For partial selects, all fields are Option<T>
     Ok(quote! {
         #name: row.try_get(#column_name).unwrap_or_default(),
-    })
-}
-
-/// Generate update model field assignment (always wraps values in Some() for Option fields)
-fn generate_update_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
-    let name = &info.name;
-    let column_name = &info.name.to_string();
-
-    if info.is_json && !cfg!(feature = "serde") {
-        return Err(Error::new_spanned(
-            &info.name,
-            "JSON fields require the 'serde' feature to be enabled",
-        ));
-    }
-
-    // For UPDATE models, wrap all values in Some()
-    Ok(quote! {
-        #name: Some(row.try_get(#column_name)?),
     })
 }
 

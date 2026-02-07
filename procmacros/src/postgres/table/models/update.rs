@@ -10,22 +10,19 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
     let update_ident = &ctx.update_model_ident;
     let struct_vis = ctx.struct_vis;
 
-    let mut update_fields = Vec::new();
+    let mut field_names: Vec<&syn::Ident> = Vec::new();
+    let mut field_base_types: Vec<&syn::Type> = Vec::new();
     let mut update_field_conversions = Vec::new();
     let mut update_convenience_methods = Vec::new();
 
     for field_info in ctx.field_infos {
-        let field_name = &field_info.ident;
-        let field_type = get_update_field_type(field_info);
+        field_names.push(&field_info.ident);
+        field_base_types.push(&field_info.base_type);
 
-        update_fields.push(quote! {
-            pub #field_name: #field_type,
-        });
-
-        // Generate field conversion for ToSQL (column_name, value) pairs
+        // Generate field conversion for ToSQL (column_name, SQL) pairs
         update_field_conversions.push(get_update_field_conversion(field_info));
 
-        // Generate convenience methods
+        // Generate convenience methods (each as standalone impl<'a> block)
         update_convenience_methods.push(generate_convenience_method(
             field_info,
             ModelType::Update,
@@ -33,49 +30,52 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
         ));
     }
 
+    // Clone field_names for repeated use in quote repetitions
+    let field_names2 = field_names.clone();
+
     Ok(quote! {
-        #[derive(Debug, Clone, Default)]
-        #struct_vis struct #update_ident {
-            #(#update_fields)*
+        // Update Model — all 'a tokens generated within this single quote! block
+        #[derive(Debug, Clone)]
+        #struct_vis struct #update_ident<'a> {
+            #(pub #field_names: PostgresUpdateValue<'a, PostgresValue<'a>, #field_base_types>,)*
         }
 
-        impl #update_ident {
-            // Convenience methods for setting fields
-            #(#update_convenience_methods)*
+        impl<'a> ::std::default::Default for #update_ident<'a> {
+            fn default() -> Self {
+                Self {
+                    #(#field_names2: PostgresUpdateValue::Skip,)*
+                }
+            }
         }
 
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_ident {
+        // Convenience methods — each in its own impl<'a> block
+        #(#update_convenience_methods)*
+
+        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_ident<'a> {
             fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 let mut assignments = Vec::new();
                 #(#update_field_conversions)*
-                SQL::assignments(assignments)
+                SQL::assignments_sql(assignments)
             }
         }
     })
 }
 
-/// Determine the appropriate field type for UPDATE operations
-fn get_update_field_type(field_info: &FieldInfo) -> TokenStream {
-    let base_type = &field_info.base_type;
-
-    // For UPDATE operations, all fields are optional since you might only want to update some
-    // Use the base type (inner type for Option<T>) to avoid Option<Option<T>>
-    quote! {
-        Option<#base_type>
-    }
-}
-
 /// Generate field conversion code for UPDATE assignments
-/// Pushes (column_name, value) tuples for use with SQL::assignments()
+/// Matches on `PostgresUpdateValue` variants to produce `(column_name, SQL)` pairs
 fn get_update_field_conversion(field_info: &FieldInfo) -> TokenStream {
     let name = &field_info.ident;
-    // Column name is the same as the field name (converted to string)
-    let column_name = name.to_string();
+    let column_name = &field_info.column_name;
 
-    // Generate conversion based on field type
     quote! {
-        if let Some(val) = &self.#name {
-            assignments.push((#column_name, val.clone().try_into().unwrap_or(PostgresValue::Null)));
+        match &self.#name {
+            PostgresUpdateValue::Skip => {},
+            PostgresUpdateValue::Null => {
+                assignments.push((#column_name, SQL::param(PostgresValue::Null)));
+            },
+            PostgresUpdateValue::Value(wrapper) => {
+                assignments.push((#column_name, wrapper.value.clone()));
+            },
         }
     }
 }

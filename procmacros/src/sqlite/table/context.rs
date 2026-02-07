@@ -6,7 +6,7 @@
 
 use super::attributes::TableAttributes;
 use crate::paths::sqlite as sqlite_paths;
-use crate::sqlite::field::{FieldInfo, SQLiteType, TypeCategory};
+use crate::sqlite::field::{FieldInfo, SQLiteType};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 use syn::Visibility;
@@ -91,7 +91,11 @@ impl<'a> MacroContext<'a> {
                 let insert_value_inner = field.insert_value_inner_type();
                 quote!(#sqlite_insert_value<'a, #sqlite_value<'a>, #insert_value_inner>)
             }
-            ModelType::Update | ModelType::PartialSelect => {
+            ModelType::Update => {
+                let sqlite_update_value = sqlite_paths::sqlite_update_value();
+                quote!(#sqlite_update_value<'a, #sqlite_value<'a>, #base_type>)
+            }
+            ModelType::PartialSelect => {
                 quote!(::std::option::Option<#base_type>)
             }
         }
@@ -122,44 +126,23 @@ impl<'a> MacroContext<'a> {
 
     /// Generates field conversion for update ToSQL.
     ///
-    /// Uses TypeCategory for consistent UUID and enum handling.
+    /// Matches on `SQLiteUpdateValue` variants to produce `(column_name, SQL)` pairs
+    /// for use with `SQL::assignments_sql()`.
     pub(crate) fn get_update_field_conversion(&self, field: &FieldInfo) -> TokenStream {
         let name = field.ident;
         let column_name = &field.column_name;
-        let category = field.type_category();
         let sqlite_value = sqlite_paths::sqlite_value();
-
-        // Handle UUID fields with type-aware conversion
-        if matches!(category, TypeCategory::Uuid) {
-            let uuid_conversion = match field.column_type {
-                SQLiteType::Text => {
-                    quote! { #sqlite_value::Text(::std::borrow::Cow::Owned(val.to_string())) }
-                }
-                SQLiteType::Blob => {
-                    quote! { #sqlite_value::Blob(::std::borrow::Cow::Owned(val.as_bytes().to_vec())) }
-                }
-                _ => {
-                    quote! { val.clone().try_into().unwrap_or(#sqlite_value::Null) }
-                }
-            };
-
-            return quote! {
-                if let ::std::option::Option::Some(val) = &self.#name {
-                    assignments.push((#column_name, #uuid_conversion));
-                }
-            };
-        }
-
-        // Handle enum fields
-        let conversion = if matches!(category, TypeCategory::Enum) {
-            quote! { val.clone().into() }
-        } else {
-            quote! { val.clone().try_into().unwrap_or(#sqlite_value::Null) }
-        };
+        let sqlite_update_value = sqlite_paths::sqlite_update_value();
 
         quote! {
-            if let ::std::option::Option::Some(val) = &self.#name {
-                assignments.push((#column_name, #conversion));
+            match &self.#name {
+                #sqlite_update_value::Skip => {},
+                #sqlite_update_value::Null => {
+                    assignments.push((#column_name, SQL::param(#sqlite_value::Null)));
+                },
+                #sqlite_update_value::Value(wrapper) => {
+                    assignments.push((#column_name, wrapper.value.clone()));
+                },
             }
         }
     }

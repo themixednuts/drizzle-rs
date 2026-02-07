@@ -74,7 +74,7 @@ pub(crate) fn generate_table_impls(
         struct_ident,
         quote! {#select_model},
         quote! {#insert_model<'a, T>},
-        quote! {#update_model},
+        quote! {#update_model<'a>},
         quote! {#aliased_table_ident},
     );
 

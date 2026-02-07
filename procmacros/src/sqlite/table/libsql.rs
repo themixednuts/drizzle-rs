@@ -21,22 +21,16 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let MacroContext {
         field_infos,
         select_model_ident,
-        update_model_ident,
         ..
     } = ctx;
 
     // libsql has simpler row access, so we use a custom implementation
     // that's more suited to its API
-    let (select, update) = field_infos
+    let select: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(i, info)| {
-            Ok((
-                generate_field_from_row_for_select(i, info)?,
-                generate_field_from_row_for_update(i, info)?,
-            ))
-        })
-        .collect::<Result<(Vec<_>, Vec<_>)>>()?;
+        .map(|(i, info)| generate_field_from_row_for_select(i, info))
+        .collect::<Result<Vec<_>>>()?;
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
@@ -50,21 +44,8 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
-    let update_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::libsql::Row> for #update_model_ident {
-            type Error = #drizzle_error;
-
-            fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
-                Ok(Self {
-                    #(#update)*
-                })
-            }
-        }
-    };
-
     Ok(quote! {
         #select_model_try_from_impl
-        #update_model_try_from_impl
     })
 }
 
@@ -75,12 +56,6 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let select_type = info.get_select_type();
     let is_optional = select_type.to_string().contains("Option");
-    generate_field_from_row_impl(idx, info, is_optional)
-}
-
-fn generate_field_from_row_for_update(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
-    let update_type = info.get_update_type();
-    let is_optional = update_type.to_string().contains("Option");
     generate_field_from_row_impl(idx, info, is_optional)
 }
 

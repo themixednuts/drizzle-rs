@@ -27,7 +27,8 @@ pub(crate) fn generate_convenience_method(
 
     match model_type {
         ModelType::Insert => generate_insert_convenience_method(field, ctx, field_index),
-        _ => generate_update_convenience_method(field, base_type, &method_name),
+        ModelType::Update => generate_update_convenience_method(field, base_type, &method_name, ctx),
+        _ => generate_partial_select_convenience_method(field, base_type, &method_name),
     }
 }
 
@@ -140,53 +141,53 @@ fn generate_insert_convenience_method(
 }
 
 // =============================================================================
-// Update/PartialSelect Model Convenience Methods
+// PartialSelect Model Convenience Methods
+// =============================================================================
+
+fn generate_partial_select_convenience_method(
+    field: &FieldInfo,
+    base_type: &syn::Type,
+    method_name: &syn::Ident,
+) -> TokenStream {
+    let field_name = &field.ident;
+
+    // PartialSelect methods are simple Option<T> setters, placed inside a shared impl block
+    quote! {
+        pub fn #method_name(mut self, value: #base_type) -> Self {
+            self.#field_name = Some(value);
+            self
+        }
+    }
+}
+
+// =============================================================================
+// Update Model Convenience Methods
 // =============================================================================
 
 fn generate_update_convenience_method(
     field: &FieldInfo,
     base_type: &syn::Type,
     method_name: &syn::Ident,
+    ctx: &MacroContext,
 ) -> TokenStream {
     let field_name = &field.ident;
-    let assignment = quote! { self.#field_name = Some(value); };
+    let update_model = &ctx.update_model_ident;
     let category = field.type_category();
 
-    match category {
-        TypeCategory::Uuid => {
-            quote! {
-                pub fn #method_name<T: Into<::uuid::Uuid>>(mut self, value: T) -> Self {
-                    let value = value.into();
-                    #assignment
-                    self
-                }
-            }
-        }
-        TypeCategory::String => {
-            quote! {
-                pub fn #method_name<T: Into<::std::string::String>>(mut self, value: T) -> Self {
-                    let value = value.into();
-                    #assignment
-                    self
-                }
-            }
-        }
-        TypeCategory::Blob => {
-            quote! {
-                pub fn #method_name<T: Into<::std::vec::Vec<u8>>>(mut self, value: T) -> Self {
-                    let value = value.into();
-                    #assignment
-                    self
-                }
-            }
-        }
-        // All other types (primitives, ArrayString, ArrayVec, etc.) use base type directly
-        _ => {
-            quote! {
-                pub fn #method_name(mut self, value: #base_type) -> Self {
-                    #assignment
-                    self
-                }
+    // Determine the inner type for the UpdateValue wrapper
+    let inner_type = match category {
+        TypeCategory::String => quote!(::std::string::String),
+        TypeCategory::Blob => quote!(::std::vec::Vec<u8>),
+        _ => quote!(#base_type),
+    };
+
+    // Each method in its own impl<'a> block so 'a is declared and used
+    // within the same quote! invocation (matching the Insert pattern)
+    quote! {
+        impl<'a> #update_model<'a> {
+            pub fn #method_name<V: Into<PostgresUpdateValue<'a, PostgresValue<'a>, #inner_type>>>(mut self, value: V) -> Self {
+                self.#field_name = value.into();
+                self
             }
         }
     }
