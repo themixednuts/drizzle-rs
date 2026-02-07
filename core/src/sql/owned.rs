@@ -11,10 +11,6 @@ pub enum OwnedSQLChunk<V: SQLParam> {
     Param(OwnedParam<V>),
     Table(&'static dyn SQLTableInfo),
     Column(&'static dyn SQLColumnInfo),
-    Alias {
-        inner: Box<OwnedSQLChunk<V>>,
-        alias: String,
-    },
 }
 
 impl<V: SQLParam> OwnedSQLChunk<V> {
@@ -53,15 +49,6 @@ impl<V: SQLParam> OwnedSQLChunk<V> {
     pub fn param(value: OwnedParam<V>) -> Self {
         Self::Param(value)
     }
-
-    /// Creates an alias chunk wrapping any OwnedSQLChunk.
-    #[inline]
-    pub fn alias(inner: OwnedSQLChunk<V>, alias: impl Into<String>) -> Self {
-        Self::Alias {
-            inner: Box::new(inner),
-            alias: alias.into(),
-        }
-    }
 }
 
 impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
@@ -73,10 +60,6 @@ impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
             SQLChunk::Param(param) => Self::Param(param.into()),
             SQLChunk::Table(table) => Self::Table(table),
             SQLChunk::Column(column) => Self::Column(column),
-            SQLChunk::Alias { inner, alias } => Self::Alias {
-                inner: Box::new((*inner).into()),
-                alias: alias.into_owned(),
-            },
         }
     }
 }
@@ -90,10 +73,6 @@ impl<V: SQLParam> From<OwnedSQLChunk<V>> for SQLChunk<'static, V> {
             OwnedSQLChunk::Param(param) => SQLChunk::Param(param.into()),
             OwnedSQLChunk::Table(table) => SQLChunk::Table(table),
             OwnedSQLChunk::Column(column) => SQLChunk::Column(column),
-            OwnedSQLChunk::Alias { inner, alias } => SQLChunk::Alias {
-                inner: Box::new((*inner).into()),
-                alias: Cow::Owned(alias),
-            },
         }
     }
 }
@@ -155,5 +134,9 @@ impl<V: SQLParam> OwnedSQL<V> {
 impl<V: SQLParam> ToSQL<'static, V> for OwnedSQL<V> {
     fn to_sql(&self) -> SQL<'static, V> {
         OwnedSQL::to_sql(self)
+    }
+
+    fn into_sql(self) -> SQL<'static, V> {
+        self.into_sql()
     }
 }

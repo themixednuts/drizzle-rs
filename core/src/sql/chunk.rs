@@ -3,14 +3,13 @@ use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::toke
 
 /// A SQL chunk represents a part of an SQL statement.
 ///
-/// This enum has 7 variants, each with a clear semantic purpose:
+/// Each variant has a clear semantic purpose:
 /// - `Token` - SQL keywords and operators (SELECT, FROM, =, etc.)
 /// - `Ident` - Quoted identifiers ("table_name", "column_name")
 /// - `Raw` - Unquoted raw SQL text (function names, expressions)
 /// - `Param` - Parameter placeholders with values
 /// - `Table` - Table reference with metadata access
 /// - `Column` - Column reference with metadata access
-/// - `Alias` - Alias wrapper (expr AS "name")
 #[derive(Clone)]
 pub enum SQLChunk<'a, V: SQLParam> {
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
@@ -40,13 +39,6 @@ pub enum SQLChunk<'a, V: SQLParam> {
     /// Renders as: "table"."column"
     /// Provides: table(), is_primary_key(), foreign_key(), etc.
     Column(&'static dyn SQLColumnInfo),
-
-    /// Alias wrapper: renders inner chunk followed by AS "alias"
-    /// Renders as: {inner} AS "alias"
-    Alias {
-        inner: Box<SQLChunk<'a, V>>,
-        alias: Cow<'a, str>,
-    },
 }
 
 impl<'a, V: SQLParam> SQLChunk<'a, V> {
@@ -114,15 +106,6 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
         })
     }
 
-    /// Creates an alias chunk wrapping any SQLChunk
-    #[inline]
-    pub fn alias(inner: SQLChunk<'a, V>, alias: impl Into<Cow<'a, str>>) -> Self {
-        Self::Alias {
-            inner: Box::new(inner),
-            alias: alias.into(),
-        }
-    }
-
     // ==================== write implementation ====================
 
     /// Write chunk content to buffer
@@ -154,12 +137,6 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
                 let _ = buf.write_str(column.name());
                 let _ = buf.write_char('"');
             }
-            SQLChunk::Alias { inner, alias } => {
-                inner.write(buf);
-                let _ = buf.write_str(" AS \"");
-                let _ = buf.write_str(alias);
-                let _ = buf.write_char('"');
-            }
         }
     }
 
@@ -172,8 +149,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             | SQLChunk::Raw(_)
             | SQLChunk::Param(_)
             | SQLChunk::Table(_)
-            | SQLChunk::Column(_)
-            | SQLChunk::Alias { .. } => true,
+            | SQLChunk::Column(_) => true,
         }
     }
 }
@@ -189,11 +165,6 @@ impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
             SQLChunk::Column(column) => f
                 .debug_tuple("Column")
                 .field(&format!("{}.{}", column.table().name(), column.name()))
-                .finish(),
-            SQLChunk::Alias { inner, alias } => f
-                .debug_struct("Alias")
-                .field("inner", inner)
-                .field("alias", alias)
                 .finish(),
         }
     }
