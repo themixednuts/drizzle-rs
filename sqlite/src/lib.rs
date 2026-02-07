@@ -44,7 +44,7 @@ macro_rules! params {
 macro_rules! params_internal {
     // Named parameter
     ({ $key:ident: $value:expr }) => {
-        $crate::ParamBind::named(stringify!($key), $crate::values::SQLiteValue::from($value))
+        $crate::ParamBind::new(stringify!($key), $crate::values::SQLiteValue::from($value))
     };
     // Positional parameter
     ($value:expr) => {

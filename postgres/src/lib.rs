@@ -48,7 +48,7 @@ macro_rules! params {
 #[macro_export]
 macro_rules! params_internal {
     ({ $key:ident: $value:expr }) => {
-        $crate::ParamBind::named(
+        $crate::ParamBind::new(
             stringify!($key),
             $crate::values::PostgresValue::from($value),
         )

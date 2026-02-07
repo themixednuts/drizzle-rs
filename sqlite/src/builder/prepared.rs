@@ -51,7 +51,7 @@ use crate::values::{OwnedSQLiteValue, SQLiteValue};
 /// let query = builder
 ///     .select(user.name)
 ///     .from(user)
-///     .r#where(eq(user.id, drizzle_core::Placeholder::question()));
+///     .r#where(eq(user.id, drizzle_core::Placeholder::anonymous()));
 ///
 /// // Convert to prepared statement (this would typically be done by the driver)
 /// let sql = query.to_sql();

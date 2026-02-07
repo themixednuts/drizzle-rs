@@ -51,7 +51,7 @@ impl<'a, T: SQLParam> Param<'a, T> {
     /// Creates a new parameter with a positional placeholder
     pub const fn positional(value: T) -> Self {
         Self {
-            placeholder: Placeholder::positional(),
+            placeholder: Placeholder::anonymous(),
             value: Some(Cow::Owned(value)),
         }
     }
@@ -64,10 +64,10 @@ impl<'a, T: SQLParam> Param<'a, T> {
         }
     }
 
-    /// Creates a new parameter with a named placeholder (colon style)
+    /// Creates a new parameter with a named placeholder
     pub const fn named(name: &'static str, value: T) -> Self {
         Self {
-            placeholder: Placeholder::colon(name),
+            placeholder: Placeholder::named(name),
             value: Some(Cow::Owned(value)),
         }
     }
@@ -89,11 +89,6 @@ pub struct ParamBind<'a, V: SQLParam> {
 
 impl<'a, V: SQLParam> ParamBind<'a, V> {
     pub const fn new(name: &'a str, value: V) -> Self {
-        Self { name, value }
-    }
-
-    /// Creates a new named parameter binding.
-    pub const fn named(name: &'a str, value: V) -> Self {
         Self { name, value }
     }
 

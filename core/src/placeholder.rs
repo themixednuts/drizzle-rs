@@ -1,14 +1,13 @@
 use crate::expr::{Expr, NonNull, Scalar};
-use crate::prelude::*;
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::Any;
-use crate::{Dialect, DialectExt, Param, SQL};
+use crate::{Param, SQL};
 use core::fmt;
 
 /// A SQL parameter placeholder.
 ///
 /// Placeholders store a semantic name for parameter binding. The actual SQL syntax
-/// (`$1`, `?`) is determined by the `Dialect` at render time.
+/// (`$1`, `?`, `:name`) is determined by the `Dialect` at render time.
 ///
 /// # Examples
 /// ```ignore
@@ -28,9 +27,9 @@ impl Placeholder {
     /// Creates a named placeholder.
     ///
     /// The name is used for binding; rendering is dialect-specific:
-    /// - PostgreSQL: `$1`, `$2`, ... (name ignored)
-    /// - SQLite: `:name` for named placeholders, `?` for positional
-    /// - MySQL: `?` (name ignored)
+    /// - PostgreSQL: `$1`, `$2`, ... (positional, name ignored in SQL)
+    /// - SQLite: `:name` for named placeholders
+    /// - MySQL: `?` (positional, name ignored in SQL)
     pub const fn named(name: &'static str) -> Self {
         Placeholder { name: Some(name) }
     }
@@ -40,26 +39,6 @@ impl Placeholder {
     /// Used for positional parameters where no name binding is needed.
     pub const fn anonymous() -> Self {
         Placeholder { name: None }
-    }
-
-    /// Renders this placeholder for the given dialect and 1-based index.
-    ///
-    /// Note: this ignores the placeholder name and uses dialect positional
-    /// syntax. `SQL::write_to` handles SQLite `:name` placeholders when
-    /// rendering full SQL.
-    #[inline]
-    pub fn render(&self, dialect: Dialect, index: usize) -> Cow<'static, str> {
-        dialect.render_placeholder(index)
-    }
-
-    /// Creates a new colon-style placeholder. Alias for `named()`.
-    pub const fn colon(name: &'static str) -> Self {
-        Self::named(name)
-    }
-
-    /// Creates a positional placeholder ('?'). Alias for `anonymous()`.
-    pub const fn positional() -> Self {
-        Self::anonymous()
     }
 }
 
@@ -82,7 +61,8 @@ impl<'a, V: SQLParam + 'a> Expr<'a, V> for Placeholder {
 }
 
 impl fmt::Display for Placeholder {
-    /// Displays the placeholder as `?` for anonymous or `:name` for named.
+    /// Debug display: `?` for anonymous or `:name` for named.
+    /// Note: actual SQL rendering uses dialect-specific placeholders via `SQL::write_to`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.name {
             Some(name) => write!(f, ":{}", name),

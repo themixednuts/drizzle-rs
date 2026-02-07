@@ -82,7 +82,7 @@ sqlite_test!(test_insert_with_placeholders, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Create insert model with explicit placeholders
-    let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
+    let insert_data = InsertSimple::new(Placeholder::named("user_name"));
 
     // Insert the data (should preserve the placeholder in the SQL)
     let insert_result = db.insert(simple).values([insert_data]);
@@ -119,7 +119,7 @@ sqlite_test!(
         let SimpleSchema { simple } = schema;
 
         // Create insert model with explicit placeholders
-        let insert_data = InsertSimple::new(Placeholder::colon("user_name"));
+        let insert_data = InsertSimple::new(Placeholder::named("user_name"));
 
         // Prepare the insert statement and execute it with bound parameters
         let prepared_insert = db.insert(simple).values([insert_data]).prepare();
@@ -204,11 +204,11 @@ sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     // Create update with placeholder in SET and WHERE
-    let update = UpdateSimple::default().with_name(Placeholder::colon("new_name"));
+    let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
     let stmt = db
         .update(simple)
         .set(update)
-        .r#where(eq(Simple::name, Placeholder::colon("old_name")));
+        .r#where(eq(Simple::name, Placeholder::named("old_name")));
 
     let sql = stmt.to_sql();
     let sql_string = sql.sql();
@@ -260,11 +260,11 @@ sqlite_test!(
         drizzle_exec!(db.insert(simple).values([InsertSimple::new("original_name")]).execute());
 
         // Create update with placeholders and prepare it
-        let update = UpdateSimple::default().with_name(Placeholder::colon("new_name"));
+        let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
         let prepared = db
             .update(simple)
             .set(update)
-            .r#where(eq(Simple::name, Placeholder::colon("old_name")))
+            .r#where(eq(Simple::name, Placeholder::named("old_name")))
             .prepare();
 
         // Execute with bound parameters
@@ -324,7 +324,7 @@ sqlite_test!(
         // Mix concrete value (email) with placeholder (age) in the same update
         let update = UpdateComplex::default()
             .with_email("alice@new.com".to_string())
-            .with_age(Placeholder::colon("new_age"));
+            .with_age(Placeholder::named("new_age"));
 
         let prepared = db
             .update(complex)
