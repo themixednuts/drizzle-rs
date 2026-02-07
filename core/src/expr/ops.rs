@@ -6,7 +6,7 @@
 use core::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 use crate::sql::{SQL, Token};
-use crate::traits::{SQLParam, ToSQL};
+use crate::traits::SQLParam;
 use crate::types::{ArithmeticOutput, Numeric};
 
 use super::{AggregateKind, Expr, NullOr, Nullability, SQLExpr, Scalar};
@@ -28,7 +28,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn add(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.to_sql().push(Token::PLUS).append(rhs.to_sql()))
+        SQLExpr::new(self.into_sql().push(Token::PLUS).append(rhs.into_sql()))
     }
 }
 
@@ -49,7 +49,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn sub(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.to_sql().push(Token::MINUS).append(rhs.to_sql()))
+        SQLExpr::new(self.into_sql().push(Token::MINUS).append(rhs.into_sql()))
     }
 }
 
@@ -70,7 +70,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn mul(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.to_sql().push(Token::STAR).append(rhs.to_sql()))
+        SQLExpr::new(self.into_sql().push(Token::STAR).append(rhs.into_sql()))
     }
 }
 
@@ -91,7 +91,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn div(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.to_sql().push(Token::SLASH).append(rhs.to_sql()))
+        SQLExpr::new(self.into_sql().push(Token::SLASH).append(rhs.into_sql()))
     }
 }
 
@@ -112,7 +112,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn rem(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.to_sql().push(Token::REM).append(rhs.to_sql()))
+        SQLExpr::new(self.into_sql().push(Token::REM).append(rhs.into_sql()))
     }
 }
 
@@ -130,6 +130,6 @@ where
     type Output = SQLExpr<'a, V, T, N, Scalar>;
 
     fn neg(self) -> Self::Output {
-        SQLExpr::new(SQL::from(Token::MINUS).append(self.to_sql().parens()))
+        SQLExpr::new(SQL::from(Token::MINUS).append(self.into_sql().parens()))
     }
 }

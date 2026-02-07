@@ -22,7 +22,7 @@ where
     R: Expr<'a, V>,
     E::SQLType: Compatible<R::SQLType>,
 {
-    let left_sql = expr.to_sql();
+    let left_sql = expr.into_sql();
     let mut values_iter = values.into_iter();
 
     let sql = match values_iter.next() {
@@ -32,9 +32,9 @@ where
             let mut result = left_sql
                 .push(Token::IN)
                 .push(Token::LPAREN)
-                .append(first_value.to_sql());
+                .append(first_value.into_sql());
             for value in values_iter {
-                result = result.push(Token::COMMA).append(value.to_sql());
+                result = result.push(Token::COMMA).append(value.into_sql());
             }
             result.push(Token::RPAREN)
         }
@@ -54,7 +54,7 @@ where
     R: Expr<'a, V>,
     E::SQLType: Compatible<R::SQLType>,
 {
-    let left_sql = expr.to_sql();
+    let left_sql = expr.into_sql();
     let mut values_iter = values.into_iter();
 
     let sql = match values_iter.next() {
@@ -66,9 +66,9 @@ where
                 .push(Token::NOT)
                 .push(Token::IN)
                 .push(Token::LPAREN)
-                .append(first_value.to_sql());
+                .append(first_value.into_sql());
             for value in values_iter {
-                result = result.push(Token::COMMA).append(value.to_sql());
+                result = result.push(Token::COMMA).append(value.into_sql());
             }
             result.push(Token::RPAREN)
         }
@@ -86,9 +86,9 @@ where
     S: ToSQL<'a, V>,
 {
     SQLExpr::new(
-        expr.to_sql()
+        expr.into_sql()
             .push(Token::IN)
-            .append(subquery.to_sql().parens()),
+            .append(subquery.into_sql().parens()),
     )
 }
 
@@ -100,10 +100,10 @@ where
     S: ToSQL<'a, V>,
 {
     SQLExpr::new(
-        expr.to_sql()
+        expr.into_sql()
             .push(Token::NOT)
             .push(Token::IN)
-            .append(subquery.to_sql().parens()),
+            .append(subquery.into_sql().parens()),
     )
 }
 
@@ -121,7 +121,7 @@ where
 {
     SQLExpr::new(
         SQL::from_iter([Token::EXISTS, Token::LPAREN])
-            .append(subquery.to_sql())
+            .append(subquery.into_sql())
             .push(Token::RPAREN),
     )
 }
@@ -136,7 +136,7 @@ where
 {
     SQLExpr::new(
         SQL::from_iter([Token::NOT, Token::EXISTS, Token::LPAREN])
-            .append(subquery.to_sql())
+            .append(subquery.into_sql())
             .push(Token::RPAREN),
     )
 }

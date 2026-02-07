@@ -35,14 +35,14 @@ where
     L: ToSQL<'a, V>,
     R: ToSQL<'a, V>,
 {
-    let right_sql = right.to_sql();
+    let right_sql = right.into_sql();
     // Wrap subqueries (starting with SELECT) in parentheses
     let right_sql = if right_sql.is_subquery() {
         right_sql.parens()
     } else {
         right_sql
     };
-    left.to_sql().push(operator).append(right_sql)
+    left.into_sql().push(operator).append(right_sql)
 }
 
 // =============================================================================
@@ -169,7 +169,7 @@ where
     L::SQLType: Textual,
     R::SQLType: Textual,
 {
-    SQLExpr::new(left.to_sql().push(Token::LIKE).append(pattern.to_sql()))
+    SQLExpr::new(left.into_sql().push(Token::LIKE).append(pattern.into_sql()))
 }
 
 /// NOT LIKE pattern matching.
@@ -184,10 +184,10 @@ where
     R::SQLType: Textual,
 {
     SQLExpr::new(
-        left.to_sql()
+        left.into_sql()
             .push(Token::NOT)
             .push(Token::LIKE)
-            .append(pattern.to_sql()),
+            .append(pattern.into_sql()),
     )
 }
 
@@ -209,11 +209,11 @@ where
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
-            .append(expr.to_sql())
+            .append(expr.into_sql())
             .push(Token::BETWEEN)
-            .append(low.to_sql())
+            .append(low.into_sql())
             .push(Token::AND)
-            .append(high.to_sql())
+            .append(high.into_sql())
             .push(Token::RPAREN),
     )
 }
@@ -235,12 +235,12 @@ where
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
-            .append(expr.to_sql())
+            .append(expr.into_sql())
             .push(Token::NOT)
             .push(Token::BETWEEN)
-            .append(low.to_sql())
+            .append(low.into_sql())
             .push(Token::AND)
-            .append(high.to_sql())
+            .append(high.into_sql())
             .push(Token::RPAREN),
     )
 }
@@ -258,7 +258,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(expr.to_sql().push(Token::IS).push(Token::NULL))
+    SQLExpr::new(expr.into_sql().push(Token::IS).push(Token::NULL))
 }
 
 /// IS NOT NULL check.
@@ -271,7 +271,7 @@ where
     E: Expr<'a, V>,
 {
     SQLExpr::new(
-        expr.to_sql()
+        expr.into_sql()
             .push(Token::IS)
             .push(Token::NOT)
             .push(Token::NULL),

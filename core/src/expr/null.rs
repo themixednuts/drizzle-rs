@@ -78,7 +78,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "COALESCE",
-        expr.to_sql().push(Token::COMMA).append(default.to_sql()),
+        expr.into_sql().push(Token::COMMA).append(default.into_sql()),
     ))
 }
 
@@ -102,9 +102,9 @@ where
     I: IntoIterator,
     I::Item: Expr<'a, V>,
 {
-    let mut sql = first.to_sql();
+    let mut sql = first.into_sql();
     for value in rest {
-        sql = sql.push(Token::COMMA).append(value.to_sql());
+        sql = sql.push(Token::COMMA).append(value.into_sql());
     }
     SQLExpr::new(SQL::func("COALESCE", sql))
 }
@@ -135,7 +135,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "NULLIF",
-        expr1.to_sql().push(Token::COMMA).append(expr2.to_sql()),
+        expr1.into_sql().push(Token::COMMA).append(expr2.into_sql()),
     ))
 }
 
@@ -156,6 +156,6 @@ where
 {
     SQLExpr::new(SQL::func(
         "IFNULL",
-        expr.to_sql().push(Token::COMMA).append(default.to_sql()),
+        expr.into_sql().push(Token::COMMA).append(default.into_sql()),
     ))
 }

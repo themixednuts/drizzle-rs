@@ -106,6 +106,10 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> ToSQL<'a, V
     fn to_sql(&self) -> SQL<'a, V> {
         self.sql.clone()
     }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self.sql
+    }
 }
 
 // =============================================================================

@@ -38,7 +38,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    SQLExpr::new(SQL::func("UPPER", expr.to_sql()))
+    SQLExpr::new(SQL::func("UPPER", expr.into_sql()))
 }
 
 /// LOWER - converts string to lowercase.
@@ -59,7 +59,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    SQLExpr::new(SQL::func("LOWER", expr.to_sql()))
+    SQLExpr::new(SQL::func("LOWER", expr.into_sql()))
 }
 
 // =============================================================================
@@ -84,7 +84,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    SQLExpr::new(SQL::func("TRIM", expr.to_sql()))
+    SQLExpr::new(SQL::func("TRIM", expr.into_sql()))
 }
 
 /// LTRIM - removes leading whitespace.
@@ -96,7 +96,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    SQLExpr::new(SQL::func("LTRIM", expr.to_sql()))
+    SQLExpr::new(SQL::func("LTRIM", expr.into_sql()))
 }
 
 /// RTRIM - removes trailing whitespace.
@@ -108,7 +108,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    SQLExpr::new(SQL::func("RTRIM", expr.to_sql()))
+    SQLExpr::new(SQL::func("RTRIM", expr.into_sql()))
 }
 
 // =============================================================================
@@ -133,7 +133,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    SQLExpr::new(SQL::func("LENGTH", expr.to_sql()))
+    SQLExpr::new(SQL::func("LENGTH", expr.into_sql()))
 }
 
 // =============================================================================
@@ -167,11 +167,11 @@ where
 {
     SQLExpr::new(SQL::func(
         "SUBSTR",
-        expr.to_sql()
+        expr.into_sql()
             .push(Token::COMMA)
-            .append(start.to_sql())
+            .append(start.into_sql())
             .push(Token::COMMA)
-            .append(len.to_sql()),
+            .append(len.into_sql()),
     ))
 }
 
@@ -204,11 +204,11 @@ where
 {
     SQLExpr::new(SQL::func(
         "REPLACE",
-        expr.to_sql()
+        expr.into_sql()
             .push(Token::COMMA)
-            .append(from.to_sql())
+            .append(from.into_sql())
             .push(Token::COMMA)
-            .append(to.to_sql()),
+            .append(to.into_sql()),
     ))
 }
 
@@ -240,7 +240,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "INSTR",
-        expr.to_sql().push(Token::COMMA).append(search.to_sql()),
+        expr.into_sql().push(Token::COMMA).append(search.into_sql()),
     ))
 }
 
@@ -287,5 +287,5 @@ where
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
 {
-    SQLExpr::new(expr1.to_sql().push(Token::CONCAT).append(expr2.to_sql()))
+    SQLExpr::new(expr1.into_sql().push(Token::CONCAT).append(expr2.into_sql()))
 }

@@ -38,7 +38,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("ABS", expr.to_sql()))
+    SQLExpr::new(SQL::func("ABS", expr.into_sql()))
 }
 
 // =============================================================================
@@ -63,7 +63,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("ROUND", expr.to_sql()))
+    SQLExpr::new(SQL::func("ROUND", expr.into_sql()))
 }
 
 /// ROUND with precision - rounds a number to specified decimal places.
@@ -87,7 +87,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "ROUND",
-        expr.to_sql().push(Token::COMMA).append(precision.to_sql()),
+        expr.into_sql().push(Token::COMMA).append(precision.into_sql()),
     ))
 }
 
@@ -109,7 +109,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("CEIL", expr.to_sql()))
+    SQLExpr::new(SQL::func("CEIL", expr.into_sql()))
 }
 
 /// FLOOR - rounds a number down to the nearest integer.
@@ -130,7 +130,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("FLOOR", expr.to_sql()))
+    SQLExpr::new(SQL::func("FLOOR", expr.into_sql()))
 }
 
 /// TRUNC - truncates a number towards zero.
@@ -151,7 +151,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("TRUNC", expr.to_sql()))
+    SQLExpr::new(SQL::func("TRUNC", expr.into_sql()))
 }
 
 // =============================================================================
@@ -176,7 +176,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SQRT", expr.to_sql()))
+    SQLExpr::new(SQL::func("SQRT", expr.into_sql()))
 }
 
 /// POWER - raises a number to a power.
@@ -206,7 +206,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "POWER",
-        base.to_sql().push(Token::COMMA).append(exponent.to_sql()),
+        base.into_sql().push(Token::COMMA).append(exponent.into_sql()),
     ))
 }
 
@@ -232,7 +232,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("EXP", expr.to_sql()))
+    SQLExpr::new(SQL::func("EXP", expr.into_sql()))
 }
 
 /// LN - returns the natural logarithm of a number.
@@ -253,7 +253,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("LN", expr.to_sql()))
+    SQLExpr::new(SQL::func("LN", expr.into_sql()))
 }
 
 /// LOG10 - returns the base-10 logarithm of a number.
@@ -274,7 +274,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("LOG10", expr.to_sql()))
+    SQLExpr::new(SQL::func("LOG10", expr.into_sql()))
 }
 
 /// LOG - returns the logarithm of a number with a specified base.
@@ -304,7 +304,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "LOG",
-        base.to_sql().push(Token::COMMA).append(value.to_sql()),
+        base.into_sql().push(Token::COMMA).append(value.into_sql()),
     ))
 }
 
@@ -330,7 +330,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SIGN", expr.to_sql()))
+    SQLExpr::new(SQL::func("SIGN", expr.into_sql()))
 }
 
 /// MOD - returns the remainder of division (using % operator).
@@ -362,5 +362,5 @@ where
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
 {
-    SQLExpr::new(dividend.to_sql().push(Token::REM).append(divisor.to_sql()))
+    SQLExpr::new(dividend.into_sql().push(Token::REM).append(divisor.into_sql()))
 }

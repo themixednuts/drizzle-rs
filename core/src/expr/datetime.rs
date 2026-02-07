@@ -100,7 +100,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
-    SQLExpr::new(SQL::func("DATE", expr.to_sql()))
+    SQLExpr::new(SQL::func("DATE", expr.into_sql()))
 }
 
 /// TIME - extracts the time part from a temporal expression (SQLite).
@@ -121,7 +121,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
-    SQLExpr::new(SQL::func("TIME", expr.to_sql()))
+    SQLExpr::new(SQL::func("TIME", expr.into_sql()))
 }
 
 /// DATETIME - creates a datetime from a temporal expression (SQLite).
@@ -142,7 +142,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
-    SQLExpr::new(SQL::func("DATETIME", expr.to_sql()))
+    SQLExpr::new(SQL::func("DATETIME", expr.into_sql()))
 }
 
 /// STRFTIME - formats a temporal expression as text (SQLite).
@@ -178,7 +178,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "STRFTIME",
-        format.to_sql().push(Token::COMMA).append(expr.to_sql()),
+        format.into_sql().push(Token::COMMA).append(expr.into_sql()),
     ))
 }
 
@@ -200,7 +200,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
-    SQLExpr::new(SQL::func("JULIANDAY", expr.to_sql()))
+    SQLExpr::new(SQL::func("JULIANDAY", expr.into_sql()))
 }
 
 /// UNIXEPOCH - converts a temporal expression to Unix timestamp (SQLite 3.38+).
@@ -221,7 +221,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
-    SQLExpr::new(SQL::func("UNIXEPOCH", expr.to_sql()))
+    SQLExpr::new(SQL::func("UNIXEPOCH", expr.into_sql()))
 }
 
 // =============================================================================
@@ -273,7 +273,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "DATE_TRUNC",
-        precision.to_sql().push(Token::COMMA).append(expr.to_sql()),
+        precision.into_sql().push(Token::COMMA).append(expr.into_sql()),
     ))
 }
 
@@ -305,7 +305,7 @@ where
         SQL::raw("EXTRACT(")
             .append(SQL::raw(field))
             .append(SQL::raw(" FROM "))
-            .append(expr.to_sql())
+            .append(expr.into_sql())
             .push(Token::RPAREN),
     )
 }
@@ -338,9 +338,9 @@ where
     SQLExpr::new(SQL::func(
         "AGE",
         timestamp1
-            .to_sql()
+            .into_sql()
             .push(Token::COMMA)
-            .append(timestamp2.to_sql()),
+            .append(timestamp2.into_sql()),
     ))
 }
 
@@ -376,7 +376,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "TO_CHAR",
-        expr.to_sql().push(Token::COMMA).append(format.to_sql()),
+        expr.into_sql().push(Token::COMMA).append(format.into_sql()),
     ))
 }
 
@@ -397,5 +397,5 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("TO_TIMESTAMP", expr.to_sql()))
+    SQLExpr::new(SQL::func("TO_TIMESTAMP", expr.into_sql()))
 }

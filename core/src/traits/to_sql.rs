@@ -22,6 +22,17 @@ use uuid::Uuid;
 /// borrowed.
 pub trait ToSQL<'a, V: SQLParam> {
     fn to_sql(&self) -> SQL<'a, V>;
+
+    /// Consume self and return SQL without cloning.
+    /// Default delegates to `to_sql()` (which clones). Types that own their SQL
+    /// (like `SQL` and `SQLExpr`) override this to avoid the clone.
+    fn into_sql(self) -> SQL<'a, V>
+    where
+        Self: Sized,
+    {
+        self.to_sql()
+    }
+
     fn alias(&self, alias: &'static str) -> SQL<'a, V> {
         self.to_sql().alias(alias)
     }

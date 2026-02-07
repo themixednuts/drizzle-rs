@@ -56,7 +56,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("COUNT", expr.to_sql()))
+    SQLExpr::new(SQL::func("COUNT", expr.into_sql()))
 }
 
 /// COUNT(DISTINCT expr) - counts distinct non-null values.
@@ -70,7 +70,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "COUNT",
-        SQL::raw("DISTINCT").append(expr.to_sql()),
+        SQL::raw("DISTINCT").append(expr.into_sql()),
     ))
 }
 
@@ -100,7 +100,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SUM", expr.to_sql()))
+    SQLExpr::new(SQL::func("SUM", expr.into_sql()))
 }
 
 /// SUM(DISTINCT expr) - sums distinct numeric values.
@@ -113,7 +113,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SUM", SQL::raw("DISTINCT").append(expr.to_sql())))
+    SQLExpr::new(SQL::func("SUM", SQL::raw("DISTINCT").append(expr.into_sql())))
 }
 
 // =============================================================================
@@ -140,7 +140,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("AVG", expr.to_sql()))
+    SQLExpr::new(SQL::func("AVG", expr.into_sql()))
 }
 
 /// AVG(DISTINCT expr) - calculates average of distinct numeric values.
@@ -152,7 +152,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("AVG", SQL::raw("DISTINCT").append(expr.to_sql())))
+    SQLExpr::new(SQL::func("AVG", SQL::raw("DISTINCT").append(expr.into_sql())))
 }
 
 // =============================================================================
@@ -179,7 +179,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("MIN", expr.to_sql()))
+    SQLExpr::new(SQL::func("MIN", expr.into_sql()))
 }
 
 /// MAX(expr) - finds maximum value.
@@ -202,7 +202,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("MAX", expr.to_sql()))
+    SQLExpr::new(SQL::func("MAX", expr.into_sql()))
 }
 
 // =============================================================================
@@ -231,7 +231,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("STDDEV_POP", expr.to_sql()))
+    SQLExpr::new(SQL::func("STDDEV_POP", expr.into_sql()))
 }
 
 /// STDDEV_SAMP / STDDEV - sample standard deviation.
@@ -256,7 +256,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("STDDEV_SAMP", expr.to_sql()))
+    SQLExpr::new(SQL::func("STDDEV_SAMP", expr.into_sql()))
 }
 
 /// VAR_POP - population variance.
@@ -281,7 +281,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("VAR_POP", expr.to_sql()))
+    SQLExpr::new(SQL::func("VAR_POP", expr.into_sql()))
 }
 
 /// VAR_SAMP / VARIANCE - sample variance.
@@ -306,7 +306,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("VAR_SAMP", expr.to_sql()))
+    SQLExpr::new(SQL::func("VAR_SAMP", expr.into_sql()))
 }
 
 // =============================================================================
@@ -322,7 +322,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("GROUP_CONCAT", expr.to_sql()))
+    SQLExpr::new(SQL::func("GROUP_CONCAT", expr.into_sql()))
 }
 
 // =============================================================================
@@ -337,5 +337,5 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::raw("DISTINCT").append(expr.to_sql()))
+    SQLExpr::new(SQL::raw("DISTINCT").append(expr.into_sql()))
 }

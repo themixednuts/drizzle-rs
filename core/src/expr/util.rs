@@ -25,7 +25,7 @@ where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
 {
-    expr.to_sql().alias(name)
+    expr.into_sql().alias(name)
 }
 
 // =============================================================================
@@ -49,7 +49,7 @@ where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
 {
-    SQLExpr::new(SQL::func("TYPEOF", expr.to_sql()))
+    SQLExpr::new(SQL::func("TYPEOF", expr.into_sql()))
 }
 
 /// Alias for typeof_ (uses Rust raw identifier syntax).
@@ -94,7 +94,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "CAST",
-        expr.to_sql().push(Token::AS).append(SQL::raw(target_type)),
+        expr.into_sql().push(Token::AS).append(SQL::raw(target_type)),
     ))
 }
 

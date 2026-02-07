@@ -34,7 +34,7 @@ where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
 {
-    let expr_sql = expr.to_sql();
+    let expr_sql = expr.into_sql();
     let needs_paren = expr_sql.chunks.len() > 1
         || (expr_sql.chunks.len() == 1
             && !matches!(expr_sql.chunks[0], SQLChunk::Raw(_) | SQLChunk::Ident(_)));
@@ -68,13 +68,13 @@ where
     let sql = match iter.next() {
         None => SQL::empty(),
         Some(first) => {
-            let first_sql = first.to_sql();
+            let first_sql = first.into_sql();
             let Some(second) = iter.next() else {
                 return SQLExpr::new(first_sql);
             };
             let all_conditions = core::iter::once(first_sql)
-                .chain(core::iter::once(second.to_sql()))
-                .chain(iter.map(|c| c.to_sql()));
+                .chain(core::iter::once(second.into_sql()))
+                .chain(iter.map(|c| c.into_sql()));
             SQL::from(Token::LPAREN)
                 .append(SQL::join(all_conditions, Token::AND))
                 .push(Token::RPAREN)
@@ -92,9 +92,9 @@ where
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
-            .append(left.to_sql())
+            .append(left.into_sql())
             .push(Token::AND)
-            .append(right.to_sql())
+            .append(right.into_sql())
             .push(Token::RPAREN),
     )
 }
@@ -118,13 +118,13 @@ where
     let sql = match iter.next() {
         None => SQL::empty(),
         Some(first) => {
-            let first_sql = first.to_sql();
+            let first_sql = first.into_sql();
             let Some(second) = iter.next() else {
                 return SQLExpr::new(first_sql);
             };
             let all_conditions = core::iter::once(first_sql)
-                .chain(core::iter::once(second.to_sql()))
-                .chain(iter.map(|c| c.to_sql()));
+                .chain(core::iter::once(second.into_sql()))
+                .chain(iter.map(|c| c.into_sql()));
             SQL::from(Token::LPAREN)
                 .append(SQL::join(all_conditions, Token::OR))
                 .push(Token::RPAREN)
@@ -142,9 +142,9 @@ where
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
-            .append(left.to_sql())
+            .append(left.into_sql())
             .push(Token::OR)
-            .append(right.to_sql())
+            .append(right.into_sql())
             .push(Token::RPAREN),
     )
 }
