@@ -1,5 +1,8 @@
+use crate::expr::{Expr, NonNull, Scalar};
 use crate::prelude::*;
-use crate::{Dialect, DialectExt};
+use crate::traits::{SQLParam, ToSQL};
+use crate::types::Any;
+use crate::{Dialect, DialectExt, Param, SQL};
 use core::fmt;
 
 /// A SQL parameter placeholder.
@@ -58,6 +61,24 @@ impl Placeholder {
     pub const fn positional() -> Self {
         Self::anonymous()
     }
+}
+
+// Placeholder as a SQL expression — uses `Any` type so it's compatible with all SQL types.
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Placeholder {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL {
+            chunks: smallvec::smallvec![crate::SQLChunk::Param(Param {
+                value: None,
+                placeholder: *self,
+            })],
+        }
+    }
+}
+
+impl<'a, V: SQLParam + 'a> Expr<'a, V> for Placeholder {
+    type SQLType = Any;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
 }
 
 impl fmt::Display for Placeholder {
