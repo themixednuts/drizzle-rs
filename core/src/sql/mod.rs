@@ -241,6 +241,22 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         )
     }
 
+    /// Creates a comma-separated list of column assignments from pre-built SQL fragments: "col" = <sql>
+    ///
+    /// Unlike `assignments()` which wraps each value in `SQL::param()`, this variant
+    /// accepts pre-built `SQL` fragments, preserving placeholders and raw expressions.
+    pub fn assignments_sql<I>(pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (&'static str, SQL<'a, V>)>,
+    {
+        Self::join(
+            pairs
+                .into_iter()
+                .map(|(col, sql)| SQL::ident(col).push(Token::EQ).append(sql)),
+            Token::COMMA,
+        )
+    }
+
     // ==================== output methods ====================
 
     /// Converts to owned version (consuming self to avoid clone)
