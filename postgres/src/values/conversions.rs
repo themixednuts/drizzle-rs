@@ -633,6 +633,54 @@ impl<'a> From<&'a [PostgresValue<'a>]> for PostgresValue<'a> {
     }
 }
 
+impl<'a> From<Vec<String>> for PostgresValue<'a> {
+    fn from(value: Vec<String>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<&'a str>> for PostgresValue<'a> {
+    fn from(value: Vec<&'a str>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<i16>> for PostgresValue<'a> {
+    fn from(value: Vec<i16>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<i32>> for PostgresValue<'a> {
+    fn from(value: Vec<i32>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<i64>> for PostgresValue<'a> {
+    fn from(value: Vec<i64>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<f32>> for PostgresValue<'a> {
+    fn from(value: Vec<f32>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<f64>> for PostgresValue<'a> {
+    fn from(value: Vec<f64>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+impl<'a> From<Vec<bool>> for PostgresValue<'a> {
+    fn from(value: Vec<bool>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
 // --- Option Types ---
 impl<'a, T> From<Option<T>> for PostgresValue<'a>
 where

@@ -19,8 +19,38 @@
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
-use drizzle_core::sql::SQLChunk;
+use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_core::types::Bool;
+
+/// Wrapper for passing a `Vec<T>` as a single PostgreSQL array parameter.
+///
+/// Without this wrapper, `Vec<T>` implements `ToSQL` by joining elements
+/// with commas (`$1, $2, $3`), which is correct for `IN (...)` clauses
+/// but wrong for array operators like `@>`, `<@`, and `&&` which expect
+/// a single array parameter.
+///
+/// # Example
+///
+/// ```
+/// # use drizzle_postgres::expr::{array_contains, PgArray};
+/// # use drizzle_core::{SQL, ToSQL};
+/// # use drizzle_postgres::values::PostgresValue;
+/// let tags = SQL::<PostgresValue>::raw("tags");
+/// // Correct: passes as a single array parameter
+/// let condition = array_contains(tags, PgArray(vec!["rust", "python"]));
+/// ```
+pub struct PgArray<T>(pub Vec<T>);
+
+impl<'a, T> ToSQL<'a, PostgresValue<'a>> for PgArray<T>
+where
+    T: Into<PostgresValue<'a>> + Clone,
+{
+    fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
+        let array: Vec<PostgresValue<'a>> =
+            self.0.iter().map(|v| v.clone().into()).collect();
+        SQL::param(PostgresValue::Array(array))
+    }
+}
 
 /// PostgreSQL `@>` operator - array contains.
 ///
