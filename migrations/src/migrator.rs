@@ -288,7 +288,7 @@ impl MigrationSet {
     /// Get the full table identifier (with schema for PostgreSQL)
     fn table_ident(&self) -> String {
         match (&self.dialect, &self.schema) {
-            (Dialect::PostgreSQL, Some(schema)) => format!("\"{}\".\"{}\",", schema, self.table),
+            (Dialect::PostgreSQL, Some(schema)) => format!("\"{}\".\"{}\"", schema, self.table),
             (Dialect::MySQL, _) => format!("`{}`", self.table),
             _ => format!("\"{}\"", self.table),
         }
