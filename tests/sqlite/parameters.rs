@@ -1,6 +1,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
+#[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::{Complex, ComplexSchema, InsertComplex, Role, UpdateComplex};
+use crate::common::schema::sqlite::{InsertSimple, Simple, SimpleSchema, UpdateSimple};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_core::{SQL, prepared::prepare_render};
@@ -195,5 +197,220 @@ sqlite_test!(
         assert_eq!(bob_results.len(), 1);
         assert_eq!(alice_results[0].0, "alice");
         assert_eq!(bob_results[0].0, "bob");
+    }
+);
+
+sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    // Create update with placeholder in SET and WHERE
+    let update = UpdateSimple::default().with_name(Placeholder::colon("new_name"));
+    let stmt = db
+        .update(simple)
+        .set(update)
+        .r#where(eq(Simple::name, Placeholder::colon("old_name")));
+
+    let sql = stmt.to_sql();
+    let sql_string = sql.sql();
+
+    // Verify SQL structure
+    assert!(
+        sql_string.starts_with("UPDATE"),
+        "Should be an UPDATE statement, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("\"simple\""),
+        "Should reference the simple table, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains(":new_name"),
+        "SET clause should contain :new_name placeholder, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains(":old_name"),
+        "WHERE clause should contain :old_name placeholder, got: {}",
+        sql_string
+    );
+
+    // All values are placeholders, so there should be no bound parameters
+    let params: Vec<_> = sql.params().collect();
+    assert!(
+        params.is_empty(),
+        "Should have no bound parameters since all values are placeholders, got {} params",
+        params.len()
+    );
+});
+
+sqlite_test!(
+    test_update_with_placeholders_execute,
+    SimpleSchema,
+    {
+        #[derive(SQLiteFromRow, Debug)]
+        struct SimpleResult {
+            id: i32,
+            name: String,
+        }
+
+        let SimpleSchema { simple } = schema;
+
+        // Insert initial data
+        drizzle_exec!(db.insert(simple).values([InsertSimple::new("original_name")]).execute());
+
+        // Create update with placeholders and prepare it
+        let update = UpdateSimple::default().with_name(Placeholder::colon("new_name"));
+        let prepared = db
+            .update(simple)
+            .set(update)
+            .r#where(eq(Simple::name, Placeholder::colon("old_name")))
+            .prepare();
+
+        // Execute with bound parameters
+        let update_count = drizzle_exec!(prepared.execute(
+            db.conn(),
+            params![
+                {new_name: "updated_name"},
+                {old_name: "original_name"}
+            ]
+        ));
+        assert_eq!(update_count, 1, "Should have updated one row");
+
+        // Verify the new name exists
+        let results: Vec<SimpleResult> = drizzle_exec!(
+            db.select((simple.id, simple.name))
+                .from(simple)
+                .r#where(eq(simple.name, "updated_name"))
+                .all()
+        );
+        assert_eq!(results.len(), 1, "Should find the updated row");
+        assert_eq!(results[0].name, "updated_name");
+
+        // Verify the original name is gone
+        let old_results: Vec<SimpleResult> = drizzle_exec!(
+            db.select((simple.id, simple.name))
+                .from(simple)
+                .r#where(eq(simple.name, "original_name"))
+                .all()
+        );
+        assert_eq!(old_results.len(), 0, "Original name should no longer exist");
+    }
+);
+
+#[cfg(feature = "uuid")]
+sqlite_test!(
+    test_update_with_mixed_values_and_placeholders,
+    ComplexSchema,
+    {
+        #[derive(SQLiteFromRow, Debug)]
+        struct ComplexResult {
+            name: String,
+            email: Option<String>,
+            age: Option<i32>,
+            score: Option<f64>,
+        }
+
+        let ComplexSchema { complex } = schema;
+
+        // Insert initial record with known values
+        let insert_data = InsertComplex::new("alice", true, Role::User)
+            .with_id(uuid::Uuid::new_v4())
+            .with_email("alice@old.com".to_string())
+            .with_age(25)
+            .with_score(90.5);
+        drizzle_exec!(db.insert(complex).values([insert_data]).execute());
+
+        // Mix concrete value (email) with placeholder (age) in the same update
+        let update = UpdateComplex::default()
+            .with_email("alice@new.com".to_string())
+            .with_age(Placeholder::colon("new_age"));
+
+        let prepared = db
+            .update(complex)
+            .set(update)
+            .r#where(eq(Complex::name, "alice"))
+            .prepare();
+
+        // Execute — only the placeholder needs to be bound
+        let update_count = drizzle_exec!(prepared.execute(
+            db.conn(),
+            params![{new_age: 30}]
+        ));
+        assert_eq!(update_count, 1, "Should have updated one row");
+
+        // Verify both concrete and placeholder-bound fields were updated
+        let results: Vec<ComplexResult> = drizzle_exec!(
+            db.select((complex.name, complex.email, complex.age, complex.score))
+                .from(complex)
+                .r#where(eq(complex.name, "alice"))
+                .all()
+        );
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].email,
+            Some("alice@new.com".to_string()),
+            "Concrete value should be updated"
+        );
+        assert_eq!(
+            results[0].age,
+            Some(30),
+            "Placeholder-bound value should be updated"
+        );
+        assert_eq!(
+            results[0].score,
+            Some(90.5),
+            "Untouched field should remain unchanged"
+        );
+    }
+);
+
+#[cfg(feature = "uuid")]
+sqlite_test!(
+    test_update_skip_excludes_unset_fields,
+    ComplexSchema,
+    {
+        let ComplexSchema { complex } = schema;
+
+        // Set only email — all other fields remain Skip (default)
+        let update = UpdateComplex::default()
+            .with_email("only-this@test.com".to_string());
+
+        let stmt = db
+            .update(complex)
+            .set(update)
+            .r#where(eq(Complex::name, "someone"));
+
+        let sql_string = stmt.to_sql().sql();
+
+        // SET clause should contain only the email column
+        assert!(
+            sql_string.contains("\"email\""),
+            "SQL should include email in SET, got: {}",
+            sql_string
+        );
+
+        // Other columns should NOT appear in SET (they're all Skip)
+        assert!(
+            !sql_string.contains("\"age\""),
+            "SQL should NOT include age (it was Skip), got: {}",
+            sql_string
+        );
+        assert!(
+            !sql_string.contains("\"score\""),
+            "SQL should NOT include score (it was Skip), got: {}",
+            sql_string
+        );
+        assert!(
+            !sql_string.contains("\"active\""),
+            "SQL should NOT include active (it was Skip), got: {}",
+            sql_string
+        );
+        assert!(
+            !sql_string.contains("\"description\""),
+            "SQL should NOT include description (it was Skip), got: {}",
+            sql_string
+        );
     }
 );
