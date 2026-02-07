@@ -4,9 +4,11 @@ mod conversions;
 mod drivers;
 mod insert;
 mod owned;
+mod update;
 
 pub use insert::*;
 pub use owned::*;
+pub use update::*;
 
 use drizzle_core::{error::DrizzleError, sql::SQL, traits::SQLParam};
 

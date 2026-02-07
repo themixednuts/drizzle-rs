@@ -182,7 +182,7 @@ pub mod sqlite {
         pub use drizzle_sqlite::traits::{
             SQLiteColumn, SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo,
         };
-        pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteValue};
+        pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteUpdateValue, SQLiteValue};
     }
 }
 
@@ -233,7 +233,7 @@ pub mod postgres {
         pub use drizzle_postgres::traits::{
             PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo,
         };
-        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresValue};
+        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
     }
 }
 

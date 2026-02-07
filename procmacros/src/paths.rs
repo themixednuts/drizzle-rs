@@ -179,6 +179,10 @@ pub mod sqlite {
         quote!(drizzle::sqlite::values::SQLiteInsertValue)
     }
 
+    pub fn sqlite_update_value() -> TokenStream {
+        quote!(drizzle::sqlite::values::SQLiteUpdateValue)
+    }
+
     pub fn value_wrapper() -> TokenStream {
         quote!(drizzle::sqlite::values::ValueWrapper)
     }
@@ -549,6 +553,10 @@ pub mod postgres {
 
     pub fn postgres_insert_value() -> TokenStream {
         quote!(drizzle::postgres::values::PostgresInsertValue)
+    }
+
+    pub fn postgres_update_value() -> TokenStream {
+        quote!(drizzle::postgres::values::PostgresUpdateValue)
     }
 
     pub fn value_wrapper() -> TokenStream {

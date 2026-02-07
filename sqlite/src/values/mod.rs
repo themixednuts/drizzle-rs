@@ -6,9 +6,11 @@ mod conversions;
 mod drivers;
 mod insert;
 pub mod owned;
+mod update;
 
 pub use insert::*;
 pub use owned::*;
+pub use update::*;
 
 use crate::traits::FromSQLiteValue;
 use drizzle_core::{dialect::Dialect, error::DrizzleError, sql::SQL, traits::SQLParam};
