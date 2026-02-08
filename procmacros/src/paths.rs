@@ -107,10 +107,6 @@ pub mod core {
         quote!(drizzle::core::ToSQL)
     }
 
-    pub fn sql_comparable() -> TokenStream {
-        quote!(drizzle::core::SQLComparable)
-    }
-
     pub fn order_by() -> TokenStream {
         quote!(drizzle::core::OrderBy)
     }

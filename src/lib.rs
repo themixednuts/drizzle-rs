@@ -112,9 +112,6 @@ pub mod core {
     /// Conversion trait for SQL generation.
     pub use drizzle_core::ToSQL;
 
-    /// Comparison trait for SQL expressions.
-    pub use drizzle_core::SQLComparable;
-
     /// Core traits (SQLTable, SQLColumn, SQLSchema, SQLModel, etc.).
     pub use drizzle_core::traits::*;
 
@@ -170,7 +167,7 @@ pub mod sqlite {
     /// SQLite prelude for schema declarations.
     pub mod prelude {
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
-        pub use crate::core::{SQLComparable, ToSQL};
+        pub use crate::core::ToSQL;
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
         pub use drizzle_macros::{
@@ -220,7 +217,7 @@ pub mod postgres {
     /// PostgreSQL prelude for schema declarations.
     pub mod prelude {
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
-        pub use crate::core::{SQLComparable, ToSQL};
+        pub use crate::core::ToSQL;
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
         pub use drizzle_macros::{
