@@ -59,12 +59,6 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a,
         self.sql
     }
 
-    /// Get a reference to the inner SQL.
-    #[inline]
-    pub fn as_sql(&self) -> &SQL<'a, V> {
-        &self.sql
-    }
-
     /// Change the nullability marker (internal use only).
     #[inline]
     #[allow(dead_code)]
