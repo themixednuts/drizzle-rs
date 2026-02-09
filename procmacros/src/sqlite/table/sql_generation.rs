@@ -40,10 +40,10 @@ pub(crate) fn generate_create_table_sql_runtime(
 
     let table_name_str = table_name;
     let composite_pk_code = if is_composite_pk {
-        let pk_columns: Vec<&String> = field_infos
+        let pk_columns: Vec<String> = field_infos
             .iter()
             .filter(|info| info.is_primary)
-            .map(|info| &info.column_name)
+            .map(|info| format!("\"{}\"", info.column_name))
             .collect();
 
         quote! {

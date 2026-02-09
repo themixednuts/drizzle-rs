@@ -75,7 +75,7 @@ pub(super) fn generate_create_table_sql(
         if let Some(default) = &field_info.default {
             match default {
                 crate::postgres::field::PostgreSQLDefault::Literal(lit) => {
-                    column_def.push_str(&format!(" DEFAULT '{}'", lit));
+                    column_def.push_str(&format!(" DEFAULT {}", lit));
                 }
                 crate::postgres::field::PostgreSQLDefault::Function(func) => {
                     column_def.push_str(&format!(" DEFAULT {}", func));

@@ -239,12 +239,12 @@ pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
 
     // If we only have one segment, return it directly
     if segment_tokens.len() == 1 {
-        return Ok(segment_tokens.into_iter().next().unwrap());
+        return Ok(segment_tokens.into_iter().next().expect("checked len == 1"));
     }
 
     // Chain multiple segments together with .append()
     let mut iter = segment_tokens.into_iter();
-    let mut result = iter.next().unwrap();
+    let mut result = iter.next().expect("segment_tokens is non-empty");
 
     for segment in iter {
         result = quote! {
