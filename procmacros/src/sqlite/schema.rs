@@ -12,11 +12,11 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     let sql_schema_impl = core_paths::sql_schema_impl();
     let sql_table_info = core_paths::sql_table_info();
     let sql_index_info = core_paths::sql_index_info();
-    let sql_column_info = core_paths::sql_column_info();
+    let _sql_column_info = core_paths::sql_column_info();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
     let sqlite_table_info = sqlite_paths::sqlite_table_info();
-    let sqlite_column_info = sqlite_paths::sqlite_column_info();
+    let _sqlite_column_info = sqlite_paths::sqlite_column_info();
 
     // Extract fields from the struct
     let fields = match &input.data {

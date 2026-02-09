@@ -14,6 +14,7 @@ use crate::paths::core as core_paths;
 ///
 /// This trait is implemented by both SQLite and PostgreSQL to provide
 /// the appropriate fully-qualified paths for their respective types.
+#[allow(dead_code)]
 pub(crate) trait GeneratorPaths {
     /// Returns the path to the dialect's value type (e.g., `SQLiteValue`, `PostgresValue`)
     fn value_type() -> TokenStream;

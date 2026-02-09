@@ -10,7 +10,7 @@ use super::context::MacroContext;
 use crate::paths;
 use crate::postgres::field::{FieldInfo, PostgreSQLType, TypeCategory};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::Result;
 
 /// Check if a PostgreSQL column type is integer-based
@@ -144,7 +144,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
 ///
 /// We use try_get which returns Result<T, Error> and fall back to None on error.
 fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
-    let drizzle_error = paths::core::drizzle_error();
+    let _drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let name_str = name.to_string();
     let base_type = &info.base_type;

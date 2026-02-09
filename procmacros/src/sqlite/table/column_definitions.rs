@@ -62,8 +62,8 @@ pub(crate) fn generate_column_definitions<'a>(
         let zst_ident = format_ident!("{}{}", ctx.struct_ident, field_pascal_case);
         column_zst_idents.push(zst_ident.clone());
 
-        let (value_type, rust_type) = (&info.base_type, &info.field_type);
-        let (is_primary, is_not_null, is_unique, is_autoincrement, has_default) = (
+        let (_value_type, rust_type) = (&info.base_type, &info.field_type);
+        let (_is_primary, _is_not_null, _is_unique, _is_autoincrement, has_default) = (
             info.is_primary,
             !info.is_nullable,
             info.is_unique,

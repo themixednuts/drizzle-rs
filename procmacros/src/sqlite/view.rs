@@ -230,7 +230,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let std_cow = std_paths::cow();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let sqlite_table = sqlite_paths::sqlite_table();
+    let _sqlite_table = sqlite_paths::sqlite_table();
     let sqlite_table_info = sqlite_paths::sqlite_table_info();
     let sqlite_column_info = sqlite_paths::sqlite_column_info();
 

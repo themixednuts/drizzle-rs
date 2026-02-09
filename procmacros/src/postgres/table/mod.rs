@@ -19,12 +19,11 @@ use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
 use context::MacroContext;
-use ddl::{generate_const_ddl, generate_create_table_sql, generate_create_table_sql_from_params};
+use ddl::{generate_const_ddl, generate_create_table_sql_from_params};
 use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Ident;
-use syn::spanned::Spanned;
 use syn::{DeriveInput, Result};
 use traits::generate_table_impls;
 

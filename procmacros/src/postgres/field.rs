@@ -2,7 +2,7 @@ use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::{collections::HashSet, fmt::Display};
-use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type};
+use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Result, Token, Type};
 
 use crate::common::make_uppercase_path;
 use crate::common::{
@@ -302,6 +302,7 @@ impl TypeCategory {
 ///
 /// These correspond to PostgreSQL data types.
 /// See: <https://www.postgresql.org/docs/current/datatype.html>
+#[allow(dead_code)]
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PostgreSQLType {
     /// PostgreSQL INTEGER type - 32-bit signed integer
@@ -510,87 +511,6 @@ impl Display for PostgreSQLType {
 }
 
 impl PostgreSQLType {
-    /// Convert from attribute name to enum variant
-    /// For native enums, use `from_enum_attribute` instead
-    pub(crate) fn from_attribute_name(name: &str) -> Option<Self> {
-        match name {
-            // Integer types and aliases
-            "integer" | "int" | "int4" => Some(Self::Integer),
-            "bigint" | "int8" => Some(Self::Bigint),
-            "smallint" | "int2" => Some(Self::Smallint),
-            "serial" | "serial4" => Some(Self::Serial),
-            "bigserial" | "serial8" => Some(Self::Bigserial),
-
-            // Text types and aliases
-            "text" => Some(Self::Text),
-            "varchar" | "character_varying" => Some(Self::Varchar),
-            "char" | "character" => Some(Self::Char),
-
-            // Float types and aliases
-            "real" | "float4" => Some(Self::Real),
-            "double_precision" | "float8" | "double" => Some(Self::DoublePrecision),
-            "numeric" | "decimal" => Some(Self::Numeric),
-
-            // Other basic types
-            "boolean" | "bool" => Some(Self::Boolean),
-            "bytea" => Some(Self::Bytea),
-
-            // UUID
-            #[cfg(feature = "uuid")]
-            "uuid" => Some(Self::Uuid),
-
-            // JSON types
-            #[cfg(feature = "serde")]
-            "json" => Some(Self::Json),
-            #[cfg(feature = "serde")]
-            "jsonb" => Some(Self::Jsonb),
-
-            // Date/time types and aliases
-            "timestamp" | "timestamp_without_time_zone" => Some(Self::Timestamp),
-            "timestamptz" | "timestamp_with_time_zone" => Some(Self::Timestamptz),
-            "date" => Some(Self::Date),
-            "time" | "time_without_time_zone" => Some(Self::Time),
-            "timetz" | "time_with_time_zone" => Some(Self::Timetz),
-            #[cfg(feature = "chrono")]
-            "interval" => Some(Self::Interval),
-
-            // Network address types
-            #[cfg(feature = "cidr")]
-            "inet" => Some(Self::Inet),
-            #[cfg(feature = "cidr")]
-            "cidr" => Some(Self::Cidr),
-            #[cfg(feature = "cidr")]
-            "macaddr" => Some(Self::MacAddr),
-            #[cfg(feature = "cidr")]
-            "macaddr8" => Some(Self::MacAddr8),
-
-            // Geometric types
-            #[cfg(feature = "geo-types")]
-            "point" => Some(Self::Point),
-            #[cfg(feature = "geo-types")]
-            "line" => Some(Self::Line),
-            #[cfg(feature = "geo-types")]
-            "lseg" => Some(Self::Lseg),
-            #[cfg(feature = "geo-types")]
-            "box" => Some(Self::Box),
-            #[cfg(feature = "geo-types")]
-            "path" => Some(Self::Path),
-            #[cfg(feature = "geo-types")]
-            "polygon" => Some(Self::Polygon),
-            #[cfg(feature = "geo-types")]
-            "circle" => Some(Self::Circle),
-
-            // Bit string types
-            #[cfg(feature = "bit-vec")]
-            "bit" => Some(Self::Bit),
-            #[cfg(feature = "bit-vec")]
-            "varbit" | "bit_varying" => Some(Self::Varbit),
-
-            "enum" => None, // enum() requires a parameter, handled separately
-            _ => None,
-        }
-    }
-
     /// Create a native PostgreSQL enum type from enum attribute
     /// Used for #[enum(MyEnum)] syntax
     pub(crate) fn from_enum_attribute(enum_name: &str) -> Self {
@@ -656,85 +576,10 @@ impl PostgreSQLType {
         }
     }
 
-    /// Check if a flag is valid for this column type
-    pub(crate) fn is_valid_flag(&self, flag: &str) -> bool {
-        match (self, flag) {
-            (Self::Serial | Self::Bigserial, "identity") => true,
-            (Self::Text | Self::Bytea, "json") => true,
-            #[cfg(feature = "serde")]
-            (Self::Json | Self::Jsonb, "json") => true,
-            (Self::Text | Self::Integer | Self::Smallint | Self::Bigint, "enum") => true,
-            (Self::Enum(_), "enum") => true, // Native PostgreSQL enums support enum flag
-            (_, "primary" | "primary_key" | "unique" | "not_null" | "check") => true,
-            _ => false,
-        }
-    }
-
-    /// Validate a flag for this column type, returning an error with PostgreSQL docs link if invalid.
-    pub(crate) fn validate_flag(&self, flag: &str, span: proc_macro2::Span) -> Result<()> {
-        if !self.is_valid_flag(flag) {
-            let message = match (self, flag) {
-                (non_serial, "identity")
-                    if !matches!(non_serial, Self::Serial | Self::Bigserial) =>
-                {
-                    "identity can only be used with SERIAL or BIGSERIAL columns. \
-                        See: https://www.postgresql.org/docs/current/ddl-identity-columns.html"
-                        .to_string()
-                }
-                (non_text_or_binary, "json") => {
-                    #[cfg(feature = "serde")]
-                    let supports_json = matches!(
-                        non_text_or_binary,
-                        Self::Text | Self::Bytea | Self::Json | Self::Jsonb
-                    );
-                    #[cfg(not(feature = "serde"))]
-                    let supports_json = matches!(non_text_or_binary, Self::Text | Self::Bytea);
-
-                    if !supports_json {
-                        "json can only be used with TEXT, BYTEA, JSON, or JSONB columns. \
-                            See: https://www.postgresql.org/docs/current/datatype-json.html"
-                            .to_string()
-                    } else {
-                        return Ok(());
-                    }
-                }
-                (non_enum_compatible, "enum")
-                    if !matches!(
-                        non_enum_compatible,
-                        Self::Text | Self::Integer | Self::Smallint | Self::Bigint | Self::Enum(_)
-                    ) =>
-                {
-                    "enum can only be used with TEXT, INTEGER, SMALLINT, BIGINT, or native ENUM columns. \
-                        For custom enum types, see: https://www.postgresql.org/docs/current/datatype-enum.html"
-                        .to_string()
-                }
-                _ => format!("'{flag}' is not valid for {} columns", self.to_sql_type()),
-            };
-
-            return Err(Error::new(span, message));
-        }
-        Ok(())
-    }
-
-    /// Check if this type is an auto-incrementing type
-    pub(crate) fn is_serial(&self) -> bool {
-        matches!(self, Self::Serial | Self::Bigserial)
-    }
-
-    /// Check if this type supports primary keys
-    pub(crate) fn supports_primary_key(&self) -> bool {
-        #[cfg(feature = "serde")]
-        {
-            !matches!(self, Self::Json | Self::Jsonb)
-        }
-        #[cfg(not(feature = "serde"))]
-        {
-            true
-        }
-    }
 }
 
 /// PostgreSQL column constraint flags
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum PostgreSQLFlag {
     Primary,
@@ -750,61 +595,8 @@ pub(crate) enum PostgreSQLFlag {
     Check(String),
 }
 
-impl PostgreSQLFlag {
-    /// Parse a flag from its string name and optional value
-    pub(crate) fn from_name_and_value(name: &str, value: Option<&Expr>) -> Result<Self> {
-        match name {
-            "primary" | "primary_key" => Ok(Self::Primary),
-            "unique" => Ok(Self::Unique),
-            "not_null" => Ok(Self::NotNull),
-            "identity" => Ok(Self::Identity),
-            "enum" => Ok(Self::Enum),
-            "json" => Ok(Self::Json),
-            "check" => {
-                if let Some(expr) = value {
-                    if let Expr::Lit(syn::ExprLit {
-                        lit: Lit::Str(lit_str),
-                        ..
-                    }) = expr
-                    {
-                        Ok(Self::Check(lit_str.value()))
-                    } else {
-                        Err(Error::new_spanned(
-                            expr,
-                            "check constraint must be a string literal",
-                        ))
-                    }
-                } else {
-                    Err(Error::new_spanned(
-                        name,
-                        "check constraint requires a value",
-                    ))
-                }
-            }
-            _ => Err(Error::new_spanned(
-                name,
-                format!("Unknown PostgreSQL flag: {}", name),
-            )),
-        }
-    }
-
-    /// Convert flag to SQL string
-    pub(crate) fn to_sql(&self) -> String {
-        match self {
-            Self::Primary => "PRIMARY KEY".to_string(),
-            Self::Unique => "UNIQUE".to_string(),
-            Self::NotNull => "NOT NULL".to_string(),
-            // Note: The actual SQL (ALWAYS vs BY DEFAULT) depends on IdentityMode
-            Self::Identity => "GENERATED ALWAYS AS IDENTITY".to_string(),
-            Self::Enum => String::new(), // Handled separately in type conversion
-            Self::NativeEnum(_) => String::new(), // Type already specifies the enum name
-            Self::Json => String::new(), // Handled separately in type conversion
-            Self::Check(constraint) => format!("CHECK ({})", constraint),
-        }
-    }
-}
-
 /// Default value specification for PostgreSQL columns
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) enum PostgreSQLDefault {
     /// Literal value (e.g., 'default_value')
@@ -843,6 +635,7 @@ pub(crate) struct GeneratedColumn {
 }
 
 /// Information about a PostgreSQL table field
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct FieldInfo {
     pub ident: Ident,
@@ -907,7 +700,6 @@ impl FieldInfo {
         let mut identity_mode = None;
         let mut generated_column = None;
         let mut is_pgenum = false;
-        let mut enum_type_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
 
         // Parse #[column(...)] attributes for constraints
@@ -930,7 +722,6 @@ impl FieldInfo {
                 is_pgenum = column_info.is_pgenum;
                 is_explicit_json = column_info.is_json;
                 is_explicit_jsonb = column_info.is_jsonb;
-                enum_type_name = column_info.enum_type_name;
                 marker_exprs = column_info.marker_exprs;
                 break;
             }
@@ -1089,7 +880,7 @@ impl FieldInfo {
         let mut is_pgenum = false;
         let mut is_json = false;
         let mut is_jsonb = false;
-        let mut enum_type_name: Option<String> = None;
+        let enum_type_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
 
         // Parse attribute arguments: #[column(primary, unique, default = "foo")]
@@ -1246,7 +1037,9 @@ impl FieldInfo {
                             let lit: Lit = meta.input.parse()?;
                             match lit {
                                 Lit::Str(s) => {
-                                    default = Some(PostgreSQLDefault::Literal(s.value()))
+                                    let escaped = s.value().replace('\'', "''");
+                                    default =
+                                        Some(PostgreSQLDefault::Literal(format!("'{}'", escaped)))
                                 }
                                 Lit::Int(i) => {
                                     default = Some(PostgreSQLDefault::Literal(i.to_string()))
@@ -1591,7 +1384,7 @@ struct SqlDefinitionContext<'a> {
 
 /// Build SQL column definition string for PostgreSQL
 fn build_sql_definition(ctx: SqlDefinitionContext<'_>) -> String {
-    let mut sql = format!("{} {}", ctx.column_name, ctx.column_type.to_sql_type());
+    let mut sql = format!("\"{}\" {}", ctx.column_name, ctx.column_type.to_sql_type());
 
     // Handle primary key
     if ctx.is_primary_single {
@@ -1632,6 +1425,7 @@ fn build_sql_definition(ctx: SqlDefinitionContext<'_>) -> String {
 }
 
 /// Intermediate structure for parsing column constraint information
+#[allow(dead_code)]
 struct ColumnInfo {
     flags: HashSet<PostgreSQLFlag>,
     default: Option<PostgreSQLDefault>,

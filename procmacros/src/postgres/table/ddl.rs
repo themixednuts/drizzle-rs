@@ -77,6 +77,7 @@ pub(crate) fn generate_create_table_sql_from_params(
 /// This is used for tables WITHOUT foreign keys, where all information
 /// is known at macro expansion time. Uses the same DDL types as runtime
 /// generation for consistency.
+#[allow(dead_code)]
 pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
     generate_create_table_sql_from_params(
@@ -94,7 +95,7 @@ fn build_column(
     field: &FieldInfo,
     is_composite_pk: bool,
 ) -> Column {
-    let is_single_pk = field.is_primary && !is_composite_pk;
+    let _is_single_pk = field.is_primary && !is_composite_pk;
 
     let mut col = Column::new(
         Cow::Owned(schema_name.to_string()),
@@ -160,7 +161,7 @@ pub(crate) fn generate_const_ddl(
     let foreign_key_def = ddl_paths::foreign_key_def();
     let unique_constraint_def = ddl_paths::unique_constraint_def();
     let index_def = ddl_paths::index_def();
-    let identity_def = ddl_paths::identity_def();
+    let _identity_def = ddl_paths::identity_def();
     let table_sql = ddl_paths::table_sql();
     let referential_action = ddl_paths::referential_action();
 

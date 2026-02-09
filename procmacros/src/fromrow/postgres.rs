@@ -5,10 +5,11 @@
 
 use crate::postgres::field::TypeCategory;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::{Field, Result};
 
 /// Driver-specific configuration for PostgreSQL row access
+#[allow(dead_code)]
 pub(crate) trait DriverConfig {
     /// Get the row type for this driver
     fn row_type() -> TokenStream;
@@ -18,6 +19,7 @@ pub(crate) trait DriverConfig {
 }
 
 /// Configuration for postgres-sync driver
+#[allow(dead_code)]
 pub(crate) struct PostgresSyncDriver;
 
 impl DriverConfig for PostgresSyncDriver {
@@ -31,6 +33,7 @@ impl DriverConfig for PostgresSyncDriver {
 }
 
 /// Configuration for tokio-postgres driver
+#[allow(dead_code)]
 pub(crate) struct TokioPostgresDriver;
 
 impl DriverConfig for TokioPostgresDriver {

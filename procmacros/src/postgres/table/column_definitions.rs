@@ -51,11 +51,11 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
         let rust_type = &field_info.field_type;
         let (
-            is_primary,
-            is_not_null,
-            is_unique,
-            is_serial,
-            is_bigserial,
+            _is_primary,
+            _is_not_null,
+            _is_unique,
+            _is_serial,
+            _is_bigserial,
             is_generated_identity,
             has_default,
         ) = (
@@ -395,10 +395,10 @@ pub(crate) fn generate_column_accessors(
     column_zst_idents: &[Ident],
 ) -> Result<TokenStream> {
     let struct_ident = ctx.struct_ident;
-    let mut accessor_impls: Vec<TokenStream> = Vec::new();
+    let accessor_impls: Vec<TokenStream> = Vec::new();
 
     // Table accessor methods
-    let field_accessors: Vec<_> = ctx
+    let _field_accessors: Vec<_> = ctx
         .field_infos
         .iter()
         .zip(column_zst_idents)

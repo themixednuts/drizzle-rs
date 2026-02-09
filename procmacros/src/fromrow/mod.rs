@@ -44,6 +44,7 @@ where
 }
 
 /// Generate a TryFrom implementation for a specific driver.
+#[cfg(feature = "sqlite")]
 fn generate_driver_try_from(
     struct_name: &Ident,
     row_type: TokenStream,
@@ -125,6 +126,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 
     let struct_name = &input.ident;
     let (fields, is_tuple) = extract_struct_fields(&input)?;
+    #[allow(unused_variables)]
     let drizzle_error = core_paths::drizzle_error();
     let sqlite_value = sqlite_paths::sqlite_value();
 

@@ -92,6 +92,7 @@ pub(crate) fn generate_create_table_sql_from_params(
 /// This is used for tables WITHOUT foreign keys, where all information
 /// is known at macro expansion time. Uses the same DDL types as runtime
 /// generation for consistency.
+#[allow(dead_code)]
 pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     generate_create_table_sql_from_params(
         &ctx.table_name,
@@ -102,27 +103,6 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     )
 }
 
-/// Parameters for SQL generation (used before full context is available)
-pub(crate) struct SqlGenParams<'a> {
-    pub table_name: &'a str,
-    pub field_infos: &'a [FieldInfo<'a>],
-    pub is_composite_pk: bool,
-    pub strict: bool,
-    pub without_rowid: bool,
-}
-
-impl<'a> SqlGenParams<'a> {
-    /// Generate the CREATE TABLE SQL
-    pub fn generate_sql(&self) -> String {
-        generate_create_table_sql_from_params(
-            self.table_name,
-            self.field_infos,
-            self.is_composite_pk,
-            self.strict,
-            self.without_rowid,
-        )
-    }
-}
 
 /// Build UniqueConstraints from field infos (single-column only, non-primary)
 #[allow(dead_code)]
@@ -190,7 +170,7 @@ fn build_column(table_name: &str, field: &FieldInfo, is_composite_pk: bool) -> C
 /// - `DDL_FOREIGN_KEYS: &'static [...]` - Foreign key definitions
 /// - `DDL_UNIQUE_CONSTRAINTS: &'static [...]` - Unique constraint definitions
 pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
-    let struct_ident = ctx.struct_ident;
+    let _struct_ident = ctx.struct_ident;
     let table_name = &ctx.table_name;
     let strict = ctx.attrs.strict;
     let without_rowid = ctx.attrs.without_rowid;

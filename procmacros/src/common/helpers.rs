@@ -114,6 +114,7 @@ pub(crate) fn extract_struct_fields(
 ///     false, // named struct
 /// );
 /// ```
+#[allow(dead_code)]
 pub(crate) fn generate_try_from_impl(
     struct_name: &syn::Ident,
     row_type: TokenStream,
@@ -159,6 +160,7 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 /// Check if a type is an Option type.
 ///
 /// This is useful for determining nullability of fields.
+#[allow(dead_code)]
 pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(type_path) = ty
         && let Some(segment) = type_path.path.segments.last()
@@ -171,6 +173,7 @@ pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
 /// Extract the inner type from an Option<T> type.
 ///
 /// Returns the original type if it's not an Option.
+#[allow(dead_code)]
 pub(crate) fn extract_option_inner(ty: &syn::Type) -> &syn::Type {
     if let syn::Type::Path(type_path) = ty
         && let Some(segment) = type_path.path.segments.last()

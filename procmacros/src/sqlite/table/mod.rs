@@ -3,6 +3,7 @@ pub(crate) mod attributes;
 pub(crate) mod column_definitions;
 pub(crate) mod context;
 mod ddl;
+#[cfg(feature = "turso")]
 mod drivers;
 mod enum_impls;
 mod errors;
@@ -38,7 +39,6 @@ use validation::generate_default_validations;
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use syn::spanned::Spanned;
 use syn::{DeriveInput, Result};
 
 // ============================================================================

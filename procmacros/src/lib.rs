@@ -46,14 +46,6 @@
 //!
 //! For more detailed documentation, see the individual macro documentation below.
 
-#![allow(
-    dead_code,
-    unused_variables,
-    unused_imports,
-    unused_assignments,
-    unused_mut
-)]
-
 extern crate proc_macro;
 
 mod common;

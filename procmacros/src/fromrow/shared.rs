@@ -9,6 +9,7 @@ use quote::quote;
 use syn::{Field, Result};
 
 /// Driver-specific JSON accessor generation
+#[allow(dead_code)]
 pub(crate) trait DriverJsonAccessor {
     /// Generate the JSON field accessor for this driver
     fn json_accessor(idx: usize) -> TokenStream;

@@ -1,6 +1,6 @@
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use std::{collections::HashSet, fmt::Display};
 use syn::{
     Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type,
@@ -210,6 +210,7 @@ pub(crate) struct FieldInfo<'a> {
 
     // Type representations for models
     pub(crate) select_type: Option<TokenStream>,
+    #[allow(dead_code)]
     pub(crate) update_type: Option<TokenStream>,
 }
 
@@ -710,7 +711,7 @@ fn build_sql_definition(
     is_autoincrement: bool,
     default_value: &Option<Expr>,
 ) -> String {
-    let mut sql = format!("{} {}", column_name, column_type.to_sql_type());
+    let mut sql = format!("\"{}\" {}", column_name, column_type.to_sql_type());
 
     // Handle primary key with potential autoincrement
     if is_primary_single {
@@ -735,7 +736,10 @@ fn build_sql_definition(
             Lit::Int(i) => format!(" DEFAULT {i}"),
             Lit::Float(f) => format!(" DEFAULT {f}"),
             Lit::Bool(b) => format!(" DEFAULT {}", b.value() as i64),
-            Lit::Str(s) => format!(" DEFAULT \"{}\"", s.value()),
+            Lit::Str(s) => {
+                let escaped = s.value().replace('\'', "''");
+                format!(" DEFAULT '{}'", escaped)
+            }
             _ => String::new(),
         };
         sql.push_str(&default_val);
@@ -769,6 +773,7 @@ impl<'a> FieldInfo<'a> {
     }
 
     /// Get the model field type for this field in the UpdateModel
+    #[allow(dead_code)]
     pub(crate) fn get_update_type(&self) -> TokenStream {
         self.update_type
             .clone()
@@ -910,7 +915,7 @@ impl<'a> FieldInfo<'a> {
         let columns: Vec<Cow<'static, str>> = vec![Cow::Owned(self.column_name.clone())];
         let columns_to: Vec<Cow<'static, str>> = vec![Cow::Owned(column_to)];
 
-        let mut fk = drizzle_types::sqlite::ddl::ForeignKey {
+        let fk = drizzle_types::sqlite::ddl::ForeignKey {
             table: Cow::Owned(table_name.to_string()),
             name: Cow::Owned(fk_name),
             name_explicit: false,
@@ -937,7 +942,7 @@ pub(crate) fn generate_table_meta_json(
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
 ) -> String {
-    use drizzle_types::sqlite::ddl::{Column, ForeignKey, PrimaryKey, SqliteEntity, Table};
+    use drizzle_types::sqlite::ddl::{PrimaryKey, SqliteEntity, Table};
 
     // Collect all entities
     let mut entities: Vec<SqliteEntity> = Vec::new();

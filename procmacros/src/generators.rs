@@ -7,6 +7,7 @@ use crate::paths::core as core_paths;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
+#[cfg(feature = "sqlite")]
 #[allow(clippy::too_many_arguments)]
 /// Generate SQLColumnInfo trait implementation
 pub fn generate_sql_column_info(
@@ -81,6 +82,7 @@ pub fn generate_sql_table_info(
 }
 
 /// Generate basic impl block
+#[cfg(feature = "sqlite")]
 pub fn generate_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
     quote! {
         impl #struct_ident {

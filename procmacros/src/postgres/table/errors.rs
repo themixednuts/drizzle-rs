@@ -3,6 +3,8 @@
 //! Centralizes error strings to ensure consistency across driver implementations
 //! and simplify maintenance.
 
+#![allow(dead_code)]
+
 /// Error messages for JSON field configuration
 pub(crate) mod json {
     pub const INVALID_COLUMN_TYPE: &str = "JSON fields must use either JSON or JSONB column types.\n\

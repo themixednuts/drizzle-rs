@@ -1,4 +1,4 @@
-use crate::paths::{core as core_paths, postgres as postgres_paths};
+use crate::paths::core as core_paths;
 use crate::postgres::table::context::MacroContext;
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;

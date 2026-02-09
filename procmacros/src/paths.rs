@@ -4,6 +4,8 @@
 //! Using `drizzle::` prefix (without leading `::`) allows doc tests in subcrates to create a
 //! `mod drizzle { ... }` shim that re-exports from the current crate, avoiding circular dependencies.
 
+#![allow(dead_code)]
+
 use proc_macro2::TokenStream;
 use quote::quote;
 

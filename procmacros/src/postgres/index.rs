@@ -313,6 +313,7 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
 }
 
 /// Information about a column reference in an index
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct ColumnReference {
     table_name: String,
@@ -353,7 +354,7 @@ fn parse_column_references(columns: &[Expr]) -> Result<Vec<ColumnReference>> {
 }
 
 /// Generate index name from struct name and columns
-fn generate_index_name(struct_ident: &Ident, columns: &[ColumnReference]) -> String {
+fn generate_index_name(struct_ident: &Ident, _columns: &[ColumnReference]) -> String {
     // Convert from CamelCase to snake_case
     let struct_name = struct_ident.to_string();
     let snake_case = heck::AsSnakeCase(struct_name).to_string();

@@ -132,6 +132,7 @@ pub(crate) fn type_is_array_u8(ty: &Type) -> bool {
     }
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_array_char(ty: &Type) -> bool {
     match ty {
         Type::Array(array) => matches!(
@@ -142,6 +143,8 @@ pub(crate) fn type_is_array_char(ty: &Type) -> bool {
     }
 }
 
+#[cfg(feature = "postgres")]
+#[allow(dead_code)]
 pub(crate) fn type_is_char_array(ty: &Type) -> bool {
     type_is_array_char(ty)
 }
@@ -194,7 +197,9 @@ pub(crate) fn type_is_json_value(ty: &Type) -> bool {
     if last != "Value" {
         return false;
     }
-    path_contains_ident(path, "serde_json") || path.segments.len() == 1
+    // Only match serde_json::Value (qualified path), not bare `Value` which
+    // could be any user-defined type
+    path_contains_ident(path, "serde_json")
 }
 
 pub(crate) fn type_is_naive_date(ty: &Type) -> bool {
@@ -229,6 +234,7 @@ pub(crate) fn type_is_chrono_time(ty: &Type) -> bool {
     type_is_naive_time(ty)
 }
 
+#[allow(dead_code)]
 pub(crate) fn type_is_chrono_datetime(ty: &Type) -> bool {
     type_is_naive_datetime(ty) || type_is_datetime_tz(ty)
 }
@@ -257,42 +263,49 @@ pub(crate) fn type_is_offset_datetime(ty: &Type) -> bool {
         .is_some_and(|id| id == "OffsetDateTime")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_ip_addr(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "IpAddr" || id == "IpInet")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_ip_cidr(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "IpCidr")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_mac_addr(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "MacAddress")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_geo_point(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Point")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_geo_rect(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Rect")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_geo_linestring(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "LineString")
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) fn type_is_bit_vec(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)

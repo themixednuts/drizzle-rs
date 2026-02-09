@@ -20,7 +20,7 @@ use syn::Result;
 /// Generate TryFrom implementations for rusqlite::Row for a table's models
 pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let drizzle_error = paths::core::drizzle_error();
-    let from_sqlite_value = paths::sqlite::from_sqlite_value();
+    let _from_sqlite_value = paths::sqlite::from_sqlite_value();
     let MacroContext {
         field_infos,
         select_model_ident,

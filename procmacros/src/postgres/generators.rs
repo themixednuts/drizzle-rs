@@ -7,6 +7,8 @@
 //! in `common::generators` and re-exported here for API stability. The functions
 //! in this module delegate to the common implementations with PostgreSQL-specific types.
 
+#![allow(dead_code)]
+
 use crate::common::PostgresDialect;
 use crate::common::generators as common_gen;
 use crate::paths::postgres as postgres_paths;

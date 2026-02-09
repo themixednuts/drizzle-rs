@@ -11,12 +11,12 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let sql_schema = core_paths::sql_schema();
     let sql_schema_impl = core_paths::sql_schema_impl();
     let sql_table_info = core_paths::sql_table_info();
-    let sql_column_info = core_paths::sql_column_info();
+    let _sql_column_info = core_paths::sql_column_info();
     let sql_index_info = core_paths::sql_index_info();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
     let postgres_table_info = postgres_paths::postgres_table_info();
-    let postgres_column_info = postgres_paths::postgres_column_info();
+    let _postgres_column_info = postgres_paths::postgres_column_info();
 
     // Extract fields from the struct
     let fields = match &input.data {
