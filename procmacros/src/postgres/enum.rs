@@ -1,49 +1,8 @@
+use crate::common::enum_utils::resolve_discriminants;
 use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DataEnum, Expr, ExprLit, ExprUnary, Ident, Lit, UnOp, spanned::Spanned};
-
-// Note: syn::Expr is imported above but we also use it as a type parameter name
-// in the generated code (drizzle::core::expr::Expr). This is fine because
-// the quote! macro uses the path syntax.
-
-fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
-    match expr {
-        // Simple positive literal like `3`
-        Expr::Lit(ExprLit {
-            lit: Lit::Int(i), ..
-        }) => i
-            .base10_parse::<i64>()
-            .map_err(|e| syn::Error::new(i.span(), e)),
-
-        // Negative literal like `-1`
-        Expr::Unary(ExprUnary {
-            op: UnOp::Neg(_),
-            expr,
-            ..
-        }) => {
-            if let Expr::Lit(ExprLit {
-                lit: Lit::Int(i), ..
-            }) = &**expr
-            {
-                let val = i
-                    .base10_parse::<i64>()
-                    .map_err(|e| syn::Error::new(i.span(), e))?;
-                Ok(-val)
-            } else {
-                Err(syn::Error::new(
-                    expr.span(),
-                    "Expected integer literal after unary minus",
-                ))
-            }
-        }
-
-        other => Err(syn::Error::new(
-            other.span(),
-            "Expected integer literal or unary minus",
-        )),
-    }
-}
+use syn::{DataEnum, Ident};
 
 // Generate implementation for PostgreSQL enum representation following SQLite pattern
 pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
@@ -112,62 +71,29 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         })
         .collect();
 
-    let to_integer_variants = data
-        .variants
+    // Resolve discriminants with uniqueness validation
+    let resolved = resolve_discriminants(data)?;
+
+    let to_integer_variants: Box<[_]> = resolved
         .iter()
-        .try_fold((0, Vec::new()), |(val, mut acc), variant| {
-            let ident = &variant.ident;
-            let value = if let Some((_, expr)) = &variant.discriminant {
-                parse_discriminant(expr)?
-            } else {
-                val
-            };
-
-            acc.push(quote! {
-                #name::#ident => #value
-            });
-
-            Ok::<_, syn::Error>((value + 1, acc))
+        .map(|(ident, value)| {
+            quote! { #name::#ident => #value }
         })
-        .map(|(_, t)| t.into_boxed_slice())?;
+        .collect();
 
-    let to_integer_ref_variants = data
-        .variants
+    let to_integer_ref_variants: Box<[_]> = resolved
         .iter()
-        .try_fold((0, Vec::new()), |(val, mut acc), variant| {
-            let ident = &variant.ident;
-            let value = if let Some((_, expr)) = &variant.discriminant {
-                parse_discriminant(expr)?
-            } else {
-                val
-            };
-
-            acc.push(quote! {
-                &#name::#ident => #value
-            });
-
-            Ok::<_, syn::Error>((value + 1, acc))
+        .map(|(ident, value)| {
+            quote! { &#name::#ident => #value }
         })
-        .map(|(_, t)| t.into_boxed_slice())?;
+        .collect();
 
-    let from_integer_variants = data
-        .variants
+    let from_integer_variants: Box<[_]> = resolved
         .iter()
-        .try_fold((0, Vec::new()), |(val, mut acc), variant| {
-            let ident = &variant.ident;
-
-            // Determine the numeric value
-            let value = if let Some((_, expr)) = &variant.discriminant {
-                parse_discriminant(expr)?
-            } else {
-                val
-            };
-            acc.push(quote! {
-                i if i == #value => #name::#ident
-            });
-            Ok::<_, syn::Error>((value + 1, acc))
+        .map(|(ident, value)| {
+            quote! { i if i == #value => #name::#ident }
         })
-        .map(|(_, t)| t.into_boxed_slice())?;
+        .collect();
 
     Ok(quote! {
 
