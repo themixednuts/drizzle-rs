@@ -11,13 +11,13 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
     let struct_vis = ctx.struct_vis;
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
-    let mut field_base_types: Vec<&syn::Type> = Vec::new();
+    let mut field_types: Vec<TokenStream> = Vec::new();
     let mut update_field_conversions = Vec::new();
     let mut update_convenience_methods = Vec::new();
 
     for field_info in ctx.field_infos {
         field_names.push(&field_info.ident);
-        field_base_types.push(&field_info.base_type);
+        field_types.push(ctx.get_field_type_for_model(field_info, ModelType::Update));
 
         // Generate field conversion for ToSQL (column_name, SQL) pairs
         update_field_conversions.push(get_update_field_conversion(field_info));
@@ -37,7 +37,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
         // Update Model — all 'a tokens generated within this single quote! block
         #[derive(Debug, Clone)]
         #struct_vis struct #update_ident<'a> {
-            #(pub #field_names: PostgresUpdateValue<'a, PostgresValue<'a>, #field_base_types>,)*
+            #(pub #field_names: #field_types,)*
         }
 
         impl<'a> ::std::default::Default for #update_ident<'a> {

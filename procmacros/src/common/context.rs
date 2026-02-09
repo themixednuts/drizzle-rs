@@ -21,34 +21,3 @@ pub(crate) enum ModelType {
     /// Model for UPDATE operations - all fields are `Option<T>` for partial updates
     Update,
 }
-
-impl ModelType {
-    /// Returns true if this model type requires all fields to be optional.
-    pub(crate) fn requires_optional_fields(&self) -> bool {
-        matches!(self, ModelType::PartialSelect | ModelType::Update)
-    }
-
-    /// Returns the suffix used for the generated model struct name.
-    pub(crate) fn suffix(&self) -> &'static str {
-        match self {
-            ModelType::Select => "Select",
-            ModelType::PartialSelect => "PartialSelect",
-            ModelType::Insert => "Insert",
-            ModelType::Update => "Update",
-        }
-    }
-
-    /// Returns a prefix suitable for generating the model struct identifier.
-    ///
-    /// For example, for a table `Users`:
-    /// - `Select` -> `SelectUsers`
-    /// - `Insert` -> `InsertUsers`
-    pub(crate) fn prefix(&self) -> &'static str {
-        match self {
-            ModelType::Select => "Select",
-            ModelType::PartialSelect => "PartialSelect",
-            ModelType::Insert => "Insert",
-            ModelType::Update => "Update",
-        }
-    }
-}

@@ -1,4 +1,4 @@
-use super::super::context::MacroContext;
+use super::super::context::{MacroContext, ModelType};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Result;
@@ -14,15 +14,15 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     for field_info in ctx.field_infos {
         let field_name = &field_info.ident;
-        let field_type = &field_info.field_type;
+        let select_type = ctx.get_field_type_for_model(field_info, ModelType::Select);
+        let partial_type = ctx.get_field_type_for_model(field_info, ModelType::PartialSelect);
 
-        // For SELECT models, all fields are Option<T> to handle partial selects
         select_fields.push(quote! {
-            pub #field_name: #field_type,
+            pub #field_name: #select_type,
         });
 
         partial_select_fields.push(quote! {
-            pub #field_name: Option<#field_type>,
+            pub #field_name: #partial_type,
         });
     }
 

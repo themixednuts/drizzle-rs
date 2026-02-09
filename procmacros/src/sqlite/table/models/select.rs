@@ -23,12 +23,12 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     for info in *field_infos {
         let name = info.ident;
-        let select_type = info.get_select_type();
-        let base_type = info.base_type;
+        let select_type = ctx.get_field_type_for_model(info, ModelType::Select);
+        let partial_type = ctx.get_field_type_for_model(info, ModelType::PartialSelect);
         let column_name = &info.column_name;
 
         select_fields.push(quote! { pub #name: #select_type });
-        partial_select_fields.push(quote! { pub #name: Option<#base_type> });
+        partial_select_fields.push(quote! { pub #name: #partial_type });
         select_column_names.push(quote! { #column_name });
         select_field_names.push(name);
 

@@ -29,7 +29,12 @@ pub(crate) fn generate_convenience_method(
     match model_type {
         ModelType::Insert => generate_insert_convenience_method(field, ctx, field_index),
         ModelType::Update => generate_update_convenience_method(field, base_type, &method_name, ctx),
-        _ => generate_partial_select_convenience_method(field, base_type, &method_name),
+        ModelType::PartialSelect => {
+            generate_partial_select_convenience_method(field, base_type, &method_name)
+        }
+        ModelType::Select => {
+            unreachable!("Select models do not have convenience methods")
+        }
     }
 }
 
@@ -48,11 +53,11 @@ fn generate_insert_convenience_method(
     let insert_model = &ctx.insert_model_ident;
 
     // Get paths for fully-qualified types
-    let sql = core_paths::sql();
+    let _sql = core_paths::sql();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
-    let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expressions();
+    let _value_wrapper = sqlite_paths::value_wrapper();
+    let _expression = sqlite_paths::expressions();
 
     // Create generic parameters: field names as markers (UserName, UserEmail)
     let generic_params: Vec<_> = ctx

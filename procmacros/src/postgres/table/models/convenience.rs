@@ -28,7 +28,12 @@ pub(crate) fn generate_convenience_method(
     match model_type {
         ModelType::Insert => generate_insert_convenience_method(field, ctx, field_index),
         ModelType::Update => generate_update_convenience_method(field, base_type, &method_name, ctx),
-        _ => generate_partial_select_convenience_method(field, base_type, &method_name),
+        ModelType::PartialSelect => {
+            generate_partial_select_convenience_method(field, base_type, &method_name)
+        }
+        ModelType::Select => {
+            unreachable!("Select models do not have convenience methods")
+        }
     }
 }
 

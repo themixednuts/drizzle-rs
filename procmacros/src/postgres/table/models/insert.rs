@@ -7,7 +7,7 @@ use super::convenience::generate_convenience_method;
 use crate::postgres::field::{FieldInfo, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote};
 use syn::Result;
 
 /// Generates the Insert model with convenience methods and constructor
@@ -34,7 +34,7 @@ pub(crate) fn generate_insert_model(
 
     for (field_index, info) in ctx.field_infos.iter().enumerate() {
         let name = &info.ident;
-        let field_type = get_field_type_for_model(info, ModelType::Insert);
+        let field_type = ctx.get_field_type_for_model(info, ModelType::Insert);
         let is_optional = ctx.is_field_optional_in_insert(info);
 
         insert_fields.push(quote! { #name: #field_type });
@@ -187,21 +187,6 @@ fn generate_marker_types(ctx: &MacroContext) -> Vec<TokenStream> {
             }
         })
         .collect()
-}
-
-/// Determine the appropriate field type for INSERT operations
-fn get_field_type_for_model(field_info: &FieldInfo, model_type: ModelType) -> TokenStream {
-    let base_type = &field_info.base_type;
-
-    match model_type {
-        ModelType::Insert => {
-            // Use the base type directly for all fields
-            // For JSON custom types, the serialization happens in the helper methods
-            // (constructor and with_* methods), not through the From<T> impl
-            quote!(PostgresInsertValue<'a, PostgresValue<'a>, #base_type>)
-        }
-        _ => quote!(#base_type),
-    }
 }
 
 /// Gets the default value expression for insert model
