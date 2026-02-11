@@ -1395,7 +1395,6 @@ dependencies = [
  "chrono",
  "cidr",
  "divan",
- "drizzle",
  "drizzle-core",
  "drizzle-macros",
  "drizzle-migrations",

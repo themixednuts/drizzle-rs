@@ -91,49 +91,11 @@ tempfile = { version = "3.23" }
 assert_cmd = { version = "2.1" }
 predicates = { version = "3.1" }
 
-# Add dev-dependencies for tests
 [dev-dependencies]
-drizzle = { workspace = true, features = [
-  "rusqlite",
-  "libsql",
-  # "turso",
-  "uuid",
-  "serde",
-  "postgres",
-  "sqlite",
-  "profiling",
-  "postgres-sync",
-  "tokio-postgres",
-  "arrayvec",
-  # PostgreSQL type features for type_inference tests
-  "chrono",
-  "geo-types",
-  "cidr",
-  "bit-vec",
-  # "sqlx-postgres",
-] }
-drizzle-macros = { workspace = true, features = [
-  "rusqlite",
-  "libsql",
-  # "turso",
-  "uuid",
-  "serde",
-  "postgres",
-  "sqlite",
-  "chrono",
-  "geo-types",
-  "cidr",
-  "bit-vec",
-  # "sqlx-postgres",
-] }
-
-libsql = { workspace = true, features = ["core", "sync"] }
 divan = { version = "0.1" }
 futures-util = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-rusqlite = { workspace = true, features = ["bundled"] }
-tokio-postgres = { workspace = true }
 puffin_egui = { version = "0.29" }
 eframe = { version = "0.33" }
 
