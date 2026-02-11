@@ -24,55 +24,113 @@ Install the `drizzle` binary:
 cargo install drizzle-cli --locked --all-features
 ```
 
-## Quick start (SQLite + rusqlite)
+## Define your schema (`schema.rs`)
+
+Convention: keep all table definitions in a dedicated `schema.rs` module. Each `#[SQLiteTable]` generates `Select*`, `Insert*`, and `Update*` companion types.
 
 ```rust
-use drizzle::core::expr::eq;
+// schema.rs
 use drizzle::sqlite::prelude::*;
-use drizzle::sqlite::rusqlite::Drizzle;
 
 #[SQLiteTable]
 pub struct Users {
-    #[column(primary)]
+    #[column(primary, autoincrement)]
     pub id: i64,
     pub name: String,
+    pub email: Option<String>,
     pub age: i64,
+}
+
+#[SQLiteTable]
+pub struct Posts {
+    #[column(primary, autoincrement)]
+    pub id: i64,
+    pub title: String,
+    pub content: Option<String>,
+    #[column(references = Users::id)]
+    pub author_id: i64,
 }
 
 #[derive(SQLiteSchema)]
 pub struct Schema {
     pub users: Users,
-}
-
-fn main() -> drizzle::Result<()> {
-    let conn = rusqlite::Connection::open_in_memory()?;
-    let (mut db, Schema { users }) = Drizzle::new(conn, Schema::new());
-    db.create()?;
-
-    db.insert(users)
-        .values([InsertUsers::new("Alex Smith", 26i64)])
-        .execute()?;
-
-    let row: SelectUsers = db
-        .select(())
-        .from(users)
-        .r#where(eq(users.name, "Alex Smith"))
-        .get()?;
-
-    println!("user: {row:?}");
-    Ok(())
+    pub posts: Posts,
 }
 ```
 
-> [!NOTE]
-> `db.create()` statements are intentionally not `IF NOT EXISTS` so migrations can
-> own schema creation. Use it only for fresh databases.
+> See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
 
-## Query patterns (SQLite)
+## Connect
 
-### Join mapping with `SQLiteFromRow`
+```rust
+use drizzle::sqlite::rusqlite::Drizzle;
 
-Assuming a `Posts` table with `user_id` referencing `Users::id`:
+let conn = rusqlite::Connection::open("app.db")?;
+let (db, Schema { users, posts }) = Drizzle::new(conn, Schema::new());
+
+// Create tables (no IF NOT EXISTS — use only on a fresh database)
+db.create()?;
+```
+
+## CRUD
+
+### Insert
+
+```rust
+db.insert(users)
+    .values([
+        InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"),
+        InsertUsers::new("Jordan Lee", 30i64),
+    ])
+    .execute()?;
+```
+
+### Select
+
+```rust
+use drizzle::core::expr::eq;
+
+// All rows
+let all: Vec<SelectUsers> = db.select(()).from(users).all()?;
+
+// Single row with filter
+let user: SelectUsers = db
+    .select(())
+    .from(users)
+    .r#where(eq(users.name, "Alex Smith"))
+    .get()?;
+
+// Specific columns
+let names: Vec<(String,)> = db
+    .select((users.name,))
+    .from(users)
+    .all()?;
+```
+
+### Update
+
+```rust
+use drizzle::core::expr::eq;
+
+db.update(users)
+    .set(UpdateUsers::default().with_age(27))
+    .r#where(eq(users.id, 1))
+    .execute()?;
+```
+
+### Delete
+
+```rust
+use drizzle::core::expr::eq;
+
+db.delete(users)
+    .r#where(eq(users.id, 1))
+    .execute()?;
+```
+
+## Joins
+
+Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct:
 
 ```rust
 use drizzle::core::expr::eq;
@@ -86,31 +144,20 @@ struct UserWithPost {
     name: String,
     #[column(Posts::id)]
     post_id: i64,
-    #[column(Posts::context)]
-    context: Option<String>,
+    #[column(Posts::content)]
+    content: Option<String>,
 }
 
-let row: UserWithPost = db
+let rows: Vec<UserWithPost> = db
     .select(UserWithPost::default())
     .from(users)
-    .left_join(posts, eq(users.id, posts.user_id))
-    .get()?;
+    .left_join(posts, eq(users.id, posts.author_id))
+    .all()?;
 ```
 
-### Updates
+## PostgreSQL
 
-```rust
-use drizzle::core::expr::eq;
-use drizzle::sqlite::prelude::*;
-
-let stmt = db
-    .update(users)
-    .set(UpdateUsers::default().with_age(27))
-    .r#where(eq(users.id, 1));
-stmt.execute()?;
-```
-
-## Quick start (PostgreSQL, sync)
+The same patterns apply — swap the macro and driver:
 
 ```rust
 use drizzle::postgres::prelude::*;
@@ -134,7 +181,6 @@ fn main() -> drizzle::Result<()> {
         postgres::NoTls,
     )?;
     let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
-    // Async variant: drizzle::postgres::tokio::Drizzle with tokio_postgres::connect.
     db.create()?;
 
     db.insert(accounts)
@@ -147,13 +193,16 @@ fn main() -> drizzle::Result<()> {
 }
 ```
 
-## CLI quick start (migrations)
+> For async, use `drizzle::postgres::tokio::Drizzle` with `tokio_postgres::connect`.
+
+## CLI (migrations)
 
 ```bash
 drizzle init -d sqlite          # dialects: sqlite, turso, postgresql, mysql, singlestore
 drizzle generate                # generate migrations from schema changes
 drizzle migrate                 # apply pending migrations
 ```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
