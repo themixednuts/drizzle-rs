@@ -213,6 +213,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql_table_info_impl = generate_sql_table_info(
         &aliased_table_name,
         quote! {self.alias},
+        quote! { ::std::option::Option::None },
         quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::columns(&ORIGINAL_TABLE)

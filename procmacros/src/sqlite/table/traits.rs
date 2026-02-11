@@ -113,6 +113,7 @@ pub(crate) fn generate_table_impls(
         quote! {
             <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME
         },
+        quote! { ::std::option::Option::None },
         quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
             #[allow(non_upper_case_globals)]

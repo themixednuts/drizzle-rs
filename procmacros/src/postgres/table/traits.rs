@@ -78,6 +78,7 @@ pub(super) fn generate_table_impls(
         }
     }
     let dependencies_len = dependencies.len();
+    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
     let dependency_statics: Vec<_> = dependencies
         .iter()
         .enumerate()
@@ -103,6 +104,7 @@ pub(super) fn generate_table_impls(
         quote! {
             <Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::NAME
         },
+        quote! { ::std::option::Option::Some(#schema_name) },
         quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
             #[allow(non_upper_case_globals)]

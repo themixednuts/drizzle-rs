@@ -350,6 +350,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let sql_table_info_impl = generate_sql_table_info(
         struct_ident,
         quote! { Self::VIEW_NAME },
+        quote! { ::std::option::Option::Some(Self::VIEW_SCHEMA) },
         sql_columns,
         sql_dependencies,
     );
@@ -425,10 +426,6 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         impl #sql_view_info for #struct_ident {
             fn definition_sql(&self) -> #std_cow<'static, str> {
                 #sql_view_definition_sql
-            }
-
-            fn schema(&self) -> &'static str {
-                Self::VIEW_SCHEMA
             }
 
             fn is_materialized(&self) -> bool {

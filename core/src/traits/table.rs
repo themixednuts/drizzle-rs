@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::{SQL, SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
+use crate::{SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL, SQL};
 use core::any::Any;
 
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
@@ -43,7 +43,22 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
 }
 
 pub trait SQLTableInfo: Any + Send + Sync {
+    /// Unqualified table name.
     fn name(&self) -> &str;
+
+    /// Optional schema/catalog namespace for this table.
+    fn schema(&self) -> Option<&str> {
+        None
+    }
+
+    /// Fully-qualified table name when schema is present.
+    fn qualified_name(&self) -> Cow<'static, str> {
+        match self.schema() {
+            Some(schema) => Cow::Owned(format!("{schema}.{}", self.name())),
+            None => Cow::Owned(self.name().to_string()),
+        }
+    }
+
     fn columns(&self) -> &'static [&'static dyn SQLColumnInfo];
     fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo];
 
@@ -62,6 +77,14 @@ impl<T: SQLTableInfo> SQLTableInfo for &'static T {
         (*self).name()
     }
 
+    fn schema(&self) -> Option<&str> {
+        (*self).schema()
+    }
+
+    fn qualified_name(&self) -> Cow<'static, str> {
+        (*self).qualified_name()
+    }
+
     fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
         (*self).columns()
     }
@@ -75,6 +98,8 @@ impl core::fmt::Debug for dyn SQLTableInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLTableInfo")
             .field("name", &self.name())
+            .field("schema", &self.schema())
+            .field("qualified_name", &self.qualified_name())
             .field("columns", &self.columns())
             .finish()
     }

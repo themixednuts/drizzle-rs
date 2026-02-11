@@ -18,8 +18,8 @@
 //! ```
 
 use crate::values::PostgresValue;
-use drizzle_core::traits::SQLViewInfo;
-use drizzle_core::{SQL, ToSQL, Token};
+use drizzle_core::traits::{SQLTableInfo, SQLViewInfo};
+use drizzle_core::{ToSQL, Token, SQL};
 use std::marker::PhantomData;
 
 //------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
     /// Creates a new REFRESH MATERIALIZED VIEW builder for the given view
     #[must_use]
     pub fn new<V: SQLViewInfo>(view: &'a V) -> Self {
-        let schema = view.schema();
+        let schema = SQLTableInfo::schema(view).unwrap_or("public");
         let name = view.name();
 
         // Build: REFRESH MATERIALIZED VIEW "schema"."name"

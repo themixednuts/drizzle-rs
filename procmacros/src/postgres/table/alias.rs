@@ -227,6 +227,11 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 self.alias
             }
 
+            fn schema(&self) -> ::std::option::Option<&str> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as SQLTableInfo>::schema(&ORIGINAL_TABLE)
+            }
+
             fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
                 // TODO: This is tricky because we need static references but each alias instance
                 // has a different alias string. For now, return original columns.

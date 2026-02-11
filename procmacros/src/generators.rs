@@ -58,6 +58,7 @@ pub fn generate_sql_column_info(
 pub fn generate_sql_table_info(
     struct_ident: &Ident,
     name: TokenStream,
+    schema: TokenStream,
     columns: TokenStream,
     dependencies: TokenStream,
 ) -> TokenStream {
@@ -68,6 +69,10 @@ pub fn generate_sql_table_info(
         impl #sql_table_info for #struct_ident {
             fn name(&self) -> &str {
                 #name
+            }
+
+            fn schema(&self) -> ::std::option::Option<&str> {
+                #schema
             }
 
             fn columns(&self) -> &'static [&'static dyn #sql_column_info] {

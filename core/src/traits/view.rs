@@ -1,6 +1,6 @@
 use crate::prelude::Cow;
 use crate::traits::SQLSchemaType;
-use crate::{SQL, SQLParam, SQLTable, SQLTableInfo};
+use crate::{SQLParam, SQLTable, SQLTableInfo, SQL};
 use core::any::Any;
 
 /// Trait for database views.
@@ -22,11 +22,6 @@ pub trait SQLView<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
 pub trait SQLViewInfo: SQLTableInfo + Any {
     /// Returns the SQL definition of this view.
     fn definition_sql(&self) -> Cow<'static, str>;
-
-    /// Returns the schema name for this view (default: public).
-    fn schema(&self) -> &'static str {
-        "public"
-    }
 
     /// Returns true if this is an existing view in the database not managed by Drizzle.
     fn is_existing(&self) -> bool {
@@ -66,7 +61,8 @@ impl core::fmt::Debug for dyn SQLViewInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLViewInfo")
             .field("name", &self.name())
-            .field("schema", &self.schema())
+            .field("schema", &SQLTableInfo::schema(self))
+            .field("qualified_name", &SQLTableInfo::qualified_name(self))
             .field("definition", &self.definition_sql())
             .field("existing", &self.is_existing())
             .field("materialized", &self.is_materialized())

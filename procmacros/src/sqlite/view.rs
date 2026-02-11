@@ -263,6 +263,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let sql_table_info_impl = generate_sql_table_info(
         struct_ident,
         quote! { Self::VIEW_NAME },
+        quote! { ::std::option::Option::None },
         sql_columns,
         sql_dependencies,
     );
