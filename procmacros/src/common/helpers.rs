@@ -157,6 +157,40 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
     })
 }
 
+/// Check if a field has the `#[json]` attribute or `#[column(json)]`.
+///
+/// This is used by FromRow derives to determine if a field should be
+/// deserialized from a JSON string using `serde_json::from_str`.
+///
+/// # Example
+///
+/// ```ignore
+/// #[derive(SQLiteFromRow)]
+/// struct MyStruct {
+///     #[json]
+///     profile: Profile,
+/// }
+/// ```
+pub(crate) fn has_json_attribute(field: &Field) -> bool {
+    field.attrs.iter().any(|attr| {
+        if attr.path().get_ident().is_some_and(|ident| ident == "json") {
+            return true;
+        }
+
+        if !attr.path().is_ident("column") {
+            return false;
+        }
+
+        match &attr.meta {
+            Meta::List(list) => {
+                let tokens = list.tokens.to_string().to_ascii_lowercase();
+                tokens.contains("json")
+            }
+            _ => false,
+        }
+    })
+}
+
 /// Check if a type is an Option type.
 ///
 /// This is useful for determining nullability of fields.
