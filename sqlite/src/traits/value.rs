@@ -1,7 +1,7 @@
 //! Value conversion traits for SQLite types
 //!
 //! This module provides the `FromSQLiteValue` trait for converting SQLite values
-//! to Rust types, and the `DrizzleRow` trait for unified row access across drivers.
+//! to Rust types, and row capability traits for unified access across drivers.
 
 use drizzle_core::error::DrizzleError;
 use std::{rc::Rc, sync::Arc};
@@ -54,16 +54,47 @@ pub trait FromSQLiteValue: Sized {
     }
 }
 
-/// Trait for database rows that can extract values using `FromSQLiteValue`.
-///
-/// This provides a unified interface for extracting values from database rows
-/// across different SQLite drivers (libsql, turso).
-pub trait DrizzleRow {
+/// Row capability for index-based extraction.
+pub trait DrizzleRowByIndex {
     /// Get a column value by index
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
+}
 
-    /// Get a column value by name (optional, not all drivers support this efficiently)
+/// Optional row capability for name-based extraction.
+pub trait DrizzleRowByName: DrizzleRowByIndex {
+    /// Get a column value by name.
     fn get_column_by_name<T: FromSQLiteValue>(&self, name: &str) -> Result<T, DrizzleError>;
+}
+
+fn checked_real_to_int<T>(value: f64, type_name: &str) -> Result<T, DrizzleError>
+where
+    T: TryFrom<i128>,
+    <T as TryFrom<i128>>::Error: core::fmt::Display,
+{
+    if !value.is_finite() {
+        return Err(DrizzleError::ConversionError(
+            format!("cannot convert non-finite REAL {} to {}", value, type_name).into(),
+        ));
+    }
+
+    if value.fract() != 0.0 {
+        return Err(DrizzleError::ConversionError(
+            format!("cannot convert non-integer REAL {} to {}", value, type_name).into(),
+        ));
+    }
+
+    if value < i128::MIN as f64 || value > i128::MAX as f64 {
+        return Err(DrizzleError::ConversionError(
+            format!("REAL {} out of range for {}", value, type_name).into(),
+        ));
+    }
+
+    let int_value = value as i128;
+    int_value.try_into().map_err(|e| {
+        DrizzleError::ConversionError(
+            format!("REAL {} out of range for {}: {}", value, type_name, e).into(),
+        )
+    })
 }
 
 // =============================================================================
@@ -86,7 +117,7 @@ macro_rules! impl_from_sqlite_value_int {
             }
 
             fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-                Ok(value as i64)
+                checked_real_to_int(value, "i64")
             }
 
             fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
@@ -115,7 +146,7 @@ macro_rules! impl_from_sqlite_value_int {
                 }
 
                 fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-                    Ok(value as $ty)
+                    checked_real_to_int(value, stringify!($ty))
                 }
 
                 fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
@@ -420,7 +451,7 @@ impl<T: FromSQLiteValue> FromSQLiteValue for Option<T> {
 // =============================================================================
 
 #[cfg(feature = "rusqlite")]
-impl DrizzleRow for rusqlite::Row<'_> {
+impl DrizzleRowByIndex for rusqlite::Row<'_> {
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError> {
         let value_ref = self.get_ref(idx)?;
         match value_ref {
@@ -436,15 +467,18 @@ impl DrizzleRow for rusqlite::Row<'_> {
             rusqlite::types::ValueRef::Null => T::from_sqlite_null(),
         }
     }
+}
 
+#[cfg(feature = "rusqlite")]
+impl DrizzleRowByName for rusqlite::Row<'_> {
     fn get_column_by_name<T: FromSQLiteValue>(&self, name: &str) -> Result<T, DrizzleError> {
         let idx = self.as_ref().column_index(name)?;
-        self.get_column(idx)
+        DrizzleRowByIndex::get_column(self, idx)
     }
 }
 
 #[cfg(feature = "libsql")]
-impl DrizzleRow for libsql::Row {
+impl DrizzleRowByIndex for libsql::Row {
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError> {
         let value = self.get_value(idx as i32)?;
         match value {
@@ -455,17 +489,10 @@ impl DrizzleRow for libsql::Row {
             libsql::Value::Null => T::from_sqlite_null(),
         }
     }
-
-    fn get_column_by_name<T: FromSQLiteValue>(&self, _name: &str) -> Result<T, DrizzleError> {
-        // libsql doesn't have efficient name-based access, would need to iterate columns
-        Err(DrizzleError::ConversionError(
-            "libsql does not support column access by name in FromRow".into(),
-        ))
-    }
 }
 
 #[cfg(feature = "turso")]
-impl DrizzleRow for turso::Row {
+impl DrizzleRowByIndex for turso::Row {
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError> {
         let value = self.get_value(idx)?;
         if value.is_null() {
@@ -483,12 +510,6 @@ impl DrizzleRow for turso::Row {
                 "unknown SQLite value type".into(),
             ))
         }
-    }
-
-    fn get_column_by_name<T: FromSQLiteValue>(&self, _name: &str) -> Result<T, DrizzleError> {
-        Err(DrizzleError::ConversionError(
-            "turso does not support column access by name in FromRow".into(),
-        ))
     }
 }
 

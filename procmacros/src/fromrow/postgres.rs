@@ -95,35 +95,35 @@ pub(crate) fn generate_field_assignment(
     );
 
     let assignment = if needs_from_postgres_value {
-        // Use DrizzleRow::get_column_by_name with FromPostgresValue trait
+        // Use capability-specific row traits with FromPostgresValue conversion
         if is_optional {
             if field_name.is_some() {
                 quote! {
                     {
-                        use drizzle::postgres::traits::DrizzleRow;
-                        DrizzleRow::get_column_by_name::<Option<#target_type>>(row, #idx_or_name)?
+                        use drizzle::postgres::traits::DrizzleRowByName;
+                        DrizzleRowByName::get_column_by_name::<Option<#target_type>>(row, #idx_or_name)?
                     }
                 }
             } else {
                 quote! {
                     {
-                        use drizzle::postgres::traits::DrizzleRow;
-                        DrizzleRow::get_column::<Option<#target_type>>(row, #idx_or_name)?
+                        use drizzle::postgres::traits::DrizzleRowByIndex;
+                        DrizzleRowByIndex::get_column::<Option<#target_type>>(row, #idx_or_name)?
                     }
                 }
             }
         } else if field_name.is_some() {
             quote! {
                 {
-                    use drizzle::postgres::traits::DrizzleRow;
-                    DrizzleRow::get_column_by_name::<#target_type>(row, #idx_or_name)?
+                    use drizzle::postgres::traits::DrizzleRowByName;
+                    DrizzleRowByName::get_column_by_name::<#target_type>(row, #idx_or_name)?
                 }
             }
         } else {
             quote! {
                 {
-                    use drizzle::postgres::traits::DrizzleRow;
-                    DrizzleRow::get_column::<#target_type>(row, #idx_or_name)?
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<#target_type>(row, #idx_or_name)?
                 }
             }
         }

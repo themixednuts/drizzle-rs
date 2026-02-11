@@ -210,7 +210,7 @@ pub mod sqlite {
     }
 
     pub fn drizzle_row() -> TokenStream {
-        quote!(drizzle::sqlite::traits::DrizzleRow)
+        quote!(drizzle::sqlite::traits::DrizzleRowByIndex)
     }
 
     pub fn expressions() -> TokenStream {
@@ -594,7 +594,7 @@ pub mod postgres {
     }
 
     pub fn drizzle_row() -> TokenStream {
-        quote!(drizzle::postgres::traits::DrizzleRow)
+        quote!(drizzle::postgres::traits::DrizzleRowByIndex)
     }
 
     pub fn row() -> TokenStream {

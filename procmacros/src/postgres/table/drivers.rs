@@ -90,19 +90,19 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
             }
         }
     } else if needs_from_postgres_value {
-        // Use DrizzleRow::get_column_by_name with FromPostgresValue
+        // Use DrizzleRowByName::get_column_by_name with FromPostgresValue
         if info.is_nullable {
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRow;
-                    DrizzleRow::get_column_by_name::<Option<#base_type>>(row, #name_str)?
+                    use drizzle::postgres::traits::DrizzleRowByName;
+                    DrizzleRowByName::get_column_by_name::<Option<#base_type>>(row, #name_str)?
                 },
             }
         } else {
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRow;
-                    DrizzleRow::get_column_by_name::<#base_type>(row, #name_str)?
+                    use drizzle::postgres::traits::DrizzleRowByName;
+                    DrizzleRowByName::get_column_by_name::<#base_type>(row, #name_str)?
                 },
             }
         }
@@ -200,21 +200,21 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
             }
         }
     } else if needs_from_postgres_value {
-        // Use DrizzleRow for FromPostgresValue types
+        // Use DrizzleRowByName for FromPostgresValue types
         if info.is_nullable {
             // Original is Option<T>, partial is Option<Option<T>>
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRow;
-                    Some(DrizzleRow::get_column_by_name::<Option<#base_type>>(row, #name_str).ok().flatten())
+                    use drizzle::postgres::traits::DrizzleRowByName;
+                    Some(DrizzleRowByName::get_column_by_name::<Option<#base_type>>(row, #name_str).ok().flatten())
                 },
             }
         } else {
             // Original is T, partial is Option<T>
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRow;
-                    DrizzleRow::get_column_by_name::<#base_type>(row, #name_str).ok()
+                    use drizzle::postgres::traits::DrizzleRowByName;
+                    DrizzleRowByName::get_column_by_name::<#base_type>(row, #name_str).ok()
                 },
             }
         }

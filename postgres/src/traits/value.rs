@@ -1,7 +1,7 @@
 //! Value conversion traits for PostgreSQL types
 //!
 //! This module provides the `FromPostgresValue` trait for converting PostgreSQL values
-//! to Rust types, and the `DrizzleRow` trait for unified row access across drivers.
+//! to Rust types, and row capability traits for unified access across drivers.
 //!
 //! This pattern mirrors the SQLite implementation to provide driver-agnostic
 //! row conversions for postgres, tokio-postgres, and potentially other drivers.
@@ -195,16 +195,51 @@ pub trait FromPostgresValue: Sized {
     }
 }
 
-/// Trait for database rows that can extract values using `FromPostgresValue`.
-///
-/// This provides a unified interface for extracting values from database rows
-/// across different PostgreSQL drivers (postgres, tokio-postgres).
-pub trait DrizzleRow {
+/// Row capability for index-based extraction.
+pub trait DrizzleRowByIndex {
     /// Get a column value by index
     fn get_column<T: FromPostgresValue>(&self, idx: usize) -> Result<T, DrizzleError>;
+}
 
+/// Row capability for name-based extraction.
+pub trait DrizzleRowByName: DrizzleRowByIndex {
     /// Get a column value by name
     fn get_column_by_name<T: FromPostgresValue>(&self, name: &str) -> Result<T, DrizzleError>;
+}
+
+fn checked_float_to_int<T>(value: f64, type_name: &str) -> Result<T, DrizzleError>
+where
+    T: TryFrom<i128>,
+    <T as TryFrom<i128>>::Error: core::fmt::Display,
+{
+    if !value.is_finite() {
+        return Err(DrizzleError::ConversionError(
+            format!("cannot convert non-finite float {} to {}", value, type_name).into(),
+        ));
+    }
+
+    if value.fract() != 0.0 {
+        return Err(DrizzleError::ConversionError(
+            format!(
+                "cannot convert non-integer float {} to {}",
+                value, type_name
+            )
+            .into(),
+        ));
+    }
+
+    if value < i128::MIN as f64 || value > i128::MAX as f64 {
+        return Err(DrizzleError::ConversionError(
+            format!("float {} out of range for {}", value, type_name).into(),
+        ));
+    }
+
+    let int_value = value as i128;
+    int_value.try_into().map_err(|e| {
+        DrizzleError::ConversionError(
+            format!("float {} out of range for {}: {}", value, type_name, e).into(),
+        )
+    })
 }
 
 // =============================================================================
@@ -291,11 +326,11 @@ macro_rules! impl_from_postgres_value_int {
                 }
 
                 fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
-                    Ok(value as $ty)
+                    checked_float_to_int(value as f64, stringify!($ty))
                 }
 
                 fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
-                    Ok(value as $ty)
+                    checked_float_to_int(value, stringify!($ty))
                 }
 
                 fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
@@ -343,11 +378,11 @@ impl FromPostgresValue for i16 {
     }
 
     fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
-        Ok(value as i16)
+        checked_float_to_int(value as f64, "i16")
     }
 
     fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i16)
+        checked_float_to_int(value, "i16")
     }
 
     fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
@@ -386,11 +421,11 @@ impl FromPostgresValue for i32 {
     }
 
     fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
-        Ok(value as i32)
+        checked_float_to_int(value as f64, "i32")
     }
 
     fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i32)
+        checked_float_to_int(value, "i32")
     }
 
     fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
@@ -425,11 +460,11 @@ impl FromPostgresValue for i64 {
     }
 
     fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
-        Ok(value as i64)
+        checked_float_to_int(value as f64, "i64")
     }
 
     fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
-        Ok(value as i64)
+        checked_float_to_int(value, "i64")
     }
 
     fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
@@ -1018,6 +1053,52 @@ mod postgres_row_impl {
         row: &R,
         column: impl ColumnRef,
     ) -> Result<T, DrizzleError> {
+        if let Some(oid) = row.type_oid(&column) {
+            match oid {
+                16 => {
+                    if let Ok(Some(v)) = row.try_get_bool(&column) {
+                        return T::from_postgres_bool(v);
+                    }
+                }
+                20 => {
+                    if let Ok(Some(v)) = row.try_get_i64(&column) {
+                        return T::from_postgres_i64(v);
+                    }
+                }
+                23 => {
+                    if let Ok(Some(v)) = row.try_get_i32(&column) {
+                        return T::from_postgres_i32(v);
+                    }
+                }
+                21 => {
+                    if let Ok(Some(v)) = row.try_get_i16(&column) {
+                        return T::from_postgres_i16(v);
+                    }
+                }
+                701 => {
+                    if let Ok(Some(v)) = row.try_get_f64(&column) {
+                        return T::from_postgres_f64(v);
+                    }
+                }
+                700 => {
+                    if let Ok(Some(v)) = row.try_get_f32(&column) {
+                        return T::from_postgres_f32(v);
+                    }
+                }
+                17 => {
+                    if let Ok(Some(ref v)) = row.try_get_bytes(&column) {
+                        return T::from_postgres_bytes(v);
+                    }
+                }
+                25 | 1043 | 1042 => {
+                    if let Ok(Some(ref v)) = row.try_get_string(&column) {
+                        return T::from_postgres_text(v);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // Try bool first
         if let Ok(Some(v)) = row.try_get_bool(&column) {
             return T::from_postgres_bool(v);
@@ -1314,6 +1395,7 @@ mod postgres_row_impl {
 
     /// Internal trait to abstract over postgres/tokio-postgres Row types
     trait PostgresRowLike {
+        fn type_oid(&self, column: &impl ColumnRef) -> Option<u32>;
         fn try_get_bool(&self, column: &impl ColumnRef) -> Result<Option<bool>, ()>;
         fn try_get_i16(&self, column: &impl ColumnRef) -> Result<Option<i16>, ()>;
         fn try_get_i32(&self, column: &impl ColumnRef) -> Result<Option<i32>, ()>;
@@ -1360,7 +1442,7 @@ mod postgres_row_impl {
         ) -> Result<Option<geo_types::LineString<f64>>, ()>;
         #[cfg(feature = "geo-types")]
         fn try_get_rect(&self, column: &impl ColumnRef)
-        -> Result<Option<geo_types::Rect<f64>>, ()>;
+            -> Result<Option<geo_types::Rect<f64>>, ()>;
         #[cfg(feature = "bit-vec")]
         fn try_get_bitvec(&self, column: &impl ColumnRef) -> Result<Option<bit_vec::BitVec>, ()>;
 
@@ -1471,6 +1553,18 @@ mod postgres_row_impl {
     // Use tokio_postgres when available, postgres when not
     #[cfg(feature = "tokio-postgres")]
     impl PostgresRowLike for tokio_postgres::Row {
+        fn type_oid(&self, column: &impl ColumnRef) -> Option<u32> {
+            let idx = if let Some(idx) = column.to_index() {
+                idx
+            } else if let Some(name) = column.to_name() {
+                self.columns().iter().position(|c| c.name() == name)?
+            } else {
+                return None;
+            };
+
+            self.columns().get(idx).map(|c| c.type_().oid())
+        }
+
         fn try_get_bool(&self, column: &impl ColumnRef) -> Result<Option<bool>, ()> {
             if let Some(idx) = column.to_index() {
                 self.try_get::<_, Option<bool>>(idx).map_err(|_| ())
@@ -2074,11 +2168,14 @@ mod postgres_row_impl {
     }
 
     #[cfg(feature = "tokio-postgres")]
-    impl DrizzleRow for tokio_postgres::Row {
+    impl DrizzleRowByIndex for tokio_postgres::Row {
         fn get_column<T: FromPostgresValue>(&self, idx: usize) -> Result<T, DrizzleError> {
             convert_column(self, idx)
         }
+    }
 
+    #[cfg(feature = "tokio-postgres")]
+    impl DrizzleRowByName for tokio_postgres::Row {
         fn get_column_by_name<T: FromPostgresValue>(&self, name: &str) -> Result<T, DrizzleError> {
             convert_column(self, name)
         }
@@ -2089,6 +2186,18 @@ mod postgres_row_impl {
     // is enabled, we need a separate implementation.
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
     impl PostgresRowLike for postgres::Row {
+        fn type_oid(&self, column: &impl ColumnRef) -> Option<u32> {
+            let idx = if let Some(idx) = column.to_index() {
+                idx
+            } else if let Some(name) = column.to_name() {
+                self.columns().iter().position(|c| c.name() == name)?
+            } else {
+                return None;
+            };
+
+            self.columns().get(idx).map(|c| c.type_().oid())
+        }
+
         fn try_get_bool(&self, column: &impl ColumnRef) -> Result<Option<bool>, ()> {
             if let Some(idx) = column.to_index() {
                 self.try_get::<_, Option<bool>>(idx).map_err(|_| ())
@@ -2692,11 +2801,14 @@ mod postgres_row_impl {
     }
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-    impl DrizzleRow for postgres::Row {
+    impl DrizzleRowByIndex for postgres::Row {
         fn get_column<T: FromPostgresValue>(&self, idx: usize) -> Result<T, DrizzleError> {
             convert_column(self, idx)
         }
+    }
 
+    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    impl DrizzleRowByName for postgres::Row {
         fn get_column_by_name<T: FromPostgresValue>(&self, name: &str) -> Result<T, DrizzleError> {
             convert_column(self, name)
         }
