@@ -37,7 +37,10 @@ where
     let expr_sql = expr.into_sql();
     let needs_paren = expr_sql.chunks.len() > 1
         || (expr_sql.chunks.len() == 1
-            && !matches!(expr_sql.chunks[0], SQLChunk::Raw(_) | SQLChunk::Ident(_)));
+            && !matches!(
+                expr_sql.chunks[0],
+                SQLChunk::Raw(_) | SQLChunk::Ident(_) | SQLChunk::Number(_)
+            ));
 
     let sql = if needs_paren {
         SQL::from_iter([Token::NOT, Token::LPAREN])

@@ -1414,6 +1414,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "smallvec",
  "tokio",
  "tokio-postgres",
  "trybuild",

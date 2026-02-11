@@ -112,6 +112,10 @@ trybuild = { version = "1.0" }
 name = "sqlite"
 harness = false
 
+[[bench]]
+name = "postgres"
+harness = false
+
 [features]
 default = ["std"]
 
@@ -184,6 +188,10 @@ profiling = [
   "drizzle-sqlite?/profiling",
 ]
 
+# Enables unsafe-fast decode paths that may panic instead of returning errors.
+# Disabled by default to preserve fallible behavior on unexpected/corrupt data.
+unchecked = []
+
 # Add dialect-specific features back for gating re-exports
 sqlite = ["drizzle-macros/sqlite", "dep:drizzle-sqlite"]
 postgres = ["drizzle-macros/postgres", "dep:drizzle-postgres"]
@@ -217,6 +225,7 @@ drizzle-macros = { workspace = true }
 drizzle-migrations = { workspace = true }
 drizzle-types = { workspace = true }
 paste = { workspace = true }
+smallvec = { workspace = true }
 
 # Optional dependencies activated by features
 drizzle-sqlite = { workspace = true, optional = true }

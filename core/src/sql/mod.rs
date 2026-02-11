@@ -5,13 +5,12 @@ mod tokens;
 
 use crate::prelude::*;
 use crate::{
-    dialect::DialectExt,
     param::{Param, ParamBind},
     placeholder::Placeholder,
     traits::{SQLColumnInfo, SQLParam, SQLTableInfo, ToSQL},
 };
 pub use chunk::*;
-use core::fmt::Display;
+use core::fmt::{Display, Write};
 pub use owned::*;
 use smallvec::SmallVec;
 pub use tokens::*;
@@ -72,6 +71,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     pub fn raw(text: impl Into<Cow<'a, str>>) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Raw(text.into())],
+        }
+    }
+
+    /// Creates SQL with a single unsigned integer literal.
+    #[inline]
+    pub fn number(value: usize) -> Self {
+        Self {
+            chunks: smallvec::smallvec![SQLChunk::Number(value)],
         }
     }
 
@@ -152,11 +159,33 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         #[cfg(feature = "profiling")]
         profile_sql!("append");
         let other = other.into();
-        if !other.chunks.is_empty() {
-            self.chunks.reserve(other.chunks.len());
-            self.chunks.extend(other.chunks);
+
+        if self.chunks.is_empty() {
+            return other;
         }
+        if other.chunks.is_empty() {
+            return self;
+        }
+
+        self.chunks.extend(other.chunks);
         self
+    }
+
+    #[inline]
+    pub fn append_mut(&mut self, other: impl Into<SQL<'a, V>>) {
+        #[cfg(feature = "profiling")]
+        profile_sql!("append_mut");
+        let other = other.into();
+
+        if self.chunks.is_empty() {
+            self.chunks = other.chunks;
+            return;
+        }
+        if other.chunks.is_empty() {
+            return;
+        }
+
+        self.chunks.extend(other.chunks);
     }
 
     /// Push a single chunk
@@ -164,6 +193,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     pub fn push(mut self, chunk: impl Into<SQLChunk<'a, V>>) -> Self {
         self.chunks.push(chunk.into());
         self
+    }
+
+    #[inline]
+    pub fn push_mut(&mut self, chunk: impl Into<SQLChunk<'a, V>>) {
+        self.chunks.push(chunk.into());
     }
 
     /// Pre-allocates capacity for additional chunks
@@ -190,13 +224,19 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         };
 
         let mut result = first.into_sql();
-        let (lower, _) = iter.size_hint();
-        if lower > 0 {
-            // Reserve at least space for separators and minimal chunk growth.
+        let (lower, upper) = iter.size_hint();
+        if let Some(upper) = upper {
+            result.chunks.reserve(upper.saturating_mul(2));
+        } else if lower > 0 {
             result.chunks.reserve(lower * 2);
         }
+
         for item in iter {
-            result = result.push(separator).append(item.into_sql());
+            result.chunks.push(SQLChunk::Token(separator));
+            let other = item.into_sql();
+            if !other.chunks.is_empty() {
+                result.chunks.extend(other.chunks);
+            }
         }
         result
     }
@@ -295,22 +335,74 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         OwnedSQL::from(self)
     }
 
-    /// Returns the SQL string with dialect-appropriate placeholders
-    /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL
+    /// Returns the SQL string with dialect-appropriate placeholders.
+    /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL.
     pub fn sql(&self) -> String {
         #[cfg(feature = "profiling")]
         profile_sql!("sql");
-        let capacity = self.estimate_capacity();
-        let mut buf = String::with_capacity(capacity);
+        #[cfg(feature = "profiling")]
+        crate::drizzle_profile_scope!("sql_render", "sql.estimate");
+        let sql_cap = self.chunks.len().saturating_mul(8).max(128);
+        let mut buf = String::with_capacity(sql_cap);
         self.write_to(&mut buf);
         buf
     }
 
-    /// Write SQL to a buffer with dialect-appropriate placeholders
-    /// Uses `$1, $2, ...` for PostgreSQL, `?` or `:name` for SQLite, `?` for MySQL
-    /// Named placeholders use `:name` syntax only for SQLite; PostgreSQL always uses `$N`
+    /// Generates the SQL string and collects parameter references in a single pass.
+    ///
+    /// This is the preferred method for driver execution paths since it avoids
+    /// iterating the chunk list twice (once for `sql()`, once for `params()`).
+    pub fn build(&self) -> (String, SmallVec<[&V; 8]>) {
+        #[cfg(feature = "profiling")]
+        crate::drizzle_profile_scope!("sql_render", "build");
+        use crate::dialect::{Dialect, write_placeholder};
+        #[cfg(feature = "profiling")]
+        crate::drizzle_profile_scope!("sql_render", "build.estimate");
+        let sql_cap = self.chunks.len().saturating_mul(8).max(128);
+        let param_cap = self.chunks.len().saturating_div(8).max(8);
+        let mut buf = String::with_capacity(sql_cap);
+        let mut params: SmallVec<[&V; 8]> = SmallVec::with_capacity(param_cap);
+        let mut param_index = 1usize;
+
+        #[cfg(feature = "profiling")]
+        crate::drizzle_profile_scope!("sql_render", "build.render");
+        for (i, chunk) in self.chunks.iter().enumerate() {
+            match chunk {
+                SQLChunk::Token(Token::SELECT) => {
+                    chunk.write(&mut buf);
+                    self.write_select_columns(&mut buf, i);
+                }
+                SQLChunk::Param(param) => {
+                    if let Some(name) = param.placeholder.name
+                        && V::DIALECT == Dialect::SQLite
+                    {
+                        let _ = buf.write_char(':');
+                        let _ = buf.write_str(name);
+                    } else {
+                        write_placeholder(V::DIALECT, param_index, &mut buf);
+                    }
+                    param_index += 1;
+                    if let Some(value) = &param.value {
+                        params.push(value.as_ref());
+                    }
+                }
+                _ => chunk.write(&mut buf),
+            }
+
+            if self.needs_space(i) {
+                let _ = buf.write_char(' ');
+            }
+        }
+
+        (buf, params)
+    }
+
+    /// Write SQL to a buffer with dialect-appropriate placeholders.
+    /// Uses `$1, $2, ...` for PostgreSQL, `?` or `:name` for SQLite, `?` for MySQL.
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
-        use crate::dialect::Dialect;
+        #[cfg(feature = "profiling")]
+        crate::drizzle_profile_scope!("sql_render", "write_to");
+        use crate::dialect::{Dialect, write_placeholder};
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
@@ -319,15 +411,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                     self.write_select_columns(buf, i);
                 }
                 SQLChunk::Param(param) => {
-                    // Named placeholders use :name syntax only for SQLite
-                    // PostgreSQL always uses $N, MySQL always uses ?
                     if let Some(name) = param.placeholder.name
                         && V::DIALECT == Dialect::SQLite
                     {
                         let _ = buf.write_char(':');
                         let _ = buf.write_str(name);
                     } else {
-                        let _ = buf.write_str(&V::DIALECT.render_placeholder(param_index));
+                        write_placeholder(V::DIALECT, param_index, buf);
                     }
                     param_index += 1;
                 }
@@ -357,7 +447,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write appropriate columns for SELECT statement
-    fn write_select_columns(&self, buf: &mut impl core::fmt::Write, select_index: usize) {
+    pub(crate) fn write_select_columns(
+        &self,
+        buf: &mut impl core::fmt::Write,
+        select_index: usize,
+    ) {
         let chunks = self.chunks.get(select_index + 1..select_index + 3);
         match chunks {
             Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(table)]) => {
@@ -394,25 +488,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             let _ = buf.write_str(col.name());
             let _ = buf.write_char('"');
         }
-    }
-
-    fn estimate_capacity(&self) -> usize {
-        const PLACEHOLDER_SIZE: usize = 2;
-        const IDENT_OVERHEAD: usize = 2;
-        const COLUMN_OVERHEAD: usize = 5;
-
-        self.chunks
-            .iter()
-            .map(|chunk| match chunk {
-                SQLChunk::Token(t) => t.as_str().len(),
-                SQLChunk::Ident(s) => s.len() + IDENT_OVERHEAD,
-                SQLChunk::Raw(s) => s.len(),
-                SQLChunk::Param { .. } => PLACEHOLDER_SIZE,
-                SQLChunk::Table(t) => t.name().len() + IDENT_OVERHEAD,
-                SQLChunk::Column(c) => c.table().name().len() + c.name().len() + COLUMN_OVERHEAD,
-            })
-            .sum::<usize>()
-            + self.chunks.len()
     }
 
     /// Simplified spacing logic

@@ -36,3 +36,20 @@ impl DialectExt for Dialect {
         }
     }
 }
+
+/// Writes a dialect-appropriate placeholder directly to a buffer without allocation.
+///
+/// Unlike `render_placeholder` which returns `Cow<'static, str>` (allocating for PostgreSQL),
+/// this writes directly to any `fmt::Write` implementor with zero allocation.
+#[inline]
+pub fn write_placeholder(dialect: Dialect, index: usize, buf: &mut impl core::fmt::Write) {
+    match dialect {
+        Dialect::PostgreSQL => {
+            let _ = buf.write_char('$');
+            let _ = write!(buf, "{}", index);
+        }
+        Dialect::SQLite | Dialect::MySQL => {
+            let _ = buf.write_char('?');
+        }
+    }
+}

@@ -26,6 +26,12 @@ pub enum SQLChunk<'a, V: SQLParam> {
     /// Use for: function names like COUNT, expressions, numeric literals
     Raw(Cow<'a, str>),
 
+    /// Unsigned integer SQL literal rendered directly without heap allocation.
+    ///
+    /// Primarily used for clauses like LIMIT/OFFSET where numeric literals are
+    /// embedded directly in SQL text rather than parameterized.
+    Number(usize),
+
     /// Parameter with value and placeholder
     /// Renders as: ? or $1 or :name depending on placeholder style
     Param(Param<'a, V>),
@@ -97,6 +103,12 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
         Self::Raw(text.into())
     }
 
+    /// Creates an unsigned integer SQL literal chunk.
+    #[inline]
+    pub const fn number(value: usize) -> Self {
+        Self::Number(value)
+    }
+
     /// Creates a parameter chunk with owned value
     #[inline]
     pub fn param(value: impl Into<Cow<'a, V>>, placeholder: Placeholder) -> Self {
@@ -121,6 +133,9 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             }
             SQLChunk::Raw(text) => {
                 let _ = buf.write_str(text);
+            }
+            SQLChunk::Number(value) => {
+                let _ = write!(buf, "{}", value);
             }
             SQLChunk::Param(Param { placeholder, .. }) => {
                 let _ = write!(buf, "{}", placeholder);
@@ -147,6 +162,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             SQLChunk::Token(t) => !t.is_punctuation() && !t.is_operator(),
             SQLChunk::Ident(_)
             | SQLChunk::Raw(_)
+            | SQLChunk::Number(_)
             | SQLChunk::Param(_)
             | SQLChunk::Table(_)
             | SQLChunk::Column(_) => true,
@@ -160,6 +176,7 @@ impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
             SQLChunk::Token(token) => f.debug_tuple("Token").field(token).finish(),
             SQLChunk::Ident(name) => f.debug_tuple("Ident").field(name).finish(),
             SQLChunk::Raw(text) => f.debug_tuple("Raw").field(text).finish(),
+            SQLChunk::Number(value) => f.debug_tuple("Number").field(value).finish(),
             SQLChunk::Param(param) => f.debug_tuple("Param").field(param).finish(),
             SQLChunk::Table(table) => f.debug_tuple("Table").field(&table.name()).finish(),
             SQLChunk::Column(column) => f

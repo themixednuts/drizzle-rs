@@ -7,6 +7,15 @@ use std::marker::PhantomData;
 // Import the ExecutableState trait
 use super::ExecutableState;
 
+#[inline]
+fn append_sql<'a>(
+    mut base: SQL<'a, SQLiteValue<'a>>,
+    fragment: SQL<'a, SQLiteValue<'a>>,
+) -> SQL<'a, SQLiteValue<'a>> {
+    base.append_mut(fragment);
+    base
+}
+
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
@@ -289,7 +298,7 @@ where
     {
         let sql = crate::helpers::values::<'a, Table, T>(values);
         InsertBuilder {
-            sql: self.sql.append(sql),
+            sql: append_sql(self.sql, sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -400,7 +409,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         };
 
         InsertBuilder {
-            sql: self.sql.append(conflict_sql),
+            sql: append_sql(self.sql, conflict_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -415,7 +424,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
-            sql: self.sql.append(returning_sql),
+            sql: append_sql(self.sql, returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -436,7 +445,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
-            sql: self.sql.append(returning_sql),
+            sql: append_sql(self.sql, returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

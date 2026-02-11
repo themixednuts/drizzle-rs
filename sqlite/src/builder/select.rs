@@ -1,13 +1,22 @@
 use crate::helpers;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQLTable, ToSQL};
+use drizzle_core::{SQL, SQLTable, ToSQL};
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
+
+#[inline]
+fn append_sql<'a>(
+    mut base: SQL<'a, SQLiteValue<'a>>,
+    fragment: SQL<'a, SQLiteValue<'a>>,
+) -> SQL<'a, SQLiteValue<'a>> {
+    base.append_mut(fragment);
+    base
+}
 
 //------------------------------------------------------------------------------
 // Type State Markers
@@ -134,7 +143,7 @@ macro_rules! join_impl {
                 condition: impl ToSQL<'a, SQLiteValue<'a>>,
             ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
                 SelectBuilder {
-                    sql: self.sql.append(helpers::[<$type _join>](table, condition)),
+                    sql: append_sql(self.sql, helpers::[<$type _join>](table, condition)),
                     schema: PhantomData,
                     state: PhantomData,
                     table: PhantomData,
@@ -350,7 +359,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
-        let sql = self.sql.append(helpers::from(query));
+        let sql = append_sql(self.sql, helpers::from(query));
         SelectBuilder {
             sql,
             schema: PhantomData,
@@ -412,7 +421,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::join(table, condition)),
+            sql: append_sql(self.sql, helpers::join(table, condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -472,7 +481,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::r#where(condition)),
+            sql: append_sql(self.sql, helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -485,7 +494,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
         expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::group_by(expressions)),
+            sql: append_sql(self.sql, helpers::group_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -496,7 +505,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     #[inline]
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
+            sql: append_sql(self.sql, helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -507,7 +516,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     #[inline]
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::offset(offset)),
+            sql: append_sql(self.sql, helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -524,7 +533,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
+            sql: append_sql(self.sql, helpers::order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -544,7 +553,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
         SelectBuilder {
-            sql: self.sql.append(crate::helpers::r#where(condition)),
+            sql: append_sql(self.sql, crate::helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -560,7 +569,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
+            sql: append_sql(self.sql, helpers::order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -574,7 +583,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::join(table, condition)),
+            sql: append_sql(self.sql, helpers::join(table, condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -594,7 +603,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
         expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::group_by(expressions)),
+            sql: append_sql(self.sql, helpers::group_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -610,7 +619,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
+            sql: append_sql(self.sql, helpers::order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -620,7 +629,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     /// Adds a LIMIT clause after a WHERE
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
+            sql: append_sql(self.sql, helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -639,7 +648,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::having(condition)),
+            sql: append_sql(self.sql, helpers::having(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -655,7 +664,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
+            sql: append_sql(self.sql, helpers::order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -672,7 +681,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         let sql = helpers::limit(limit);
         SelectBuilder {
-            sql: self.sql.append(sql),
+            sql: append_sql(self.sql, sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -688,7 +697,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
     /// Adds an OFFSET clause after LIMIT
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::offset(offset)),
+            sql: append_sql(self.sql, helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -816,7 +825,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
+            sql: append_sql(self.sql, helpers::order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -826,7 +835,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
     /// Limits the results of a set operation.
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
+            sql: append_sql(self.sql, helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -836,7 +845,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
     /// Offsets the results of a set operation.
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
         SelectBuilder {
-            sql: self.sql.append(helpers::offset(offset)),
+            sql: append_sql(self.sql, helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

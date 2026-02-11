@@ -12,11 +12,14 @@ pub(crate) use helpers::{
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, PostgresValue<'a>> {
-    // For INSERT statements, use quoted column names only (no table qualifiers)
-    SQL::join(
-        columns.iter().map(|col| SQL::ident(col.name())),
-        Token::COMMA,
-    )
+    let mut sql = SQL::with_capacity_chunks(columns.len().saturating_mul(2));
+    for (idx, col) in columns.iter().enumerate() {
+        if idx > 0 {
+            sql.push_mut(Token::COMMA);
+        }
+        sql.append_mut(SQL::ident(col.name()));
+    }
+    sql
 }
 
 // Generate all join helper functions using the shared macro
@@ -180,12 +183,17 @@ where
     }
 
     let columns_sql = columns_info_to_sql(columns_slice);
-    let value_clauses: Vec<_> = rows.iter().map(|row| row.values().parens()).collect();
+    let mut values_sql = SQL::with_capacity_chunks(rows.len().saturating_mul(4));
+    for (idx, row) in rows.iter().enumerate() {
+        if idx > 0 {
+            values_sql.push_mut(Token::COMMA);
+        }
+        values_sql.push_mut(Token::LPAREN);
+        values_sql.append_mut(row.values());
+        values_sql.push_mut(Token::RPAREN);
+    }
 
-    columns_sql
-        .parens()
-        .push(Token::VALUES)
-        .append(SQL::join(value_clauses, Token::COMMA))
+    columns_sql.parens().push(Token::VALUES).append(values_sql)
 }
 
 /// Helper function to create a RETURNING clause - PostgreSQL specific

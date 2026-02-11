@@ -3,7 +3,6 @@ pub use owned::OwnedPreparedStatement;
 
 use crate::prelude::*;
 use crate::{
-    dialect::DialectExt,
     param::{Param, ParamBind},
     sql::{SQL, SQLChunk},
     traits::{SQLParam, ToSQL},
@@ -53,19 +52,37 @@ where
     V: SQLParam + Clone,
     T: SQLParam + Into<V>,
 {
-    // Collect param binds into name map and positional list for efficient lookup
-    let mut param_map: HashMap<&str, V> = HashMap::new();
-    let mut positional_params: SmallVec<[V; 8]> = SmallVec::new_const();
+    #[cfg(feature = "profiling")]
+    crate::drizzle_profile_scope!("prepared", "bind_values_internal");
+    // Only materialize a named-parameter lookup map when placeholders require it.
+    let needs_named_lookup = params.iter().any(|param| {
+        param_value_fn(param).is_none()
+            && param_name_fn(param)
+                .map(|name| !name.is_empty())
+                .unwrap_or(false)
+    });
+
+    let param_binds = param_binds.into_iter();
+    let (binds_lower, binds_upper) = param_binds.size_hint();
+
+    let mut param_map = if needs_named_lookup {
+        Some(HashMap::<&str, V>::with_capacity(binds_lower))
+    } else {
+        None
+    };
+
+    let mut positional_params: SmallVec<[V; 8]> =
+        SmallVec::with_capacity(binds_upper.unwrap_or(binds_lower));
     for bind in param_binds {
         if bind.name.is_empty() {
             positional_params.push(bind.value.into());
-        } else {
+        } else if let Some(param_map) = &mut param_map {
             param_map.insert(bind.name, bind.value.into());
         }
     }
     let mut positional_iter = positional_params.into_iter();
 
-    let mut bound_params = SmallVec::<[V; 8]>::new_const();
+    let mut bound_params = SmallVec::<[V; 8]>::with_capacity(params.len());
 
     for param in params {
         // For parameters, prioritize internal values first, then external bindings
@@ -75,7 +92,9 @@ where
         } else if let Some(name) = param_name_fn(param) {
             // If no internal value, try external binding for named parameters
             if !name.is_empty() {
-                if let Some(value) = param_map.get(name) {
+                if let Some(param_map) = &param_map
+                    && let Some(value) = param_map.get(name)
+                {
                     bound_params.push(value.clone());
                 }
             } else if let Some(value) = positional_iter.next() {
@@ -90,31 +109,6 @@ where
     // for parameters that have corresponding placeholders in the SQL
 
     bound_params.into_iter()
-}
-
-fn render_sql_with_placeholders<P>(
-    text_segments: &[CompactString],
-    params: &[P],
-    placeholder_fn: impl Fn(&P, usize) -> Cow<'static, str>,
-) -> CompactString {
-    // Pre-allocate string capacity based on text segments total length
-    let estimated_capacity: usize =
-        text_segments.iter().map(|s| s.len()).sum::<usize>() + params.len() * 8;
-    let mut sql = String::with_capacity(estimated_capacity);
-
-    // Use iterator to avoid bounds checking
-    let mut param_iter = params.iter().enumerate();
-
-    for text_segment in text_segments {
-        sql.push_str(text_segment);
-
-        if let Some((idx, param)) = param_iter.next() {
-            // Always add the placeholder (idx + 1 for 1-based indexing)
-            sql.push_str(&placeholder_fn(param, idx + 1));
-        }
-    }
-
-    CompactString::new(sql)
 }
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
@@ -164,29 +158,63 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
 }
 /// Pre-render SQL by processing chunks and separating text from parameters
 pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a, V> {
-    use crate::dialect::Dialect;
+    #[cfg(feature = "profiling")]
+    crate::drizzle_profile_scope!("prepared", "prepare_render");
+    use crate::dialect::{Dialect, write_placeholder};
     use crate::sql::chunk_needs_space;
 
+    if !sql
+        .chunks
+        .iter()
+        .any(|chunk| matches!(chunk, SQLChunk::Param(_)))
+    {
+        #[cfg(feature = "profiling")]
+        crate::drizzle_profile_scope!("prepared", "prepare_render.no_params");
+        let rendered_sql = CompactString::new(sql.sql());
+        return PreparedStatement {
+            text_segments: vec![rendered_sql.clone()].into_boxed_slice(),
+            params: Vec::new().into_boxed_slice(),
+            sql: rendered_sql,
+        };
+    }
+
+    #[cfg(feature = "profiling")]
+    crate::drizzle_profile_scope!("prepared", "prepare_render.scan");
     let mut text_segments = Vec::new();
     let mut params = Vec::new();
     let mut current_text = String::new();
+    let mut rendered_sql = String::with_capacity(sql.chunks.len().saturating_mul(8).max(64));
+    let mut param_index = 1usize;
 
     for (i, chunk) in sql.chunks.iter().enumerate() {
-        match chunk {
+        let current_text_ends_with_space = match chunk {
             SQLChunk::Param(param) => {
                 text_segments.push(CompactString::new(&current_text));
+                rendered_sql.push_str(&current_text);
                 current_text.clear();
                 params.push(param.clone());
+
+                if let Some(name) = param.placeholder.name
+                    && V::DIALECT == Dialect::SQLite
+                {
+                    rendered_sql.push(':');
+                    rendered_sql.push_str(name);
+                } else {
+                    write_placeholder(V::DIALECT, param_index, &mut rendered_sql);
+                }
+                param_index += 1;
+                false
             }
             _ => {
                 sql.write_chunk_to(&mut current_text, chunk, i);
+                matches!(chunk, SQLChunk::Raw(text) if text.ends_with(' '))
             }
-        }
+        };
 
         // Use the canonical spacing logic, with an extra check for trailing spaces
         // already in the accumulated text buffer
         if let Some(next) = sql.chunks.get(i + 1)
-            && !current_text.ends_with(' ')
+            && !current_text_ends_with_space
             && chunk_needs_space(chunk, next)
         {
             current_text.push(' ');
@@ -194,20 +222,13 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
     }
 
     text_segments.push(CompactString::new(&current_text));
+    rendered_sql.push_str(&current_text);
 
+    #[cfg(feature = "profiling")]
+    crate::drizzle_profile_scope!("prepared", "prepare_render.finalize");
     let text_segments = text_segments.into_boxed_slice();
     let params = params.into_boxed_slice();
-    let rendered_sql = render_sql_with_placeholders(&text_segments, &params, |p, idx| {
-        // Named placeholders use :name syntax only for SQLite
-        // PostgreSQL always uses $N, MySQL always uses ?
-        if let Some(name) = p.placeholder.name
-            && V::DIALECT == Dialect::SQLite
-        {
-            Cow::Owned(format!(":{}", name))
-        } else {
-            V::DIALECT.render_placeholder(idx)
-        }
-    });
+    let rendered_sql = CompactString::new(rendered_sql);
 
     PreparedStatement {
         text_segments,

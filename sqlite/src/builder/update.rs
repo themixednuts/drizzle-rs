@@ -1,12 +1,21 @@
 use crate::common::SQLiteSchemaType;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::ToSQL;
+use drizzle_core::{SQL, ToSQL};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
+
+#[inline]
+fn append_sql<'a>(
+    mut base: SQL<'a, SQLiteValue<'a>>,
+    fragment: SQL<'a, SQLiteValue<'a>>,
+) -> SQL<'a, SQLiteValue<'a>> {
+    base.append_mut(fragment);
+    base
+}
 
 //------------------------------------------------------------------------------
 // Type State Markers
@@ -231,7 +240,7 @@ where
     ) -> UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table> {
         let sql = crate::helpers::set::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(values);
         UpdateBuilder {
-            sql: self.sql.append(sql),
+            sql: append_sql(self.sql, sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -298,7 +307,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
-            sql: self.sql.append(where_sql),
+            sql: append_sql(self.sql, where_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -313,7 +322,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
-            sql: self.sql.append(returning_sql),
+            sql: append_sql(self.sql, returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -334,7 +343,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
-            sql: self.sql.append(returning_sql),
+            sql: append_sql(self.sql, returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

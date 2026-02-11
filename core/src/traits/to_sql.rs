@@ -168,6 +168,10 @@ where
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self.to_string()))
     }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self.into_string()))
+    }
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -235,6 +239,10 @@ where
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self.clone()))
     }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
 }
 
 impl<'a, V> ToSQL<'a, V> for Cow<'a, str>
@@ -248,6 +256,13 @@ where
         match self {
             Cow::Borrowed(value) => SQL::param(V::from(*value)),
             Cow::Owned(value) => SQL::param(V::from(value.clone())),
+        }
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        match self {
+            Cow::Borrowed(value) => SQL::param(V::from(value)),
+            Cow::Owned(value) => SQL::param(V::from(value)),
         }
     }
 }
@@ -265,6 +280,13 @@ where
             Cow::Owned(value) => SQL::param(V::from(value.clone())),
         }
     }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        match self {
+            Cow::Borrowed(value) => SQL::param(V::from(value)),
+            Cow::Owned(value) => SQL::param(V::from(value)),
+        }
+    }
 }
 
 impl<'a, V> ToSQL<'a, V> for SQLBytes<'a>
@@ -278,6 +300,13 @@ where
         match &self.0 {
             Cow::Borrowed(value) => SQL::param(V::from(*value)),
             Cow::Owned(value) => SQL::param(V::from(value.clone())),
+        }
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        match self.0 {
+            Cow::Borrowed(value) => SQL::param(V::from(value)),
+            Cow::Owned(value) => SQL::param(V::from(value)),
         }
     }
 }

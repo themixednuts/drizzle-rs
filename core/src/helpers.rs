@@ -1,4 +1,3 @@
-use crate::prelude::*;
 use crate::{SQL, SQLSchemaType, SQLTable, ToSQL, Token, traits::SQLParam};
 
 /// Helper function to create a SELECT statement with the given columns
@@ -158,7 +157,7 @@ pub fn limit<'a, V>(value: usize) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
-    SQL::from(Token::LIMIT).append(SQL::raw(value.to_string()))
+    SQL::from(Token::LIMIT).append(SQL::number(value))
 }
 
 /// Helper function to create an OFFSET clause
@@ -166,7 +165,7 @@ pub fn offset<'a, V>(value: usize) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
-    SQL::from(Token::OFFSET).append(SQL::raw(value.to_string()))
+    SQL::from(Token::OFFSET).append(SQL::number(value))
 }
 
 /// Helper function to create an UPDATE statement
