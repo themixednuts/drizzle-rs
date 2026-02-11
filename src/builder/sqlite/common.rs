@@ -5,11 +5,15 @@ use crate::drizzle_builder_join_impl;
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_sqlite::{
     builder::{
-        self, CTEView, Conflict, DeleteInitial, DeleteWhereSet, InsertInitial, InsertOnConflictSet,
+        self,
+        delete::DeleteBuilder,
+        insert::InsertBuilder,
+        select::{AsCteState, SelectBuilder},
+        update::UpdateBuilder,
+        CTEView, Conflict, DeleteInitial, DeleteWhereSet, InsertInitial, InsertOnConflictSet,
         InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet, SelectInitial,
         SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
-        UpdateInitial, UpdateSetClauseSet, UpdateWhereSet, delete::DeleteBuilder,
-        insert::InsertBuilder, select::SelectBuilder, update::UpdateBuilder,
+        UpdateInitial, UpdateSetClauseSet, UpdateWhereSet,
     },
     common::SQLiteSchemaType,
     traits::SQLiteTable,
@@ -393,24 +397,6 @@ impl<'d, 'a, Conn, Schema, T>
         }
     }
 
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    /// Returns a CTEView with typed field access via Deref to the aliased table.
-    #[inline]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> CTEView<
-        'a,
-        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, SelectFromSet, T>,
-    >
-    where
-        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        self.builder.as_cte(name)
-    }
-
     crate::drizzle_builder_join_impl!();
 }
 
@@ -472,23 +458,6 @@ impl<'d, 'a, Conn, Schema, T>
         }
     }
 
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> CTEView<
-        'a,
-        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
-    >
-    where
-        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        self.builder.as_cte(name)
-    }
-
     crate::drizzle_builder_join_impl!();
 }
 
@@ -533,23 +502,6 @@ impl<'d, 'a, Conn, Schema, T>
             state: PhantomData,
         }
     }
-
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> CTEView<
-        'a,
-        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
-    >
-    where
-        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        self.builder.as_cte(name)
-    }
 }
 
 impl<'d, 'a, Conn, Schema, T>
@@ -571,44 +523,6 @@ impl<'d, 'a, Conn, Schema, T>
             builder,
             state: PhantomData,
         }
-    }
-
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> CTEView<
-        'a,
-        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
-    >
-    where
-        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        self.builder.as_cte(name)
-    }
-}
-
-impl<'d, 'a, Conn, Schema, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T>, SelectOffsetSet>
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> CTEView<
-        'a,
-        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
-    >
-    where
-        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        self.builder.as_cte(name)
     }
 }
 
@@ -632,22 +546,25 @@ impl<'d, 'a, Conn, Schema, T>
             state: PhantomData,
         }
     }
+}
 
+impl<'d, 'a, Conn, Schema, State, T>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T>, State>
+where
+    State: AsCteState,
+    T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+{
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn as_cte(
+    pub fn into_cte(
         self,
         name: &'static str,
     ) -> CTEView<
         'a,
         <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
-    >
-    where
-        T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        self.builder.as_cte(name)
+        SelectBuilder<'a, Schema, State, T>,
+    > {
+        self.builder.into_cte(name)
     }
 }
 

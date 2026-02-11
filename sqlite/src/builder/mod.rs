@@ -2,8 +2,8 @@ use drizzle_core::Token;
 // Re-export common enums and traits from core
 pub use drizzle_core::builder::{BuilderInit, ExecutableState, OrderByClause};
 pub use drizzle_core::{
-    OrderBy, SQL, ToSQL,
     traits::{SQLSchema, SQLTable},
+    OrderBy, ToSQL, SQL,
 };
 
 // Local imports
@@ -243,11 +243,11 @@ impl ExecutableState for CTEInit {}
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
-/// // Create a CTE with typed field access using .as_cte()
+/// // Create a CTE with typed field access using .into_cte()
 /// let active_users = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
-///     .as_cte("active_users");
+///     .into_cte("active_users");
 ///
 /// // Use the CTE with typed column access via Deref
 /// let query = builder

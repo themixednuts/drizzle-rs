@@ -2,8 +2,8 @@ use crate::common::PostgresSchemaType;
 use crate::helpers;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use drizzle_core::ToSQL;
 use drizzle_core::traits::SQLTable;
+use drizzle_core::ToSQL;
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -213,6 +213,17 @@ impl ExecutableState for SelectJoinSet {}
 impl ExecutableState for SelectSetOpSet {}
 impl ExecutableState for SelectForSet {}
 
+#[doc(hidden)]
+pub trait AsCteState {}
+
+impl AsCteState for SelectFromSet {}
+impl AsCteState for SelectJoinSet {}
+impl AsCteState for SelectWhereSet {}
+impl AsCteState for SelectGroupSet {}
+impl AsCteState for SelectOrderSet {}
+impl AsCteState for SelectLimitSet {}
+impl AsCteState for SelectOffsetSet {}
+
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
 //------------------------------------------------------------------------------
@@ -327,22 +338,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
             table: PhantomData,
         }
     }
-
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
-    where
-        T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
 }
 
 //------------------------------------------------------------------------------
@@ -396,25 +391,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     join_impl!();
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T>
-where
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
 //------------------------------------------------------------------------------
 // Post-WHERE State Implementation
 //------------------------------------------------------------------------------
@@ -460,25 +436,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T>
-where
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
 //------------------------------------------------------------------------------
 // Post-GROUP BY State Implementation
 //------------------------------------------------------------------------------
@@ -514,25 +471,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T>
-where
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
 //------------------------------------------------------------------------------
 // Post-ORDER BY State Implementation
 //------------------------------------------------------------------------------
@@ -546,25 +484,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
             state: PhantomData,
             table: PhantomData,
         }
-    }
-}
-
-impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T>
-where
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
-            name,
-            self,
-        )
     }
 }
 
@@ -584,32 +503,14 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T>
+impl<'a, S, State, T> SelectBuilder<'a, S, State, T>
 where
+    State: AsCteState,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
 {
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
-impl<'a, S, T> SelectBuilder<'a, S, SelectOffsetSet, T>
-where
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
+    pub fn into_cte(
         self,
         name: &'static str,
     ) -> super::CTEView<'a, <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased, Self>
@@ -947,7 +848,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectForSet, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use drizzle_core::{SQL, ToSQL};
+    use drizzle_core::{ToSQL, SQL};
 
     #[test]
     fn test_select_builder_creation() {

@@ -6,8 +6,6 @@ pub(crate) mod sqlite;
 #[macro_use]
 pub(crate) mod postgres;
 
-pub(crate) mod common;
-
 #[macro_export]
 macro_rules! drizzle_prepare_impl {
     () => {

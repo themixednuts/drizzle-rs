@@ -1,5 +1,5 @@
 use crate::values::PostgresValue;
-use drizzle_core::{SQL, ToSQL, Token};
+use drizzle_core::{ToSQL, Token, SQL};
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -21,7 +21,7 @@ pub trait CTEDefinition<'a> {
 /// let active_users = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
-///     .as_cte("active_users");
+///     .into_cte("active_users");
 ///
 /// // active_users.name works via Deref to the aliased table
 /// builder

@@ -154,6 +154,17 @@ impl ExecutableState for SelectGroupSet {}
 impl ExecutableState for SelectJoinSet {}
 impl ExecutableState for SelectSetOpSet {}
 
+#[doc(hidden)]
+pub trait AsCteState {}
+
+impl AsCteState for SelectFromSet {}
+impl AsCteState for SelectJoinSet {}
+impl AsCteState for SelectWhereSet {}
+impl AsCteState for SelectGroupSet {}
+impl AsCteState for SelectOrderSet {}
+impl AsCteState for SelectLimitSet {}
+impl AsCteState for SelectOffsetSet {}
+
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
 //------------------------------------------------------------------------------
@@ -519,76 +530,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
             table: PhantomData,
         }
     }
-
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    ///
-    /// The returned `CTEView` provides typed access to the table's columns through
-    /// an aliased table instance, allowing you to reference CTE columns in subsequent queries.
-    ///
-    /// # Type Parameters
-    ///
-    /// The `T` (Table) type parameter from `.from(table)` determines the aliased type,
-    /// enabling type-safe field access on the returned CTE.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # mod drizzle {
-    /// #     pub mod core { pub use drizzle_core::*; }
-    /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod types { pub use drizzle_types::*; }
-    /// #     pub mod migrations { pub use drizzle_migrations::*; }
-    /// #     pub use drizzle_types::Dialect;
-    /// #     pub use drizzle_types as ddl;
-    /// #     pub mod sqlite {
-    /// #             pub use drizzle_sqlite::{*, attrs::*};
-    /// #         pub mod prelude {
-    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// #             pub use drizzle_sqlite::{*, attrs::*};
-    /// #             pub use drizzle_core::*;
-    /// #         }
-    /// #     }
-    /// # }
-    /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::builder::QueryBuilder;
-    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
-    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
-    /// # let builder = QueryBuilder::new::<Schema>();
-    /// # let Schema { user } = Schema::new();
-    /// // Create a CTE from a select query
-    /// let active_users = builder
-    ///     .select((user.id, user.name))
-    ///     .from(user)
-    ///     .as_cte("active_users");
-    ///
-    /// // Use the CTE with typed field access
-    /// let query = builder
-    ///     .with(&active_users)
-    ///     .select(active_users.name)  // Deref gives access to aliased table fields
-    ///     .from(&active_users);
-    /// assert_eq!(
-    ///     query.to_sql().sql(),
-    ///     r#"WITH active_users AS (SELECT "users"."id", "users"."name" FROM "users") SELECT "active_users"."name" FROM "active_users""#
-    /// );
-    /// ```
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        Self,
-    >
-    where
-        T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-    {
-        super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
 }
 
 //------------------------------------------------------------------------------
@@ -642,28 +583,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     join_impl!();
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T>
-where
-    T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        Self,
-    > {
-        super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
 //------------------------------------------------------------------------------
 // Post-WHERE State Implementation
 //------------------------------------------------------------------------------
@@ -709,28 +628,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T>
-where
-    T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        Self,
-    > {
-        super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
 //------------------------------------------------------------------------------
 // Post-GROUP BY State Implementation
 //------------------------------------------------------------------------------
@@ -766,28 +663,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T>
-where
-    T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        Self,
-    > {
-        super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
 //------------------------------------------------------------------------------
 // Post-ORDER BY State Implementation
 //------------------------------------------------------------------------------
@@ -802,28 +677,6 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
             state: PhantomData,
             table: PhantomData,
         }
-    }
-}
-
-impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T>
-where
-    T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        Self,
-    > {
-        super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
-            name,
-            self,
-        )
     }
 }
 
@@ -843,35 +696,14 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T>
+impl<'a, S, State, T> SelectBuilder<'a, S, State, T>
 where
+    State: AsCteState,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
 {
     /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
     #[inline]
-    pub fn as_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
-        'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        Self,
-    > {
-        super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
-            name,
-            self,
-        )
-    }
-}
-
-impl<'a, S, T> SelectBuilder<'a, S, SelectOffsetSet, T>
-where
-    T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-{
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
-    #[inline]
-    pub fn as_cte(
+    pub fn into_cte(
         self,
         name: &'static str,
     ) -> super::CTEView<
