@@ -13,7 +13,7 @@ Pick a database driver feature (drivers imply the corresponding dialect module):
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1.4", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
+drizzle = { version = "0.1.5", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
 ```
 
 ### CLI
@@ -157,27 +157,35 @@ let rows: Vec<UserWithPost> = db
 
 ## PostgreSQL
 
-The same patterns apply — swap the macro and driver:
+Use the same `schema.rs` pattern as SQLite, but with Postgres macros.
 
 ```rust
+// schema.rs
 use drizzle::postgres::prelude::*;
-use drizzle::postgres::sync::Drizzle;
 
 #[PostgresTable]
-struct Accounts {
+pub struct Accounts {
     #[column(serial, primary)]
-    id: i32,
-    name: String,
+    pub id: i32,
+    pub name: String,
 }
 
 #[derive(PostgresSchema)]
-struct Schema {
-    accounts: Accounts,
+pub struct Schema {
+    pub accounts: Accounts,
 }
+```
+
+```rust
+// main.rs
+mod schema;
+
+use drizzle::postgres::sync::Drizzle;
+use schema::*;
 
 fn main() -> drizzle::Result<()> {
     let client = postgres::Client::connect(
-        "host=localhost user=postgres dbname=drizzle_test",
+        "host=localhost user=postgres password=postgres dbname=drizzle_test",
         postgres::NoTls,
     )?;
     let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
