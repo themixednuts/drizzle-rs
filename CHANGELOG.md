@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/themixednuts/drizzle-rs/compare/v0.1.4...v0.1.5) - 2026-02-11
+
+### Added
+
+- *(schema)* return Result from create_statements and detect duplicates
+- *(values)* add UpdateValue types for SQLite and PostgreSQL
+- *(sqlite)* align pragma API with SQLite docs
+- *(postgres)* add FOR UPDATE/SHARE row locking
+- *(postgres)* add array operators (@>, <@, &&)
+- *(core)* implement Expr and ToSQL for Placeholder
+- *(core)* add SQL::assignments_sql() for pre-built SQL fragments
+- *(values)* support Box/Rc/Arc conversions
+- *(postgres)* add materialized view refresh and builder enhancements
+- *(macros)* add #[json] support to rusqlite FromRow and unify error types
+- *(macros)* generate UpdateValue-based update models
+- *(postgres)* add PgArray wrapper and Vec<T> array conversions
+- *(migrations)* add SQLite view codegen and PostgreSQL view alterations
+
+### Fixed
+
+- *(ci)* use env var for commit message in skip check
+- *(macros)* enforce deterministic schema ordering and clearer failures
+- *(macros)* always generate FromSQLiteValue for enums
+- *(macros)* quote column names and fix default value escaping in DDL
+- *(sqlite)* use explicit import for SQLiteValue in tests
+- *(migrations)* remove trailing comma in PostgreSQL schema table identifier
+- *(schema)* restructure JSON schema for tombi compatibility
+
+### Other
+
+- include all sub-crate commits in main changelog
+- apply cargo fmt across workspace
+- rewrite README with cleaner flow and idiomatic schema.rs pattern
+- add rusqlite JSON deserialization test and feature-gate schema modules
+- clean up redundant dev-dependencies
+- *(builder)* unify CTE conversion API and reduce state duplication
+- *(core)* remove dead SQLComparable trait
+- *(core)* clean up Placeholder and ParamBind APIs
+- *(sqlite)* add placeholder update tests
+- *(deps)* update Cargo.lock
+- *(readme)* remove redundant sections
+- remove re-exports and use explicit module paths
+- *(readme)* use GitHub alert syntax for note
+- *(readme)* expand examples and simplify install instructions
+- *(postgres)* use boxed future for async transaction callbacks
+- *(postgres)* use transaction builder for sync driver
+- *(lib)* simplify module documentation
+- remove section divider comments from builder and transaction modules
+- make release-plz update manual only
+- *(core)* add schema namespace to SQLTableInfo and unify view hierarchy
+- *(core)* harden trait contracts and remove unsafe defaults
+- *(core)* remove unused SQLExpr::as_sql()
+- *(core)* add into_sql() to ToSQL trait and adopt across expr layer
+- *(core)* optimize SQL internals and unify spacing logic
+- *(core)* remove dead SQLChunk::Alias variant
+- *(macros)* move has_json_attribute to shared helpers
+- *(macros)* improve type checking and error handling in proc macros
+- *(traits)* split DrizzleRow and add checked numeric conversions
+- *(macros)* remove dead code and add targeted warning suppressions
+- *(macros)* extract shared enum discriminant parsing into enum_utils
+- *(macros)* unify ModelType usage across postgres and sqlite
+- apply rustfmt and fix clippy warnings
+- *(postgres)* optimize view SQL generation with write! macro
+
 ## [0.1.4](https://github.com/themixednuts/drizzle-rs/compare/v0.1.3...v0.1.4) - 2026-01-24
 
 ### Added
