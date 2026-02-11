@@ -5,7 +5,9 @@
 
 use super::PostgresValue;
 use super::insert::ValueWrapper;
-use drizzle_core::{param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam};
+use drizzle_core::{
+    param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam,
+};
 use std::borrow::Cow;
 
 #[cfg(feature = "uuid")]

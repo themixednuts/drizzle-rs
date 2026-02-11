@@ -1,6 +1,6 @@
 use crate::prelude::Cow;
 use crate::traits::SQLSchemaType;
-use crate::{SQLParam, SQLTable, SQLTableInfo, SQL};
+use crate::{SQL, SQLParam, SQLTable, SQLTableInfo};
 use core::any::Any;
 
 /// Trait for database views.

@@ -1,6 +1,6 @@
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQLModel, ToSQL, Token, SQL};
+use drizzle_core::{SQL, SQLModel, ToSQL, Token};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 

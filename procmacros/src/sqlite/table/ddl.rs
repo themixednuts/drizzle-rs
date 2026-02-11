@@ -103,7 +103,6 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     )
 }
 
-
 /// Build UniqueConstraints from field infos (single-column only, non-primary)
 #[allow(dead_code)]
 fn build_unique_constraints(table_name: &str, field_infos: &[FieldInfo]) -> Vec<UniqueConstraint> {

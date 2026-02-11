@@ -2,7 +2,7 @@ use super::context::MacroContext;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::{field::FieldInfo, generators::generate_to_sql};
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use std::collections::HashMap;
 use syn::{Result, Type, TypePath};
 

@@ -2,8 +2,8 @@ use crate::common::PostgresSchemaType;
 use crate::helpers;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use drizzle_core::traits::SQLTable;
 use drizzle_core::ToSQL;
+use drizzle_core::traits::SQLTable;
 use paste::paste;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -848,7 +848,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectForSet, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use drizzle_core::{ToSQL, SQL};
+    use drizzle_core::{SQL, ToSQL};
 
     #[test]
     fn test_select_builder_creation() {

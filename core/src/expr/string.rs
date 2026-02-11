@@ -287,5 +287,10 @@ where
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
 {
-    SQLExpr::new(expr1.into_sql().push(Token::CONCAT).append(expr2.into_sql()))
+    SQLExpr::new(
+        expr1
+            .into_sql()
+            .push(Token::CONCAT)
+            .append(expr2.into_sql()),
+    )
 }

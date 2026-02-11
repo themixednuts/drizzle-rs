@@ -2,16 +2,15 @@ use std::marker::PhantomData;
 
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_postgres::builder::{
-    self,
-    delete::DeleteBuilder,
-    insert::InsertBuilder,
-    select::{AsCteState, SelectBuilder},
-    update::UpdateBuilder,
-    CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
+    self, CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
     InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectForSet,
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
     SelectOrderSet, SelectWhereSet, UpdateFromSet, UpdateInitial, UpdateReturningSet,
     UpdateSetClauseSet, UpdateWhereSet,
+    delete::DeleteBuilder,
+    insert::InsertBuilder,
+    select::{AsCteState, SelectBuilder},
+    update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresSchemaType;
 use drizzle_postgres::traits::PostgresTable;

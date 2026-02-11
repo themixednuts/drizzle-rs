@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::{SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL, SQL};
+use crate::{SQL, SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
 use core::any::Any;
 
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {

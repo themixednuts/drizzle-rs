@@ -7,4 +7,3 @@ pub mod table;
 pub mod view;
 
 pub use schema::generate_postgres_schema_derive_impl;
-

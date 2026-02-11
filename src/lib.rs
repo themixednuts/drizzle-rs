@@ -166,8 +166,8 @@ pub mod sqlite {
 
     /// SQLite prelude for schema declarations.
     pub mod prelude {
-        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use crate::core::ToSQL;
+        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
         pub use drizzle_macros::{
@@ -216,8 +216,8 @@ pub mod postgres {
 
     /// PostgreSQL prelude for schema declarations.
     pub mod prelude {
-        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use crate::core::ToSQL;
+        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
         pub use drizzle_macros::{
@@ -230,7 +230,9 @@ pub mod postgres {
         pub use drizzle_postgres::traits::{
             PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo,
         };
-        pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+        pub use drizzle_postgres::values::{
+            PostgresInsertValue, PostgresUpdateValue, PostgresValue,
+        };
     }
 }
 

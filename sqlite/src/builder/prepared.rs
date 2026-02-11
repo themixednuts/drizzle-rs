@@ -1,11 +1,11 @@
 use std::borrow::Cow;
 
 use drizzle_core::{
+    OwnedParam, Param,
     prepared::{
         OwnedPreparedStatement as CoreOwnedPreparedStatement,
         PreparedStatement as CorePreparedStatement,
     },
-    OwnedParam, Param,
 };
 
 use crate::values::{OwnedSQLiteValue, SQLiteValue};
@@ -215,7 +215,7 @@ impl std::fmt::Display for OwnedPreparedStatement {
 mod tests {
     use super::*;
     use crate::values::SQLiteValue;
-    use drizzle_core::{prepared::prepare_render, SQL};
+    use drizzle_core::{SQL, prepared::prepare_render};
 
     #[test]
     fn test_prepare_render_basic() {

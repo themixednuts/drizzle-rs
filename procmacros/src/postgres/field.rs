@@ -575,7 +575,6 @@ impl PostgreSQLType {
             Self::Enum(name) => name.as_str(), // Custom enum type name
         }
     }
-
 }
 
 /// PostgreSQL column constraint flags

@@ -113,7 +113,10 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SUM", SQL::raw("DISTINCT").append(expr.into_sql())))
+    SQLExpr::new(SQL::func(
+        "SUM",
+        SQL::raw("DISTINCT").append(expr.into_sql()),
+    ))
 }
 
 // =============================================================================
@@ -152,7 +155,10 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("AVG", SQL::raw("DISTINCT").append(expr.into_sql())))
+    SQLExpr::new(SQL::func(
+        "AVG",
+        SQL::raw("DISTINCT").append(expr.into_sql()),
+    ))
 }
 
 // =============================================================================

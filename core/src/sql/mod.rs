@@ -478,7 +478,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
 /// Canonical spacing logic for SQL chunk rendering.
 /// Used by both `SQL::write_to()` and `prepare_render()`.
-pub(crate) fn chunk_needs_space<V: SQLParam>(current: &SQLChunk<'_, V>, next: &SQLChunk<'_, V>) -> bool {
+pub(crate) fn chunk_needs_space<V: SQLParam>(
+    current: &SQLChunk<'_, V>,
+    next: &SQLChunk<'_, V>,
+) -> bool {
     // No space if current raw text ends with space
     if let SQLChunk::Raw(text) = current
         && text.ends_with(' ')

@@ -244,59 +244,59 @@ sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
     );
 });
 
-sqlite_test!(
-    test_update_with_placeholders_execute,
-    SimpleSchema,
-    {
-        #[derive(SQLiteFromRow, Debug)]
-        struct SimpleResult {
-            id: i32,
-            name: String,
-        }
-
-        let SimpleSchema { simple } = schema;
-
-        // Insert initial data
-        drizzle_exec!(db.insert(simple).values([InsertSimple::new("original_name")]).execute());
-
-        // Create update with placeholders and prepare it
-        let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
-        let prepared = db
-            .update(simple)
-            .set(update)
-            .r#where(eq(Simple::name, Placeholder::named("old_name")))
-            .prepare();
-
-        // Execute with bound parameters
-        let update_count = drizzle_exec!(prepared.execute(
-            db.conn(),
-            params![
-                {new_name: "updated_name"},
-                {old_name: "original_name"}
-            ]
-        ));
-        assert_eq!(update_count, 1, "Should have updated one row");
-
-        // Verify the new name exists
-        let results: Vec<SimpleResult> = drizzle_exec!(
-            db.select((simple.id, simple.name))
-                .from(simple)
-                .r#where(eq(simple.name, "updated_name"))
-                .all()
-        );
-        assert_eq!(results.len(), 1, "Should find the updated row");
-        assert_eq!(results[0].name, "updated_name");
-
-        // Verify the original name is gone
-        let old_results: Vec<SimpleResult> = drizzle_exec!(
-            db.select((simple.id, simple.name))
-                .from(simple)
-                .r#where(eq(simple.name, "original_name"))
-                .all()
-        );
-        assert_eq!(old_results.len(), 0, "Original name should no longer exist");
+sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
+    #[derive(SQLiteFromRow, Debug)]
+    struct SimpleResult {
+        id: i32,
+        name: String,
     }
-);
+
+    let SimpleSchema { simple } = schema;
+
+    // Insert initial data
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("original_name")])
+            .execute()
+    );
+
+    // Create update with placeholders and prepare it
+    let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
+    let prepared = db
+        .update(simple)
+        .set(update)
+        .r#where(eq(Simple::name, Placeholder::named("old_name")))
+        .prepare();
+
+    // Execute with bound parameters
+    let update_count = drizzle_exec!(prepared.execute(
+        db.conn(),
+        params![
+            {new_name: "updated_name"},
+            {old_name: "original_name"}
+        ]
+    ));
+    assert_eq!(update_count, 1, "Should have updated one row");
+
+    // Verify the new name exists
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "updated_name"))
+            .all()
+    );
+    assert_eq!(results.len(), 1, "Should find the updated row");
+    assert_eq!(results[0].name, "updated_name");
+
+    // Verify the original name is gone
+    let old_results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "original_name"))
+            .all()
+    );
+    assert_eq!(old_results.len(), 0, "Original name should no longer exist");
+});
 
 #[cfg(feature = "uuid")]
 sqlite_test!(
@@ -333,10 +333,7 @@ sqlite_test!(
             .prepare();
 
         // Execute — only the placeholder needs to be bound
-        let update_count = drizzle_exec!(prepared.execute(
-            db.conn(),
-            params![{new_age: 30}]
-        ));
+        let update_count = drizzle_exec!(prepared.execute(db.conn(), params![{new_age: 30}]));
         assert_eq!(update_count, 1, "Should have updated one row");
 
         // Verify both concrete and placeholder-bound fields were updated
@@ -367,50 +364,45 @@ sqlite_test!(
 );
 
 #[cfg(feature = "uuid")]
-sqlite_test!(
-    test_update_skip_excludes_unset_fields,
-    ComplexSchema,
-    {
-        let ComplexSchema { complex } = schema;
+sqlite_test!(test_update_skip_excludes_unset_fields, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
 
-        // Set only email — all other fields remain Skip (default)
-        let update = UpdateComplex::default()
-            .with_email("only-this@test.com".to_string());
+    // Set only email — all other fields remain Skip (default)
+    let update = UpdateComplex::default().with_email("only-this@test.com".to_string());
 
-        let stmt = db
-            .update(complex)
-            .set(update)
-            .r#where(eq(Complex::name, "someone"));
+    let stmt = db
+        .update(complex)
+        .set(update)
+        .r#where(eq(Complex::name, "someone"));
 
-        let sql_string = stmt.to_sql().sql();
+    let sql_string = stmt.to_sql().sql();
 
-        // SET clause should contain only the email column
-        assert!(
-            sql_string.contains("\"email\""),
-            "SQL should include email in SET, got: {}",
-            sql_string
-        );
+    // SET clause should contain only the email column
+    assert!(
+        sql_string.contains("\"email\""),
+        "SQL should include email in SET, got: {}",
+        sql_string
+    );
 
-        // Other columns should NOT appear in SET (they're all Skip)
-        assert!(
-            !sql_string.contains("\"age\""),
-            "SQL should NOT include age (it was Skip), got: {}",
-            sql_string
-        );
-        assert!(
-            !sql_string.contains("\"score\""),
-            "SQL should NOT include score (it was Skip), got: {}",
-            sql_string
-        );
-        assert!(
-            !sql_string.contains("\"active\""),
-            "SQL should NOT include active (it was Skip), got: {}",
-            sql_string
-        );
-        assert!(
-            !sql_string.contains("\"description\""),
-            "SQL should NOT include description (it was Skip), got: {}",
-            sql_string
-        );
-    }
-);
+    // Other columns should NOT appear in SET (they're all Skip)
+    assert!(
+        !sql_string.contains("\"age\""),
+        "SQL should NOT include age (it was Skip), got: {}",
+        sql_string
+    );
+    assert!(
+        !sql_string.contains("\"score\""),
+        "SQL should NOT include score (it was Skip), got: {}",
+        sql_string
+    );
+    assert!(
+        !sql_string.contains("\"active\""),
+        "SQL should NOT include active (it was Skip), got: {}",
+        sql_string
+    );
+    assert!(
+        !sql_string.contains("\"description\""),
+        "SQL should NOT include description (it was Skip), got: {}",
+        sql_string
+    );
+});

@@ -39,7 +39,7 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::SQLiteValue;
-use rusqlite::{params_from_iter, Connection};
+use rusqlite::{Connection, params_from_iter};
 
 use drizzle_sqlite::{
     builder::{self, QueryBuilder},

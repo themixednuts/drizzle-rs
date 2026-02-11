@@ -7,7 +7,7 @@ use super::context::MacroContext;
 use crate::common::type_is_json_value;
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use std::collections::HashMap;
 use syn::Result;
 

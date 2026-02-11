@@ -1,7 +1,7 @@
 use crate::paths::{core as core_paths, ddl::sqlite as ddl_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse::Parse, DeriveInput, Error, Expr, Meta, Result, Token, Type};
+use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 
 /// Attributes for the SQLiteIndex attribute macro
 /// Syntax: #[SQLiteIndex] or #[SQLiteIndex(unique)]

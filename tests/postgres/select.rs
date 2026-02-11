@@ -233,12 +233,13 @@ postgres_test!(cte_after_join, SimpleSchema, {
             .into_cte("joined_simple");
         let joined_alias = joined_simple.table.clone();
 
-        drizzle_exec!(db
-            .with(&joined_simple)
-            .select((joined_alias.id.clone(), joined_alias.name.clone()))
-            .from(&joined_simple)
-            .order_by([OrderBy::asc(joined_alias.id.clone())])
-            .all())
+        drizzle_exec!(
+            db.with(&joined_simple)
+                .select((joined_alias.id.clone(), joined_alias.name.clone()))
+                .from(&joined_simple)
+                .order_by([OrderBy::asc(joined_alias.id.clone())])
+                .all()
+        )
     };
 
     assert_eq!(results.len(), 3);
@@ -268,12 +269,13 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
             .into_cte("paged_simple");
         let paged_alias = paged_simple.table.clone();
 
-        drizzle_exec!(db
-            .with(&paged_simple)
-            .select((paged_alias.id.clone(), paged_alias.name.clone()))
-            .from(&paged_simple)
-            .order_by([OrderBy::asc(paged_alias.id.clone())])
-            .all())
+        drizzle_exec!(
+            db.with(&paged_simple)
+                .select((paged_alias.id.clone(), paged_alias.name.clone()))
+                .from(&paged_simple)
+                .order_by([OrderBy::asc(paged_alias.id.clone())])
+                .all()
+        )
     };
 
     assert_eq!(results.len(), 2);

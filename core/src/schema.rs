@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::{sql::SQL, traits::SQLParam, ToSQL};
+use crate::{ToSQL, sql::SQL, traits::SQLParam};
 use core::any::Any;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

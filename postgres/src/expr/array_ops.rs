@@ -46,8 +46,7 @@ where
     T: Into<PostgresValue<'a>> + Clone,
 {
     fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-        let array: Vec<PostgresValue<'a>> =
-            self.0.iter().map(|v| v.clone().into()).collect();
+        let array: Vec<PostgresValue<'a>> = self.0.iter().map(|v| v.clone().into()).collect();
         SQL::param(PostgresValue::Array(array))
     }
 }

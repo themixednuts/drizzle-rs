@@ -69,4 +69,3 @@ fn handle_json_field<D: DriverJsonAccessor>(
         })
     }
 }
-

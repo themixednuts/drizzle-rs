@@ -273,7 +273,10 @@ where
 {
     SQLExpr::new(SQL::func(
         "DATE_TRUNC",
-        precision.into_sql().push(Token::COMMA).append(expr.into_sql()),
+        precision
+            .into_sql()
+            .push(Token::COMMA)
+            .append(expr.into_sql()),
     ))
 }
 

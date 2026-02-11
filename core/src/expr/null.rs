@@ -78,7 +78,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "COALESCE",
-        expr.into_sql().push(Token::COMMA).append(default.into_sql()),
+        expr.into_sql()
+            .push(Token::COMMA)
+            .append(default.into_sql()),
     ))
 }
 
@@ -156,6 +158,8 @@ where
 {
     SQLExpr::new(SQL::func(
         "IFNULL",
-        expr.into_sql().push(Token::COMMA).append(default.into_sql()),
+        expr.into_sql()
+            .push(Token::COMMA)
+            .append(default.into_sql()),
     ))
 }

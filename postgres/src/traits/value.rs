@@ -1442,7 +1442,7 @@ mod postgres_row_impl {
         ) -> Result<Option<geo_types::LineString<f64>>, ()>;
         #[cfg(feature = "geo-types")]
         fn try_get_rect(&self, column: &impl ColumnRef)
-            -> Result<Option<geo_types::Rect<f64>>, ()>;
+        -> Result<Option<geo_types::Rect<f64>>, ()>;
         #[cfg(feature = "bit-vec")]
         fn try_get_bitvec(&self, column: &impl ColumnRef) -> Result<Option<bit_vec::BitVec>, ()>;
 

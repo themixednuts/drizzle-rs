@@ -94,7 +94,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "CAST",
-        expr.into_sql().push(Token::AS).append(SQL::raw(target_type)),
+        expr.into_sql()
+            .push(Token::AS)
+            .append(SQL::raw(target_type)),
     ))
 }
 

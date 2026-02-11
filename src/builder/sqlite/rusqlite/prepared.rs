@@ -8,7 +8,7 @@ use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 use std::borrow::Cow;
 
-use rusqlite::{params_from_iter, Connection, Row};
+use rusqlite::{Connection, Row, params_from_iter};
 
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {

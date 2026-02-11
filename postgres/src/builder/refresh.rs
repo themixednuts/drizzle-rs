@@ -19,7 +19,7 @@
 
 use crate::values::PostgresValue;
 use drizzle_core::traits::{SQLTableInfo, SQLViewInfo};
-use drizzle_core::{ToSQL, Token, SQL};
+use drizzle_core::{SQL, ToSQL, Token};
 use std::marker::PhantomData;
 
 //------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 use crate::values::SQLiteValue;
-use drizzle_core::{ToSQL, Token, SQL};
+use drizzle_core::{SQL, ToSQL, Token};
 use std::marker::PhantomData;
 use std::ops::Deref;
 

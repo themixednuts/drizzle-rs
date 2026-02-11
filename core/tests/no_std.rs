@@ -6,7 +6,7 @@
 
 extern crate alloc;
 
-use drizzle_core::{SQLParam, Token, SQL};
+use drizzle_core::{SQL, SQLParam, Token};
 
 // Define a mock value type for testing
 #[derive(Clone, Debug)]

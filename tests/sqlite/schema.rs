@@ -167,11 +167,12 @@ sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     assert_eq!(result, 1);
 
     // Test that the indexes work (this would fail if indexes weren't created)
-    let users: Vec<SelectUser> = drizzle_exec!(db
-        .select(())
-        .from(schema.user)
-        .r#where(eq(schema.user.email, "test@example.com"))
-        .all());
+    let users: Vec<SelectUser> = drizzle_exec!(
+        db.select(())
+            .from(schema.user)
+            .r#where(eq(schema.user.email, "test@example.com"))
+            .all()
+    );
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "test@example.com");
@@ -188,11 +189,12 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
     assert_eq!(result, 1);
 
     // Query using the destructured table
-    let users: Vec<SelectUser> = drizzle_exec!(db
-        .select(())
-        .from(user)
-        .r#where(eq(user.email, "destructured@example.com"))
-        .all());
+    let users: Vec<SelectUser> = drizzle_exec!(
+        db.select(())
+            .from(user)
+            .r#where(eq(user.email, "destructured@example.com"))
+            .all()
+    );
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "destructured@example.com");
@@ -214,11 +216,12 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     let result = drizzle_exec!(db.insert(user).values(insert_data).execute());
     assert_eq!(result, 2);
 
-    let results: Vec<SelectUserEmailsView> = drizzle_exec!(db
-        .select((user_emails.id, user_emails.email))
-        .from(user_emails)
-        .order_by(OrderBy::asc(user_emails.id))
-        .all());
+    let results: Vec<SelectUserEmailsView> = drizzle_exec!(
+        db.select((user_emails.id, user_emails.email))
+            .from(user_emails)
+            .order_by(OrderBy::asc(user_emails.id))
+            .all()
+    );
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].email, "a@example.com");
@@ -370,7 +373,7 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     assert_eq!(employee.name(), "employees");
     let emp_deps = employee.dependencies();
     assert_eq!(emp_deps.len(), 2); // Department and Employee (self-reference)
-                                   // Dependencies should be sorted by name for deterministic order
+    // Dependencies should be sorted by name for deterministic order
     assert_eq!(emp_deps[0].name(), "departments");
     assert_eq!(emp_deps[1].name(), "employees");
 
