@@ -266,7 +266,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             }
 
             impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #zst_ident {
-                const NAME: &'a str = #name;
+                const NAME: &'static str = #name;
                 const TYPE: &'a str = #col_type;
                 const SQL: &'static str = "";
 

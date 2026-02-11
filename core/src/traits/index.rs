@@ -8,9 +8,7 @@ pub trait SQLIndexInfo: Any + Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Column names included in this index, in definition order.
-    fn columns(&self) -> &'static [&'static str] {
-        &[]
-    }
+    fn columns(&self) -> &'static [&'static str];
 
     /// Whether this is a unique index
     fn is_unique(&self) -> bool {

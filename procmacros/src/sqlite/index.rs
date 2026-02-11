@@ -234,7 +234,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
 
         impl<'a> #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>> for #struct_ident
         {
-            const NAME: &'a str = #index_name;
+            const NAME: &'static str = #index_name;
             const TYPE: #sqlite_schema_type = {
                 #[allow(non_upper_case_globals)]
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();

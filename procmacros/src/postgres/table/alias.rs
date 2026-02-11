@@ -152,7 +152,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
             // Implement SQLSchema trait for aliased field
             impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #aliased_field_type {
-                const NAME: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::NAME;
+                const NAME: &'static str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::NAME;
                 const TYPE: &'a str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::TYPE;
                 const SQL: &'static str = <#original_field_type as SQLSchema<'a, &'a str, PostgresValue<'a>>>::SQL;
             }
@@ -281,7 +281,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         // Implement SQLSchema trait for aliased table
         impl<'a> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #aliased_table_name {
-            const NAME: &'a str = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::NAME;
+            const NAME: &'static str = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::NAME;
             const TYPE: PostgresSchemaType = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::TYPE;
             const SQL: &'static str = <#table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::SQL;
         }

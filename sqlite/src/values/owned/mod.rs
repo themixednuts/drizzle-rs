@@ -150,7 +150,9 @@ impl<'a> From<&SQLiteValue<'a>> for OwnedSQLiteValue {
 // Core traits required by Drizzle
 //------------------------------------------------------------------------------
 
-impl SQLParam for OwnedSQLiteValue {}
+impl SQLParam for OwnedSQLiteValue {
+    const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::SQLite;
+}
 
 impl<'a> From<OwnedSQLiteValue> for SQL<'a, OwnedSQLiteValue> {
     fn from(value: OwnedSQLiteValue) -> Self {

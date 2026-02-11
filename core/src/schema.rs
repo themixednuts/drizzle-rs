@@ -1,6 +1,18 @@
 use crate::prelude::*;
-use crate::{ToSQL, sql::SQL, traits::SQLParam};
+use crate::{sql::SQL, traits::SQLParam, ToSQL};
 use core::any::Any;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SchemaName(pub &'static str);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TableName(pub &'static str);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ColumnName(pub &'static str);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct IndexName(pub &'static str);
 
 /// Trait for database enum types that can be part of a schema
 pub trait SQLEnumInfo: Any + Send + Sync {

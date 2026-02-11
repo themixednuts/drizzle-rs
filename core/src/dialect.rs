@@ -16,6 +16,15 @@ pub trait DialectExt {
     /// - PostgreSQL: `$1`, `$2`, `$3`
     /// - SQLite/MySQL: `?`
     fn render_placeholder(&self, index: usize) -> Cow<'static, str>;
+
+    /// Appends a placeholder directly into an output buffer.
+    #[inline]
+    fn write_placeholder(&self, index: usize, out: &mut String) {
+        match self.render_placeholder(index) {
+            Cow::Borrowed(v) => out.push_str(v),
+            Cow::Owned(v) => out.push_str(&v),
+        }
+    }
 }
 
 impl DialectExt for Dialect {

@@ -226,7 +226,7 @@ pub(crate) fn generate_sql_schema<D: Dialect>(
 
     quote! {
         impl<'a> #sql_schema<'a, #schema_type, #value_type<'a>> for #struct_ident {
-            const NAME: &'a str = #name;
+            const NAME: &'static str = #name;
             const TYPE: #schema_type = #r#type;
             const SQL: &'static str = #const_sql;
             #fn_method
@@ -247,7 +247,7 @@ pub(crate) fn generate_sql_schema_field<D: Dialect>(
 
     quote! {
         impl<'a> #sql_schema<'a, &'a str, #value_type<'a>> for #struct_ident {
-            const NAME: &'a str = #name;
+            const NAME: &'static str = #name;
             const TYPE: &'a str = #r#type;
             const SQL: &'static str = "";
 

@@ -24,7 +24,7 @@ use crate::sql::SQL;
 ///
 /// The `'a` lifetime ties any borrowed parameter values to generated SQL.
 pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
-    const NAME: &'a str;
+    const NAME: &'static str;
     const TYPE: T;
     /// Static SQL string for schema creation (e.g., CREATE TABLE ...)
     const SQL: &'static str;

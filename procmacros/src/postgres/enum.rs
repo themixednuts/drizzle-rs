@@ -356,7 +356,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
 
         // Implement SQLSchema trait for schema integration
         impl<'a> #sql_schema<'a, #postgres_schema_type, #postgres_value<'a>> for #name {
-            const NAME: &'a str = stringify!(#name);
+            const NAME: &'static str = stringify!(#name);
             const TYPE: #postgres_schema_type = {
                 #[allow(non_upper_case_globals)]
                 static ENUM_INSTANCE: #name = #name::#first_variant;

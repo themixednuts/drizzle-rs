@@ -2,7 +2,7 @@
 
 use crate::prelude::*;
 use crate::{
-    sql::{SQL, Token},
+    sql::{Token, SQL},
     traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
 };
 
@@ -50,10 +50,20 @@ pub trait ToSQL<'a, V: SQLParam> {
 #[derive(Debug, Clone)]
 pub struct SQLBytes<'a>(pub Cow<'a, [u8]>);
 
+/// Explicit SQL NULL marker.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SQLNull;
+
 impl<'a> SQLBytes<'a> {
     #[inline]
     pub fn new(bytes: impl Into<Cow<'a, [u8]>>) -> Self {
         Self(bytes.into())
+    }
+}
+
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for SQLNull {
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::raw("NULL")
     }
 }
 
@@ -288,9 +298,7 @@ macro_rules! impl_tosql_param_copy {
     };
 }
 
-impl_tosql_param_copy!(
-    i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize
-);
+impl_tosql_param_copy!(i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize);
 
 impl<'a, V, T> ToSQL<'a, V> for Option<T>
 where
@@ -299,8 +307,8 @@ where
 {
     fn to_sql(&self) -> SQL<'a, V> {
         match self {
-            Some(value) => value.to_sql(), // Let the inner type handle parameterization
-            None => SQL::raw("NULL"),      // NULL is a keyword, use raw
+            Some(value) => value.to_sql(),
+            None => SQLNull.to_sql(),
         }
     }
 }

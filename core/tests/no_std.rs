@@ -6,13 +6,15 @@
 
 extern crate alloc;
 
-use drizzle_core::{SQL, SQLParam, Token};
+use drizzle_core::{SQLParam, Token, SQL};
 
 // Define a mock value type for testing
 #[derive(Clone, Debug)]
 pub struct TestValue;
 
-impl SQLParam for TestValue {}
+impl SQLParam for TestValue {
+    const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::SQLite;
+}
 
 #[test]
 fn test_sql_empty_no_std() {

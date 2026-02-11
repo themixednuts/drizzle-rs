@@ -1,4 +1,4 @@
-use crate::{SQL, SQLParam, ToSQL, Token};
+use crate::{SQLParam, ToSQL, Token, SQL};
 
 // A macro to implement ColumnsTuple for tuples of various sizes.
 macro_rules! impl_tuple {
