@@ -20,11 +20,11 @@ pub(crate) fn generate_convenience_method(
     let method_name = format_ident!("with_{}", field_name);
 
     // Find the field index for pattern tracking
-    let field_index = ctx
-        .field_infos
-        .iter()
-        .position(|f| f.ident == field.ident)
-        .expect("Field should exist in context");
+    let field_index = ctx.field_infos.iter().position(|f| f.ident == field.ident);
+
+    let Some(field_index) = field_index else {
+        return quote! { compile_error!("internal error: field missing from macro context"); };
+    };
 
     match model_type {
         ModelType::Insert => generate_insert_convenience_method(field, ctx, field_index),

@@ -4,9 +4,10 @@
 //! (structs marked with #[column(json)] or #[column(jsonb)]).
 
 use super::context::MacroContext;
+use crate::common::type_is_json_value;
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::{quote, ToTokens};
 use std::collections::HashMap;
 use syn::Result;
 
@@ -23,9 +24,8 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             if !info.is_json && !info.is_jsonb {
                 return false;
             }
-            // Check if this is a custom type (not serde_json::Value)
-            let base_type_str = info.base_type.to_token_stream().to_string();
-            !base_type_str.contains("serde_json") && !base_type_str.contains("Value")
+            // Keep only custom types (exclude serde_json::Value itself)
+            !type_is_json_value(&info.base_type)
         })
         .collect();
 

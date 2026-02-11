@@ -5,6 +5,7 @@
 use super::drivers::{self, DriverConfig};
 use super::errors;
 use super::{FieldInfo, MacroContext};
+use crate::common::is_option_type;
 use crate::paths;
 use crate::sqlite::field::SQLiteType;
 use proc_macro2::TokenStream;
@@ -73,7 +74,9 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .enumerate()
         .map(|(i, info)| {
             let select_type = info.get_select_type();
-            let is_select_optional = select_type.to_string().contains("Option");
+            let is_select_optional = syn::parse2::<syn::Type>(select_type)
+                .map(|ty| is_option_type(&ty))
+                .unwrap_or(info.is_nullable && !info.has_default);
             generate_field_conversion(i, info, is_select_optional)
         })
         .collect::<Result<Vec<_>>>()?;

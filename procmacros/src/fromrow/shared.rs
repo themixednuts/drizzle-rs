@@ -71,8 +71,21 @@ fn handle_json_field<D: DriverJsonAccessor>(
 
 /// Check if field has json attribute
 pub(crate) fn has_json_attribute(field: &Field) -> bool {
-    field
-        .attrs
-        .iter()
-        .any(|attr| attr.path().get_ident().is_some_and(|ident| ident == "json"))
+    field.attrs.iter().any(|attr| {
+        if attr.path().get_ident().is_some_and(|ident| ident == "json") {
+            return true;
+        }
+
+        if !attr.path().is_ident("column") {
+            return false;
+        }
+
+        match &attr.meta {
+            syn::Meta::List(list) => {
+                let tokens = list.tokens.to_string().to_ascii_lowercase();
+                tokens.contains("json")
+            }
+            _ => false,
+        }
+    })
 }

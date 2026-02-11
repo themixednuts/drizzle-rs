@@ -4,10 +4,11 @@
 //! for different SQLite drivers (rusqlite, libsql, turso), reducing code duplication
 //! and ensuring consistent behavior.
 
+use crate::common::{type_is_float, type_is_int};
 use crate::paths;
 use crate::sqlite::field::{FieldInfo, SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::Result;
 
 use super::errors;
@@ -62,8 +63,7 @@ pub(crate) fn generate_field_conversion<D: DriverConfig>(
     let idx_tokens = quote!(#idx);
 
     // Check for unsupported reference types
-    let base_type_str = info.base_type.to_token_stream().to_string();
-    if base_type_str.starts_with('&') {
+    if matches!(info.base_type, syn::Type::Reference(_)) {
         return Err(syn::Error::new_spanned(
             info.ident,
             errors::conversion::REFERENCE_TYPE_UNSUPPORTED,
@@ -245,17 +245,14 @@ fn generate_primitive_conversion<D: DriverConfig>(
     info: &FieldInfo,
     _is_optional: bool,
 ) -> Result<TokenStream> {
-    let base_type_str = info.base_type.to_token_stream().to_string();
+    let category = info.type_category();
 
     match info.column_type {
         SQLiteType::Integer => {
             let accessor = D::integer_accessor(idx);
-            let is_bool = base_type_str.contains("bool");
-            let is_i64 = base_type_str.contains("i64");
-
-            if is_bool {
+            if matches!(category, TypeCategory::Bool) {
                 Ok(quote!(#accessor.map(|&v| v != 0)))
-            } else if is_i64 {
+            } else if type_is_int(info.base_type, "i64") {
                 Ok(quote!(#accessor.copied()))
             } else {
                 // Other integer types need conversion
@@ -264,9 +261,7 @@ fn generate_primitive_conversion<D: DriverConfig>(
         }
         SQLiteType::Real => {
             let accessor = D::real_accessor(idx);
-            let is_f32 = base_type_str.contains("f32");
-
-            if is_f32 {
+            if type_is_float(info.base_type, "f32") {
                 Ok(quote!(#accessor.map(|&v| v as f32)))
             } else {
                 Ok(quote!(#accessor.copied()))

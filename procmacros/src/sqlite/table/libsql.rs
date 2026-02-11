@@ -4,10 +4,11 @@
 
 use super::errors;
 use super::{FieldInfo, MacroContext};
+use crate::common::{is_option_type, type_is_bool, type_is_float, type_is_int};
 use crate::paths;
 use crate::sqlite::field::{SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use syn::Result;
 
 // =============================================================================
@@ -55,7 +56,9 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
 fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let select_type = info.get_select_type();
-    let is_optional = select_type.to_string().contains("Option");
+    let is_optional = syn::parse2::<syn::Type>(select_type)
+        .map(|ty| is_option_type(&ty))
+        .unwrap_or(info.is_nullable && !info.has_default);
     generate_field_from_row_impl(idx, info, is_optional)
 }
 
@@ -67,10 +70,9 @@ fn generate_field_from_row_impl(
     let idx = idx as i32;
     let name = info.ident;
     let base_type = info.base_type;
-    let base_type_str = base_type.to_token_stream().to_string();
 
     // Check for unsupported reference types
-    if base_type_str.starts_with('&') {
+    if matches!(base_type, syn::Type::Reference(_)) {
         return Err(syn::Error::new_spanned(
             name,
             errors::conversion::REFERENCE_TYPE_UNSUPPORTED,
@@ -84,7 +86,7 @@ fn generate_field_from_row_impl(
         TypeCategory::Enum => handle_enum_field(idx, name, info, is_optional),
         TypeCategory::ArrayString => handle_arraystring_field(idx, name, info, is_optional),
         TypeCategory::ArrayVec => handle_arrayvec_field(idx, name, info, is_optional),
-        _ => handle_standard_field(idx, name, info, is_optional, &base_type_str),
+        _ => handle_standard_field(idx, name, info, is_optional),
     }
 }
 
@@ -230,12 +232,11 @@ fn handle_standard_field(
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
-    base_type_str: &str,
 ) -> Result<TokenStream> {
     match info.column_type {
         SQLiteType::Integer => {
-            let is_bool = base_type_str.contains("bool");
-            let is_i64 = base_type_str.contains("i64");
+            let is_bool = type_is_bool(info.base_type);
+            let is_i64 = type_is_int(info.base_type, "i64");
 
             let accessor = if is_bool {
                 if is_optional {
@@ -264,7 +265,7 @@ fn handle_standard_field(
             Ok(quote! { #name: #accessor?, })
         }
         SQLiteType::Real => {
-            let is_f32 = base_type_str.contains("f32");
+            let is_f32 = type_is_float(info.base_type, "f32");
             let accessor = if is_f32 {
                 if is_optional {
                     quote!(row.get::<Option<f64>>(#idx).map(|opt| opt.map(|v| v as f32)))
