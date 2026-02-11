@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 name = "drizzle"
 changelog_update = true
 git_tag_name = "v{{ version }}"
+changelog_include = [
+  "drizzle-core",
+  "drizzle-macros",
+  "drizzle-sqlite",
+  "drizzle-postgres",
+  "drizzle-mysql",
+  "drizzle-migrations",
+  "drizzle-types",
+  "drizzle-cli",
+]
 
 [[package]]
 name = "drizzle-types"
