@@ -241,3 +241,4 @@ pub(crate) mod tokio_postgres;
 
 pub(crate) mod common;
 pub(crate) mod prepared_common;
+pub(crate) mod rows;

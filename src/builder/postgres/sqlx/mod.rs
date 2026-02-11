@@ -108,8 +108,7 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let query = query.to_sql();
-        let sql = query.sql();
-        let params = query.params();
+        let (sql, params) = query.build();
 
         let mut sqlx_query = sqlx::query(&sql);
 
@@ -131,8 +130,7 @@ impl<Schema> Drizzle<Schema> {
         C: std::iter::FromIterator<R>,
     {
         let query_sql = query.to_sql();
-        let sql = query_sql.sql();
-        let params = query_sql.params();
+        let (sql, params) = query_sql.build();
 
         let mut sqlx_query = sqlx::query(&sql);
 
@@ -162,8 +160,7 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let query_sql = query.to_sql();
-        let sql = query_sql.sql();
-        let params = query_sql.params();
+        let (sql, params) = query_sql.build();
 
         let mut sqlx_query = sqlx::query(&sql);
 
@@ -246,8 +243,7 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        let sql_str = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        let (sql_str, params) = self.builder.sql.build();
 
         let mut sqlx_query = sqlx::query(&sql_str);
 
@@ -271,8 +267,7 @@ where
             Into<drizzle_core::error::DrizzleError>,
         C: FromIterator<R>,
     {
-        let sql_str = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        let (sql_str, params) = self.builder.sql.build();
 
         let mut sqlx_query = sqlx::query(&sql_str);
 
@@ -300,8 +295,7 @@ where
         for<'r> <R as TryFrom<&'r sqlx::postgres::PgRow>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        let sql_str = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        let (sql_str, params) = self.builder.sql.build();
 
         let mut sqlx_query = sqlx::query(&sql_str);
 
@@ -335,4 +329,3 @@ where
     type Nullable = drizzle_core::expr::NonNull;
     type Aggregate = drizzle_core::expr::Scalar;
 }
-

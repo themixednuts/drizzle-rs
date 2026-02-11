@@ -7,6 +7,8 @@ use drizzle_sqlite::traits::SQLiteTable;
 use std::marker::PhantomData;
 use turso::Row;
 
+use crate::builder::sqlite::rows::TursoRows as Rows;
+
 pub mod delete;
 pub mod insert;
 pub mod select;
@@ -158,10 +160,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let query = query.to_sql();
-        let sql = query.sql();
-        let params: Vec<turso::Value> = query.params().map(|p| p.into()).collect();
+        let (sql_str, params) = query.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        Ok(self.tx.execute(&sql, params).await?)
+        Ok(self.tx.execute(&sql_str, params).await?)
     }
 
     /// Runs a query and returns all matching rows within the transaction
@@ -171,19 +173,22 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
+        self.rows(query).await?.collect().await
+    }
+
+    /// Runs a query and returns a row cursor within the transaction.
+    pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self.tx.query(&sql_str, params).await?;
-
-        let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-
-        Ok(results)
+        let rows = self.tx.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs a query and returns a single row within the transaction
@@ -194,8 +199,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
 
         let mut rows = self.tx.query(&sql_str, params).await?;
 
@@ -225,10 +230,10 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        let sql = self.builder.sql.sql();
-        let params: Vec<turso::Value> = self.builder.sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        Ok(self.transaction.tx.execute(&sql, params).await?)
+        Ok(self.transaction.tx.execute(&sql_str, params).await?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -237,19 +242,20 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
-        let sql = &self.builder.sql;
-        let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql.params().map(|p| p.into()).collect();
+        self.rows::<R>().await?.collect().await
+    }
 
-        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
+    /// Runs the query and returns a row cursor.
+    pub async fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-
-        Ok(results)
+        let rows = self.transaction.tx.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -258,9 +264,8 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
-        let sql = &self.builder.sql;
-        let sql_str = sql.sql();
-        let params: Vec<turso::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
 
         let mut rows = self.transaction.tx.query(&sql_str, params).await?;
 

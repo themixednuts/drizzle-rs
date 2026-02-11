@@ -7,6 +7,8 @@ use drizzle_sqlite::traits::SQLiteTable;
 use rusqlite::params_from_iter;
 use std::marker::PhantomData;
 
+use crate::builder::sqlite::rows::Rows;
+
 pub mod delete;
 pub mod insert;
 pub mod select;
@@ -160,11 +162,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.execute");
         let query = query.to_sql();
-        let sql = query.sql();
-        let params = query.params();
+        let (sql_str, params) = query.build();
 
-        self.tx.execute(&sql, params_from_iter(params))
+        self.tx.execute(&sql_str, params_from_iter(params))
     }
 
     /// Runs a query and returns all matching rows within the transaction
@@ -175,26 +178,36 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
+        self.rows(query)?
+            .collect::<drizzle_core::error::Result<Vec<R>>>()
+    }
+
+    /// Runs a query and returns a row cursor within the transaction.
+    pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
+        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.all");
         let sql = query.to_sql();
-        let sql_str = sql.sql();
+        let (sql_str, params) = sql.build();
 
-        let params = sql.params();
+        let mut stmt = self.tx.prepare(&sql_str)?;
 
-        let mut stmt = self
-            .tx
-            .prepare(&sql_str)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
-        let rows = stmt.query_map(params_from_iter(params), |row| {
-            Ok(R::try_from(row).map_err(Into::into))
+        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
+            R::try_from(row).map_err(Into::into)
         })?;
 
-        let mut results = Vec::new();
+        let (lower, _) = rows.size_hint();
+        let mut results = Vec::with_capacity(lower);
         for row in rows {
-            results.push(row??);
+            results.push(row?);
         }
 
-        Ok(results)
+        Ok(Rows::new(results))
     }
 
     /// Runs a query and returns a single row within the transaction
@@ -205,10 +218,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.get");
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-
-        let params = sql.params();
+        let (sql_str, params) = sql.build();
 
         let mut stmt = self.tx.prepare(&sql_str)?;
 
@@ -236,12 +249,13 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
-        let sql = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.execute");
+        let (sql_str, params) = self.builder.sql.build();
         Ok(self
             .transaction
             .tx
-            .execute(&sql, params_from_iter(params))?)
+            .execute(&sql_str, params_from_iter(params))?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -251,28 +265,34 @@ where
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        let sql = &self.builder.sql;
-        let sql_str = sql.sql();
-        let params = sql.params();
+        self.rows::<R>()?
+            .collect::<drizzle_core::error::Result<Vec<R>>>()
+    }
 
-        let mut stmt = self
-            .transaction
-            .tx
-            .prepare(&sql_str)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    /// Runs the query and returns a row cursor.
+    pub fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
+        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+    {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.all");
+        let (sql_str, params) = self.builder.sql.build();
 
-        let rows = stmt
-            .query_map(params_from_iter(params), |row| {
-                Ok(R::try_from(row).map_err(Into::into))
-            })
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut stmt = self.transaction.tx.prepare(&sql_str)?;
 
-        let mut results = Vec::new();
+        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
+            R::try_from(row).map_err(Into::into)
+        })?;
+
+        let (lower, _) = rows.size_hint();
+        let mut results = Vec::with_capacity(lower);
         for row in rows {
-            results.push(row??);
+            results.push(row?);
         }
 
-        Ok(results)
+        Ok(Rows::new(results))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -282,9 +302,9 @@ where
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        let sql = &self.builder.sql;
-        let sql_str = sql.sql();
-        let params = sql.params();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.get");
+        let (sql_str, params) = self.builder.sql.build();
 
         let mut stmt = self.transaction.tx.prepare(&sql_str)?;
 

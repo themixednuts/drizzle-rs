@@ -1,9 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
-use crate::common::schema::sqlite::{
-    InsertSimple, Role, Simple, SimpleSchema, UpdateSimple, UserConfig, UserMetadata,
-};
+use crate::common::schema::sqlite::{InsertSimple, Role, Simple, SimpleSchema, UpdateSimple};
+#[cfg(all(feature = "serde", feature = "uuid"))]
+use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
@@ -129,6 +129,131 @@ sqlite_test!(complex_update, ComplexSchema, {
         results[0].description,
         Some("Updated description".to_string())
     );
+});
+
+sqlite_test!(update_multiple_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([
+        InsertSimple::new("test_one"),
+        InsertSimple::new("test_two"),
+        InsertSimple::new("other"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .update(simple)
+        .set(UpdateSimple::default().with_name("updated"))
+        .r#where(like(Simple::name, "test%"));
+    drizzle_exec!(stmt.execute());
+
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "updated"))
+            .all()
+    );
+    assert_eq!(results.len(), 2);
+
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "other"))
+            .all()
+    );
+    assert_eq!(results.len(), 1);
+});
+
+#[cfg(feature = "uuid")]
+sqlite_test!(update_with_complex_where, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
+
+    let stmt = db.insert(complex).values([
+        InsertComplex::new("Young", true, Role::User)
+            .with_id(uuid::Uuid::new_v4())
+            .with_age(16),
+        InsertComplex::new("Adult", true, Role::User)
+            .with_id(uuid::Uuid::new_v4())
+            .with_age(25),
+        InsertComplex::new("Senior", true, Role::User)
+            .with_id(uuid::Uuid::new_v4())
+            .with_age(70),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .update(complex)
+        .set(UpdateComplex::default().with_name("matched"))
+        .r#where(and([gte(complex.age, 18), lte(complex.age, 65)]));
+    drizzle_exec!(stmt.execute());
+
+    let results: Vec<ComplexResult> = drizzle_exec!(
+        db.select((
+            complex.id,
+            complex.name,
+            complex.email,
+            complex.age,
+            complex.description,
+        ))
+        .from(complex)
+        .r#where(eq(complex.name, "matched"))
+        .all()
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "matched");
+});
+
+sqlite_test!(update_with_in_condition, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([
+        InsertSimple::new("Alice"),
+        InsertSimple::new("Bob"),
+        InsertSimple::new("Charlie"),
+        InsertSimple::new("David"),
+    ]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .update(simple)
+        .set(UpdateSimple::default().with_name("Updated"))
+        .r#where(in_array(simple.name, ["Alice", "Charlie"]));
+    drizzle_exec!(stmt.execute());
+
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "Updated"))
+            .all()
+    );
+    assert_eq!(results.len(), 2);
+
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(in_array(simple.name, ["Bob", "David"]))
+            .all()
+    );
+    assert_eq!(results.len(), 2);
+});
+
+sqlite_test!(update_no_matching_rows, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
+    drizzle_exec!(stmt.execute());
+
+    let stmt = db
+        .update(simple)
+        .set(UpdateSimple::default().with_name("Updated"))
+        .r#where(eq(simple.name, "NonExistent"));
+    drizzle_exec!(stmt.execute());
+
+    let results: Vec<SimpleResult> =
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Alice");
 });
 
 #[cfg(all(feature = "serde", feature = "uuid"))]

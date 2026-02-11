@@ -14,9 +14,8 @@ pub(crate) fn generate_field_assignment(
     }
 
     let name = if let Some(field_name) = field_name {
-        let field_name_str = field_name.to_string();
         quote! {
-            #field_name: row.get(#field_name_str)?,
+            #field_name: row.get(#idx)?,
         }
     } else {
         quote! {
@@ -31,12 +30,7 @@ fn generate_json_field_assignment(
     field_name: Option<&syn::Ident>,
     idx: usize,
 ) -> Result<TokenStream> {
-    let get_json = if let Some(field_name) = field_name {
-        let field_name_str = field_name.to_string();
-        quote! { row.get::<_, String>(#field_name_str)? }
-    } else {
-        quote! { row.get::<_, String>(#idx)? }
-    };
+    let get_json = quote! { row.get::<_, String>(#idx)? };
 
     let accessor = quote! {
         {

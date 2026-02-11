@@ -40,6 +40,7 @@ use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
+use postgres::fallible_iterator::FallibleIterator;
 use postgres::{Client, IsolationLevel, Row};
 use std::marker::PhantomData;
 
@@ -49,8 +50,10 @@ use drizzle_postgres::builder::{
 };
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::values::PostgresValue;
+use smallvec::SmallVec;
 
 use crate::builder::postgres::common;
+use crate::builder::postgres::rows::DecodeRows;
 
 /// Postgres-specific drizzle builder
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
@@ -68,6 +71,9 @@ pub struct Drizzle<Schema = ()> {
     client: Client,
     _schema: PhantomData<Schema>,
 }
+
+/// Lazy decoded row cursor for postgres sync queries.
+pub type Rows<R> = DecodeRows<Row, R>;
 
 impl Drizzle {
     /// Creates a new `Drizzle` instance.
@@ -108,14 +114,50 @@ impl<Schema> Drizzle<Schema> {
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute");
         let query = query.to_sql();
-        let sql = query.sql();
-        let params = query.params();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.build");
+        let (sql, params) = query.build();
 
-        let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .map(|p| p as &(dyn postgres::types::ToSql + Sync))
-            .collect();
+        let param_refs = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.param_refs");
+            let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+                SmallVec::with_capacity(params.len());
+            param_refs.extend(
+                params
+                    .iter()
+                    .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+            );
+            param_refs
+        };
 
+        let mut typed_params: SmallVec<
+            [(&(dyn postgres::types::ToSql + Sync), postgres::types::Type); 8],
+        > = SmallVec::with_capacity(params.len());
+        let mut all_typed = true;
+        for p in &params {
+            if let Some(ty) = crate::builder::postgres::prepared_common::postgres_sync_param_type(p)
+            {
+                typed_params.push((*p as &(dyn postgres::types::ToSql + Sync), ty));
+            } else {
+                all_typed = false;
+                break;
+            }
+        }
+
+        if all_typed {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.db_typed");
+            let mut rows = self.client.query_typed_raw(&sql, typed_params)?;
+            while rows.next()?.is_some() {}
+            return Ok(rows.rows_affected().unwrap_or(0));
+        }
+
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.db");
         self.client.execute(&sql, &param_refs[..])
     }
 
@@ -127,22 +169,37 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
         C: std::iter::FromIterator<R>,
     {
-        let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params = sql.params();
+        self.rows(query)?
+            .collect::<drizzle_core::error::Result<C>>()
+    }
 
-        let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .map(|p| p as &(dyn postgres::types::ToSql + Sync))
-            .collect();
+    /// Runs the query and returns a lazy row cursor.
+    pub fn rows<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'a, PostgresValue<'a>>,
+    {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all");
+        let sql = query.to_sql();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all.build");
+        let (sql_str, params) = sql.build();
+
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all.param_refs");
+        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params.len());
+        param_refs.extend(
+            params
+                .iter()
+                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+        );
 
         let rows = self.client.query(&sql_str, &param_refs[..])?;
 
-        let results = rows
-            .iter()
-            .map(|row| R::try_from(row).map_err(Into::into))
-            .collect::<Result<C, _>>()?;
-
-        Ok(results)
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -152,13 +209,22 @@ impl<Schema> Drizzle<Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, PostgresValue<'a>>,
     {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get");
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params = sql.params();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get.build");
+        let (sql_str, params) = sql.build();
 
-        let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .map(|p| p as &(dyn postgres::types::ToSql + Sync))
-            .collect();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get.param_refs");
+        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params.len());
+        param_refs.extend(
+            params
+                .iter()
+                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+        );
 
         let row = self.client.query_one(&sql_str, &param_refs[..])?;
 
@@ -275,13 +341,50 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
-        let sql_str = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute");
+        let (sql_str, params) = self.builder.sql.build();
 
-        let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .map(|p| p as &(dyn postgres::types::ToSql + Sync))
-            .collect();
+        let param_refs = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.param_refs");
+            let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+                SmallVec::with_capacity(params.len());
+            param_refs.extend(
+                params
+                    .iter()
+                    .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+            );
+            param_refs
+        };
 
+        let mut typed_params: SmallVec<
+            [(&(dyn postgres::types::ToSql + Sync), postgres::types::Type); 8],
+        > = SmallVec::with_capacity(params.len());
+        let mut all_typed = true;
+        for p in &params {
+            if let Some(ty) = crate::builder::postgres::prepared_common::postgres_sync_param_type(p)
+            {
+                typed_params.push((*p as &(dyn postgres::types::ToSql + Sync), ty));
+            } else {
+                all_typed = false;
+                break;
+            }
+        }
+
+        if all_typed {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.db_typed");
+            let mut rows = self
+                .drizzle
+                .client
+                .query_typed_raw(&sql_str, typed_params)?;
+            while rows.next()?.is_some() {}
+            return Ok(rows.rows_affected().unwrap_or(0));
+        }
+
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.db");
         Ok(self.drizzle.client.execute(&sql_str, &param_refs[..])?)
     }
 
@@ -292,21 +395,33 @@ where
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         C: FromIterator<R>,
     {
-        let sql_str = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        self.rows::<R>()?
+            .collect::<drizzle_core::error::Result<C>>()
+    }
 
-        let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .map(|p| p as &(dyn postgres::types::ToSql + Sync))
-            .collect();
+    /// Runs the query and returns a lazy row cursor.
+    pub fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all");
+        let (sql_str, params) = self.builder.sql.build();
+
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all.param_refs");
+        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params.len());
+        param_refs.extend(
+            params
+                .iter()
+                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+        );
 
         let rows = self.drizzle.client.query(&sql_str, &param_refs[..])?;
 
-        let results = rows
-            .iter()
-            .map(|row| R::try_from(row).map_err(Into::into))
-            .collect::<Result<C, _>>()?;
-
-        Ok(results)
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -315,12 +430,19 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        let sql_str = self.builder.sql.sql();
-        let params = self.builder.sql.params();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get");
+        let (sql_str, params) = self.builder.sql.build();
 
-        let param_refs: Vec<&(dyn postgres::types::ToSql + Sync)> = params
-            .map(|p| p as &(dyn postgres::types::ToSql + Sync))
-            .collect();
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get.param_refs");
+        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params.len());
+        param_refs.extend(
+            params
+                .iter()
+                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+        );
 
         let row = self.drizzle.client.query_one(&sql_str, &param_refs[..])?;
 

@@ -17,10 +17,11 @@ pub(crate) fn generate_sqlx_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     let (select, partial) = field_infos
         .iter()
-        .map(|info| {
+        .enumerate()
+        .map(|(idx, info)| {
             Ok((
-                generate_field_from_row(info)?,
-                generate_partial_field_from_row(info)?,
+                generate_field_from_row(idx, info)?,
+                generate_partial_field_from_row(idx, info)?,
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>)>>()?;
@@ -232,9 +233,8 @@ pub(crate) fn generate_json_impls(
 }
 
 /// Generate partial model field assignment (for sqlx PartialSelect models)
-fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let name = &info.name;
-    let column_name = &info.name.to_string();
 
     if info.is_json && !cfg!(feature = "serde") {
         return Err(Error::new_spanned(
@@ -245,14 +245,13 @@ fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
 
     // For partial selects, all fields are Option<T>
     Ok(quote! {
-        #name: row.try_get(#column_name).unwrap_or_default(),
+        #name: row.try_get(#idx).unwrap_or_default(),
     })
 }
 
 /// Handles both standard types and conditional JSON deserialization.
-fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let name = &info.name;
-    let column_name = &info.name.to_string();
 
     if info.is_json && !cfg!(feature = "serde") {
         return Err(Error::new_spanned(
@@ -263,6 +262,6 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
 
     // For SELECT models, use direct field access
     Ok(quote! {
-        #name: row.try_get(#column_name)?,
+        #name: row.try_get(#idx)?,
     })
 }

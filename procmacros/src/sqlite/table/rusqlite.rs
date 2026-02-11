@@ -7,6 +7,7 @@
 
 use super::errors;
 use super::{FieldInfo, MacroContext};
+use crate::common::{type_is_bool, type_is_float, type_is_int};
 use crate::paths;
 use crate::sqlite::field::{SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
@@ -29,10 +30,11 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let (select, partial) = field_infos
         .iter()
-        .map(|info| {
+        .enumerate()
+        .map(|(idx, info)| {
             Ok((
-                generate_field_from_row(info)?,
-                generate_partial_field_from_row(info)?,
+                generate_field_from_row(idx, info)?,
+                generate_partial_field_from_row(idx, info)?,
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>)>>()?;
@@ -74,10 +76,9 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 // =============================================================================
 
 /// Generate field conversion for SelectModel
-fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
-    let column_name = &info.column_name;
     let base_type = info.base_type;
 
     // JSON fields use rusqlite's FromSql directly
@@ -89,15 +90,180 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
             ));
         }
         return Ok(quote! {
-            #name: row.get(#column_name)?,
+            #name: row.get(#idx)?,
         });
+    }
+
+    if matches!(
+        info.type_category(),
+        TypeCategory::Integer
+            | TypeCategory::Real
+            | TypeCategory::Bool
+            | TypeCategory::String
+            | TypeCategory::Blob
+    ) {
+        return match info.column_type {
+            SQLiteType::Integer => {
+                let is_bool = type_is_bool(info.base_type);
+                let is_i64 = type_is_int(info.base_type, "i64");
+
+                if info.is_nullable {
+                    if is_bool {
+                        Ok(quote! {
+                            #name: row.get::<_, Option<i64>>(#idx)?.map(|v| v != 0),
+                        })
+                    } else if !is_i64 {
+                        Ok(quote! {
+                            #name: row
+                                .get::<_, Option<i64>>(#idx)?
+                                .map(TryInto::try_into)
+                                .transpose()?,
+                        })
+                    } else {
+                        Ok(quote! {
+                            #name: row.get(#idx)?,
+                        })
+                    }
+                } else if is_bool {
+                    Ok(quote! {
+                        #name: {
+                            #[cfg(feature = "unchecked")]
+                            {
+                                row.get_unwrap::<_, i64>(#idx) != 0
+                            }
+                            #[cfg(not(feature = "unchecked"))]
+                            {
+                                row.get::<_, i64>(#idx)? != 0
+                            }
+                        },
+                    })
+                } else if !is_i64 {
+                    Ok(quote! {
+                        #name: row.get::<_, i64>(#idx)?.try_into()?,
+                    })
+                } else {
+                    Ok(quote! {
+                        #name: {
+                            #[cfg(feature = "unchecked")]
+                            {
+                                row.get_unwrap(#idx)
+                            }
+                            #[cfg(not(feature = "unchecked"))]
+                            {
+                                row.get(#idx)?
+                            }
+                        },
+                    })
+                }
+            }
+            SQLiteType::Text => {
+                if info.is_nullable {
+                    Ok(quote! {
+                        #name: row.get::<_, Option<String>>(#idx)?,
+                    })
+                } else {
+                    Ok(quote! {
+                        #name: {
+                            #[cfg(feature = "unchecked")]
+                            {
+                                row.get_unwrap::<_, String>(#idx)
+                            }
+                            #[cfg(not(feature = "unchecked"))]
+                            {
+                                row.get::<_, String>(#idx)?
+                            }
+                        },
+                    })
+                }
+            }
+            SQLiteType::Real => {
+                let is_f32 = type_is_float(info.base_type, "f32");
+                if info.is_nullable {
+                    if is_f32 {
+                        Ok(quote! {
+                            #name: row.get::<_, Option<f64>>(#idx)?.map(|v| v as f32),
+                        })
+                    } else {
+                        Ok(quote! {
+                            #name: row.get(#idx)?,
+                        })
+                    }
+                } else if is_f32 {
+                    Ok(quote! {
+                        #name: {
+                            #[cfg(feature = "unchecked")]
+                            {
+                                row.get_unwrap::<_, f64>(#idx) as f32
+                            }
+                            #[cfg(not(feature = "unchecked"))]
+                            {
+                                row.get::<_, f64>(#idx)? as f32
+                            }
+                        },
+                    })
+                } else {
+                    Ok(quote! {
+                        #name: {
+                            #[cfg(feature = "unchecked")]
+                            {
+                                row.get_unwrap(#idx)
+                            }
+                            #[cfg(not(feature = "unchecked"))]
+                            {
+                                row.get(#idx)?
+                            }
+                        },
+                    })
+                }
+            }
+            SQLiteType::Blob => {
+                if info.is_nullable {
+                    Ok(quote! {
+                        #name: row.get::<_, Option<Vec<u8>>>(#idx)?,
+                    })
+                } else {
+                    Ok(quote! {
+                        #name: {
+                            #[cfg(feature = "unchecked")]
+                            {
+                                row.get_unwrap::<_, Vec<u8>>(#idx)
+                            }
+                            #[cfg(not(feature = "unchecked"))]
+                            {
+                                row.get::<_, Vec<u8>>(#idx)?
+                            }
+                        },
+                    })
+                }
+            }
+            SQLiteType::Numeric | SQLiteType::Any => {
+                if info.is_nullable {
+                    Ok(quote! {
+                        #name: {
+                            let value_ref = row.get_ref(#idx)?;
+                            match value_ref {
+                                ::rusqlite::types::ValueRef::Null => None,
+                                _ => Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?),
+                            }
+                        },
+                    })
+                } else {
+                    Ok(quote! {
+                        #name: {
+                            let value_ref = row.get_ref(#idx)?;
+                            <#base_type as #from_sqlite_value>::from_value_ref(value_ref)?
+                        },
+                    })
+                }
+            }
+        };
     }
 
     // All other types use FromSQLiteValue::from_value_ref
     if info.is_nullable {
         Ok(quote! {
             #name: {
-                let value_ref = row.get_ref(#column_name)?;
+                let value_ref = row.get_ref(#idx)?;
                 match value_ref {
                     ::rusqlite::types::ValueRef::Null => None,
                     _ => Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?),
@@ -107,7 +273,7 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
     } else {
         Ok(quote! {
             #name: {
-                let value_ref = row.get_ref(#column_name)?;
+                let value_ref = row.get_ref(#idx)?;
                 <#base_type as #from_sqlite_value>::from_value_ref(value_ref)?
             },
         })
@@ -115,23 +281,22 @@ fn generate_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
 }
 
 /// Generate field conversion for PartialSelectModel (all fields are Option<T>)
-fn generate_partial_field_from_row(info: &FieldInfo) -> Result<TokenStream> {
+fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
-    let column_name = &info.column_name;
     let base_type = info.base_type;
 
     // JSON fields use rusqlite's FromSql directly
     if info.type_category() == TypeCategory::Json {
         return Ok(quote! {
-            #name: row.get(#column_name).unwrap_or_default(),
+            #name: row.get(#idx).unwrap_or_default(),
         });
     }
 
     // Partial models have all fields as Option<T>
     Ok(quote! {
         #name: {
-            let value_ref = row.get_ref(#column_name).unwrap_or(::rusqlite::types::ValueRef::Null);
+            let value_ref = row.get_ref(#idx).unwrap_or(::rusqlite::types::ValueRef::Null);
             match value_ref {
                 ::rusqlite::types::ValueRef::Null => None,
                 _ => <#base_type as #from_sqlite_value>::from_value_ref(value_ref).ok(),

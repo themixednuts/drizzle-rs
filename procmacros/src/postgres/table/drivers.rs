@@ -28,10 +28,9 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 /// Generate field conversion for SELECT model (non-partial).
 ///
 /// The field type in the Select model matches the original table definition.
-fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
+fn generate_select_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
     let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
-    let name_str = name.to_string();
     let base_type = &info.base_type;
     let type_category = TypeCategory::from_type(base_type);
 
@@ -53,7 +52,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
             if info.is_nullable {
                 quote! {
                     #name: {
-                        let v: Option<i32> = row.get::<_, Option<i32>>(#name_str);
+                        let v: Option<i32> = row.get::<_, Option<i32>>(#idx);
                         match v {
                             Some(v) => Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| #drizzle_error::ConversionError(format!("Failed to convert {} to enum", v).into()))?),
                             None => None,
@@ -63,7 +62,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
             } else {
                 quote! {
                     #name: {
-                        let v: i32 = row.get::<_, i32>(#name_str);
+                        let v: i32 = row.get::<_, i32>(#idx);
                         <#base_type as TryFrom<i32>>::try_from(v).map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?
                     },
                 }
@@ -73,7 +72,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
             if info.is_nullable {
                 quote! {
                     #name: {
-                        let s: Option<String> = row.get::<_, Option<String>>(#name_str);
+                        let s: Option<String> = row.get::<_, Option<String>>(#idx);
                         match s {
                             Some(s) => Some(s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?),
                             None => None,
@@ -83,7 +82,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
             } else {
                 quote! {
                     #name: {
-                        let s: String = row.get::<_, String>(#name_str);
+                        let s: String = row.get::<_, String>(#idx);
                         s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?
                     },
                 }
@@ -94,15 +93,15 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
         if info.is_nullable {
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRowByName;
-                    DrizzleRowByName::get_column_by_name::<Option<#base_type>>(row, #name_str)?
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx)?
                 },
             }
         } else {
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRowByName;
-                    DrizzleRowByName::get_column_by_name::<#base_type>(row, #name_str)?
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx)?
                 },
             }
         }
@@ -112,7 +111,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
         if info.is_nullable {
             quote! {
                 #name: {
-                    let json_val: Option<::serde_json::Value> = row.get::<_, Option<::serde_json::Value>>(#name_str);
+                    let json_val: Option<::serde_json::Value> = row.get::<_, Option<::serde_json::Value>>(#idx);
                     match json_val {
                         Some(v) => Some(::serde_json::from_value(v).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?),
                         None => None,
@@ -122,7 +121,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
         } else {
             quote! {
                 #name: {
-                    let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#name_str);
+                    let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#idx);
                     ::serde_json::from_value(json_val).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?
                 },
             }
@@ -131,7 +130,7 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
         // Standard types: use native driver's get
         let ty = &info.field_type;
         quote! {
-            #name: row.get::<_, #ty>(#name_str),
+            #name: row.get::<_, #ty>(#idx),
         }
     }
 }
@@ -143,10 +142,9 @@ fn generate_select_field_conversion(info: &FieldInfo) -> TokenStream {
 /// - Option<String> field -> Option<Option<String>>
 ///
 /// We use try_get which returns Result<T, Error> and fall back to None on error.
-fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
+fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
     let _drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
-    let name_str = name.to_string();
     let base_type = &info.base_type;
     let type_category = TypeCategory::from_type(base_type);
 
@@ -166,7 +164,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
                 // Original is Option<EnumType>, partial is Option<Option<EnumType>>
                 quote! {
                     #name: {
-                        let v: Option<Option<i32>> = row.try_get::<_, Option<i32>>(#name_str).ok();
+                        let v: Option<Option<i32>> = row.try_get::<_, Option<i32>>(#idx).ok();
                         v.map(|opt| opt.and_then(|v| <#base_type as TryFrom<i32>>::try_from(v).ok()))
                     },
                 }
@@ -174,7 +172,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
                 // Original is EnumType, partial is Option<EnumType>
                 quote! {
                     #name: {
-                        let v: Option<i32> = row.try_get::<_, i32>(#name_str).ok();
+                        let v: Option<i32> = row.try_get::<_, i32>(#idx).ok();
                         v.and_then(|v| <#base_type as TryFrom<i32>>::try_from(v).ok())
                     },
                 }
@@ -185,7 +183,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
                 // Original is Option<EnumType>, partial is Option<Option<EnumType>>
                 quote! {
                     #name: {
-                        let s: Option<Option<String>> = row.try_get::<_, Option<String>>(#name_str).ok();
+                        let s: Option<Option<String>> = row.try_get::<_, Option<String>>(#idx).ok();
                         s.map(|opt| opt.and_then(|s| s.parse::<#base_type>().ok()))
                     },
                 }
@@ -193,7 +191,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
                 // Original is EnumType, partial is Option<EnumType>
                 quote! {
                     #name: {
-                        let s: Option<String> = row.try_get::<_, String>(#name_str).ok();
+                        let s: Option<String> = row.try_get::<_, String>(#idx).ok();
                         s.and_then(|s| s.parse::<#base_type>().ok())
                     },
                 }
@@ -205,16 +203,16 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
             // Original is Option<T>, partial is Option<Option<T>>
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRowByName;
-                    Some(DrizzleRowByName::get_column_by_name::<Option<#base_type>>(row, #name_str).ok().flatten())
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    Some(DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx).ok().flatten())
                 },
             }
         } else {
             // Original is T, partial is Option<T>
             quote! {
                 #name: {
-                    use drizzle::postgres::traits::DrizzleRowByName;
-                    DrizzleRowByName::get_column_by_name::<#base_type>(row, #name_str).ok()
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx).ok()
                 },
             }
         }
@@ -225,7 +223,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
             // Original is Option<T>, partial is Option<Option<T>>
             quote! {
                 #name: {
-                    let json_val: Option<Option<::serde_json::Value>> = row.try_get::<_, Option<::serde_json::Value>>(#name_str).ok();
+                    let json_val: Option<Option<::serde_json::Value>> = row.try_get::<_, Option<::serde_json::Value>>(#idx).ok();
                     json_val.map(|opt| opt.and_then(|v| ::serde_json::from_value(v).ok()))
                 },
             }
@@ -233,7 +231,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
             // Original is T, partial is Option<T>
             quote! {
                 #name: {
-                    let json_val: Option<::serde_json::Value> = row.try_get::<_, ::serde_json::Value>(#name_str).ok();
+                    let json_val: Option<::serde_json::Value> = row.try_get::<_, ::serde_json::Value>(#idx).ok();
                     json_val.and_then(|v| ::serde_json::from_value(v).ok())
                 },
             }
@@ -242,7 +240,7 @@ fn generate_partial_field_conversion(info: &FieldInfo) -> TokenStream {
         // For standard types, try to get the original type (including Option wrapper if nullable)
         let ty = &info.field_type;
         quote! {
-            #name: row.try_get::<_, #ty>(#name_str).ok(),
+            #name: row.try_get::<_, #ty>(#idx).ok(),
         }
     }
 }
@@ -268,12 +266,14 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
 
     let select_field_inits: Vec<_> = field_infos
         .iter()
-        .map(generate_select_field_conversion)
+        .enumerate()
+        .map(|(idx, info)| generate_select_field_conversion(idx, info))
         .collect();
 
     let partial_field_inits: Vec<_> = field_infos
         .iter()
-        .map(generate_partial_field_conversion)
+        .enumerate()
+        .map(|(idx, info)| generate_partial_field_conversion(idx, info))
         .collect();
 
     // Generate implementation using drizzle::postgres::Row which re-exports

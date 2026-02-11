@@ -9,3 +9,4 @@ pub mod libsql;
 
 pub(crate) mod common;
 pub(crate) mod prepared_common;
+pub(crate) mod rows;

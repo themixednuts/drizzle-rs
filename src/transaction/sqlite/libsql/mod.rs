@@ -12,6 +12,8 @@ use drizzle_sqlite::traits::SQLiteTable;
 use libsql::Row;
 use std::marker::PhantomData;
 
+use crate::builder::sqlite::rows::LibsqlRows as Rows;
+
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{
@@ -154,8 +156,8 @@ impl<Schema> Transaction<Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let query = query.to_sql();
-        let sql = query.sql();
-        let params: Vec<libsql::Value> = query.params().map(|p| p.into()).collect();
+        let (sql, params) = query.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         Ok(self.tx.execute(&sql, params).await?)
     }
@@ -167,19 +169,22 @@ impl<Schema> Transaction<Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
+        self.rows(query).await?.collect().await
+    }
+
+    /// Runs a query and returns a row cursor within the transaction.
+    pub async fn rows<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
+    {
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params: Vec<libsql::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self.tx.query(&sql_str, params).await?;
-
-        let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-
-        Ok(results)
+        let rows = self.tx.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs a query and returns a single row within the transaction
@@ -190,8 +195,8 @@ impl<Schema> Transaction<Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params: Vec<libsql::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         let mut rows = self.tx.query(&sql_str, params).await?;
 
@@ -221,8 +226,8 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        let sql = self.builder.sql.sql();
-        let params: Vec<libsql::Value> = self.builder.sql.params().map(|p| p.into()).collect();
+        let (sql, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         Ok(self.transaction.tx.execute(&sql, params).await?)
     }
@@ -233,19 +238,20 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
-        let sql = &self.builder.sql;
-        let sql_str = sql.sql();
-        let params: Vec<libsql::Value> = sql.params().map(|p| p.into()).collect();
+        self.rows::<R>().await?.collect().await
+    }
 
-        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
+    /// Runs the query and returns a row cursor.
+    pub async fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-
-        Ok(results)
+        let rows = self.transaction.tx.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -254,9 +260,8 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
-        let sql = &self.builder.sql;
-        let sql_str = sql.sql();
-        let params: Vec<libsql::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         let mut rows = self.transaction.tx.query(&sql_str, params).await?;
 

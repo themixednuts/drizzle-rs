@@ -55,6 +55,7 @@ use drizzle_sqlite::{
 crate::drizzle_prepare_impl!();
 
 use crate::builder::sqlite::common;
+use crate::builder::sqlite::rows::LibsqlRows as Rows;
 use crate::transaction::sqlite::libsql::Transaction;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
@@ -70,8 +71,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let query = query.to_sql();
-        let sql = query.sql();
-        let params: Vec<libsql::Value> = query.params().map(|p| p.into()).collect();
+        let (sql, params) = query.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         self.conn
             .execute(&sql, params)
@@ -85,29 +86,29 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
         T: ToSQL<'a, SQLiteValue<'a>>,
-        C: std::iter::FromIterator<R>,
+        C: Default + Extend<R>,
+    {
+        self.rows(query).await?.collect().await
+    }
+
+    /// Runs the query and returns a row cursor.
+    pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+        T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params: Vec<libsql::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
-        let mut rows = self
+        let rows = self
             .conn
             .query(&sql_str, params)
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-        let mut results = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-        {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-
-        Ok(results.into_iter().collect())
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -118,8 +119,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let sql = query.to_sql();
-        let sql_str = sql.sql();
-        let params: Vec<libsql::Value> = sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         let mut rows = self
             .conn
@@ -255,8 +256,8 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        let sql_str = self.builder.sql.sql();
-        let params: Vec<libsql::Value> = self.builder.sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
         Ok(self.drizzle.conn.execute(&sql_str, params).await?)
     }
 
@@ -265,18 +266,22 @@ where
     where
         R: for<'r> TryFrom<&'r libsql::Row>,
         for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        C: std::iter::FromIterator<R>,
+        C: Default + Extend<R>,
     {
-        let sql_str = self.builder.sql.sql();
-        let params: Vec<libsql::Value> = self.builder.sql.params().map(|p| p.into()).collect();
+        self.rows::<R>().await?.collect().await
+    }
 
-        let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
-        let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let converted = R::try_from(&row).map_err(Into::into)?;
-            results.push(converted);
-        }
-        Ok(results.into_iter().collect())
+    /// Runs the query and returns a row cursor.
+    pub async fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r libsql::Row>,
+        for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+
+        let rows = self.drizzle.conn.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -285,8 +290,8 @@ where
         R: for<'r> TryFrom<&'r libsql::Row>,
         for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        let sql_str = self.builder.sql.sql();
-        let params: Vec<libsql::Value> = self.builder.sql.params().map(|p| p.into()).collect();
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
 
         let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
         if let Some(row) = rows.next().await? {

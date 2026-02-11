@@ -1,5 +1,6 @@
 pub mod alias;
 pub mod arrayvec;
+pub mod async_edge_cases;
 pub mod attributes;
 pub mod conditions;
 pub mod delete;
