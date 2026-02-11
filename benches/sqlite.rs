@@ -1,11 +1,8 @@
 #![allow(clippy::redundant_closure)]
 
 use divan::{AllocProfiler, Bencher, black_box};
-use drizzle::core::{
-    SQLSchema,
-    expressions::eq,
-    expressions::{alias, count},
-};
+use drizzle::core::SQLSchema;
+use drizzle::core::expr::{alias, count, eq};
 use drizzle::sqlite::prelude::*;
 
 #[global_allocator]
@@ -1661,5 +1658,101 @@ mod libsql {
 }
 
 fn main() {
+    #[cfg(feature = "profiling")]
+    let captured_frames: std::sync::Arc<
+        std::sync::Mutex<Vec<std::sync::Arc<puffin::FrameData>>>,
+    > = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    #[cfg(feature = "profiling")]
+    let sink_id = {
+        let captured_frames = std::sync::Arc::clone(&captured_frames);
+        puffin::GlobalProfiler::lock().add_sink(Box::new(move |frame| {
+            if let Ok(mut frames) = captured_frames.lock() {
+                frames.push(frame);
+            }
+        }))
+    };
+
+    #[cfg(feature = "profiling")]
+    {
+        puffin::set_scopes_on(true);
+        std::thread::spawn(|| {
+            loop {
+                puffin::GlobalProfiler::lock().new_frame();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+    }
+
     divan::main();
+
+    #[cfg(feature = "profiling")]
+    {
+        use std::collections::HashMap;
+
+        fn accumulate_scope_times(
+            stream: &puffin::Stream,
+            offset: u64,
+            totals_ns: &mut HashMap<(puffin::ScopeId, String), i64>,
+        ) {
+            let Ok(reader) = puffin::Reader::with_offset(stream, offset) else {
+                return;
+            };
+            for scope in reader.flatten() {
+                *totals_ns
+                    .entry((scope.id, scope.record.data.to_owned()))
+                    .or_insert(0) += scope.record.duration_ns;
+                accumulate_scope_times(stream, scope.child_begin_position, totals_ns);
+            }
+        }
+
+        puffin::GlobalProfiler::lock().new_frame();
+        let _ = puffin::GlobalProfiler::lock().remove_sink(sink_id);
+
+        let frames = captured_frames
+            .lock()
+            .map(|f| f.clone())
+            .unwrap_or_default();
+
+        let mut frame_view = puffin::FrameView::default();
+        let mut totals_ns: HashMap<(puffin::ScopeId, String), i64> = HashMap::new();
+
+        for frame in &frames {
+            frame_view.add_frame(frame.clone());
+            if let Ok(unpacked) = frame.unpacked() {
+                for stream_info in unpacked.thread_streams.values() {
+                    accumulate_scope_times(&stream_info.stream, 0, &mut totals_ns);
+                }
+            }
+        }
+
+        let scopes = frame_view.scope_collection();
+        let mut totals: Vec<(String, i64)> = totals_ns
+            .into_iter()
+            .map(|((id, data), total_ns)| {
+                let base = scopes
+                    .fetch_by_id(&id)
+                    .map(|d| d.name().to_string())
+                    .unwrap_or_else(|| format!("scope#{}", id.0));
+                let name = if data.is_empty() {
+                    base
+                } else {
+                    format!("{}::{}", base, data)
+                };
+                (name, total_ns)
+            })
+            .collect();
+
+        totals.sort_by(|a, b| b.1.cmp(&a.1));
+
+        println!("\n=== Puffin Scope Totals (sqlite bench) ===");
+        for (idx, (name, total_ns)) in totals.iter().take(20).enumerate() {
+            println!(
+                "{:>2}. {:<60} {:>10.3} ms",
+                idx + 1,
+                name,
+                *total_ns as f64 / 1_000_000.0
+            );
+        }
+    }
 }

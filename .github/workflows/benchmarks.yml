@@ -2,16 +2,17 @@ name: Benchmarks
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  benchmark:
-    name: Benchmark (${{ matrix.platform }})
+  benchmark-sqlite:
+    name: Benchmark SQLite (${{ matrix.platform }})
     strategy:
       matrix:
         include:
@@ -31,11 +32,14 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-${{ matrix.platform }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Run benchmarks
+      - name: Run SQLite benchmarks
         shell: bash
         run: |
-          cargo bench --bench performance_comparison --all-features > benchmark_raw.txt 2>&1 || true
+          cargo bench --bench sqlite --features "rusqlite" > benchmark_raw.txt 2>&1 || true
           if grep -q "Timer precision" benchmark_raw.txt; then
             sed -n '/Timer precision/,$p' benchmark_raw.txt > benchmark_output.txt
           else
@@ -47,7 +51,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# Benchmark Results - ${{ matrix.platform }}"
+            echo "# SQLite Benchmark Results - ${{ matrix.platform }}"
             echo ""
             echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "**Commit:** ${{ github.sha }}"
@@ -56,11 +60,173 @@ jobs:
             echo '```'
             cat benchmark_output.txt
             echo '```'
-          } > "${{ matrix.platform }}.md"
+          } > "sqlite-${{ matrix.platform }}.md"
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-${{ matrix.platform }}
-          path: ${{ matrix.platform }}.md
+          name: benchmark-sqlite-${{ matrix.platform }}
+          path: sqlite-${{ matrix.platform }}.md
           retention-days: 90
+
+      # Cache baseline results on main branch for regression detection
+      - name: Save baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: benchmark_output.txt
+          key: bench-sqlite-baseline-${{ matrix.platform }}-${{ github.sha }}
+
+      # On PRs, compare against the most recent main baseline
+      - name: Restore baseline
+        if: github.event_name == 'pull_request'
+        id: restore-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: baseline_output.txt
+          key: bench-sqlite-baseline-${{ matrix.platform }}-
+          restore-keys: |
+            bench-sqlite-baseline-${{ matrix.platform }}-
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request' && steps.restore-baseline.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          echo "## Benchmark Comparison (SQLite - ${{ matrix.platform }})" > comparison.md
+          echo "" >> comparison.md
+          echo "Comparing PR results against main branch baseline." >> comparison.md
+          echo "" >> comparison.md
+          echo "<details><summary>Current results</summary>" >> comparison.md
+          echo "" >> comparison.md
+          echo '```' >> comparison.md
+          cat benchmark_output.txt >> comparison.md
+          echo '```' >> comparison.md
+          echo "</details>" >> comparison.md
+          echo "" >> comparison.md
+          echo "<details><summary>Baseline (main)</summary>" >> comparison.md
+          echo "" >> comparison.md
+          echo '```' >> comparison.md
+          cat baseline_output.txt >> comparison.md
+          echo '```' >> comparison.md
+          echo "</details>" >> comparison.md
+
+      - name: Upload comparison
+        if: github.event_name == 'pull_request' && steps.restore-baseline.outputs.cache-hit == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison-sqlite-${{ matrix.platform }}
+          path: comparison.md
+          retention-days: 30
+
+  benchmark-postgres:
+    name: Benchmark PostgreSQL (linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-postgres
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Run PostgreSQL benchmarks
+        env:
+          DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
+        shell: bash
+        run: |
+          cargo bench --bench postgres --features "postgres-sync" > benchmark_raw.txt 2>&1 || true
+          if grep -q "Timer precision" benchmark_raw.txt; then
+            sed -n '/Timer precision/,$p' benchmark_raw.txt > benchmark_output.txt
+          else
+            echo "No benchmark results found" > benchmark_output.txt
+            cat benchmark_raw.txt >> benchmark_output.txt
+          fi
+
+      - name: Create report
+        shell: bash
+        run: |
+          {
+            echo "# PostgreSQL Benchmark Results"
+            echo ""
+            echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "**Commit:** ${{ github.sha }}"
+            echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
+            echo ""
+            echo '```'
+            cat benchmark_output.txt
+            echo '```'
+          } > "postgres-linux.md"
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-postgres-linux
+          path: postgres-linux.md
+          retention-days: 90
+
+      - name: Save baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: benchmark_output.txt
+          key: bench-postgres-baseline-${{ github.sha }}
+
+      - name: Restore baseline
+        if: github.event_name == 'pull_request'
+        id: restore-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: baseline_output.txt
+          key: bench-postgres-baseline-
+          restore-keys: |
+            bench-postgres-baseline-
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request' && steps.restore-baseline.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          echo "## Benchmark Comparison (PostgreSQL)" > comparison.md
+          echo "" >> comparison.md
+          echo "Comparing PR results against main branch baseline." >> comparison.md
+          echo "" >> comparison.md
+          echo "<details><summary>Current results</summary>" >> comparison.md
+          echo "" >> comparison.md
+          echo '```' >> comparison.md
+          cat benchmark_output.txt >> comparison.md
+          echo '```' >> comparison.md
+          echo "</details>" >> comparison.md
+          echo "" >> comparison.md
+          echo "<details><summary>Baseline (main)</summary>" >> comparison.md
+          echo "" >> comparison.md
+          echo '```' >> comparison.md
+          cat baseline_output.txt >> comparison.md
+          echo '```' >> comparison.md
+          echo "</details>" >> comparison.md
+
+      - name: Upload comparison
+        if: github.event_name == 'pull_request' && steps.restore-baseline.outputs.cache-hit == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-comparison-postgres
+          path: comparison.md
+          retention-days: 30
