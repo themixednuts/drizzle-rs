@@ -55,7 +55,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          release-plz release || {
+          release-plz release --git-token "$GITHUB_TOKEN" || {
             echo "::error::release-plz release failed - some crates may have been partially published"
             exit 1
           }
