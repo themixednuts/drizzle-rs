@@ -141,7 +141,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         impl_blocks.push(generate_driver_try_from(
             struct_name,
             quote!(::rusqlite::Row<'_>),
-            quote!(::rusqlite::Error),
+            quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
         ));

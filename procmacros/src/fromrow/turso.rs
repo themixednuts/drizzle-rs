@@ -15,8 +15,8 @@ impl DriverJsonAccessor for TursoDriver {
         quote! {
             {
                 let text = row.get_value(#idx)?.as_text()
-                    .ok_or_else(|| DrizzleError::ConversionError("Expected text for JSON field".into()))?;
-                serde_json::from_str(text).map_err(|e| DrizzleError::ConversionError(e.to_string().into()))
+                    .ok_or_else(|| drizzle::error::DrizzleError::ConversionError("Expected text for JSON field".into()))?;
+                serde_json::from_str(text).map_err(|e| drizzle::error::DrizzleError::ConversionError(e.to_string().into()))
             }
         }
     }

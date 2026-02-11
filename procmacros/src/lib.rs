@@ -485,7 +485,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Field Attributes
 ///
 /// - `#[column(Table::field)]` - Map to a specific table column (useful for JOINs)
-/// - `#[json]` - Deserialize JSON from TEXT column (requires `serde` feature, libsql/turso only)
+/// - `#[json]` - Deserialize JSON from TEXT column (requires `serde` feature)
 /// - No attribute - Maps to column with same name as the field
 ///
 /// # Struct Types
@@ -577,7 +577,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 ///
-/// ## With JSON (requires `serde` feature, libsql/turso)
+/// ## With JSON (requires `serde` feature)
 ///
 /// ```ignore
 /// // This example requires serde feature and specific rusqlite version compatibility

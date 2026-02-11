@@ -13,7 +13,13 @@ pub(crate) struct LibsqlDriver;
 impl DriverJsonAccessor for LibsqlDriver {
     fn json_accessor(idx: usize) -> TokenStream {
         let idx = idx as i32;
-        quote!(serde_json::from_str(&row.get::<String>(#idx)?).map_err(Into::into))
+        quote! {
+            {
+                let json_str: String = row.get::<String>(#idx)?;
+                serde_json::from_str(&json_str)
+                    .map_err(|e| drizzle::error::DrizzleError::ConversionError(e.to_string().into()))
+            }
+        }
     }
 
     fn error_type() -> TokenStream {
