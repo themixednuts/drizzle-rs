@@ -260,9 +260,8 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote! {};
 
-    // Generate FromSQLiteValue implementation for libsql/turso
+    // Generate FromSQLiteValue implementation for all SQLite drivers
     // This trait provides a unified interface for value conversion
-    #[cfg(any(feature = "libsql", feature = "turso"))]
     let from_sqlite_value_impl = quote! {
         impl #from_sqlite_value for #name {
             fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, #drizzle_error> {
@@ -286,9 +285,6 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
         }
     };
-
-    #[cfg(not(any(feature = "libsql", feature = "turso")))]
-    let from_sqlite_value_impl = quote! {};
 
     Ok(quote! {
         #base_impls
