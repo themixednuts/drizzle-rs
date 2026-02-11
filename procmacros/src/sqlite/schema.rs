@@ -87,6 +87,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     let mig_sqlite_table = mig_paths::sqlite::table();
     let mig_sqlite_column = mig_paths::sqlite::column();
     let mig_sqlite_index = mig_paths::sqlite::index();
+    let mig_sqlite_index_column = mig_paths::sqlite::index_column();
     let mig_sqlite_primary_key = mig_paths::sqlite::primary_key();
     let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
     let mig_sqlite_view = mig_paths::sqlite::view();
@@ -113,8 +114,9 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
 
         // Implement SQLSchemaImpl trait
         impl #sql_schema_impl for #struct_name {
-            fn create_statements(&self) -> ::std::vec::Vec<::std::string::String> {
-                #create_statements_impl
+            fn create_statements(&self) -> ::std::result::Result<::std::boxed::Box<dyn ::std::iter::Iterator<Item = ::std::string::String> + '_>, drizzle::error::DrizzleError> {
+                let statements = { #create_statements_impl };
+                ::std::result::Result::Ok(::std::boxed::Box::new(statements.into_iter()))
             }
         }
 
@@ -138,6 +140,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                 type MigTable = #mig_sqlite_table;
                 type MigColumn = #mig_sqlite_column;
                 type MigIndex = #mig_sqlite_index;
+                type MigIndexColumn = #mig_sqlite_index_column;
                 type MigPrimaryKey = #mig_sqlite_primary_key;
                 type MigUniqueConstraint = #mig_sqlite_unique_constraint;
                 type MigView = #mig_sqlite_view;
@@ -199,7 +202,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                                 #sql_index_info::name(index_info),
                                 #sql_index_info::columns(index_info)
                                     .iter()
-                                    .map(|c| c.to_string())
+                                    .map(|c| MigIndexColumn::new(*c))
                                     .collect::<::std::vec::Vec<_>>(),
                             );
                             if #sql_index_info::is_unique(index_info) {
@@ -247,21 +250,29 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     // Generate different implementations based on available features
     #[cfg(feature = "sqlite")]
     let impl_tokens = quote! {
-        let mut tables: ::std::vec::Vec<(&str, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
-        let mut indexes: ::std::collections::HashMap<&str, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
+        let mut indexes: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut index_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
         let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
         // Collect all tables and indexes
         #(
             match <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE {
                 #sqlite_schema_type::Table(table_info) => {
-                    let table_name = #sql_table_info::name(table_info);
+                    let table_name = #sql_table_info::qualified_name(table_info).into_owned();
                     let table_sql = <_ as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
                 #sqlite_schema_type::Index(index_info) => {
                     let index_sql = <_ as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::sql(&self.#field_names).sql();
-                    let table_name = #sql_table_info::name(#sql_index_info::table(index_info));
+                    let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
+                    let index_name = #sql_index_info::name(index_info);
+                    let index_key = ::std::format!("{}::{}", table_name, index_name);
+                    if !index_keys.insert(index_key) {
+                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                            ::std::format!("Duplicate index '{}' on table '{}' in SQLiteSchema", index_name, table_name).into(),
+                        ));
+                    }
                     indexes
                         .entry(table_name)
                         .or_insert_with(::std::vec::Vec::new)
@@ -282,21 +293,28 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Deterministic topological ordering via Kahn's algorithm.
         // Guarantees dependency-safe order for DAGs in O(V + E), with
         // lexical tie-breaking for stable output.
-        tables.sort_by(|a, b| a.0.cmp(b.0));
-        let table_names: ::std::collections::HashSet<&str> =
-            tables.iter().map(|(name, _, _)| *name).collect();
+        tables.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        let table_names: ::std::collections::HashSet<::std::string::String> =
+            tables.iter().map(|(name, _, _)| name.clone()).collect();
 
-        let mut indegree: ::std::collections::HashMap<&str, usize> =
+        if table_names.len() != tables.len() {
+            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                "Duplicate table names detected in SQLiteSchema".into(),
+            ));
+        }
+
+        let mut indegree: ::std::collections::HashMap<::std::string::String, usize> =
             ::std::collections::HashMap::with_capacity(tables.len());
-        let mut reverse_edges: ::std::collections::HashMap<&str, ::std::vec::Vec<&str>> =
+        let mut reverse_edges: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> =
             ::std::collections::HashMap::new();
 
         for (table_name, _, table_info) in &tables {
-            indegree.entry(*table_name).or_insert(0);
+            indegree.entry(table_name.clone()).or_insert(0);
 
             for dep_name in #sql_table_info::dependencies(*table_info)
                 .iter()
-                .map(|dep| #sql_table_info::name(*dep))
+                .map(|dep| #sql_table_info::qualified_name(*dep).into_owned())
+                .filter(|dep_name| dep_name != table_name)
                 .filter(|dep_name| table_names.contains(dep_name))
             {
                 *indegree
@@ -305,48 +323,51 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                 reverse_edges
                     .entry(dep_name)
                     .or_insert_with(::std::vec::Vec::new)
-                    .push(*table_name);
+                    .push(table_name.clone());
             }
         }
 
-        let mut ready: ::std::collections::BTreeSet<&str> = indegree
+        let mut ready: ::std::collections::BTreeSet<::std::string::String> = indegree
             .iter()
             .filter(|(_, degree)| **degree == 0)
-            .map(|(name, _)| *name)
+            .map(|(name, _)| name.clone())
             .collect();
-        let mut ordered_names: ::std::vec::Vec<&str> = ::std::vec::Vec::with_capacity(tables.len());
+        let mut ordered_names: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::with_capacity(tables.len());
 
         while let ::std::option::Option::Some(next) = ready.pop_first() {
-            ordered_names.push(next);
+            ordered_names.push(next.clone());
 
-            if let ::std::option::Option::Some(children) = reverse_edges.get(next) {
+            if let ::std::option::Option::Some(children) = reverse_edges.get(&next) {
                 for child in children {
                     let degree = indegree
                         .get_mut(child)
                         .expect("child table must exist in indegree map");
                     *degree -= 1;
                     if *degree == 0 {
-                        ready.insert(*child);
+                        ready.insert(child.clone());
                     }
                 }
             }
         }
 
         if ordered_names.len() != tables.len() {
-            let mut remaining: ::std::vec::Vec<&str> = indegree
+            let mut remaining: ::std::vec::Vec<::std::string::String> = indegree
                 .iter()
                 .filter(|(_, degree)| **degree > 0)
-                .map(|(name, _)| *name)
+                .map(|(name, _)| name.clone())
                 .collect();
             remaining.sort_unstable();
-            panic!(
-                "Cyclic table dependency detected in SQLiteSchema: {}",
-                remaining.join(", ")
-            );
+            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                ::std::format!(
+                    "Cyclic table dependency detected in SQLiteSchema: {}",
+                    remaining.join(", ")
+                )
+                .into(),
+            ));
         }
 
         let mut table_by_name: ::std::collections::HashMap<
-            &str,
+            ::std::string::String,
             (::std::string::String, &dyn #sql_table_info),
         > = ::std::collections::HashMap::with_capacity(tables.len());
         for (table_name, table_sql, table_info) in tables {
@@ -357,12 +378,12 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         let mut sql_statements = ::std::vec::Vec::<::std::string::String>::new();
         for table_name in ordered_names {
             let (table_sql, _) = table_by_name
-                .remove(table_name)
+                .remove(&table_name)
                 .expect("table exists after topological ordering");
             sql_statements.push(table_sql);
 
             // Add indexes for this table
-            if let ::std::option::Option::Some(table_indexes) = indexes.get(table_name) {
+            if let ::std::option::Option::Some(table_indexes) = indexes.get(&table_name) {
                 for index_sql in table_indexes {
                     sql_statements.push(index_sql.clone());
                 }

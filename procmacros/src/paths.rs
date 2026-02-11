@@ -313,6 +313,10 @@ pub mod ddl {
             quote!(drizzle::ddl::postgres::ddl::IndexDef)
         }
 
+        pub fn index_column() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::IndexColumn)
+        }
+
         pub fn index_column_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::IndexColumnDef)
         }
@@ -489,6 +493,10 @@ pub mod migrations {
 
         pub fn index_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::IndexDef)
+        }
+
+        pub fn index_column() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::IndexColumn)
         }
 
         pub fn primary_key() -> TokenStream {

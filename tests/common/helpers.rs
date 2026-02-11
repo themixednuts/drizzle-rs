@@ -387,7 +387,7 @@ pub mod rusqlite_setup {
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
         let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
         let schema = S::default();
-        let schema_ddl = schema.create_statements();
+        let schema_ddl: Vec<_> = schema.create_statements().expect("create statements").collect();
         let (db, schema) = Drizzle::new(conn, schema);
 
         if let Err(e) = db.create() {
@@ -418,7 +418,7 @@ pub mod libsql_setup {
             .expect("build db");
         let conn = db.connect().expect("connect to db");
         let schema = S::default();
-        let schema_ddl = schema.create_statements();
+        let schema_ddl: Vec<_> = schema.create_statements().expect("create statements").collect();
         let (db, schema) = Drizzle::new(conn, schema);
 
         if let Err(e) = db.create().await {
@@ -449,7 +449,7 @@ pub mod turso_setup {
             .expect("build db");
         let conn = db.connect().expect("connect to db");
         let schema = S::default();
-        let schema_ddl = schema.create_statements();
+        let schema_ddl: Vec<_> = schema.create_statements().expect("create statements").collect();
         let (db, schema) = Drizzle::new(conn, schema);
 
         if let Err(e) = db.create().await {
@@ -644,7 +644,7 @@ pub mod postgres_sync_setup {
             .expect("Failed to create test schema");
 
         let schema = S::default();
-        let schema_ddl = schema.create_statements();
+        let schema_ddl: Vec<_> = schema.create_statements().expect("create statements").collect();
         let (mut db, schema) = Drizzle::new(client, schema);
 
         let ddl_statements: Vec<CapturedStatement> = schema_ddl
@@ -893,7 +893,7 @@ pub mod tokio_postgres_setup {
             .expect("Failed to create test schema");
 
         let schema = S::default();
-        let schema_ddl = schema.create_statements();
+        let schema_ddl: Vec<_> = schema.create_statements().expect("create statements").collect();
         let (mut db, schema) = Drizzle::new(client, schema);
 
         let ddl_statements: Vec<CapturedStatement> = schema_ddl

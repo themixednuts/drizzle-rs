@@ -89,6 +89,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let mig_pg_column = mig_paths::postgres::column();
     let mig_pg_identity = mig_paths::postgres::identity();
     let mig_pg_index = mig_paths::postgres::index();
+    let mig_pg_index_column = mig_paths::postgres::index_column();
     let mig_pg_primary_key = mig_paths::postgres::primary_key();
     let mig_pg_unique_constraint = mig_paths::postgres::unique_constraint();
     let mig_pg_enum = mig_paths::postgres::enum_type();
@@ -116,8 +117,9 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
 
         // Implement SQLSchemaImpl trait
         impl #sql_schema_impl for #struct_name {
-            fn create_statements(&self) -> ::std::vec::Vec<::std::string::String> {
-                #create_statements_impl
+            fn create_statements(&self) -> ::std::result::Result<::std::boxed::Box<dyn ::std::iter::Iterator<Item = ::std::string::String> + '_>, drizzle::error::DrizzleError> {
+                let statements = { #create_statements_impl };
+                ::std::result::Result::Ok(::std::boxed::Box::new(statements.into_iter()))
             }
         }
 
@@ -143,6 +145,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 type MigColumn = #mig_pg_column;
                 type MigIdentity = #mig_pg_identity;
                 type MigIndex = #mig_pg_index;
+                type MigIndexColumn = #mig_pg_index_column;
                 type MigPrimaryKey = #mig_pg_primary_key;
                 type MigUniqueConstraint = #mig_pg_unique_constraint;
                 type MigEnum = #mig_pg_enum;
@@ -159,14 +162,15 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                         #postgres_schema_type::Table(table_info) => {
                             // Add table entity
                             let table_name = #sql_table_info::name(table_info);
-                            snapshot.add_entity(MigEntity::Table(MigTable::new("public", table_name)));
+                            let table_schema = #sql_table_info::schema(table_info).unwrap_or("public");
+                            snapshot.add_entity(MigEntity::Table(MigTable::new(table_schema, table_name)));
 
                             // Add column entities using PostgresTableInfo::postgres_columns
                             for col in #postgres_table_info::postgres_columns(table_info) {
                                 // col is &dyn PostgresColumnInfo which extends SQLColumnInfo
                                 // Use method syntax since trait object vtable includes supertrait methods
                                 let mut column = MigColumn::new(
-                                    "public",
+                                    table_schema,
                                     table_name,
                                     col.name(),
                                     col.postgres_type(),
@@ -180,9 +184,9 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                 if col.is_generated_identity() || col.is_serial() || col.is_bigserial() {
                                     let seq_name = ::std::format!("{}_{}_seq", table_name, col.name());
                                     let identity = if col.is_generated_identity() {
-                                        MigIdentity::always(seq_name).schema("public")
+                                        MigIdentity::always(seq_name).schema(table_schema)
                                     } else {
-                                        MigIdentity::by_default(seq_name).schema("public")
+                                        MigIdentity::by_default(seq_name).schema(table_schema)
                                     };
                                     column = column.identity(identity);
                                 }
@@ -192,7 +196,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                 // Add primary key entity if this is a primary key column
                                 if col.is_primary_key() {
                                     snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
-                                        "public".to_string(),
+                                        table_schema.to_string(),
                                         table_name.to_string(),
                                         ::std::format!("{}_pkey", table_name),
                                         ::std::vec![col.name().to_string()],
@@ -202,7 +206,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                 // Add unique constraint entity if this column is unique
                                 if col.is_unique() {
                                     snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
-                                        "public".to_string(),
+                                        table_schema.to_string(),
                                         table_name.to_string(),
                                         ::std::format!("{}_{}_key", table_name, col.name()),
                                         ::std::vec![col.name().to_string()],
@@ -213,13 +217,14 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                         #postgres_schema_type::Index(index_info) => {
                             // Add index entity
                             let table = #sql_index_info::table(index_info);
+                            let table_schema = #sql_table_info::schema(table).unwrap_or("public");
                             let mut index = MigIndex::new(
-                                "public",
+                                table_schema,
                                 #sql_table_info::name(table),
                                 #sql_index_info::name(index_info),
                                 #sql_index_info::columns(index_info)
                                     .iter()
-                                    .map(|c| c.to_string())
+                                    .map(|c| MigIndexColumn::new(*c))
                                     .collect::<::std::vec::Vec<_>>(),
                             );
                             if #sql_index_info::is_unique(index_info) {
@@ -236,7 +241,8 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                             )));
                         }
                         #postgres_schema_type::View(view_info) => {
-                            let mut view = MigView::new(view_info.schema(), #sql_table_info::name(view_info));
+                            let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
+                            let mut view = MigView::new(view_schema, #sql_table_info::name(view_info));
                             let definition = view_info.definition_sql();
                             if !definition.is_empty() {
                                 view.definition = ::std::option::Option::Some(definition);
@@ -275,8 +281,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        let mut tables: ::std::vec::Vec<(&str, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
-        let mut indexes: ::std::collections::HashMap<&str, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
+        let mut indexes: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut index_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
         let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
         let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
@@ -284,13 +291,20 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         #(
             match <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
                 #postgres_schema_type::Table(table_info) => {
-                    let table_name = #sql_table_info::name(table_info);
+                    let table_name = #sql_table_info::qualified_name(table_info).into_owned();
                     let table_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
                 #postgres_schema_type::Index(index_info) => {
                     let index_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
-                    let table_name = #sql_table_info::name(#sql_index_info::table(index_info));
+                    let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
+                    let index_name = #sql_index_info::name(index_info);
+                    let index_key = ::std::format!("{}::{}", table_name, index_name);
+                    if !index_keys.insert(index_key) {
+                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                            ::std::format!("Duplicate index '{}' on table '{}' in PostgresSchema", index_name, table_name).into(),
+                        ));
+                    }
                     indexes
                         .entry(table_name)
                         .or_insert_with(::std::vec::Vec::new)
@@ -315,21 +329,28 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Deterministic topological ordering via Kahn's algorithm.
         // Guarantees dependency-safe order for DAGs in O(V + E), with
         // lexical tie-breaking for stable output.
-        tables.sort_by(|a, b| a.0.cmp(b.0));
-        let table_names: ::std::collections::HashSet<&str> =
-            tables.iter().map(|(name, _, _)| *name).collect();
+        tables.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        let table_names: ::std::collections::HashSet<::std::string::String> =
+            tables.iter().map(|(name, _, _)| name.clone()).collect();
 
-        let mut indegree: ::std::collections::HashMap<&str, usize> =
+        if table_names.len() != tables.len() {
+            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                "Duplicate table names detected in PostgresSchema".into(),
+            ));
+        }
+
+        let mut indegree: ::std::collections::HashMap<::std::string::String, usize> =
             ::std::collections::HashMap::with_capacity(tables.len());
-        let mut reverse_edges: ::std::collections::HashMap<&str, ::std::vec::Vec<&str>> =
+        let mut reverse_edges: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> =
             ::std::collections::HashMap::new();
 
         for (table_name, _, table_info) in &tables {
-            indegree.entry(*table_name).or_insert(0);
+            indegree.entry(table_name.clone()).or_insert(0);
 
             for dep_name in #sql_table_info::dependencies(*table_info)
                 .iter()
-                .map(|dep| #sql_table_info::name(*dep))
+                .map(|dep| #sql_table_info::qualified_name(*dep).into_owned())
+                .filter(|dep_name| dep_name != table_name)
                 .filter(|dep_name| table_names.contains(dep_name))
             {
                 *indegree
@@ -338,48 +359,51 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                 reverse_edges
                     .entry(dep_name)
                     .or_insert_with(::std::vec::Vec::new)
-                    .push(*table_name);
+                    .push(table_name.clone());
             }
         }
 
-        let mut ready: ::std::collections::BTreeSet<&str> = indegree
+        let mut ready: ::std::collections::BTreeSet<::std::string::String> = indegree
             .iter()
             .filter(|(_, degree)| **degree == 0)
-            .map(|(name, _)| *name)
+            .map(|(name, _)| name.clone())
             .collect();
-        let mut ordered_names: ::std::vec::Vec<&str> = ::std::vec::Vec::with_capacity(tables.len());
+        let mut ordered_names: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::with_capacity(tables.len());
 
         while let ::std::option::Option::Some(next) = ready.pop_first() {
-            ordered_names.push(next);
+            ordered_names.push(next.clone());
 
-            if let ::std::option::Option::Some(children) = reverse_edges.get(next) {
+            if let ::std::option::Option::Some(children) = reverse_edges.get(&next) {
                 for child in children {
                     let degree = indegree
                         .get_mut(child)
                         .expect("child table must exist in indegree map");
                     *degree -= 1;
                     if *degree == 0 {
-                        ready.insert(*child);
+                        ready.insert(child.clone());
                     }
                 }
             }
         }
 
         if ordered_names.len() != tables.len() {
-            let mut remaining: ::std::vec::Vec<&str> = indegree
+            let mut remaining: ::std::vec::Vec<::std::string::String> = indegree
                 .iter()
                 .filter(|(_, degree)| **degree > 0)
-                .map(|(name, _)| *name)
+                .map(|(name, _)| name.clone())
                 .collect();
             remaining.sort_unstable();
-            panic!(
-                "Cyclic table dependency detected in PostgresSchema: {}",
-                remaining.join(", ")
-            );
+            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                ::std::format!(
+                    "Cyclic table dependency detected in PostgresSchema: {}",
+                    remaining.join(", ")
+                )
+                .into(),
+            ));
         }
 
         let mut table_by_name: ::std::collections::HashMap<
-            &str,
+            ::std::string::String,
             (::std::string::String, &dyn #sql_table_info),
         > = ::std::collections::HashMap::with_capacity(tables.len());
         for (table_name, table_sql, table_info) in tables {
@@ -395,12 +419,12 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Add tables and their indexes
         for table_name in ordered_names {
             let (table_sql, _) = table_by_name
-                .remove(table_name)
+                .remove(&table_name)
                 .expect("table exists after topological ordering");
             sql_statements.push(table_sql);
 
             // Add indexes for this table
-            if let ::std::option::Option::Some(table_indexes) = indexes.get(table_name) {
+            if let ::std::option::Option::Some(table_indexes) = indexes.get(&table_name) {
                 for index_sql in table_indexes {
                     sql_statements.push(index_sql.clone());
                 }

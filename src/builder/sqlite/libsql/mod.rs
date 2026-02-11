@@ -174,7 +174,7 @@ where
     /// Create schema objects from `SQLSchemaImpl`.
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
-        let statements = schema.create_statements();
+        let statements: Vec<_> = schema.create_statements()?.collect();
         if !statements.is_empty() {
             let batch_sql = statements.join(";");
             self.conn.execute_batch(&batch_sql).await?;

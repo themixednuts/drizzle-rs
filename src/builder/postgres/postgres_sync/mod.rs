@@ -44,8 +44,8 @@ use postgres::{Client, IsolationLevel, Row};
 use std::marker::PhantomData;
 
 use drizzle_postgres::builder::{
-    self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-    update::UpdateBuilder,
+    self, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+    update::UpdateBuilder, QueryBuilder,
 };
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::values::PostgresValue;
@@ -218,7 +218,7 @@ where
     /// Create schema objects from `SQLSchemaImpl`.
     pub fn create(&mut self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
-        let statements = schema.create_statements();
+        let statements = schema.create_statements()?;
 
         for statement in statements {
             self.client.execute(&statement, &[])?;

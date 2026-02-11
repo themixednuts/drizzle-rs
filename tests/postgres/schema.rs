@@ -124,7 +124,10 @@ postgres_test!(schema_with_view, ViewTestSchema, {
     assert_eq!(DefaultNameView::VIEW_NAME, "default_name_view");
     assert_eq!(default_name_view.name(), "default_name_view");
 
-    let statements = schema.create_statements();
+    let statements: Vec<_> = schema
+        .create_statements()
+        .expect("create statements")
+        .collect();
     assert!(
         statements.iter().any(|sql| sql.contains("CREATE VIEW")),
         "Expected CREATE VIEW statement"
@@ -213,3 +216,103 @@ postgres_test!(schema_multiple_inserts, SimpleSchema, {
 
     assert_eq!(results.len(), 3);
 });
+
+#[PostgresTable(NAME = "cycle_a")]
+struct PgCycleA {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = PgCycleB::id)]
+    b_id: i32,
+}
+
+#[PostgresTable(NAME = "cycle_b")]
+struct PgCycleB {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = PgCycleA::id)]
+    a_id: i32,
+}
+
+#[derive(PostgresSchema)]
+struct PgCycleSchema {
+    a: PgCycleA,
+    b: PgCycleB,
+}
+
+#[test]
+fn postgres_cycle_reports_structured_error() {
+    let schema = PgCycleSchema::new();
+    let err = match schema.create_statements() {
+        Ok(_) => panic!("expected cycle detection error"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Cyclic table dependency detected in PostgresSchema"),
+        "unexpected error: {err}"
+    );
+}
+
+#[PostgresTable(NAME = "dup_table")]
+struct PgDuplicateTableOne {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[PostgresTable(NAME = "dup_table")]
+struct PgDuplicateTableTwo {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[derive(PostgresSchema)]
+struct PgDuplicateTableSchema {
+    first: PgDuplicateTableOne,
+    second: PgDuplicateTableTwo,
+}
+
+#[test]
+fn postgres_duplicate_table_reports_error() {
+    let schema = PgDuplicateTableSchema::new();
+    let err = match schema.create_statements() {
+        Ok(_) => panic!("expected duplicate table error"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Duplicate table names detected in PostgresSchema"),
+        "unexpected error: {err}"
+    );
+}
+
+#[PostgresTable(NAME = "dup_idx_table")]
+struct PgDuplicateIndexTable {
+    #[column(PRIMARY)]
+    id: i32,
+    email: String,
+}
+
+#[PostgresIndex]
+struct PgDuplicateIndex(PgDuplicateIndexTable::email);
+
+#[derive(PostgresSchema)]
+struct PgDuplicateIndexSchema {
+    table: PgDuplicateIndexTable,
+    idx1: PgDuplicateIndex,
+    idx2: PgDuplicateIndex,
+}
+
+#[test]
+fn postgres_duplicate_index_reports_error() {
+    let schema = PgDuplicateIndexSchema::new();
+    let err = match schema.create_statements() {
+        Ok(_) => panic!("expected duplicate index error"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains(
+            "Duplicate index 'pg_duplicate_index' on table 'public.dup_idx_table' in PostgresSchema"
+        ),
+        "unexpected error: {err}"
+    );
+}

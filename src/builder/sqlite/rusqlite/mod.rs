@@ -39,7 +39,7 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::SQLiteValue;
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::{params_from_iter, Connection};
 
 use drizzle_sqlite::{
     builder::{self, QueryBuilder},
@@ -154,7 +154,7 @@ where
     /// Create schema objects from `SQLSchemaImpl`.
     pub fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
-        let statements = schema.create_statements();
+        let statements: Vec<_> = schema.create_statements()?.collect();
         if !statements.is_empty() {
             let batch_sql = statements.join(";");
             self.conn.execute_batch(&batch_sql)?;

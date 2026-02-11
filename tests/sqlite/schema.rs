@@ -167,12 +167,11 @@ sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     assert_eq!(result, 1);
 
     // Test that the indexes work (this would fail if indexes weren't created)
-    let users: Vec<SelectUser> = drizzle_exec!(
-        db.select(())
-            .from(schema.user)
-            .r#where(eq(schema.user.email, "test@example.com"))
-            .all()
-    );
+    let users: Vec<SelectUser> = drizzle_exec!(db
+        .select(())
+        .from(schema.user)
+        .r#where(eq(schema.user.email, "test@example.com"))
+        .all());
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "test@example.com");
@@ -189,12 +188,11 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
     assert_eq!(result, 1);
 
     // Query using the destructured table
-    let users: Vec<SelectUser> = drizzle_exec!(
-        db.select(())
-            .from(user)
-            .r#where(eq(user.email, "destructured@example.com"))
-            .all()
-    );
+    let users: Vec<SelectUser> = drizzle_exec!(db
+        .select(())
+        .from(user)
+        .r#where(eq(user.email, "destructured@example.com"))
+        .all());
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "destructured@example.com");
@@ -216,12 +214,11 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     let result = drizzle_exec!(db.insert(user).values(insert_data).execute());
     assert_eq!(result, 2);
 
-    let results: Vec<SelectUserEmailsView> = drizzle_exec!(
-        db.select((user_emails.id, user_emails.email))
-            .from(user_emails)
-            .order_by(OrderBy::asc(user_emails.id))
-            .all()
-    );
+    let results: Vec<SelectUserEmailsView> = drizzle_exec!(db
+        .select((user_emails.id, user_emails.email))
+        .from(user_emails)
+        .order_by(OrderBy::asc(user_emails.id))
+        .all());
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].email, "a@example.com");
@@ -234,7 +231,10 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     assert_eq!(DefaultNameView::VIEW_NAME, "default_name_view");
     assert_eq!(default_name_view.name(), "default_name_view");
 
-    let statements = schema.create_statements();
+    let statements: Vec<_> = schema
+        .create_statements()
+        .expect("create statements")
+        .collect();
     assert!(
         statements.iter().any(|sql| sql.contains("CREATE VIEW")),
         "Expected CREATE VIEW statement"
@@ -304,7 +304,10 @@ struct ComplexTestSchema {
 
 sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     // Get the create statements - this should be deterministically ordered
-    let statements = schema.create_statements();
+    let statements: Vec<_> = schema
+        .create_statements()
+        .expect("create statements")
+        .collect();
 
     // Should have 6 statements: 3 tables + 3 indexes
     assert_eq!(
@@ -367,7 +370,7 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     assert_eq!(employee.name(), "employees");
     let emp_deps = employee.dependencies();
     assert_eq!(emp_deps.len(), 2); // Department and Employee (self-reference)
-    // Dependencies should be sorted by name for deterministic order
+                                   // Dependencies should be sorted by name for deterministic order
     assert_eq!(emp_deps[0].name(), "departments");
     assert_eq!(emp_deps[1].name(), "employees");
 
@@ -408,3 +411,102 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
         panic!("lead_id should have foreign key reference");
     }
 });
+
+#[SQLiteTable(NAME = "cycle_a")]
+struct CycleA {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = CycleB::id)]
+    b_id: i32,
+}
+
+#[SQLiteTable(NAME = "cycle_b")]
+struct CycleB {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = CycleA::id)]
+    a_id: i32,
+}
+
+#[derive(SQLiteSchema)]
+struct CycleSchema {
+    a: CycleA,
+    b: CycleB,
+}
+
+#[test]
+fn sqlite_cycle_reports_structured_error() {
+    let schema = CycleSchema::new();
+    let err = match schema.create_statements() {
+        Ok(_) => panic!("expected cycle detection error"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Cyclic table dependency detected in SQLiteSchema"),
+        "unexpected error: {err}"
+    );
+}
+
+#[SQLiteTable(NAME = "dup_table")]
+struct DuplicateTableOne {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[SQLiteTable(NAME = "dup_table")]
+struct DuplicateTableTwo {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[derive(SQLiteSchema)]
+struct DuplicateTableSchema {
+    first: DuplicateTableOne,
+    second: DuplicateTableTwo,
+}
+
+#[test]
+fn sqlite_duplicate_table_reports_error() {
+    let schema = DuplicateTableSchema::new();
+    let err = match schema.create_statements() {
+        Ok(_) => panic!("expected duplicate table error"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Duplicate table names detected in SQLiteSchema"),
+        "unexpected error: {err}"
+    );
+}
+
+#[SQLiteTable(NAME = "dup_idx_table")]
+struct DuplicateIndexTable {
+    #[column(PRIMARY)]
+    id: i32,
+    email: String,
+}
+
+#[SQLiteIndex]
+struct DuplicateIndex(DuplicateIndexTable::email);
+
+#[derive(SQLiteSchema)]
+struct DuplicateIndexSchema {
+    table: DuplicateIndexTable,
+    idx1: DuplicateIndex,
+    idx2: DuplicateIndex,
+}
+
+#[test]
+fn sqlite_duplicate_index_reports_error() {
+    let schema = DuplicateIndexSchema::new();
+    let err = match schema.create_statements() {
+        Ok(_) => panic!("expected duplicate index error"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Duplicate index 'duplicate_index' on table 'dup_idx_table' in SQLiteSchema"),
+        "unexpected error: {err}"
+    );
+}

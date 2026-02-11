@@ -9,7 +9,7 @@ use drizzle_core::{
     traits::ToSQL,
 };
 use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
-use postgres::{Client, Row, types::ToSql};
+use postgres::{types::ToSql, Client, Row};
 
 use crate::builder::postgres::prepared_common::postgres_prepared_sync_impl;
 /// A prepared statement that can be executed multiple times with different parameters.

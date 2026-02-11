@@ -189,7 +189,7 @@ where
     /// Create schema objects from `SQLSchemaImpl`.
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
-        let statements = schema.create_statements();
+        let statements = schema.create_statements()?;
         for sql in statements {
             self.conn.execute(&sql, ()).await?;
         }

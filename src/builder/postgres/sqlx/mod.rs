@@ -226,7 +226,7 @@ where
     /// Create schema objects using SQLSchemaImpl trait
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
-        let statements = schema.create_statements();
+        let statements = schema.create_statements()?;
 
         for statement in statements {
             sqlx::query(&statement)
