@@ -6,7 +6,7 @@ semver_check = true
 allow_dirty = false
 
 # Git and tagging
-git_tag_enable = true
+git_tag_enable = false
 git_release_enable = false  # release.yml handles GitHub releases with CLI binaries
 
 # Changelog settings
@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [[package]]
 name = "drizzle"
 changelog_update = true
+git_tag_enable = true
 git_tag_name = "v{{ version }}"
 changelog_include = [
   "drizzle-core",
@@ -74,4 +75,3 @@ changelog_update = false
 [[package]]
 name = "drizzle-cli"
 changelog_update = false
-git_tag_enable = false  # releases with main drizzle crate
