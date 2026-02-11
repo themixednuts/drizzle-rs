@@ -7,6 +7,11 @@ pub trait SQLIndexInfo: Any + Send + Sync {
     /// The name of this index (for DROP INDEX statements)
     fn name(&self) -> &'static str;
 
+    /// Column names included in this index, in definition order.
+    fn columns(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Whether this is a unique index
     fn is_unique(&self) -> bool {
         false
@@ -24,6 +29,7 @@ impl core::fmt::Debug for dyn SQLIndexInfo {
         f.debug_struct("SQLIndexInfo")
             .field("name", &self.name())
             .field("is_unique", &self.is_unique())
+            .field("columns", &self.columns())
             .field("table", &self.table())
             .finish()
     }

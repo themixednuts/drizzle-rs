@@ -2,7 +2,7 @@ use super::context::MacroContext;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::{field::FieldInfo, generators::generate_to_sql};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::{quote, ToTokens};
 use std::collections::HashMap;
 use syn::{Result, Type, TypePath};
 
@@ -125,7 +125,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         .map(Cow::Owned)
                         .map(#sql::param)
                         .map(|sql| #expression::json(sql))
-                        .unwrap_or_else(|_| #sql::empty())
+                        .expect("failed to serialize JSON value for SQLite TEXT column")
                 },
             ),
             SQLiteType::Blob => generate_to_sql(
@@ -137,7 +137,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
                         .map(Cow::Owned)
                         .map(#sql::param)
                         .map(|sql| #expression::jsonb(sql))
-                        .unwrap_or_else(|_| #sql::empty())
+                        .expect("failed to serialize JSON value for SQLite BLOB column")
                 },
             ),
             _ => quote! {},

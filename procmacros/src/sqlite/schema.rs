@@ -40,8 +40,19 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     // Collect all fields (we'll determine table vs index at runtime)
     let all_fields: Vec<_> = fields
         .iter()
-        .map(|field| (field.ident.as_ref().unwrap(), &field.ty))
-        .collect();
+        .map(|field| {
+            field
+                .ident
+                .as_ref()
+                .map(|ident| (ident, &field.ty))
+                .ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        field,
+                        "SQLiteSchema can only be derived for structs with named fields",
+                    )
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let fields_new = all_fields.iter().map(|(name, ty)| {
         quote! {
@@ -182,13 +193,14 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                         }
                         #sqlite_schema_type::Index(index_info) => {
                             // Add index entity
-                            // Note: SQLIndexInfo doesn't expose column info directly,
-                            // indexes are created at schema definition time with known columns
                             let table = #sql_index_info::table(index_info);
                             let mut idx = MigIndex::new(
                                 #sql_table_info::name(table),
                                 #sql_index_info::name(index_info),
-                                ::std::vec::Vec::new(), // Columns would need to be extracted from index definition
+                                #sql_index_info::columns(index_info)
+                                    .iter()
+                                    .map(|c| c.to_string())
+                                    .collect::<::std::vec::Vec<_>>(),
                             );
                             if #sql_index_info::is_unique(index_info) {
                                 idx = idx.unique();
@@ -267,25 +279,86 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             }
         )*
 
-        // Sort tables by dependencies (topological sort) then by name for deterministic ordering
-        tables.sort_by(|a, b| {
-            use ::std::cmp::Ordering;
+        // Deterministic topological ordering via Kahn's algorithm.
+        // Guarantees dependency-safe order for DAGs in O(V + E), with
+        // lexical tie-breaking for stable output.
+        tables.sort_by(|a, b| a.0.cmp(b.0));
+        let table_names: ::std::collections::HashSet<&str> =
+            tables.iter().map(|(name, _, _)| *name).collect();
 
-            // Check if a depends on b
-            let a_depends_on_b = #sql_table_info::dependencies(a.2).iter().any(|dep| #sql_table_info::name(*dep) == b.0);
-            // Check if b depends on a
-            let b_depends_on_a = #sql_table_info::dependencies(b.2).iter().any(|dep| #sql_table_info::name(*dep) == a.0);
+        let mut indegree: ::std::collections::HashMap<&str, usize> =
+            ::std::collections::HashMap::with_capacity(tables.len());
+        let mut reverse_edges: ::std::collections::HashMap<&str, ::std::vec::Vec<&str>> =
+            ::std::collections::HashMap::new();
 
-            match (a_depends_on_b, b_depends_on_a) {
-                (true, false) => Ordering::Greater,  // a comes after b
-                (false, true) => Ordering::Less,     // a comes before b
-                _ => a.0.cmp(b.0),                   // Same dependency level, sort by name
+        for (table_name, _, table_info) in &tables {
+            indegree.entry(*table_name).or_insert(0);
+
+            for dep_name in #sql_table_info::dependencies(*table_info)
+                .iter()
+                .map(|dep| #sql_table_info::name(*dep))
+                .filter(|dep_name| table_names.contains(dep_name))
+            {
+                *indegree
+                    .get_mut(table_name)
+                    .expect("indegree is initialized for each table") += 1;
+                reverse_edges
+                    .entry(dep_name)
+                    .or_insert_with(::std::vec::Vec::new)
+                    .push(*table_name);
             }
-        });
+        }
+
+        let mut ready: ::std::collections::BTreeSet<&str> = indegree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(name, _)| *name)
+            .collect();
+        let mut ordered_names: ::std::vec::Vec<&str> = ::std::vec::Vec::with_capacity(tables.len());
+
+        while let ::std::option::Option::Some(next) = ready.pop_first() {
+            ordered_names.push(next);
+
+            if let ::std::option::Option::Some(children) = reverse_edges.get(next) {
+                for child in children {
+                    let degree = indegree
+                        .get_mut(child)
+                        .expect("child table must exist in indegree map");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.insert(*child);
+                    }
+                }
+            }
+        }
+
+        if ordered_names.len() != tables.len() {
+            let mut remaining: ::std::vec::Vec<&str> = indegree
+                .iter()
+                .filter(|(_, degree)| **degree > 0)
+                .map(|(name, _)| *name)
+                .collect();
+            remaining.sort_unstable();
+            panic!(
+                "Cyclic table dependency detected in SQLiteSchema: {}",
+                remaining.join(", ")
+            );
+        }
+
+        let mut table_by_name: ::std::collections::HashMap<
+            &str,
+            (::std::string::String, &dyn #sql_table_info),
+        > = ::std::collections::HashMap::with_capacity(tables.len());
+        for (table_name, table_sql, table_info) in tables {
+            table_by_name.insert(table_name, (table_sql, table_info));
+        }
 
         // Build final SQL statements: tables in dependency order, then their indexes
         let mut sql_statements = ::std::vec::Vec::<::std::string::String>::new();
-        for (table_name, table_sql, _) in tables {
+        for table_name in ordered_names {
+            let (table_sql, _) = table_by_name
+                .remove(table_name)
+                .expect("table exists after topological ordering");
             sql_statements.push(table_sql);
 
             // Add indexes for this table

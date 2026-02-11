@@ -1,7 +1,7 @@
 use crate::paths::{core as core_paths, ddl::sqlite as ddl_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
+use syn::{parse::Parse, DeriveInput, Error, Expr, Meta, Result, Token, Type};
 
 /// Attributes for the SQLiteIndex attribute macro
 /// Syntax: #[SQLiteIndex] or #[SQLiteIndex(unique)]
@@ -150,6 +150,20 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
         })
         .collect();
 
+    let column_names: Vec<_> = columns
+        .iter()
+        .map(|col| {
+            quote! {
+                {
+                    const fn column_name<'a, C: #sql_schema<'a, &'static str, #sqlite_value<'a>>>(_: &C) -> &'a str {
+                        C::NAME
+                    }
+                    column_name(&#col)
+                }
+            }
+        })
+        .collect();
+
     // Generate optional .unique() call
     let unique_modifier = if is_unique {
         quote! { .unique() }
@@ -164,6 +178,9 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
         impl #struct_ident {
             /// Const DDL column definitions for the index
             pub const DDL_COLUMNS: &'static [#index_column_def] = &[#(#column_defs),*];
+
+            /// Column names for schema snapshot generation
+            pub const COLUMN_NAMES: &'static [&'static str] = &[#(#column_names),*];
 
             /// Const DDL index definition - single source of truth
             pub const DDL_INDEX: #index_def = #index_def::new(
@@ -208,6 +225,10 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
 
             fn is_unique(&self) -> bool {
                 #is_unique
+            }
+
+            fn columns(&self) -> &'static [&'static str] {
+                Self::COLUMN_NAMES
             }
         }
 

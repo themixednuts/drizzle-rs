@@ -18,7 +18,16 @@ pub(crate) fn table_name_from_attrs(
 /// Extract struct fields for table macros, returning a helpful error for non-struct inputs.
 pub(crate) fn struct_fields<'a>(input: &'a DeriveInput, macro_name: &str) -> Result<&'a Fields> {
     match &input.data {
-        Data::Struct(data) => Ok(&data.fields),
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(_) => Ok(&data.fields),
+            Fields::Unnamed(_) | Fields::Unit => Err(syn::Error::new(
+                input.span(),
+                format!(
+                    "The #[{}] attribute requires a struct with named fields.",
+                    macro_name
+                ),
+            )),
+        },
         _ => Err(syn::Error::new(
             input.span(),
             format!(

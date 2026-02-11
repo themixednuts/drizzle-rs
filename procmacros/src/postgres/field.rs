@@ -677,7 +677,12 @@ impl FieldInfo {
     /// The PostgreSQL type is INFERRED from the Rust type, not from attributes.
     /// Attributes are only used for constraints (primary, unique, etc.).
     pub(crate) fn from_field(field: &Field, is_composite_pk: bool) -> Result<Self> {
-        let name = field.ident.as_ref().unwrap().clone();
+        let Some(name) = field.ident.clone() else {
+            return Err(Error::new_spanned(
+                field,
+                "All struct fields must have names. Tuple structs are not supported.",
+            ));
+        };
         let vis = field.vis.clone();
         let ty = field.ty.clone();
 

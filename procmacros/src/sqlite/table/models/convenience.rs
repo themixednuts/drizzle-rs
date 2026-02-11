@@ -28,7 +28,9 @@ pub(crate) fn generate_convenience_method(
 
     match model_type {
         ModelType::Insert => generate_insert_convenience_method(field, ctx, field_index),
-        ModelType::Update => generate_update_convenience_method(field, base_type, &method_name, ctx),
+        ModelType::Update => {
+            generate_update_convenience_method(field, base_type, &method_name, ctx)
+        }
         ModelType::PartialSelect => {
             generate_partial_select_convenience_method(field, base_type, &method_name)
         }
@@ -216,7 +218,7 @@ fn generate_json_insert_method(
         SQLiteType::Text => quote! {
             {
                 let json_str = ::serde_json::to_string(&value)
-                    .unwrap_or_else(|_| "null".to_string());
+                    .expect("failed to serialize JSON value for SQLite TEXT column");
                 #sqlite_insert_value::Value(
                     #value_wrapper {
                         value: #expression::json(
@@ -233,7 +235,7 @@ fn generate_json_insert_method(
         SQLiteType::Blob => quote! {
             {
                 let json_bytes = ::serde_json::to_vec(&value)
-                    .unwrap_or_else(|_| "null".as_bytes().to_vec());
+                    .expect("failed to serialize JSON value for SQLite BLOB column");
                 #sqlite_insert_value::Value(
                     #value_wrapper {
                         value: #expression::jsonb(

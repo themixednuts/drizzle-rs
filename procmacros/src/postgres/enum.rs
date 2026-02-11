@@ -14,7 +14,12 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
 
-    let first_variant = &data.variants.first().unwrap().ident;
+    let Some(first_variant) = data.variants.first().map(|v| &v.ident) else {
+        return Err(syn::Error::new_spanned(
+            name,
+            "PostgresEnum cannot be derived for empty enums",
+        ));
+    };
     let variant_idents: Vec<_> = data.variants.iter().map(|v| &v.ident).collect();
 
     // Build the CREATE TYPE SQL at macro time as a string literal
@@ -67,6 +72,17 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
 
             quote! {
                 stringify!(#ident) => #name::#ident,
+            }
+        })
+        .collect();
+
+    let boxed_variants: Box<_> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let ident = &variant.ident;
+            quote! {
+                #name::#ident => ::std::boxed::Box::new(#name::#ident)
             }
         })
         .collect();
@@ -307,7 +323,9 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
 
             fn into_boxed(&self) -> ::std::boxed::Box<dyn drizzle::postgres::traits::PostgresEnum> {
-                ::std::boxed::Box::new(self.clone())
+                match self {
+                    #(#boxed_variants,)*
+                }
             }
 
             fn try_from_str(value: &str) -> ::std::result::Result<Self, #drizzle_error> {
