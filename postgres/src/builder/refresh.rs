@@ -167,6 +167,10 @@ mod tests {
             "user_stats"
         }
 
+        fn schema(&self) -> Option<&str> {
+            Some("public")
+        }
+
         fn columns(&self) -> &'static [&'static dyn drizzle_core::traits::SQLColumnInfo] {
             &[]
         }
@@ -179,10 +183,6 @@ mod tests {
     impl SQLViewInfo for TestView {
         fn definition_sql(&self) -> std::borrow::Cow<'static, str> {
             "SELECT * FROM users".into()
-        }
-
-        fn schema(&self) -> &'static str {
-            "public"
         }
 
         fn is_materialized(&self) -> bool {
