@@ -38,6 +38,15 @@ struct Schema {
 }
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
+#[derive(SQLiteFromRow, Debug, PartialEq, Default)]
+pub struct JsonReadResult {
+    id: Uuid,
+    email: String,
+    #[json]
+    profile: Profile,
+}
+
+#[cfg(all(feature = "serde", feature = "uuid"))]
 sqlite_test!(json_storage, Schema, {
     let Schema { jsonuser } = schema;
 
@@ -78,4 +87,16 @@ sqlite_test!(json_storage, Schema, {
 
     assert_eq!(user.id, id);
     assert_eq!(user.age, 30);
+
+    // Test reading full JSON column back via #[json] on FromRow struct
+    let stmt = db
+        .select((jsonuser.id, jsonuser.email, jsonuser.profile))
+        .from(jsonuser)
+        .r#where(eq(jsonuser.id, id));
+
+    let result: JsonReadResult = drizzle_exec!(stmt.get());
+
+    assert_eq!(result.id, id);
+    assert_eq!(result.email, "john@test.com");
+    assert_eq!(result.profile, profile);
 });
