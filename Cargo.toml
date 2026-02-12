@@ -99,6 +99,8 @@ rand = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 puffin_egui = { version = "0.29" }
 eframe = { version = "0.33" }
+bytes = { workspace = true }
+compact_str = { workspace = true }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }

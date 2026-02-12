@@ -20,3 +20,5 @@ pub mod schema;
 pub mod select;
 pub mod type_inference;
 pub mod update;
+#[cfg(any(feature = "compact-str", feature = "bytes", feature = "smallvec-types"))]
+pub mod wrappers;

@@ -22,3 +22,5 @@ pub mod subquery;
 pub mod transaction;
 pub mod update;
 pub mod uuid;
+#[cfg(any(feature = "compact-str", feature = "bytes", feature = "smallvec-types"))]
+pub mod wrappers;

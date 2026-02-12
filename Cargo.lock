@@ -1392,8 +1392,10 @@ version = "0.1.5"
 dependencies = [
  "arrayvec",
  "bit-vec",
+ "bytes",
  "chrono",
  "cidr",
+ "compact_str",
  "divan",
  "drizzle-core",
  "drizzle-macros",
