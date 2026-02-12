@@ -25,6 +25,10 @@ impl DriverJsonAccessor for LibsqlDriver {
     fn error_type() -> TokenStream {
         quote!(DrizzleError)
     }
+
+    fn supports_name_lookup() -> bool {
+        true
+    }
 }
 
 /// Generate libsql field assignment for FromRow derive

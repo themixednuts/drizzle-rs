@@ -494,6 +494,9 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - Named structs map fields by column name
 /// - Tuple structs map fields by column index (0-based)
 ///
+/// Note: Turso rows currently do not expose column names, so named structs
+/// also decode by index with the `turso` driver.
+///
 /// # Examples
 ///
 /// ## Basic Usage

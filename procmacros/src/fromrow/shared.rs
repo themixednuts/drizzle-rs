@@ -15,6 +15,11 @@ pub(crate) trait DriverJsonAccessor {
     /// Generate the JSON field accessor for this driver
     fn json_accessor(idx: usize) -> TokenStream;
 
+    /// Whether this driver can lookup row values by column name.
+    fn supports_name_lookup() -> bool {
+        false
+    }
+
     /// Get the error type for this driver
     fn error_type() -> TokenStream;
 }
@@ -33,11 +38,30 @@ pub(crate) fn generate_field_assignment<D: DriverJsonAccessor>(
     }
 
     // All other types use DrizzleRow::get_column with FromSQLiteValue
-    let drizzle_row = paths::sqlite::drizzle_row();
     let field_type = &field.ty;
-    let accessor = quote! {
-        {
-            <_ as #drizzle_row>::get_column::<#field_type>(row, #idx)
+    let accessor = if let Some(field_name) = field_name {
+        if D::supports_name_lookup() {
+            let field_name_str = field_name.to_string();
+            quote! {
+                {
+                    use drizzle::sqlite::traits::DrizzleRowByName;
+                    DrizzleRowByName::get_column_by_name::<#field_type>(row, #field_name_str)
+                }
+            }
+        } else {
+            let drizzle_row = paths::sqlite::drizzle_row();
+            quote! {
+                {
+                    <_ as #drizzle_row>::get_column::<#field_type>(row, #idx)
+                }
+            }
+        }
+    } else {
+        let drizzle_row = paths::sqlite::drizzle_row();
+        quote! {
+            {
+                <_ as #drizzle_row>::get_column::<#field_type>(row, #idx)
+            }
         }
     };
 
@@ -57,7 +81,23 @@ fn handle_json_field<D: DriverJsonAccessor>(
     idx: usize,
     name: Option<&syn::Ident>,
 ) -> Result<TokenStream> {
-    let accessor = D::json_accessor(idx);
+    let accessor = if let Some(field_name) = name {
+        if D::supports_name_lookup() {
+            let field_name_str = field_name.to_string();
+            quote! {
+                {
+                    use drizzle::sqlite::traits::DrizzleRowByName;
+                    let json_str: String = DrizzleRowByName::get_column_by_name::<String>(row, #field_name_str)?;
+                    serde_json::from_str(&json_str)
+                        .map_err(|e| drizzle::error::DrizzleError::ConversionError(e.to_string().into()))
+                }
+            }
+        } else {
+            D::json_accessor(idx)
+        }
+    } else {
+        D::json_accessor(idx)
+    };
 
     if let Some(field_name) = name {
         Ok(quote! {

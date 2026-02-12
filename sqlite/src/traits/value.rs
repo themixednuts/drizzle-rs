@@ -491,6 +491,19 @@ impl DrizzleRowByIndex for libsql::Row {
     }
 }
 
+#[cfg(feature = "libsql")]
+impl DrizzleRowByName for libsql::Row {
+    fn get_column_by_name<T: FromSQLiteValue>(&self, name: &str) -> Result<T, DrizzleError> {
+        let idx = (0..self.column_count())
+            .find(|&i| self.column_name(i) == Some(name))
+            .ok_or_else(|| {
+                DrizzleError::ConversionError(format!("column '{}' not found", name).into())
+            })?;
+
+        DrizzleRowByIndex::get_column(self, idx as usize)
+    }
+}
+
 #[cfg(feature = "turso")]
 impl DrizzleRowByIndex for turso::Row {
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError> {

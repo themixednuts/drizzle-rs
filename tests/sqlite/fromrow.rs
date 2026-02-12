@@ -200,12 +200,54 @@ sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
     drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
     // Test the column-mapped FromRow implementation
-    let result: DerivedSimpleWithColumns = drizzle_exec!(
-        db.select(DerivedSimpleWithColumns::default())
-            .from(type_test)
-            .get()
-    );
+    let result: DerivedSimpleWithColumns = drizzle_exec!(db
+        .select(DerivedSimpleWithColumns::default())
+        .from(type_test)
+        .get());
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
+});
+
+#[derive(SQLiteFromRow, Debug, PartialEq)]
+struct NamedNameId {
+    id: i32,
+    name: String,
+}
+
+#[derive(SQLiteFromRow, Debug, PartialEq)]
+struct TupleNameId(String, i32);
+
+sqlite_test!(test_fromrow_named_struct_maps_by_name, TypeTestSchema, {
+    // Turso row API does not expose column names, so named decoding is index-based there.
+    if __driver_name == "turso" {
+        return Ok(());
+    }
+
+    let TypeTestSchema { type_test } = schema;
+
+    let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
+    drizzle_exec!(db.insert(type_test).values([row]).execute());
+
+    // Intentionally reverse selected column order.
+    // Named structs should decode by field name.
+    let stmt = db.select((type_test.name, type_test.id)).from(type_test);
+    let result: NamedNameId = drizzle_exec!(stmt.get());
+
+    assert_eq!(result.id, 42);
+    assert_eq!(result.name, "order_test");
+});
+
+sqlite_test!(test_fromrow_tuple_struct_maps_by_index, TypeTestSchema, {
+    let TypeTestSchema { type_test } = schema;
+
+    let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
+    drizzle_exec!(db.insert(type_test).values([row]).execute());
+
+    // Tuple structs decode positionally, following SELECT order.
+    let stmt = db.select((type_test.name, type_test.id)).from(type_test);
+    let result: TupleNameId = drizzle_exec!(stmt.get());
+
+    assert_eq!(result.0, "order_test");
+    assert_eq!(result.1, 42);
 });
