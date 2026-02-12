@@ -200,10 +200,11 @@ sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
     drizzle_exec!(db.insert(type_test).values([test_data]).execute());
 
     // Test the column-mapped FromRow implementation
-    let result: DerivedSimpleWithColumns = drizzle_exec!(db
-        .select(DerivedSimpleWithColumns::default())
-        .from(type_test)
-        .get());
+    let result: DerivedSimpleWithColumns = drizzle_exec!(
+        db.select(DerivedSimpleWithColumns::default())
+            .from(type_test)
+            .get()
+    );
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
