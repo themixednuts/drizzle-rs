@@ -323,7 +323,7 @@ impl MigrationSet {
     /// Get the SQL to create the migrations tracking table
     ///
     /// Table schema matches drizzle-orm:
-    /// - SQLite: id (INTEGER PK), hash (text), created_at (numeric)
+    /// - SQLite: id (SERIAL PK), hash (text), created_at (numeric)
     /// - PostgreSQL: id (SERIAL PK), hash (TEXT), created_at (BIGINT)
     /// - MySQL: id (SERIAL PK), hash (text), created_at (BIGINT)
     pub fn create_table_sql(&self) -> String {
@@ -332,7 +332,7 @@ impl MigrationSet {
         match self.dialect {
             Dialect::SQLite => format!(
                 r#"CREATE TABLE IF NOT EXISTS {} (
-    id INTEGER PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     hash text NOT NULL,
     created_at numeric
 );"#,

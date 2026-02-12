@@ -4,16 +4,16 @@ use drizzle::postgres::prelude::*;
 use uuid::Uuid;
 
 // JSON struct types for testing JSON serialization features
-#[cfg(feature = "serde")]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UserMetadata {
     pub preferences: Vec<String>,
     pub last_login: Option<String>,
     pub theme: String,
 }
 
-#[cfg(feature = "serde")]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UserConfig {
     pub notifications: bool,
     pub language: String,
