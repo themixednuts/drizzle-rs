@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "pre-commit: running rustfmt check"
+cargo +nightly fmt --all -- --check
+
+echo "pre-commit: running clippy"
+cargo +nightly clippy --all-features -- -D warnings
