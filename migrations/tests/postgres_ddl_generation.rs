@@ -8,8 +8,8 @@ use drizzle_migrations::postgres::{
     PostgresDDL,
     collection::diff_ddl,
     ddl::{
-        Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn, PrimaryKey, Table,
-        UniqueConstraint,
+        Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn, Policy, PrimaryKey,
+        Table, UniqueConstraint,
     },
     statements::PostgresGenerator,
 };
@@ -898,5 +898,82 @@ fn test_add_generated_column_expression() {
         all_sql.contains("GENERATED ALWAYS AS"),
         "Expected GENERATED ALWAYS AS in the new column definition, got:\n{}",
         all_sql
+    );
+}
+
+#[test]
+fn test_drop_policy_sql_is_well_formed() {
+    let mut from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    // Keep table present in both schemas; only policy is removed.
+    from.tables.push(Table::new("auth", "users"));
+    from.columns
+        .push(Column::new("auth", "users", "id", "integer").not_null());
+    from.pks.push(PrimaryKey::from_strings(
+        "auth".to_string(),
+        "users".to_string(),
+        "users_pkey".to_string(),
+        vec!["id".to_string()],
+    ));
+    from.policies
+        .push(Policy::new("auth", "users", "users_rls_policy"));
+
+    to.tables.push(Table::new("auth", "users"));
+    to.columns
+        .push(Column::new("auth", "users", "id", "integer").not_null());
+    to.pks.push(PrimaryKey::from_strings(
+        "auth".to_string(),
+        "users".to_string(),
+        "users_pkey".to_string(),
+        vec!["id".to_string()],
+    ));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(sql.len(), 1, "Expected one DROP POLICY statement: {sql:?}");
+    assert_eq!(
+        sql[0],
+        "DROP POLICY \"users_rls_policy\" ON \"auth\".\"users\";"
+    );
+}
+
+#[test]
+fn test_drop_policy_sql_public_schema_no_prefix() {
+    let mut from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.pks.push(primary_key("users", vec!["id"]));
+    from.policies
+        .push(Policy::new("public", "users", "users_public_policy"));
+
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.pks.push(primary_key("users", vec!["id"]));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(sql.len(), 1, "Expected one DROP POLICY statement: {sql:?}");
+    assert_eq!(sql[0], "DROP POLICY \"users_public_policy\" ON \"users\";");
+}
+
+#[test]
+fn test_create_index_concurrently_sql() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.columns.push(column("users", "email", "text"));
+    from.pks.push(primary_key("users", vec!["id"]));
+
+    let mut to = from.clone();
+    let mut idx = index("users", "users_email_concurrent_idx", vec!["email"]);
+    idx.concurrently = true;
+    to.indexes.push(idx);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(sql.len(), 1, "Expected one CREATE INDEX statement: {sql:?}");
+    assert_eq!(
+        sql[0],
+        "CREATE INDEX CONCURRENTLY \"users_email_concurrent_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);"
     );
 }

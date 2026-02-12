@@ -271,7 +271,7 @@ struct AppSchema {
     #[test]
     fn test_parse_postgres_table() {
         let code = r#"
-#[PostgresTable]
+#[PostgresTable(schema = "auth")]
 struct Users {
     #[column(primary, identity)]
     id: i32,
@@ -283,6 +283,7 @@ struct Users {
 
         let users = result.table("Users", Dialect::PostgreSQL).unwrap();
         assert_eq!(users.dialect, Dialect::PostgreSQL);
+        assert_eq!(users.schema_name().as_deref(), Some("auth"));
     }
 
     #[test]
@@ -346,13 +347,34 @@ struct Config {
     #[test]
     fn test_parse_postgres_index() {
         let code = r#"
-#[PostgresIndex]
+#[PostgresIndex(unique, concurrent, method = "gin", where = "name IS NOT NULL")]
 struct IdxUsersName(Users::name);
 "#;
         let result = SchemaParser::parse(code);
         let idx = result.index("IdxUsersName", Dialect::PostgreSQL).unwrap();
         assert_eq!(idx.dialect, Dialect::PostgreSQL);
-        assert!(!idx.is_unique());
+        assert!(idx.is_unique());
+        assert!(idx.is_concurrent());
+        assert_eq!(idx.method().as_deref(), Some("gin"));
+        assert_eq!(idx.where_clause().as_deref(), Some("name IS NOT NULL"));
+    }
+
+    #[test]
+    fn test_parse_postgres_index_where_clause_with_commas() {
+        let code = r#"
+#[PostgresIndex(where = "coalesce(first_name, last_name) IS NOT NULL")]
+struct IdxUsersDisplayName(Users::first_name);
+"#;
+
+        let result = SchemaParser::parse(code);
+        let idx = result
+            .index("IdxUsersDisplayName", Dialect::PostgreSQL)
+            .unwrap();
+
+        assert_eq!(
+            idx.where_clause().as_deref(),
+            Some("coalesce(first_name, last_name) IS NOT NULL")
+        );
     }
 
     #[test]
