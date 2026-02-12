@@ -379,6 +379,23 @@ impl std::fmt::Display for Dialect {
     }
 }
 
+impl std::str::FromStr for Dialect {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "sqlite" => Ok(Self::Sqlite),
+            "postgresql" | "postgres" => Ok(Self::Postgresql),
+            "turso" => Ok(Self::Turso),
+            _ => Err(format!(
+                "invalid dialect '{}', expected one of: {}",
+                s,
+                Dialect::ALL.join(", ")
+            )),
+        }
+    }
+}
+
 impl From<Dialect> for drizzle_types::Dialect {
     #[inline]
     fn from(d: Dialect) -> Self {
@@ -451,6 +468,39 @@ impl Driver {
 impl std::fmt::Display for Driver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for Driver {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "rusqlite" => Ok(Self::Rusqlite),
+            "libsql" => Ok(Self::Libsql),
+            "turso" => Ok(Self::Turso),
+            "postgres-sync" => Ok(Self::PostgresSync),
+            "tokio-postgres" => Ok(Self::TokioPostgres),
+            _ => Err(format!(
+                "invalid driver '{}', expected one of: {}",
+                s,
+                Driver::ALL.join(", ")
+            )),
+        }
+    }
+}
+
+impl std::str::FromStr for Extension {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "postgis" => Ok(Self::Postgis),
+            _ => Err(format!(
+                "invalid extension filter '{}', expected 'postgis'",
+                s
+            )),
+        }
     }
 }
 
@@ -677,10 +727,6 @@ pub struct DatabaseConfig {
     #[serde(default)]
     pub verbose: bool,
 
-    /// Strict mode - deprecated, use explain flag instead
-    #[serde(default)]
-    pub strict: bool,
-
     /// Migration table configuration
     #[serde(default)]
     pub migrations: Option<MigrationsOpts>,
@@ -743,6 +789,25 @@ impl DatabaseConfig {
         // Validate credentials if present
         if let Some(ref raw) = self.db_credentials {
             self.validate_creds(raw, name)?;
+        }
+
+        // PostgreSQL-only settings
+        if self.dialect != Dialect::Postgresql {
+            if self.schema_filter.is_some() {
+                return Err(Error::InvalidConfig(
+                    "schemaFilter is only supported for dialect = \"postgresql\"".into(),
+                ));
+            }
+            if self.extensions_filters.is_some() {
+                return Err(Error::InvalidConfig(
+                    "extensionsFilters is only supported for dialect = \"postgresql\"".into(),
+                ));
+            }
+            if self.entities.is_some() {
+                return Err(Error::InvalidConfig(
+                    "entities filter is only supported for dialect = \"postgresql\"".into(),
+                ));
+            }
         }
 
         Ok(())
@@ -1237,6 +1302,9 @@ pub enum Error {
     #[error("invalid credentials: {0}")]
     InvalidCredentials(String),
 
+    #[error("invalid config: {0}")]
+    InvalidConfig(String),
+
     #[error("invalid glob '{0}': {1}")]
     Glob(String, #[source] glob::PatternError),
 
@@ -1463,6 +1531,55 @@ mod tests {
         .unwrap();
         let db = cfg.default_database().unwrap();
         assert!(db.has_extension(Extension::Postgis));
+    }
+
+    #[test]
+    fn rejects_postgres_only_filters_for_sqlite() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            schemaFilter = ["public"]
+            [dbCredentials]
+            url = "./dev.db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .expect_err("sqlite should reject schemaFilter");
+        assert!(err.to_string().contains("schemaFilter is only supported"));
+
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            extensionsFilters = ["postgis"]
+            [dbCredentials]
+            url = "./dev.db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .expect_err("sqlite should reject extensionsFilters");
+        assert!(
+            err.to_string()
+                .contains("extensionsFilters is only supported")
+        );
+    }
+
+    #[test]
+    fn rejects_entities_filter_for_turso() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "turso"
+            [entities]
+            roles = true
+            [dbCredentials]
+            url = "libsql://example.turso.io"
+        "#,
+            Path::new("test.toml"),
+        )
+        .expect_err("turso should reject entities filter");
+        assert!(
+            err.to_string()
+                .contains("entities filter is only supported")
+        );
     }
 
     #[test]

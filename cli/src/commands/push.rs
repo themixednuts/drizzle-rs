@@ -4,7 +4,8 @@
 //! Note: This command requires database connectivity which depends on
 //! driver-specific features being enabled.
 
-use crate::config::{Casing, Config};
+use crate::commands::overrides::{self, ConnectionOverrides};
+use crate::config::{Casing, Config, Dialect, Extension};
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
@@ -12,11 +13,15 @@ use crate::snapshot::parse_result_to_snapshot;
 #[derive(Debug, Clone)]
 pub struct PushOptions {
     pub cli_verbose: bool,
-    pub cli_strict: bool,
     pub force: bool,
     pub cli_explain: bool,
     pub casing: Option<Casing>,
-    pub extensions_filters: Option<Vec<String>>,
+    pub dialect: Option<Dialect>,
+    pub schema: Option<Vec<String>>,
+    pub tables_filters: Option<Vec<String>>,
+    pub schema_filters: Option<Vec<String>>,
+    pub extensions_filters: Option<Vec<Extension>>,
+    pub connection: ConnectionOverrides,
 }
 
 /// Run the push command
@@ -28,17 +33,26 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     // CLI flags override config
     let verbose = opts.cli_verbose || db.verbose;
     let explain = opts.cli_explain;
-    let _effective_casing = opts.casing.unwrap_or_else(|| db.effective_casing());
-    // Note: extensions_filters would be used when introspecting the database
-    // to filter out extension-specific types (e.g., PostGIS geometry types)
-    let _extensions_filters = opts.extensions_filters;
+    let effective_casing = opts.casing.or(db.casing);
+    let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
 
-    if opts.cli_strict {
-        println!(
-            "{}",
-            output::warning("Deprecated: Do not use '--strict'. Use '--explain' instead.")
-        );
-        return Err(CliError::Other("strict flag is deprecated".into()));
+    if effective_dialect != Dialect::Postgresql {
+        if opts.schema_filters.as_ref().is_some_and(|v| !v.is_empty()) {
+            println!(
+                "{}",
+                output::warning("Ignoring --schemaFilters: only supported for postgresql")
+            );
+        }
+        if opts
+            .extensions_filters
+            .as_ref()
+            .is_some_and(|v| !v.is_empty())
+        {
+            println!(
+                "{}",
+                output::warning("Ignoring --extensionsFilters: only supported for postgresql")
+            );
+        }
     }
 
     if !config.is_single_database() {
@@ -49,8 +63,14 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     println!("{}", output::heading("Pushing schema to database..."));
     println!();
 
+    println!(
+        "  {}: {}",
+        output::label("Dialect"),
+        effective_dialect.as_str()
+    );
+
     // Get credentials
-    let credentials = db.credentials()?;
+    let credentials = overrides::resolve_credentials(db, effective_dialect, &opts.connection)?;
     let credentials = match credentials {
         Some(c) => c,
         None => {
@@ -59,7 +79,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
             println!("Add credentials to your drizzle.config.toml:");
             println!();
             println!("  {}", output::muted("[dbCredentials]"));
-            match db.dialect.to_base() {
+            match effective_dialect.to_base() {
                 drizzle_types::Dialect::SQLite => {
                     println!("  {}", output::muted("url = \"./dev.db\""));
                 }
@@ -88,9 +108,12 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     };
 
     // Parse schema files
-    let schema_files = db.schema_files()?;
+    let schema_files = overrides::resolve_schema_files(db, opts.schema.as_deref())?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(db.schema_display()));
+        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
+            db,
+            opts.schema.as_deref(),
+        )));
     }
 
     println!(
@@ -125,11 +148,34 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     );
 
     // Build snapshot from parsed schema (use config dialect)
-    let dialect = db.dialect.to_base();
-    let desired_snapshot = parse_result_to_snapshot(&parse_result, dialect);
+    let dialect = effective_dialect.to_base();
+    let mut desired_snapshot = parse_result_to_snapshot(&parse_result, dialect, effective_casing);
+
+    let filters = crate::db::SnapshotFilters {
+        tables: overrides::resolve_filter_list(
+            opts.tables_filters.as_deref(),
+            db.tables_filter.as_ref(),
+        ),
+        schemas: overrides::resolve_schema_filters(
+            effective_dialect,
+            opts.schema_filters.as_deref(),
+            db.schema_filter.as_ref(),
+        ),
+        extensions: overrides::resolve_extensions_filter(
+            opts.extensions_filters.as_deref(),
+            db.extensions_filters.as_deref(),
+        ),
+    };
+    crate::db::apply_snapshot_filters(&mut desired_snapshot, effective_dialect, &filters)?;
 
     // Compute push plan (DB snapshot -> desired snapshot)
-    let plan = crate::db::plan_push(&credentials, db.dialect, &desired_snapshot, db.breakpoints)?;
+    let plan = crate::db::plan_push(
+        &credentials,
+        effective_dialect,
+        &desired_snapshot,
+        db.breakpoints,
+        &filters,
+    )?;
 
     if !plan.warnings.is_empty() {
         println!("{}", output::warning("Warnings:"));
@@ -166,7 +212,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     }
 
     // Apply plan
-    crate::db::apply_push(&credentials, db.dialect, &plan, opts.force)?;
+    crate::db::apply_push(&credentials, effective_dialect, &plan, opts.force)?;
 
     println!("{}", output::success("Push complete!"));
 

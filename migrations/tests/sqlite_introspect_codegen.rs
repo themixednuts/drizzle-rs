@@ -308,6 +308,7 @@ fn test_introspect_and_generate_schema() {
         schema_name: "AppSchema".to_string(),
         use_pub: true,
         module_doc: Some("Generated from test database".to_string()),
+        field_casing: Default::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);

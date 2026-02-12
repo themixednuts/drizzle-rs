@@ -8,7 +8,7 @@ use super::collection::SQLiteDDL;
 use super::ddl::{Column, ForeignKey, Index, Table, View};
 use crate::utils::escape_for_rust_literal;
 use drizzle_types::sqlite::SQLTypeCategory;
-use heck::{ToPascalCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Result of code generation
@@ -37,6 +37,47 @@ pub struct CodegenOptions {
     pub schema_name: String,
     /// Whether to use public visibility
     pub use_pub: bool,
+    /// Field naming style for generated Rust members
+    pub field_casing: FieldCasing,
+}
+
+/// Casing strategy for generated Rust field names.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum FieldCasing {
+    /// `snake_case` (default)
+    #[default]
+    Snake,
+    /// `camelCase`
+    Camel,
+    /// Preserve source casing as much as possible
+    Preserve,
+}
+
+fn sanitize_rust_identifier(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for (idx, ch) in name.chars().enumerate() {
+        let valid = if idx == 0 {
+            ch == '_' || ch.is_ascii_alphabetic()
+        } else {
+            ch == '_' || ch.is_ascii_alphanumeric()
+        };
+
+        if valid {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+
+    if out.is_empty() { "_".to_string() } else { out }
+}
+
+fn apply_field_casing(name: &str, casing: FieldCasing) -> String {
+    match casing {
+        FieldCasing::Snake => name.to_snake_case(),
+        FieldCasing::Camel => name.to_lower_camel_case(),
+        FieldCasing::Preserve => sanitize_rust_identifier(name),
+    }
 }
 
 /// Generate Rust schema code from DDL
@@ -117,15 +158,18 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         let unique_columns = table_uniques.get(&table_name);
         let is_composite_pk = pk_columns.map(|pks| pks.len() > 1).unwrap_or(false);
 
-        let table_code = generate_table_struct(
+        let ctx = TableGenContext {
             table,
-            &columns_sorted,
+            columns: &columns_sorted,
             pk_columns,
             unique_columns,
             is_composite_pk,
-            &fk_map,
-            options.use_pub,
-        );
+            fk_map: &fk_map,
+            use_pub: options.use_pub,
+            field_casing: options.field_casing,
+        };
+
+        let table_code = generate_table_struct(&ctx);
 
         code.push_str(&table_code);
         code.push('\n');
@@ -134,7 +178,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
 
     // Generate index structs
     for index in ddl.indexes.list() {
-        let index_code = generate_index_struct(index, options.use_pub);
+        let index_code = generate_index_struct(index, options.use_pub, options.field_casing);
         code.push_str(&index_code);
         code.push('\n');
         result.indexes.push(index.name.to_string());
@@ -151,7 +195,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             .get(&view_name)
             .map(|c| c.as_slice())
             .unwrap_or(&[]);
-        let view_code = generate_view_struct(view, columns, options.use_pub);
+        let view_code = generate_view_struct(view, columns, options.use_pub, options.field_casing);
         code.push_str(&view_code);
         code.push('\n');
         result.views.push(view_name);
@@ -164,6 +208,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             &result.tables,
             &result.indexes,
             options.use_pub,
+            options.field_casing,
         );
         code.push_str(&schema_code);
     }
@@ -173,33 +218,37 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
 }
 
 /// Generate a single table struct
-fn generate_table_struct(
-    table: &Table,
-    columns: &[&Column],
-    pk_columns: Option<&HashSet<String>>,
-    unique_columns: Option<&HashSet<String>>,
+struct TableGenContext<'a> {
+    table: &'a Table,
+    columns: &'a [&'a Column],
+    pk_columns: Option<&'a HashSet<String>>,
+    unique_columns: Option<&'a HashSet<String>>,
     is_composite_pk: bool,
-    fk_map: &HashMap<(String, String), (&ForeignKey, usize)>,
+    fk_map: &'a HashMap<(String, String), (&'a ForeignKey, usize)>,
     use_pub: bool,
-) -> String {
+    field_casing: FieldCasing,
+}
+
+/// Generate a single table struct
+fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     let mut code = String::new();
-    let vis = if use_pub { "pub " } else { "" };
+    let vis = if ctx.use_pub { "pub " } else { "" };
 
     // Struct name is PascalCase of table name
-    let struct_name = table.name.to_pascal_case();
+    let struct_name = ctx.table.name.to_pascal_case();
 
     // Check if table name differs from struct name
-    let needs_name_attr = struct_name.to_snake_case() != table.name;
+    let needs_name_attr = apply_field_casing(&struct_name, ctx.field_casing) != ctx.table.name;
 
     // Build table attribute options
     let mut table_attrs = Vec::new();
     if needs_name_attr {
-        table_attrs.push(format!("name = \"{}\"", table.name));
+        table_attrs.push(format!("name = \"{}\"", ctx.table.name));
     }
-    if table.strict {
+    if ctx.table.strict {
         table_attrs.push("strict".to_string());
     }
-    if table.without_rowid {
+    if ctx.table.without_rowid {
         table_attrs.push("without_rowid".to_string());
     }
 
@@ -214,14 +263,15 @@ fn generate_table_struct(
     code.push_str(&format!("{}struct {} {{\n", vis, struct_name));
 
     // Fields
-    for column in columns {
+    for column in ctx.columns {
         let field_code = generate_column_field(
             column,
-            pk_columns,
-            unique_columns,
-            is_composite_pk,
-            fk_map,
-            use_pub,
+            ctx.pk_columns,
+            ctx.unique_columns,
+            ctx.is_composite_pk,
+            ctx.fk_map,
+            ctx.use_pub,
+            ctx.field_casing,
         );
         code.push_str(&field_code);
     }
@@ -238,6 +288,7 @@ fn generate_column_field(
     is_composite_pk: bool,
     fk_map: &HashMap<(String, String), (&ForeignKey, usize)>,
     use_pub: bool,
+    field_casing: FieldCasing,
 ) -> String {
     let vis = if use_pub { "pub " } else { "" };
 
@@ -317,7 +368,7 @@ fn generate_column_field(
     let rust_type = sql_type_to_rust_type(&column.sql_type, is_not_null);
 
     // Field name (snake_case)
-    let field_name = column.name.to_snake_case();
+    let field_name = apply_field_casing(column.name.as_ref(), field_casing);
 
     format!("{}    {}{}: {},\n", attr_str, vis, field_name, rust_type)
 }
@@ -381,7 +432,7 @@ fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
 }
 
 /// Generate an index struct
-fn generate_index_struct(index: &Index, use_pub: bool) -> String {
+fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing) -> String {
     let mut code = String::new();
     let vis = if use_pub { "pub " } else { "" };
 
@@ -394,6 +445,13 @@ fn generate_index_struct(index: &Index, use_pub: bool) -> String {
         .columns
         .iter()
         .map(|c| format!("{}::{}", table_struct, c.value))
+        .map(|s| {
+            if let Some((table, col)) = s.split_once("::") {
+                format!("{}::{}", table, apply_field_casing(col, field_casing))
+            } else {
+                s
+            }
+        })
         .collect();
 
     // Index attribute
@@ -415,7 +473,12 @@ fn generate_index_struct(index: &Index, use_pub: bool) -> String {
 }
 
 /// Generate a view struct
-fn generate_view_struct(view: &View, columns: &[&Column], use_pub: bool) -> String {
+fn generate_view_struct(
+    view: &View,
+    columns: &[&Column],
+    use_pub: bool,
+    field_casing: FieldCasing,
+) -> String {
     let struct_name = view.name.to_pascal_case();
     let vis = if use_pub { "pub " } else { "" };
 
@@ -425,7 +488,7 @@ fn generate_view_struct(view: &View, columns: &[&Column], use_pub: bool) -> Stri
     let mut attrs = Vec::new();
 
     // Check if view name differs from struct name (snake_case version)
-    if struct_name.to_snake_case() != view.name.as_ref() {
+    if apply_field_casing(&struct_name, field_casing) != view.name.as_ref() {
         attrs.push(format!("name = \"{}\"", view.name));
     }
 
@@ -455,7 +518,7 @@ fn generate_view_struct(view: &View, columns: &[&Column], use_pub: bool) -> Stri
 
     // Generate fields for each column
     for column in sorted_columns {
-        let field_name = column.name.to_snake_case();
+        let field_name = apply_field_casing(column.name.as_ref(), field_casing);
         let rust_type = sql_type_to_rust_type(&column.sql_type, column.not_null);
         code.push_str(&format!("    {vis}{field_name}: {rust_type},\n"));
     }
@@ -470,6 +533,7 @@ fn generate_schema_struct(
     tables: &[String],
     indexes: &[String],
     use_pub: bool,
+    field_casing: FieldCasing,
 ) -> String {
     let mut code = String::new();
     let vis = if use_pub { "pub " } else { "" };
@@ -479,14 +543,14 @@ fn generate_schema_struct(
 
     // Add tables
     for table in tables {
-        let field_name = table.to_snake_case();
+        let field_name = apply_field_casing(table, field_casing);
         let type_name = table.to_pascal_case();
         code.push_str(&format!("    {}{}: {},\n", vis, field_name, type_name));
     }
 
     // Add indexes
     for index in indexes {
-        let field_name = index.to_snake_case();
+        let field_name = apply_field_casing(index, field_casing);
         let type_name = index.to_pascal_case();
         code.push_str(&format!("    {}{}: {},\n", vis, field_name, type_name));
     }

@@ -7,7 +7,7 @@ use std::path::Path;
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use crate::config::PostgresCreds;
-use crate::config::{Credentials, Dialect};
+use crate::config::{Credentials, Dialect, Extension, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
 use drizzle_migrations::MigrationSet;
@@ -22,6 +22,25 @@ pub struct MigrationResult {
     pub applied_migrations: Vec<String>,
 }
 
+/// Planned migration execution details.
+#[derive(Debug, Clone)]
+pub struct MigrationPlan {
+    /// Number of already-applied migrations found in the database metadata table.
+    pub applied_count: usize,
+    /// Number of pending migrations found locally.
+    pub pending_count: usize,
+    /// Pending migration tags in execution order.
+    pub pending_migrations: Vec<String>,
+    /// Total number of non-empty SQL statements in pending migrations.
+    pub pending_statements: usize,
+}
+
+#[derive(Debug, Clone)]
+struct AppliedMigrationRecord {
+    hash: String,
+    created_at: i64,
+}
+
 /// Planned SQL changes for `drizzle push`
 #[derive(Debug, Clone)]
 pub struct PushPlan {
@@ -30,14 +49,30 @@ pub struct PushPlan {
     pub destructive: bool,
 }
 
+/// Optional filters for introspection and push planning.
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotFilters {
+    pub tables: Option<Vec<String>>,
+    pub schemas: Option<Vec<String>>,
+    pub extensions: Option<Vec<Extension>>,
+}
+
+impl SnapshotFilters {
+    fn is_empty(&self) -> bool {
+        self.tables.is_none() && self.schemas.is_none() && self.extensions.is_none()
+    }
+}
+
 /// Plan a push by introspecting the live database and diffing against the desired snapshot.
 pub fn plan_push(
     credentials: &Credentials,
     dialect: Dialect,
     desired: &Snapshot,
     breakpoints: bool,
+    filters: &SnapshotFilters,
 ) -> Result<PushPlan, CliError> {
-    let current = introspect_database(credentials, dialect)?.snapshot;
+    let mut current = introspect_database(credentials, dialect)?.snapshot;
+    apply_snapshot_filters(&mut current, dialect, filters)?;
     let (sql_statements, warnings) = generate_push_sql(&current, desired, breakpoints)?;
     let destructive = sql_statements.iter().any(|s| is_destructive_statement(s));
 
@@ -73,6 +108,91 @@ pub fn apply_push(
 ///
 /// This is the main entry point that dispatches to the appropriate driver
 /// based on the credentials type.
+pub fn plan_migrations(
+    credentials: &Credentials,
+    dialect: Dialect,
+    migrations_dir: &Path,
+    migrations_table: &str,
+    migrations_schema: &str,
+) -> Result<MigrationPlan, CliError> {
+    let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
+
+    match credentials {
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { path } => inspect_sqlite_migrations(&set, path),
+
+        #[cfg(not(feature = "rusqlite"))]
+        Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
+            dialect: "SQLite",
+            feature: "rusqlite",
+        }),
+
+        #[cfg(any(feature = "libsql", feature = "turso"))]
+        Credentials::Turso { url, auth_token } => {
+            let _auth_token = auth_token.as_deref();
+            if is_local_libsql(url) {
+                #[cfg(feature = "libsql")]
+                {
+                    inspect_libsql_local_migrations(&set, url)
+                }
+                #[cfg(not(feature = "libsql"))]
+                {
+                    Err(CliError::MissingDriver {
+                        dialect: "LibSQL (local)",
+                        feature: "libsql",
+                    })
+                }
+            } else {
+                #[cfg(feature = "turso")]
+                {
+                    inspect_turso_migrations(&set, url, _auth_token)
+                }
+                #[cfg(not(feature = "turso"))]
+                {
+                    Err(CliError::MissingDriver {
+                        dialect: "Turso (remote)",
+                        feature: "turso",
+                    })
+                }
+            }
+        }
+
+        #[cfg(all(not(feature = "turso"), not(feature = "libsql")))]
+        Credentials::Turso { .. } => Err(CliError::MissingDriver {
+            dialect: "Turso",
+            feature: "turso or libsql",
+        }),
+
+        #[cfg(feature = "postgres-sync")]
+        Credentials::Postgres(creds) => inspect_postgres_sync_migrations(&set, creds),
+
+        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+        Credentials::Postgres(creds) => inspect_postgres_async_migrations(&set, creds),
+
+        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
+        Credentials::Postgres(_) => Err(CliError::MissingDriver {
+            dialect: "PostgreSQL",
+            feature: "postgres-sync or tokio-postgres",
+        }),
+    }
+}
+
+pub fn verify_migrations(
+    credentials: &Credentials,
+    dialect: Dialect,
+    migrations_dir: &Path,
+    migrations_table: &str,
+    migrations_schema: &str,
+) -> Result<MigrationPlan, CliError> {
+    plan_migrations(
+        credentials,
+        dialect,
+        migrations_dir,
+        migrations_table,
+        migrations_schema,
+    )
+}
+
 pub fn run_migrations(
     credentials: &Credentials,
     dialect: Dialect,
@@ -80,24 +200,7 @@ pub fn run_migrations(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<MigrationResult, CliError> {
-    // Load migrations from filesystem
-    let mut set = MigrationSet::from_dir(migrations_dir, dialect.to_base())
-        .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
-
-    // Apply overrides from config
-    if !migrations_table.trim().is_empty() {
-        set = set.with_table(migrations_table.to_string());
-    }
-    if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
-        set = set.with_schema(migrations_schema.to_string());
-    }
-
-    if set.all().is_empty() {
-        return Ok(MigrationResult {
-            applied_count: 0,
-            applied_migrations: vec![],
-        });
-    }
+    let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
 
     match credentials {
         #[cfg(feature = "rusqlite")]
@@ -158,6 +261,102 @@ pub fn run_migrations(
             feature: "postgres-sync or tokio-postgres",
         }),
     }
+}
+
+fn load_migration_set(
+    dialect: Dialect,
+    migrations_dir: &Path,
+    migrations_table: &str,
+    migrations_schema: &str,
+) -> Result<MigrationSet, CliError> {
+    // Load migrations from filesystem
+    let mut set = MigrationSet::from_dir(migrations_dir, dialect.to_base())
+        .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
+
+    // Apply overrides from config
+    if !migrations_table.trim().is_empty() {
+        set = set.with_table(migrations_table.to_string());
+    }
+    if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
+        set = set.with_schema(migrations_schema.to_string());
+    }
+
+    Ok(set)
+}
+
+fn build_migration_plan(
+    set: &MigrationSet,
+    applied: Vec<AppliedMigrationRecord>,
+) -> Result<MigrationPlan, CliError> {
+    verify_applied_migrations_consistency(set, &applied)?;
+
+    let applied_created_at = applied.iter().map(|m| m.created_at).collect::<Vec<_>>();
+    let pending = set
+        .pending_by_created_at(&applied_created_at)
+        .collect::<Vec<_>>();
+
+    let pending_statements = pending
+        .iter()
+        .map(|m| {
+            m.statements()
+                .iter()
+                .filter(|stmt| !stmt.trim().is_empty())
+                .count()
+        })
+        .sum();
+
+    Ok(MigrationPlan {
+        applied_count: applied.len(),
+        pending_count: pending.len(),
+        pending_migrations: pending.iter().map(|m| m.tag().to_string()).collect(),
+        pending_statements,
+    })
+}
+
+fn verify_applied_migrations_consistency(
+    set: &MigrationSet,
+    applied: &[AppliedMigrationRecord],
+) -> Result<(), CliError> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut local_by_created_at = HashMap::<i64, &str>::new();
+    for migration in set.all() {
+        if local_by_created_at
+            .insert(migration.created_at(), migration.hash())
+            .is_some()
+        {
+            return Err(CliError::MigrationError(format!(
+                "Local migrations contain duplicate created_at value: {}",
+                migration.created_at()
+            )));
+        }
+    }
+
+    let mut seen_db_created_at = HashSet::<i64>::new();
+    for applied_row in applied {
+        if !seen_db_created_at.insert(applied_row.created_at) {
+            return Err(CliError::MigrationError(format!(
+                "Database migration metadata contains duplicate created_at value: {}",
+                applied_row.created_at
+            )));
+        }
+
+        let Some(local_hash) = local_by_created_at.get(&applied_row.created_at) else {
+            return Err(CliError::MigrationError(format!(
+                "Database contains applied migration not found locally (created_at: {})",
+                applied_row.created_at
+            )));
+        };
+
+        if *local_hash != applied_row.hash {
+            return Err(CliError::MigrationError(format!(
+                "Migration hash mismatch for created_at {}: database={}, local={}",
+                applied_row.created_at, applied_row.hash, local_hash
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn is_destructive_statement(sql: &str) -> bool {
@@ -404,11 +603,11 @@ fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResu
         CliError::MigrationError(format!("Failed to create migrations table: {}", e))
     })?;
 
-    // Query applied hashes
-    let applied_hashes = query_applied_hashes_sqlite(&conn, set)?;
+    // Query applied migrations by created_at
+    let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_hashes).collect();
+    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -454,22 +653,62 @@ fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResu
 }
 
 #[cfg(feature = "rusqlite")]
-fn query_applied_hashes_sqlite(
+fn inspect_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationPlan, CliError> {
+    let conn = rusqlite::Connection::open(path).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+    })?;
+
+    let applied = query_applied_records_sqlite(&conn, set)?;
+    build_migration_plan(set, applied)
+}
+
+#[cfg(feature = "rusqlite")]
+fn query_applied_records_sqlite(
     conn: &rusqlite::Connection,
     set: &MigrationSet,
-) -> Result<Vec<String>, CliError> {
-    let mut stmt = match conn.prepare(&set.query_all_hashes_sql()) {
+) -> Result<Vec<AppliedMigrationRecord>, CliError> {
+    let mut stmt = match conn.prepare(&set.query_all_applied_sql()) {
         Ok(s) => s,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
-    let hashes = stmt
-        .query_map([], |row| row.get(0))
+    let mut applied = Vec::new();
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+            ))
+        })
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    for row in rows {
+        let (hash, created_at) = row.map_err(|e| CliError::MigrationError(e.to_string()))?;
+        if let (Some(hash), Some(created_at)) = (hash, created_at) {
+            applied.push(AppliedMigrationRecord { hash, created_at });
+        }
+    }
+
+    Ok(applied)
+}
+
+#[cfg(feature = "rusqlite")]
+fn query_applied_created_at_sqlite(
+    conn: &rusqlite::Connection,
+    set: &MigrationSet,
+) -> Result<Vec<i64>, CliError> {
+    let mut stmt = match conn.prepare(&set.query_all_created_at_sql()) {
+        Ok(s) => s,
+        Err(_) => return Ok(vec![]), // Table might not exist yet
+    };
+
+    let created_at = stmt
+        .query_map([], |row| row.get::<_, Option<i64>>(0))
         .map_err(|e| CliError::MigrationError(e.to_string()))?
-        .filter_map(Result::ok)
+        .filter_map(|row| row.ok().flatten())
         .collect();
 
-    Ok(hashes)
+    Ok(created_at)
 }
 
 // ============================================================================
@@ -540,14 +779,14 @@ fn run_postgres_sync_migrations(
         .execute(&set.create_table_sql(), &[])
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
-    // Query applied hashes
+    // Query applied migrations by created_at
     let rows = client
-        .query(&set.query_all_hashes_sql(), &[])
+        .query(&set.query_all_created_at_sql(), &[])
         .unwrap_or_default();
-    let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_hashes).collect();
+    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -622,6 +861,41 @@ fn run_postgres_sync_migrations(
         applied_count: applied.len(),
         applied_migrations: applied,
     })
+}
+
+#[cfg(feature = "postgres-sync")]
+fn inspect_postgres_sync_migrations(
+    set: &MigrationSet,
+    creds: &PostgresCreds,
+) -> Result<MigrationPlan, CliError> {
+    let url = creds.connection_url();
+    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+    })?;
+
+    let applied = query_applied_records_postgres_sync(&mut client, set);
+    build_migration_plan(set, applied)
+}
+
+#[cfg(feature = "postgres-sync")]
+fn query_applied_records_postgres_sync(
+    client: &mut postgres::Client,
+    set: &MigrationSet,
+) -> Vec<AppliedMigrationRecord> {
+    let rows = client
+        .query(&set.query_all_applied_sql(), &[])
+        .unwrap_or_default();
+
+    let mut applied = Vec::new();
+    for row in rows {
+        let hash = row.try_get::<_, Option<String>>(0).ok().flatten();
+        let created_at = row.try_get::<_, Option<i64>>(1).ok().flatten();
+        if let (Some(hash), Some(created_at)) = (hash, created_at) {
+            applied.push(AppliedMigrationRecord { hash, created_at });
+        }
+    }
+
+    applied
 }
 
 // ============================================================================
@@ -713,6 +987,68 @@ fn run_postgres_async_migrations(
 }
 
 #[cfg(feature = "tokio-postgres")]
+#[allow(dead_code)] // Used when postgres-sync is not enabled
+fn inspect_postgres_async_migrations(
+    set: &MigrationSet,
+    creds: &PostgresCreds,
+) -> Result<MigrationPlan, CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(inspect_postgres_async_inner(set, creds))
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[allow(dead_code)]
+async fn inspect_postgres_async_inner(
+    set: &MigrationSet,
+    creds: &PostgresCreds,
+) -> Result<MigrationPlan, CliError> {
+    let url = creds.connection_url();
+    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
+        })?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!(
+                "{}",
+                output::err_line(&format!("PostgreSQL connection error: {e}"))
+            );
+        }
+    });
+
+    let applied = query_applied_records_postgres_async(&client, set).await;
+    build_migration_plan(set, applied)
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn query_applied_records_postgres_async(
+    client: &tokio_postgres::Client,
+    set: &MigrationSet,
+) -> Vec<AppliedMigrationRecord> {
+    let rows = client
+        .query(&set.query_all_applied_sql(), &[])
+        .await
+        .unwrap_or_default();
+
+    let mut applied = Vec::new();
+    for row in rows {
+        let hash = row.try_get::<_, Option<String>>(0).ok().flatten();
+        let created_at = row.try_get::<_, Option<i64>>(1).ok().flatten();
+        if let (Some(hash), Some(created_at)) = (hash, created_at) {
+            applied.push(AppliedMigrationRecord { hash, created_at });
+        }
+    }
+
+    applied
+}
+
+#[cfg(feature = "tokio-postgres")]
 #[allow(dead_code)]
 async fn run_postgres_async_inner(
     set: &MigrationSet,
@@ -749,15 +1085,15 @@ async fn run_postgres_async_inner(
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
-    // Query applied hashes
+    // Query applied migrations by created_at
     let rows = client
-        .query(&set.query_all_hashes_sql(), &[])
+        .query(&set.query_all_created_at_sql(), &[])
         .await
         .unwrap_or_default();
-    let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_hashes).collect();
+    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -905,6 +1241,39 @@ fn run_libsql_local_migrations(
 }
 
 #[cfg(feature = "libsql")]
+fn inspect_libsql_local_migrations(
+    set: &MigrationSet,
+    path: &str,
+) -> Result<MigrationPlan, CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(inspect_libsql_local_inner(set, path))
+}
+
+#[cfg(feature = "libsql")]
+async fn inspect_libsql_local_inner(
+    set: &MigrationSet,
+    path: &str,
+) -> Result<MigrationPlan, CliError> {
+    let db = libsql::Builder::new_local(path)
+        .build()
+        .await
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+        })?;
+
+    let conn = db
+        .connect()
+        .map_err(|e| CliError::ConnectionError(e.to_string()))?;
+
+    let applied = query_applied_records_libsql(&conn, set).await?;
+    build_migration_plan(set, applied)
+}
+
+#[cfg(feature = "libsql")]
 async fn run_libsql_local_inner(
     set: &MigrationSet,
     path: &str,
@@ -927,11 +1296,11 @@ async fn run_libsql_local_inner(
             CliError::MigrationError(format!("Failed to create migrations table: {}", e))
         })?;
 
-    // Query applied hashes
-    let applied_hashes = query_applied_hashes_libsql(&conn, set).await?;
+    // Query applied migrations by created_at
+    let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_hashes).collect();
+    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -983,23 +1352,43 @@ async fn run_libsql_local_inner(
 }
 
 #[cfg(feature = "libsql")]
-async fn query_applied_hashes_libsql(
+async fn query_applied_created_at_libsql(
     conn: &libsql::Connection,
     set: &MigrationSet,
-) -> Result<Vec<String>, CliError> {
-    let mut rows = match conn.query(&set.query_all_hashes_sql(), ()).await {
+) -> Result<Vec<i64>, CliError> {
+    let mut rows = match conn.query(&set.query_all_created_at_sql(), ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
-    let mut hashes = Vec::new();
+    let mut created_at = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
-        if let Ok(hash) = row.get::<String>(0) {
-            hashes.push(hash);
+        if let Ok(millis) = row.get::<i64>(0) {
+            created_at.push(millis);
         }
     }
 
-    Ok(hashes)
+    Ok(created_at)
+}
+
+#[cfg(feature = "libsql")]
+async fn query_applied_records_libsql(
+    conn: &libsql::Connection,
+    set: &MigrationSet,
+) -> Result<Vec<AppliedMigrationRecord>, CliError> {
+    let mut rows = match conn.query(&set.query_all_applied_sql(), ()).await {
+        Ok(r) => r,
+        Err(_) => return Ok(vec![]), // Table might not exist yet
+    };
+
+    let mut applied = Vec::new();
+    while let Ok(Some(row)) = rows.next().await {
+        if let (Ok(hash), Ok(created_at)) = (row.get::<String>(0), row.get::<i64>(1)) {
+            applied.push(AppliedMigrationRecord { hash, created_at });
+        }
+    }
+
+    Ok(applied)
 }
 
 // ============================================================================
@@ -1078,6 +1467,41 @@ fn run_turso_migrations(
 }
 
 #[cfg(feature = "turso")]
+fn inspect_turso_migrations(
+    set: &MigrationSet,
+    url: &str,
+    auth_token: Option<&str>,
+) -> Result<MigrationPlan, CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(inspect_turso_inner(set, url, auth_token))
+}
+
+#[cfg(feature = "turso")]
+async fn inspect_turso_inner(
+    set: &MigrationSet,
+    url: &str,
+    auth_token: Option<&str>,
+) -> Result<MigrationPlan, CliError> {
+    let builder =
+        libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
+
+    let db = builder.build().await.map_err(|e| {
+        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+    })?;
+
+    let conn = db
+        .connect()
+        .map_err(|e| CliError::ConnectionError(e.to_string()))?;
+
+    let applied = query_applied_records_turso(&conn, set).await?;
+    build_migration_plan(set, applied)
+}
+
+#[cfg(feature = "turso")]
 async fn run_turso_inner(
     set: &MigrationSet,
     url: &str,
@@ -1101,11 +1525,11 @@ async fn run_turso_inner(
             CliError::MigrationError(format!("Failed to create migrations table: {}", e))
         })?;
 
-    // Query applied hashes
-    let applied_hashes = query_applied_hashes_turso(&conn, set).await?;
+    // Query applied migrations by created_at
+    let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_hashes).collect();
+    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1157,23 +1581,43 @@ async fn run_turso_inner(
 }
 
 #[cfg(feature = "turso")]
-async fn query_applied_hashes_turso(
+async fn query_applied_created_at_turso(
     conn: &libsql::Connection,
     set: &MigrationSet,
-) -> Result<Vec<String>, CliError> {
-    let mut rows = match conn.query(&set.query_all_hashes_sql(), ()).await {
+) -> Result<Vec<i64>, CliError> {
+    let mut rows = match conn.query(&set.query_all_created_at_sql(), ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
-    let mut hashes = Vec::new();
+    let mut created_at = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
-        if let Ok(hash) = row.get::<String>(0) {
-            hashes.push(hash);
+        if let Ok(millis) = row.get::<i64>(0) {
+            created_at.push(millis);
         }
     }
 
-    Ok(hashes)
+    Ok(created_at)
+}
+
+#[cfg(feature = "turso")]
+async fn query_applied_records_turso(
+    conn: &libsql::Connection,
+    set: &MigrationSet,
+) -> Result<Vec<AppliedMigrationRecord>, CliError> {
+    let mut rows = match conn.query(&set.query_all_applied_sql(), ()).await {
+        Ok(r) => r,
+        Err(_) => return Ok(vec![]), // Table might not exist yet
+    };
+
+    let mut applied = Vec::new();
+    while let Ok(Some(row)) = rows.next().await {
+        if let (Ok(hash), Ok(created_at)) = (row.get::<String>(0), row.get::<i64>(1)) {
+            applied.push(AppliedMigrationRecord { hash, created_at });
+        }
+    }
+
+    Ok(applied)
 }
 
 // ============================================================================
@@ -1207,6 +1651,9 @@ pub fn run_introspection(
     dialect: Dialect,
     out_dir: &Path,
     init_metadata: bool,
+    breakpoints: bool,
+    introspect_casing: Option<IntrospectCasing>,
+    filters: &SnapshotFilters,
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<IntrospectResult, CliError> {
@@ -1215,6 +1662,10 @@ pub fn run_introspection(
 
     // Perform introspection
     let mut result = introspect_database(credentials, dialect)?;
+    apply_snapshot_filters(&mut result.snapshot, dialect, filters)?;
+    if !filters.is_empty() || introspect_casing.is_some() {
+        regenerate_schema_from_snapshot(&mut result, dialect, introspect_casing);
+    }
 
     // Write schema file
     let schema_path = out_dir.join("schema.rs");
@@ -1276,15 +1727,12 @@ pub fn run_introspection(
     // Generate initial migration SQL by diffing against empty snapshot
     let base_dialect = dialect.to_base();
     let empty_snapshot = Snapshot::empty(base_dialect);
-    let sql_statements = generate_introspect_migration(&empty_snapshot, &result.snapshot, true)?;
+    let sql_statements =
+        generate_introspect_migration(&empty_snapshot, &result.snapshot, breakpoints)?;
 
     // Write migration.sql: {out}/{tag}/migration.sql
     let migration_sql_path = migration_dir.join("migration.sql");
-    let sql_content = if sql_statements.is_empty() {
-        "-- No tables to create (empty database)\n".to_string()
-    } else {
-        sql_statements.join("\n--> statement-breakpoint\n")
-    };
+    let sql_content = format_migration_sql(&sql_statements, breakpoints);
     std::fs::write(&migration_sql_path, &sql_content).map_err(|e| {
         CliError::Other(format!(
             "Failed to write migration file '{}': {}",
@@ -1297,7 +1745,7 @@ pub fn run_introspection(
     result.snapshot_path = snapshot_path;
 
     // Update journal
-    journal.add_entry(tag.clone(), true); // Default to breakpoints=true for now
+    journal.add_entry(tag.clone(), breakpoints);
     journal
         .save(&journal_path)
         .map_err(|e| CliError::Other(format!("Failed to save journal: {}", e)))?;
@@ -1336,12 +1784,6 @@ fn apply_init_metadata(
     }
     if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
         set = set.with_schema(migrations_schema.to_string());
-    }
-
-    if set.all().is_empty() {
-        return Err(CliError::Other(
-            "--init can't be used with empty migrations".into(),
-        ));
     }
 
     match credentials {
@@ -1411,20 +1853,14 @@ fn apply_init_metadata(
     feature = "postgres-sync",
     feature = "tokio-postgres"
 ))]
-fn validate_init_metadata(applied_hashes: &[String], set: &MigrationSet) -> Result<(), CliError> {
-    if !applied_hashes.is_empty() {
+fn validate_init_metadata(applied_created_at: &[i64], set: &MigrationSet) -> Result<(), CliError> {
+    if !applied_created_at.is_empty() {
         return Err(CliError::Other(
             "--init can't be used when database already has migrations set".into(),
         ));
     }
 
-    let first = set
-        .all()
-        .first()
-        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
-
-    let created_at = first.created_at();
-    if set.all().iter().any(|m| m.created_at() != created_at) {
+    if set.all().len() > 1 {
         return Err(CliError::Other(
             "--init can't be used with existing migrations".into(),
         ));
@@ -1447,13 +1883,12 @@ fn init_sqlite_metadata(path: &str, set: &MigrationSet) -> Result<(), CliError> 
         CliError::MigrationError(format!("Failed to create migrations table: {}", e))
     })?;
 
-    let applied_hashes = query_applied_hashes_sqlite(&conn, set)?;
-    validate_init_metadata(&applied_hashes, set)?;
+    let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
+    validate_init_metadata(&applied_created_at, set)?;
 
-    let first = set
-        .all()
-        .first()
-        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+    let Some(first) = set.all().first() else {
+        return Ok(());
+    };
 
     conn.execute(
         &set.record_migration_sql(first.hash(), first.created_at()),
@@ -1493,13 +1928,12 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &MigrationSet) -> Res
             CliError::MigrationError(format!("Failed to create migrations table: {}", e))
         })?;
 
-    let applied_hashes = query_applied_hashes_libsql(&conn, set).await?;
-    validate_init_metadata(&applied_hashes, set)?;
+    let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
+    validate_init_metadata(&applied_created_at, set)?;
 
-    let first = set
-        .all()
-        .first()
-        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+    let Some(first) = set.all().first() else {
+        return Ok(());
+    };
 
     conn.execute(
         &set.record_migration_sql(first.hash(), first.created_at()),
@@ -1548,13 +1982,12 @@ async fn init_turso_metadata_inner(
             CliError::MigrationError(format!("Failed to create migrations table: {}", e))
         })?;
 
-    let applied_hashes = query_applied_hashes_turso(&conn, set).await?;
-    validate_init_metadata(&applied_hashes, set)?;
+    let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
+    validate_init_metadata(&applied_created_at, set)?;
 
-    let first = set
-        .all()
-        .first()
-        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+    let Some(first) = set.all().first() else {
+        return Ok(());
+    };
 
     conn.execute(
         &set.record_migration_sql(first.hash(), first.created_at()),
@@ -1584,16 +2017,15 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Res
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     let rows = client
-        .query(&set.query_all_hashes_sql(), &[])
+        .query(&set.query_all_created_at_sql(), &[])
         .unwrap_or_default();
-    let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
-    validate_init_metadata(&applied_hashes, set)?;
+    validate_init_metadata(&applied_created_at, set)?;
 
-    let first = set
-        .all()
-        .first()
-        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+    let Some(first) = set.all().first() else {
+        return Ok(());
+    };
 
     client
         .execute(
@@ -1649,17 +2081,16 @@ async fn init_postgres_async_inner(
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     let rows = client
-        .query(&set.query_all_hashes_sql(), &[])
+        .query(&set.query_all_created_at_sql(), &[])
         .await
         .unwrap_or_default();
-    let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
-    validate_init_metadata(&applied_hashes, set)?;
+    validate_init_metadata(&applied_created_at, set)?;
 
-    let first = set
-        .all()
-        .first()
-        .ok_or_else(|| CliError::Other("--init can't be used with empty migrations".into()))?;
+    let Some(first) = set.all().first() else {
+        return Ok(());
+    };
 
     client
         .execute(
@@ -1676,7 +2107,7 @@ async fn init_postgres_async_inner(
 fn generate_introspect_migration(
     prev: &Snapshot,
     current: &Snapshot,
-    _breakpoints: bool,
+    breakpoints: bool,
 ) -> Result<Vec<String>, CliError> {
     match (prev, current) {
         (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
@@ -1684,7 +2115,7 @@ fn generate_introspect_migration(
             use drizzle_migrations::sqlite::statements::SqliteGenerator;
 
             let diff = diff_snapshots(prev_snap, curr_snap);
-            let generator = SqliteGenerator::new().with_breakpoints(true);
+            let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
             Ok(generator.generate_migration(&diff))
         }
         (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
@@ -1692,10 +2123,309 @@ fn generate_introspect_migration(
             use drizzle_migrations::postgres::statements::PostgresGenerator;
 
             let diff = diff_full_snapshots(prev_snap, curr_snap);
-            let generator = PostgresGenerator::new().with_breakpoints(true);
+            let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
             Ok(generator.generate(&diff.diffs))
         }
         _ => Err(CliError::DialectMismatch),
+    }
+}
+
+fn format_migration_sql(sql_statements: &[String], breakpoints: bool) -> String {
+    if sql_statements.is_empty() {
+        "-- No tables to create (empty database)\n".to_string()
+    } else if breakpoints {
+        sql_statements.join("\n--> statement-breakpoint\n")
+    } else {
+        sql_statements.join("\n\n")
+    }
+}
+
+pub fn apply_snapshot_filters(
+    snapshot: &mut Snapshot,
+    dialect: Dialect,
+    filters: &SnapshotFilters,
+) -> Result<(), CliError> {
+    if filters.is_empty() {
+        return Ok(());
+    }
+
+    match (dialect, snapshot) {
+        (Dialect::Sqlite | Dialect::Turso, Snapshot::Sqlite(sqlite)) => {
+            apply_sqlite_snapshot_filters(sqlite, filters)
+        }
+        (Dialect::Postgresql, Snapshot::Postgres(postgres)) => {
+            apply_postgres_snapshot_filters(postgres, filters)
+        }
+        _ => Err(CliError::DialectMismatch),
+    }
+}
+
+fn apply_sqlite_snapshot_filters(
+    snapshot: &mut drizzle_migrations::sqlite::SQLiteSnapshot,
+    filters: &SnapshotFilters,
+) -> Result<(), CliError> {
+    use drizzle_types::sqlite::ddl::SqliteEntity;
+    use std::collections::HashSet;
+
+    let table_patterns = compile_patterns(filters.tables.as_deref())?;
+    if table_patterns.is_none() {
+        return Ok(());
+    }
+
+    let mut keep_tables: HashSet<String> = HashSet::new();
+    for entity in &snapshot.ddl {
+        if let SqliteEntity::Table(table) = entity
+            && matches_patterns(table.name.as_ref(), &table_patterns)
+        {
+            keep_tables.insert(table.name.to_string());
+        }
+    }
+
+    snapshot.ddl.retain(|entity| match entity {
+        SqliteEntity::Table(t) => keep_tables.contains(t.name.as_ref()),
+        SqliteEntity::Column(c) => keep_tables.contains(c.table.as_ref()),
+        SqliteEntity::Index(i) => keep_tables.contains(i.table.as_ref()),
+        SqliteEntity::ForeignKey(fk) => {
+            keep_tables.contains(fk.table.as_ref()) && keep_tables.contains(fk.table_to.as_ref())
+        }
+        SqliteEntity::PrimaryKey(pk) => keep_tables.contains(pk.table.as_ref()),
+        SqliteEntity::UniqueConstraint(u) => keep_tables.contains(u.table.as_ref()),
+        SqliteEntity::CheckConstraint(c) => keep_tables.contains(c.table.as_ref()),
+        SqliteEntity::View(v) => matches_patterns(v.name.as_ref(), &table_patterns),
+    });
+
+    Ok(())
+}
+
+fn apply_postgres_snapshot_filters(
+    snapshot: &mut drizzle_migrations::postgres::PostgresSnapshot,
+    filters: &SnapshotFilters,
+) -> Result<(), CliError> {
+    use drizzle_types::postgres::ddl::PostgresEntity;
+    use std::collections::HashSet;
+
+    let schema_patterns = compile_patterns(filters.schemas.as_deref())?;
+    let table_patterns = compile_patterns(filters.tables.as_deref())?;
+    let exclude_postgis = filters
+        .extensions
+        .as_ref()
+        .map(|v| v.contains(&Extension::Postgis))
+        .unwrap_or(false);
+
+    let is_schema_allowed = |schema: &str| -> bool {
+        if exclude_postgis && matches!(schema, "topology" | "tiger" | "tiger_data") {
+            return false;
+        }
+        matches_patterns(schema, &schema_patterns)
+    };
+
+    let mut keep_tables: HashSet<(String, String)> = HashSet::new();
+    for entity in &snapshot.ddl {
+        if let PostgresEntity::Table(table) = entity {
+            let schema = table.schema.as_ref();
+            let name = table.name.as_ref();
+            if !is_schema_allowed(schema) {
+                continue;
+            }
+            if exclude_postgis
+                && matches!(
+                    name,
+                    "spatial_ref_sys"
+                        | "geometry_columns"
+                        | "geography_columns"
+                        | "raster_columns"
+                        | "raster_overviews"
+                )
+            {
+                continue;
+            }
+
+            if matches_patterns(name, &table_patterns) {
+                keep_tables.insert((schema.to_string(), name.to_string()));
+            }
+        }
+    }
+
+    let mut keep_schemas: HashSet<String> = keep_tables.iter().map(|(s, _)| s.clone()).collect();
+    if table_patterns.is_none() {
+        for entity in &snapshot.ddl {
+            if let PostgresEntity::Schema(s) = entity
+                && is_schema_allowed(s.name.as_ref())
+            {
+                keep_schemas.insert(s.name.to_string());
+            }
+        }
+    }
+
+    snapshot.ddl.retain(|entity| match entity {
+        PostgresEntity::Schema(s) => keep_schemas.contains(s.name.as_ref()),
+        PostgresEntity::Enum(e) => keep_schemas.contains(e.schema.as_ref()),
+        PostgresEntity::Sequence(s) => keep_schemas.contains(s.schema.as_ref()),
+        PostgresEntity::Role(_) => true,
+        PostgresEntity::Policy(p) => {
+            keep_tables.contains(&(p.schema.to_string(), p.table.to_string()))
+        }
+        PostgresEntity::Privilege(_) => true,
+        PostgresEntity::Table(t) => {
+            keep_tables.contains(&(t.schema.to_string(), t.name.to_string()))
+        }
+        PostgresEntity::Column(c) => {
+            keep_tables.contains(&(c.schema.to_string(), c.table.to_string()))
+        }
+        PostgresEntity::Index(i) => {
+            keep_tables.contains(&(i.schema.to_string(), i.table.to_string()))
+        }
+        PostgresEntity::ForeignKey(fk) => {
+            keep_tables.contains(&(fk.schema.to_string(), fk.table.to_string()))
+                && keep_tables.contains(&(fk.schema_to.to_string(), fk.table_to.to_string()))
+        }
+        PostgresEntity::PrimaryKey(pk) => {
+            keep_tables.contains(&(pk.schema.to_string(), pk.table.to_string()))
+        }
+        PostgresEntity::UniqueConstraint(u) => {
+            keep_tables.contains(&(u.schema.to_string(), u.table.to_string()))
+        }
+        PostgresEntity::CheckConstraint(c) => {
+            keep_tables.contains(&(c.schema.to_string(), c.table.to_string()))
+        }
+        PostgresEntity::View(v) => {
+            if !keep_schemas.contains(v.schema.as_ref()) {
+                return false;
+            }
+            matches_patterns(v.name.as_ref(), &table_patterns)
+        }
+    });
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct FilterPattern {
+    pattern: glob::Pattern,
+    negated: bool,
+}
+
+fn compile_patterns(patterns: Option<&[String]>) -> Result<Option<Vec<FilterPattern>>, CliError> {
+    let Some(patterns) = patterns else {
+        return Ok(None);
+    };
+    if patterns.is_empty() {
+        return Ok(None);
+    }
+
+    let mut compiled = Vec::with_capacity(patterns.len());
+    for p in patterns {
+        let raw = p.trim();
+        let (negated, source) = if let Some(stripped) = raw.strip_prefix('!') {
+            (true, stripped)
+        } else {
+            (false, raw)
+        };
+        if source.is_empty() {
+            return Err(CliError::Other(format!(
+                "invalid filter pattern '{}': empty pattern",
+                p
+            )));
+        }
+
+        compiled.push(FilterPattern {
+            pattern: glob::Pattern::new(source)
+                .map_err(|e| CliError::Other(format!("invalid filter pattern '{}': {}", p, e)))?,
+            negated,
+        });
+    }
+    Ok(Some(compiled))
+}
+
+fn matches_patterns(value: &str, patterns: &Option<Vec<FilterPattern>>) -> bool {
+    match patterns {
+        None => true,
+        Some(v) => {
+            let has_positive = v.iter().any(|m| !m.negated);
+            let mut matched_positive = false;
+
+            for matcher in v {
+                if matcher.negated {
+                    if matcher.pattern.matches(value) {
+                        return false;
+                    }
+                } else if matcher.pattern.matches(value) {
+                    matched_positive = true;
+                }
+            }
+
+            if has_positive { matched_positive } else { true }
+        }
+    }
+}
+
+fn regenerate_schema_from_snapshot(
+    result: &mut IntrospectResult,
+    dialect: Dialect,
+    introspect_casing: Option<IntrospectCasing>,
+) {
+    match (&result.snapshot, dialect) {
+        (Snapshot::Sqlite(snap), Dialect::Sqlite | Dialect::Turso) => {
+            use drizzle_migrations::sqlite::SQLiteDDL;
+            use drizzle_migrations::sqlite::codegen::{
+                CodegenOptions, FieldCasing, generate_rust_schema,
+            };
+
+            let field_casing = match introspect_casing {
+                Some(IntrospectCasing::Camel) => FieldCasing::Camel,
+                Some(IntrospectCasing::Preserve) => FieldCasing::Preserve,
+                None => FieldCasing::Snake,
+            };
+
+            let ddl = SQLiteDDL::from_entities(snap.ddl.clone());
+            let generated = generate_rust_schema(
+                &ddl,
+                &CodegenOptions {
+                    module_doc: Some("Schema introspected from filtered database objects".into()),
+                    include_schema: true,
+                    schema_name: "Schema".into(),
+                    use_pub: true,
+                    field_casing,
+                },
+            );
+
+            result.schema_code = generated.code;
+            result.table_count = generated.tables.len();
+            result.index_count = generated.indexes.len();
+            result.view_count = ddl.views.list().len();
+            result.warnings = generated.warnings;
+        }
+        (Snapshot::Postgres(snap), Dialect::Postgresql) => {
+            use drizzle_migrations::postgres::PostgresDDL;
+            use drizzle_migrations::postgres::codegen::{
+                CodegenOptions, FieldCasing, generate_rust_schema,
+            };
+
+            let field_casing = match introspect_casing {
+                Some(IntrospectCasing::Camel) => FieldCasing::Camel,
+                Some(IntrospectCasing::Preserve) => FieldCasing::Preserve,
+                None => FieldCasing::Snake,
+            };
+
+            let ddl = PostgresDDL::from_entities(snap.ddl.clone());
+            let generated = generate_rust_schema(
+                &ddl,
+                &CodegenOptions {
+                    module_doc: Some("Schema introspected from filtered database objects".into()),
+                    include_schema: true,
+                    schema_name: "Schema".into(),
+                    use_pub: true,
+                    field_casing,
+                },
+            );
+
+            result.schema_code = generated.code;
+            result.table_count = generated.tables.len();
+            result.index_count = generated.indexes.len();
+            result.view_count = generated.views.len();
+            result.warnings = generated.warnings;
+        }
+        _ => {}
     }
 }
 
@@ -2010,6 +2740,7 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
+        field_casing: Default::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);
@@ -2259,6 +2990,7 @@ async fn introspect_libsql_inner(
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
+        field_casing: Default::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);
@@ -2508,6 +3240,7 @@ async fn introspect_turso_inner(
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
+        field_casing: Default::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);
@@ -2624,10 +3357,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Sequences
     let raw_sequences: Vec<RawSequenceInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::SEQUENCES_QUERY,
-            &[],
-        )
+        .query(POSTGRES_SEQUENCES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
         .into_iter()
         .map(|row| RawSequenceInfo {
@@ -2817,6 +3547,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
+        field_casing: Default::default(),
     };
     let generated = generate_rust_schema(&ddl, &options);
 
@@ -2950,10 +3681,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_sequences: Vec<RawSequenceInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::SEQUENCES_QUERY,
-            &[],
-        )
+        .query(POSTGRES_SEQUENCES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
         .into_iter()
@@ -3141,6 +3869,7 @@ async fn introspect_postgres_async_inner(
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
+        field_casing: Default::default(),
     };
     let generated = generate_rust_schema(&ddl, &options);
 
@@ -3192,6 +3921,24 @@ WHERE ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
+"#;
+
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+const POSTGRES_SEQUENCES_QUERY: &str = r#"
+SELECT
+    schemaname AS schema,
+    sequencename AS name,
+    data_type::text AS data_type,
+    start_value::text,
+    min_value::text,
+    max_value::text,
+    increment_by::text AS increment,
+    cycle AS cycle,
+    cache_size::text AS cache_value
+FROM pg_sequences
+WHERE schemaname NOT LIKE 'pg_%'
+  AND schemaname != 'information_schema'
+ORDER BY schemaname, sequencename
 "#;
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -3248,7 +3995,7 @@ SELECT
     tbl.relname AS table,
     con.conname AS name,
     array_agg(att.attname ORDER BY s.ord) AS columns,
-    COALESCE(con.connullsnotdistinct, FALSE) AS nulls_not_distinct
+    FALSE AS nulls_not_distinct
 FROM pg_constraint con
 JOIN pg_class tbl ON tbl.oid = con.conrelid
 JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
@@ -3257,7 +4004,7 @@ JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
 WHERE con.contype = 'u'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
-GROUP BY ns.nspname, tbl.relname, con.conname, con.connullsnotdistinct
+GROUP BY ns.nspname, tbl.relname, con.conname
 ORDER BY ns.nspname, tbl.relname, con.conname
 "#;
 
@@ -3294,7 +4041,7 @@ SELECT
     schemaname AS schema,
     tablename AS table,
     policyname AS name,
-    CASE WHEN permissive THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END AS as_clause,
+    upper(permissive) AS as_clause,
     upper(cmd) AS for_clause,
     roles AS to,
     qual AS using,
@@ -3430,6 +4177,213 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn sqlite_migrations_deduplicate_using_created_at() {
+        use drizzle_migrations::{Migration, MigrationSet};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("migrate.sqlite");
+        let db_path_str = db_path.to_string_lossy().to_string();
+
+        let first_set = MigrationSet::new(
+            vec![Migration::with_hash(
+                "20230331141203_first",
+                "hash_one",
+                1_680_271_923_000,
+                vec!["CREATE TABLE created_at_dedupe_a (id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let first =
+            run_sqlite_migrations(&first_set, &db_path_str).expect("first migrate succeeds");
+        assert_eq!(first.applied_count, 1);
+
+        let second_set = MigrationSet::new(
+            vec![Migration::with_hash(
+                "20230331141203_second",
+                "hash_two",
+                1_680_271_923_000,
+                vec!["CREATE TABLE created_at_dedupe_b (id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let second =
+            run_sqlite_migrations(&second_set, &db_path_str).expect("second migrate succeeds");
+        assert_eq!(
+            second.applied_count, 0,
+            "second migration with same created_at should be skipped"
+        );
+
+        let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM __drizzle_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("count migrations rows");
+        assert_eq!(rows, 1, "only one migration record should be stored");
+
+        let table_b_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='created_at_dedupe_b'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query sqlite_master");
+        assert_eq!(
+            table_b_exists, 0,
+            "second migration SQL should not execute when created_at is already applied"
+        );
+    }
+
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn run_migrations_creates_metadata_table_with_no_local_migrations() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("empty.sqlite");
+        let migrations_dir = dir.path().join("migrations");
+        std::fs::create_dir_all(&migrations_dir).expect("create migrations dir");
+
+        let creds = crate::config::Credentials::Sqlite {
+            path: db_path.to_string_lossy().to_string().into_boxed_str(),
+        };
+
+        let result = run_migrations(
+            &creds,
+            crate::config::Dialect::Sqlite,
+            &migrations_dir,
+            "__drizzle_migrations",
+            "drizzle",
+        )
+        .expect("run migrations");
+        assert_eq!(result.applied_count, 0);
+
+        let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("check metadata table");
+        assert_eq!(exists, 1, "migrations metadata table should be created");
+    }
+
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres"
+    ))]
+    #[test]
+    fn validate_init_metadata_matches_drizzle_orm_semantics() {
+        use drizzle_migrations::{Migration, MigrationSet};
+
+        let empty_set = MigrationSet::empty(drizzle_types::Dialect::SQLite);
+        validate_init_metadata(&[], &empty_set).expect("empty local migrations should be allowed");
+
+        let single = MigrationSet::new(
+            vec![Migration::with_hash(
+                "20230331141203_init",
+                "hash_single",
+                1_680_271_923_000,
+                vec!["CREATE TABLE t(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+        validate_init_metadata(&[], &single).expect("single local migration should be allowed");
+
+        let multiple = MigrationSet::new(
+            vec![
+                Migration::with_hash(
+                    "20230331141203_first",
+                    "hash_a",
+                    1_680_271_923_000,
+                    vec!["CREATE TABLE a(id INTEGER PRIMARY KEY)".to_string()],
+                ),
+                Migration::with_hash(
+                    "20230331150000_second",
+                    "hash_b",
+                    1_680_275_400_000,
+                    vec!["CREATE TABLE b(id INTEGER PRIMARY KEY)".to_string()],
+                ),
+            ],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let err =
+            validate_init_metadata(&[], &multiple).expect_err("multiple local migrations rejected");
+        assert!(err.to_string().contains("existing migrations"));
+
+        let err = validate_init_metadata(&[1_680_271_923_000], &single)
+            .expect_err("existing db metadata should be rejected");
+        assert!(err.to_string().contains("already has migrations"));
+    }
+
+    #[test]
+    fn verify_applied_migrations_detects_hash_mismatch() {
+        use drizzle_migrations::{Migration, MigrationSet};
+
+        let set = MigrationSet::new(
+            vec![Migration::with_hash(
+                "20230331141203_verify",
+                "local_hash",
+                1_680_271_923_000,
+                vec!["CREATE TABLE t(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let applied = vec![AppliedMigrationRecord {
+            hash: "db_hash".to_string(),
+            created_at: 1_680_271_923_000,
+        }];
+
+        let err = verify_applied_migrations_consistency(&set, &applied)
+            .expect_err("hash mismatch should fail verification");
+        assert!(err.to_string().contains("hash mismatch"));
+    }
+
+    #[test]
+    fn build_migration_plan_counts_pending_statements() {
+        use drizzle_migrations::{Migration, MigrationSet};
+
+        let set = MigrationSet::new(
+            vec![
+                Migration::with_hash(
+                    "20230331141203_first",
+                    "hash_a",
+                    1_680_271_923_000,
+                    vec![
+                        "CREATE TABLE a(id INTEGER PRIMARY KEY)".to_string(),
+                        "CREATE INDEX a_id_idx ON a(id)".to_string(),
+                    ],
+                ),
+                Migration::with_hash(
+                    "20230331150000_second",
+                    "hash_b",
+                    1_680_275_400_000,
+                    vec!["CREATE TABLE b(id INTEGER PRIMARY KEY)".to_string()],
+                ),
+            ],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let applied = vec![AppliedMigrationRecord {
+            hash: "hash_a".to_string(),
+            created_at: 1_680_271_923_000,
+        }];
+
+        let plan = build_migration_plan(&set, applied).expect("build migration plan");
+        assert_eq!(plan.applied_count, 1);
+        assert_eq!(plan.pending_count, 1);
+        assert_eq!(plan.pending_statements, 1);
+        assert_eq!(plan.pending_migrations, vec!["20230331150000_second"]);
+    }
+
     #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
     #[test]
     fn postgres_concurrent_index_detection_is_case_insensitive() {
@@ -3490,8 +4444,10 @@ pub struct Users {
 pub struct UsersEmailIdx(Users::email);
 "#;
 
-        let prev = parse_result_to_snapshot(&SchemaParser::parse(previous), Dialect::PostgreSQL);
-        let curr = parse_result_to_snapshot(&SchemaParser::parse(current), Dialect::PostgreSQL);
+        let prev =
+            parse_result_to_snapshot(&SchemaParser::parse(previous), Dialect::PostgreSQL, None);
+        let curr =
+            parse_result_to_snapshot(&SchemaParser::parse(current), Dialect::PostgreSQL, None);
 
         let (sql, warnings) = generate_push_sql(&prev, &curr, false).expect("push sql generation");
         assert!(warnings.is_empty());
@@ -3499,6 +4455,315 @@ pub struct UsersEmailIdx(Users::email);
             sql.iter().any(|s| s.contains("CREATE INDEX CONCURRENTLY")),
             "expected concurrent index SQL, got: {sql:?}"
         );
+    }
+
+    #[test]
+    fn filter_patterns_support_negation_globs() {
+        let raw = vec![
+            "users_*".to_string(),
+            "!users_4".to_string(),
+            "!ad*".to_string(),
+        ];
+        let patterns = compile_patterns(Some(&raw)).expect("compile patterns");
+
+        assert!(matches_patterns("users_1", &patterns));
+        assert!(!matches_patterns("users_4", &patterns));
+        assert!(!matches_patterns("admin", &patterns));
+        assert!(!matches_patterns("audit", &patterns));
+    }
+
+    #[test]
+    fn postgres_table_filter_matches_table_name_only() {
+        use crate::snapshot::parse_result_to_snapshot;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_migrations::schema::Snapshot;
+        use drizzle_types::Dialect as BaseDialect;
+
+        let code = r#"
+#[PostgresTable(schema = "admin")]
+pub struct AuditLog {
+    #[column(primary)]
+    pub id: i32,
+}
+
+#[PostgresTable(schema = "public")]
+pub struct Users {
+    #[column(primary)]
+    pub id: i32,
+}
+"#;
+
+        let parsed = SchemaParser::parse(code);
+        let mut snapshot = parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, None);
+        let filters = SnapshotFilters {
+            tables: Some(vec!["admin.*".to_string()]),
+            schemas: None,
+            extensions: None,
+        };
+
+        apply_snapshot_filters(&mut snapshot, crate::config::Dialect::Postgresql, &filters)
+            .expect("apply filters");
+
+        let remaining_tables = match snapshot {
+            Snapshot::Postgres(s) => s
+                .ddl
+                .iter()
+                .filter_map(|e| {
+                    if let drizzle_types::postgres::ddl::PostgresEntity::Table(t) = e {
+                        Some((t.schema.to_string(), t.name.to_string()))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>(),
+            _ => panic!("expected postgres snapshot"),
+        };
+
+        assert!(remaining_tables.is_empty());
+    }
+
+    #[test]
+    fn postgres_schema_and_table_filters_intersect() {
+        use crate::snapshot::parse_result_to_snapshot;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_migrations::schema::Snapshot;
+        use drizzle_types::Dialect as BaseDialect;
+
+        let code = r#"
+#[PostgresTable(schema = "dev")]
+pub struct UsersDev {
+    #[column(primary)]
+    pub id: i32,
+}
+
+#[PostgresTable(schema = "public")]
+pub struct UsersPublic {
+    #[column(primary)]
+    pub id: i32,
+}
+"#;
+
+        let parsed = SchemaParser::parse(code);
+        let mut snapshot = parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, None);
+        let filters = SnapshotFilters {
+            tables: Some(vec!["users_*".to_string()]),
+            schemas: Some(vec!["!dev".to_string()]),
+            extensions: None,
+        };
+
+        apply_snapshot_filters(&mut snapshot, crate::config::Dialect::Postgresql, &filters)
+            .expect("apply filters");
+
+        let remaining_tables = match snapshot {
+            Snapshot::Postgres(s) => s
+                .ddl
+                .iter()
+                .filter_map(|e| {
+                    if let drizzle_types::postgres::ddl::PostgresEntity::Table(t) = e {
+                        Some((t.schema.to_string(), t.name.to_string()))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>(),
+            _ => panic!("expected postgres snapshot"),
+        };
+
+        assert_eq!(
+            remaining_tables,
+            vec![("public".to_string(), "users_public".to_string())]
+        );
+    }
+
+    #[test]
+    fn postgres_extensions_filter_excludes_postgis_internal_objects() {
+        use crate::snapshot::parse_result_to_snapshot;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_migrations::schema::Snapshot;
+        use drizzle_types::Dialect as BaseDialect;
+
+        let code = r#"
+#[PostgresTable(schema = "topology")]
+pub struct TopologyLayer {
+    #[column(primary)]
+    pub id: i32,
+}
+
+#[PostgresTable]
+pub struct SpatialRefSys {
+    #[column(primary)]
+    pub id: i32,
+}
+
+#[PostgresTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i32,
+}
+"#;
+
+        let parsed = SchemaParser::parse(code);
+        let mut snapshot = parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, None);
+        let filters = SnapshotFilters {
+            tables: None,
+            schemas: None,
+            extensions: Some(vec![Extension::Postgis]),
+        };
+
+        apply_snapshot_filters(&mut snapshot, crate::config::Dialect::Postgresql, &filters)
+            .expect("apply filters");
+
+        let remaining_tables = match snapshot {
+            Snapshot::Postgres(s) => s
+                .ddl
+                .iter()
+                .filter_map(|e| {
+                    if let drizzle_types::postgres::ddl::PostgresEntity::Table(t) = e {
+                        Some((t.schema.to_string(), t.name.to_string()))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>(),
+            _ => panic!("expected postgres snapshot"),
+        };
+
+        assert_eq!(
+            remaining_tables,
+            vec![("public".to_string(), "users".to_string())]
+        );
+    }
+
+    #[test]
+    fn format_migration_sql_respects_breakpoints_flag() {
+        let sql = vec![
+            "CREATE TABLE users(id integer);".to_string(),
+            "CREATE INDEX users_id_idx ON users(id);".to_string(),
+        ];
+
+        let with_breakpoints = format_migration_sql(&sql, true);
+        assert!(with_breakpoints.contains("--> statement-breakpoint"));
+
+        let without_breakpoints = format_migration_sql(&sql, false);
+        assert!(!without_breakpoints.contains("--> statement-breakpoint"));
+        assert!(without_breakpoints.contains("\n\n"));
+
+        let empty = format_migration_sql(&[], false);
+        assert!(empty.contains("No tables to create"));
+    }
+
+    #[test]
+    fn regenerate_sqlite_schema_applies_introspect_casing() {
+        use crate::config::{Casing, IntrospectCasing};
+        use crate::snapshot::parse_result_to_snapshot;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_types::Dialect as BaseDialect;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i64,
+    pub user_name: String,
+}
+"#;
+
+        let parsed = SchemaParser::parse(code);
+        let snapshot =
+            parse_result_to_snapshot(&parsed, BaseDialect::SQLite, Some(Casing::SnakeCase));
+
+        let mut camel = IntrospectResult {
+            schema_code: String::new(),
+            table_count: 0,
+            index_count: 0,
+            view_count: 0,
+            warnings: Vec::new(),
+            snapshot: snapshot.clone(),
+            snapshot_path: std::path::PathBuf::new(),
+        };
+        regenerate_schema_from_snapshot(
+            &mut camel,
+            crate::config::Dialect::Sqlite,
+            Some(IntrospectCasing::Camel),
+        );
+
+        assert!(camel.schema_code.contains("pub userName: String"));
+        assert!(camel.schema_code.contains("pub auditLogs: AuditLogs"));
+
+        let mut preserve = IntrospectResult {
+            schema_code: String::new(),
+            table_count: 0,
+            index_count: 0,
+            view_count: 0,
+            warnings: Vec::new(),
+            snapshot,
+            snapshot_path: std::path::PathBuf::new(),
+        };
+        regenerate_schema_from_snapshot(
+            &mut preserve,
+            crate::config::Dialect::Sqlite,
+            Some(IntrospectCasing::Preserve),
+        );
+
+        assert!(preserve.schema_code.contains("pub user_name: String"));
+        assert!(preserve.schema_code.contains("pub audit_logs: AuditLogs"));
+    }
+
+    #[test]
+    fn regenerate_postgres_schema_applies_introspect_casing() {
+        use crate::config::{Casing, IntrospectCasing};
+        use crate::snapshot::parse_result_to_snapshot;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_types::Dialect as BaseDialect;
+
+        let code = r#"
+#[PostgresTable]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i32,
+    pub user_name: String,
+}
+"#;
+
+        let parsed = SchemaParser::parse(code);
+        let snapshot =
+            parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, Some(Casing::SnakeCase));
+
+        let mut camel = IntrospectResult {
+            schema_code: String::new(),
+            table_count: 0,
+            index_count: 0,
+            view_count: 0,
+            warnings: Vec::new(),
+            snapshot: snapshot.clone(),
+            snapshot_path: std::path::PathBuf::new(),
+        };
+        regenerate_schema_from_snapshot(
+            &mut camel,
+            crate::config::Dialect::Postgresql,
+            Some(IntrospectCasing::Camel),
+        );
+
+        assert!(camel.schema_code.contains("pub userName: String"));
+        assert!(camel.schema_code.contains("pub auditLogs: AuditLogs"));
+
+        let mut preserve = IntrospectResult {
+            schema_code: String::new(),
+            table_count: 0,
+            index_count: 0,
+            view_count: 0,
+            warnings: Vec::new(),
+            snapshot,
+            snapshot_path: std::path::PathBuf::new(),
+        };
+        regenerate_schema_from_snapshot(
+            &mut preserve,
+            crate::config::Dialect::Postgresql,
+            Some(IntrospectCasing::Preserve),
+        );
+
+        assert!(preserve.schema_code.contains("pub user_name: String"));
+        assert!(preserve.schema_code.contains("pub audit_logs: AuditLogs"));
     }
 
     #[cfg(feature = "postgres-sync")]

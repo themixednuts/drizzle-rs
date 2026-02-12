@@ -160,7 +160,7 @@
         "ssl": {
           "oneOf": [
             { "type": "boolean" },
-            { "type": "string", "enum": ["require", "allow", "prefer", "verify-full", "disable"] }
+            { "type": "string", "enum": ["require", "allow", "prefer", "verify-full", "verify-ca", "disable"] }
           ]
         }
       },
@@ -207,12 +207,6 @@
           "type": "boolean",
           "default": false
         },
-        "strict": {
-          "description": "Deprecated: use explain flag instead",
-          "type": "boolean",
-          "default": false,
-          "deprecated": true
-        },
         "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
         "introspect": { "$ref": "#/definitions/introspect" },
@@ -253,12 +247,6 @@
           "description": "Verbose output",
           "type": "boolean",
           "default": false
-        },
-        "strict": {
-          "description": "Deprecated: use explain flag instead",
-          "type": "boolean",
-          "default": false,
-          "deprecated": true
         },
         "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
@@ -301,18 +289,13 @@
           "type": "boolean",
           "default": false
         },
-        "strict": {
-          "description": "Deprecated: use explain flag instead",
-          "type": "boolean",
-          "default": false,
-          "deprecated": true
-        },
         "casing": { "$ref": "#/definitions/casing" },
         "migrations": { "$ref": "#/definitions/migrations" },
         "introspect": { "$ref": "#/definitions/introspect" },
         "dbCredentials": { "$ref": "#/definitions/dbCredentials" },
         "schemaFilter": {
           "description": "Schema filter for PostgreSQL (default: ['public'])",
+          "default": ["public"],
           "$ref": "#/definitions/filter"
         },
         "extensionsFilters": {

@@ -3,7 +3,7 @@
 //! This command scans the migrations folder and upgrades any old snapshot
 //! versions to the latest format, matching drizzle-kit's `up` command.
 
-use crate::config::Config;
+use crate::config::{Config, Dialect as CliDialect};
 use crate::error::CliError;
 use crate::output;
 use drizzle_migrations::upgrade::upgrade_to_latest;
@@ -16,13 +16,13 @@ use std::path::Path;
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
-    _dialect_override: Option<&str>,
+    dialect_override: Option<CliDialect>,
     out_override: Option<&Path>,
 ) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
     // CLI flags override config
-    let dialect = db.dialect.to_base();
+    let dialect = dialect_override.unwrap_or(db.dialect).to_base();
     let out_dir = out_override.unwrap_or(db.migrations_dir());
 
     println!(

@@ -7,7 +7,7 @@
 use super::collection::PostgresDDL;
 use super::ddl::{Column, Enum, ForeignKey, Index, Table, View};
 use crate::utils::escape_for_rust_literal;
-use heck::{ToPascalCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Result of code generation
@@ -38,6 +38,47 @@ pub struct CodegenOptions {
     pub schema_name: String,
     /// Whether to use public visibility
     pub use_pub: bool,
+    /// Field naming style for generated Rust members
+    pub field_casing: FieldCasing,
+}
+
+/// Casing strategy for generated Rust field names.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum FieldCasing {
+    /// `snake_case` (default)
+    #[default]
+    Snake,
+    /// `camelCase`
+    Camel,
+    /// Preserve source casing as much as possible
+    Preserve,
+}
+
+fn sanitize_rust_identifier(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for (idx, ch) in name.chars().enumerate() {
+        let valid = if idx == 0 {
+            ch == '_' || ch.is_ascii_alphabetic()
+        } else {
+            ch == '_' || ch.is_ascii_alphanumeric()
+        };
+
+        if valid {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+
+    if out.is_empty() { "_".to_string() } else { out }
+}
+
+fn apply_field_casing(name: &str, casing: FieldCasing) -> String {
+    match casing {
+        FieldCasing::Snake => name.to_snake_case(),
+        FieldCasing::Camel => name.to_lower_camel_case(),
+        FieldCasing::Preserve => sanitize_rust_identifier(name),
+    }
 }
 
 /// Generate Rust schema code from DDL
@@ -134,6 +175,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
             fk_map: &fk_map,
             enum_map: &enum_map,
             use_pub: options.use_pub,
+            field_casing: options.field_casing,
         });
 
         code.push_str(&table_code);
@@ -143,7 +185,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
 
     // Generate index structs
     for index in ddl.indexes.list() {
-        let index_code = generate_index_struct(index, options.use_pub);
+        let index_code = generate_index_struct(index, options.use_pub, options.field_casing);
         code.push_str(&index_code);
         code.push('\n');
         result.indexes.push(index.name.to_string());
@@ -157,7 +199,13 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
         }
         let key = (view.schema.to_string(), view.name.to_string());
         let columns = table_columns.get(&key).map(|c| c.as_slice()).unwrap_or(&[]);
-        let view_code = generate_view_struct(view, columns, &enum_map, options.use_pub);
+        let view_code = generate_view_struct(
+            view,
+            columns,
+            &enum_map,
+            options.use_pub,
+            options.field_casing,
+        );
         code.push_str(&view_code);
         code.push('\n');
         result.views.push(view.name.to_string());
@@ -170,6 +218,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
             &result.tables,
             &result.indexes,
             options.use_pub,
+            options.field_casing,
         );
         code.push_str(&schema_code);
     }
@@ -188,6 +237,7 @@ struct TableGenContext<'a> {
     fk_map: &'a HashMap<(String, String, String), (&'a ForeignKey, usize)>,
     enum_map: &'a HashMap<(String, String), String>,
     use_pub: bool,
+    field_casing: FieldCasing,
 }
 
 /// Generate a single table struct
@@ -213,15 +263,7 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
 
     // Generate fields
     for column in sorted_columns {
-        let field_code = generate_column_field(
-            column,
-            ctx.pk_columns,
-            ctx.unique_columns,
-            ctx.is_composite_pk,
-            ctx.fk_map,
-            ctx.enum_map,
-            ctx.use_pub,
-        );
+        let field_code = generate_column_field(column, ctx);
         code.push_str(&field_code);
     }
 
@@ -230,28 +272,22 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
 }
 
 /// Generate a single column as a struct field
-fn generate_column_field(
-    column: &Column,
-    pk_columns: Option<&HashSet<String>>,
-    unique_columns: Option<&HashSet<String>>,
-    is_composite_pk: bool,
-    fk_map: &HashMap<(String, String, String), (&ForeignKey, usize)>,
-    enum_map: &HashMap<(String, String), String>,
-    use_pub: bool,
-) -> String {
-    let field_name = column.name.to_snake_case();
-    let vis = if use_pub { "pub " } else { "" };
+fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
+    let field_name = apply_field_casing(column.name.as_ref(), ctx.field_casing);
+    let vis = if ctx.use_pub { "pub " } else { "" };
 
     let col_name_str = column.name.to_string();
-    let is_pk = pk_columns
+    let is_pk = ctx
+        .pk_columns
         .map(|pks| pks.contains(&col_name_str))
         .unwrap_or(false);
-    let is_unique = unique_columns
+    let is_unique = ctx
+        .unique_columns
         .map(|uqs| uqs.contains(&col_name_str))
         .unwrap_or(false);
 
     // For single-column PKs, add primary. For composite, skip (handled at table level)
-    let should_add_primary = is_pk && !is_composite_pk;
+    let should_add_primary = is_pk && !ctx.is_composite_pk;
 
     // Check for serial (nextval default without identity)
     let is_serial = column
@@ -262,7 +298,7 @@ fn generate_column_field(
         && column.identity.is_none();
 
     // Get FK info if present
-    let fk_info = fk_map.get(&(
+    let fk_info = ctx.fk_map.get(&(
         column.schema.to_string(),
         column.table.to_string(),
         col_name_str.clone(),
@@ -270,7 +306,9 @@ fn generate_column_field(
 
     // Check if this column uses an enum type
     let type_schema = column.type_schema.as_deref().unwrap_or(&column.schema);
-    let enum_type = enum_map.get(&(type_schema.to_string(), column.sql_type.to_string()));
+    let enum_type = ctx
+        .enum_map
+        .get(&(type_schema.to_string(), column.sql_type.to_string()));
 
     // Build column attributes
     let mut attrs = Vec::new();
@@ -556,7 +594,7 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
 }
 
 /// Generate an index struct
-fn generate_index_struct(index: &Index, use_pub: bool) -> String {
+fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing) -> String {
     let struct_name = index.name.to_pascal_case();
     let table_name = index.table.to_pascal_case();
     let vis = if use_pub { "pub " } else { "" };
@@ -579,7 +617,11 @@ fn generate_index_struct(index: &Index, use_pub: bool) -> String {
             if c.is_expression {
                 format!("\"{}\"", c.value) // Expression indexes use string literals
             } else {
-                format!("{}::{}", table_name, c.value.to_snake_case())
+                format!(
+                    "{}::{}",
+                    table_name,
+                    apply_field_casing(c.value.as_ref(), field_casing)
+                )
             }
         })
         .collect();
@@ -597,6 +639,7 @@ fn generate_view_struct(
     columns: &[&Column],
     enum_map: &HashMap<(String, String), String>,
     use_pub: bool,
+    field_casing: FieldCasing,
 ) -> String {
     let struct_name = view.name.to_pascal_case();
     let vis = if use_pub { "pub " } else { "" };
@@ -607,7 +650,7 @@ fn generate_view_struct(
     let mut attrs = Vec::new();
 
     // Check if view name differs from struct name (snake_case version)
-    if struct_name.to_snake_case() != view.name.as_ref() {
+    if apply_field_casing(&struct_name, field_casing) != view.name.as_ref() {
         attrs.push(format!("name = \"{}\"", view.name));
     }
 
@@ -662,7 +705,7 @@ fn generate_view_struct(
 
     // Generate fields for each column
     for column in sorted_columns {
-        let field_name = column.name.to_snake_case();
+        let field_name = apply_field_casing(column.name.as_ref(), field_casing);
 
         // Check if this column uses an enum type
         let type_schema = column.type_schema.as_deref().unwrap_or(&column.schema);
@@ -692,6 +735,7 @@ fn generate_schema_struct(
     tables: &[String],
     indexes: &[String],
     use_pub: bool,
+    field_casing: FieldCasing,
 ) -> String {
     let vis = if use_pub { "pub " } else { "" };
 
@@ -703,7 +747,7 @@ fn generate_schema_struct(
 
     // Table fields
     for table in tables {
-        let field_name = table.to_snake_case();
+        let field_name = apply_field_casing(table, field_casing);
         let type_name = table.to_pascal_case();
         code.push_str(&format!("    {vis}{field_name}: {type_name},\n"));
     }
@@ -712,7 +756,7 @@ fn generate_schema_struct(
     if !indexes.is_empty() {
         code.push_str("    // Indexes:\n");
         for index in indexes {
-            let field_name = index.to_snake_case();
+            let field_name = apply_field_casing(index, field_casing);
             let type_name = index.to_pascal_case();
             code.push_str(&format!("    // {field_name}: {type_name},\n"));
         }

@@ -4,20 +4,26 @@
 
 use std::path::PathBuf;
 
+use crate::commands::overrides;
 use crate::config::Config;
+use crate::config::Dialect;
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
+#[derive(Debug, Clone)]
+pub struct ExportOptions {
+    pub output_path: Option<PathBuf>,
+    pub dialect: Option<Dialect>,
+    pub schema: Option<Vec<String>>,
+}
+
 /// Run the export command
-pub fn run(
-    config: &Config,
-    db_name: Option<&str>,
-    output_path: Option<PathBuf>,
-) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 
     let db = config.database(db_name)?;
+    let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
@@ -27,10 +33,19 @@ pub fn run(
     println!("{}", output::heading("Exporting schema as SQL..."));
     println!();
 
+    println!(
+        "  {}: {}",
+        output::label("Dialect"),
+        effective_dialect.as_str()
+    );
+
     // Parse schema files
-    let schema_files = db.schema_files()?;
+    let schema_files = overrides::resolve_schema_files(db, opts.schema.as_deref())?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(db.schema_display()));
+        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
+            db,
+            opts.schema.as_deref(),
+        )));
     }
 
     println!(
@@ -65,8 +80,8 @@ pub fn run(
     );
 
     // Build snapshot from parsed schema (use config dialect)
-    let dialect = db.dialect.to_base();
-    let snapshot = parse_result_to_snapshot(&parse_result, dialect);
+    let dialect = effective_dialect.to_base();
+    let snapshot = parse_result_to_snapshot(&parse_result, dialect, db.casing);
 
     // Generate SQL from snapshot (create statements for all entities)
     let sql_statements = generate_create_sql(&snapshot, db.breakpoints)?;
@@ -79,7 +94,7 @@ pub fn run(
     let sql_content = sql_statements.join("\n\n");
 
     // Output to file or stdout
-    match output_path {
+    match opts.output_path {
         Some(path) => {
             std::fs::write(&path, &sql_content).map_err(|e| {
                 CliError::IoError(format!("Failed to write {}: {}", path.display(), e))

@@ -2,19 +2,20 @@
 
 use std::path::Path;
 
-use crate::config::{Config, Credentials, PostgresCreds};
+use crate::config::{Config, Credentials, Dialect, PostgresCreds};
 use crate::error::CliError;
 use crate::output;
 
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
-    _dialect_override: Option<&str>,
+    dialect_override: Option<Dialect>,
     out_override: Option<&Path>,
 ) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
     // CLI flags override config
+    let effective_dialect = dialect_override.unwrap_or(db.dialect);
     let effective_out = out_override
         .map(Path::to_path_buf)
         .unwrap_or(db.out.clone());
@@ -31,7 +32,7 @@ pub fn run(
     let mut has_errors = false;
 
     // Basic info
-    println!("  {}: {}", output::label("Dialect"), db.dialect);
+    println!("  {}: {}", output::label("Dialect"), effective_dialect);
     if let Some(driver) = db.driver {
         println!("  {}: {}", output::label("Driver"), driver);
     }

@@ -4,27 +4,43 @@
 
 use std::path::Path;
 
-use crate::config::{Casing, Config};
+use crate::commands::overrides;
+use crate::config::{Casing, Config, Dialect, Driver, MigrationPrefix};
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
+#[derive(Debug, Clone)]
+pub struct GenerateOptions {
+    pub name: Option<String>,
+    pub custom: bool,
+    pub casing: Option<Casing>,
+    pub dialect: Option<Dialect>,
+    pub driver: Option<Driver>,
+    pub schema: Option<Vec<String>>,
+    pub out: Option<std::path::PathBuf>,
+    pub breakpoints: Option<bool>,
+}
+
 /// Run the generate command
-pub fn run(
-    config: &Config,
-    db_name: Option<&str>,
-    name: Option<String>,
-    custom: bool,
-    casing: Option<Casing>,
-) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::parser::SchemaParser;
     use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
     let db = config.database(db_name)?;
 
-    // CLI flag overrides config, config default is camelCase
-    let _effective_casing = casing.unwrap_or_else(|| db.effective_casing());
+    // CLI flag overrides config
+    let effective_casing = opts.casing.or(db.casing);
+    let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
+    let effective_driver = overrides::resolve_driver(db, effective_dialect, opts.driver)?;
+    let effective_breakpoints = opts.breakpoints.unwrap_or(db.breakpoints);
+    let out_dir = opts
+        .out
+        .clone()
+        .unwrap_or_else(|| db.migrations_dir().to_path_buf());
+    let meta_dir = out_dir.join("meta");
+    let journal_path = meta_dir.join("_journal.json");
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
@@ -33,21 +49,38 @@ pub fn run(
 
     println!("{}", output::heading("Generating migration..."));
 
+    println!(
+        "  {}: {}",
+        output::label("Dialect"),
+        effective_dialect.as_str()
+    );
+    if let Some(driver) = effective_driver {
+        println!("  {}: {}", output::label("Driver"), driver);
+    }
+
     // Create output directories if they don't exist
-    let out_dir = db.migrations_dir();
-    let meta_dir = db.meta_dir();
-    std::fs::create_dir_all(out_dir).map_err(|e| CliError::IoError(e.to_string()))?;
+    std::fs::create_dir_all(&out_dir).map_err(|e| CliError::IoError(e.to_string()))?;
     std::fs::create_dir_all(&meta_dir).map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Handle custom migration (empty migration file for manual SQL)
-    if custom {
-        return generate_custom_migration(db, name);
+    if opts.custom {
+        return generate_custom_migration(
+            &out_dir,
+            &journal_path,
+            effective_dialect.to_base(),
+            effective_breakpoints,
+            db.migrations.as_ref().and_then(|m| m.prefix),
+            opts.name,
+        );
     }
 
     // Parse schema files
-    let schema_files = db.schema_files()?;
+    let schema_files = overrides::resolve_schema_files(db, opts.schema.as_deref())?;
     if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(db.schema_display()));
+        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
+            db,
+            opts.schema.as_deref(),
+        )));
     }
 
     println!(
@@ -82,17 +115,16 @@ pub fn run(
     );
 
     // Get dialect from config
-    let dialect = db.dialect.to_base();
+    let dialect = effective_dialect.to_base();
 
     // Build current snapshot from parsed schema (use config dialect, not parser-detected)
-    let current_snapshot = parse_result_to_snapshot(&parse_result, dialect);
+    let current_snapshot = parse_result_to_snapshot(&parse_result, dialect, effective_casing);
 
     // Load previous snapshot if exists
-    let journal_path = db.journal_path();
-    let prev_snapshot = load_previous_snapshot(out_dir, &journal_path, dialect)?;
+    let prev_snapshot = load_previous_snapshot(&out_dir, &journal_path, dialect)?;
 
     // Generate diff
-    let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, db.breakpoints)?;
+    let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, effective_breakpoints)?;
 
     if sql_statements.is_empty() {
         println!("{}", output::warning("No schema changes detected 😴"));
@@ -117,7 +149,7 @@ pub fn run(
         .unwrap_or(PrefixMode::Timestamp);
 
     let migration_tag =
-        generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), name.as_deref());
+        generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), opts.name.as_deref());
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -125,7 +157,7 @@ pub fn run(
 
     // Write {tag}/migration.sql
     let migration_sql_path = migration_dir.join("migration.sql");
-    let sql_content = if db.breakpoints {
+    let sql_content = if effective_breakpoints {
         sql_statements.join("\n--> statement-breakpoint\n")
     } else {
         sql_statements.join("\n\n")
@@ -140,7 +172,7 @@ pub fn run(
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Update journal
-    journal.add_entry(migration_tag.clone(), db.breakpoints);
+    journal.add_entry(migration_tag.clone(), effective_breakpoints);
     journal
         .save(&journal_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
@@ -156,26 +188,21 @@ pub fn run(
 
 /// Generate an empty custom migration for manual SQL
 fn generate_custom_migration(
-    db: &crate::config::DatabaseConfig,
+    out_dir: &Path,
+    journal_path: &Path,
+    dialect: drizzle_types::Dialect,
+    breakpoints: bool,
+    prefix: Option<MigrationPrefix>,
     name: Option<String>,
 ) -> Result<(), CliError> {
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
-    let out_dir = db.migrations_dir();
-    let journal_path = db.journal_path();
-    let dialect = db.dialect.to_base();
-
     let custom_name = name.unwrap_or_else(|| "custom".to_string());
-    let mut journal = Journal::load_or_create(&journal_path, dialect)
+    let mut journal = Journal::load_or_create(journal_path, dialect)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
-    let prefix_mode = db
-        .migrations
-        .as_ref()
-        .and_then(|m| m.prefix)
-        .map(map_prefix_mode)
-        .unwrap_or(PrefixMode::Timestamp);
+    let prefix_mode = prefix.map(map_prefix_mode).unwrap_or(PrefixMode::Timestamp);
 
     let migration_tag =
         generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), Some(&custom_name));
@@ -191,9 +218,9 @@ fn generate_custom_migration(
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Update journal
-    journal.add_entry(migration_tag.clone(), db.breakpoints);
+    journal.add_entry(migration_tag.clone(), breakpoints);
     journal
-        .save(&journal_path)
+        .save(journal_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     println!(
@@ -209,13 +236,13 @@ fn generate_custom_migration(
     Ok(())
 }
 
-fn map_prefix_mode(p: crate::config::MigrationPrefix) -> drizzle_migrations::PrefixMode {
+fn map_prefix_mode(p: MigrationPrefix) -> drizzle_migrations::PrefixMode {
     match p {
-        crate::config::MigrationPrefix::Index => drizzle_migrations::PrefixMode::Index,
-        crate::config::MigrationPrefix::Timestamp => drizzle_migrations::PrefixMode::Timestamp,
-        crate::config::MigrationPrefix::Supabase => drizzle_migrations::PrefixMode::Supabase,
-        crate::config::MigrationPrefix::Unix => drizzle_migrations::PrefixMode::Unix,
-        crate::config::MigrationPrefix::None => drizzle_migrations::PrefixMode::None,
+        MigrationPrefix::Index => drizzle_migrations::PrefixMode::Index,
+        MigrationPrefix::Timestamp => drizzle_migrations::PrefixMode::Timestamp,
+        MigrationPrefix::Supabase => drizzle_migrations::PrefixMode::Supabase,
+        MigrationPrefix::Unix => drizzle_migrations::PrefixMode::Unix,
+        MigrationPrefix::None => drizzle_migrations::PrefixMode::None,
     }
 }
 
