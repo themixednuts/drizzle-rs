@@ -76,15 +76,23 @@ impl TypeCategory {
         }
 
         // Fixed-size byte arrays first
-        if type_str.starts_with("[u8;") || type_str.contains("[u8;") {
+        if type_str.starts_with("[u8;")
+            || (type_str.contains("[u8;") && !type_str.contains("SmallVec"))
+        {
             return TypeCategory::ByteArray;
         }
 
-        // ArrayVec/ArrayString before generic checks
-        if type_str.contains("ArrayString") {
+        // ArrayVec/ArrayString and popular string wrappers before generic checks
+        if type_str.contains("ArrayString") || type_str.contains("CompactString") {
             return TypeCategory::ArrayString;
         }
-        if type_str.contains("ArrayVec") && type_str.contains("u8") {
+        if (type_str.contains("ArrayVec") && type_str.contains("u8"))
+            || type_str.contains("bytes::Bytes")
+            || type_str.contains("bytes::BytesMut")
+            || type_str == "Bytes"
+            || type_str == "BytesMut"
+            || (type_str.contains("SmallVec") && type_str.contains("u8"))
+        {
             return TypeCategory::ArrayVec;
         }
 
@@ -329,6 +337,26 @@ mod tests {
             TypeCategory::Blob
         );
         assert_eq!(TypeCategory::from_type_string("Uuid"), TypeCategory::Uuid);
+        assert_eq!(
+            TypeCategory::from_type_string("compact_str::CompactString"),
+            TypeCategory::ArrayString
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("bytes::Bytes"),
+            TypeCategory::ArrayVec
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("Bytes"),
+            TypeCategory::ArrayVec
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("BytesMut"),
+            TypeCategory::ArrayVec
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("smallvec::SmallVec<[u8; 16]>"),
+            TypeCategory::ArrayVec
+        );
         assert_eq!(
             TypeCategory::from_type_string("[u8; 16]"),
             TypeCategory::ByteArray

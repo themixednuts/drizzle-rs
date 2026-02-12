@@ -290,6 +290,7 @@ impl TypeCategory {
     pub(crate) fn is_valid_constraint(&self, constraint: &str) -> bool {
         match constraint {
             "serial" => matches!(self, TypeCategory::I32),
+            "smallserial" => matches!(self, TypeCategory::I16),
             "bigserial" => matches!(self, TypeCategory::I64),
             "primary" | "unique" | "not_null" | "check" | "references" | "default"
             | "default_fn" => true,
@@ -324,6 +325,11 @@ pub(crate) enum PostgreSQLType {
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Serial,
+
+    /// PostgreSQL SMALLSERIAL type - auto-incrementing 16-bit integer
+    ///
+    /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
+    Smallserial,
 
     /// PostgreSQL BIGSERIAL type - auto-incrementing 64-bit integer
     ///
@@ -523,6 +529,7 @@ impl PostgreSQLType {
             Self::Integer => "INTEGER",
             Self::Bigint => "BIGINT",
             Self::Smallint => "SMALLINT",
+            Self::Smallserial => "SMALLSERIAL",
             Self::Serial => "SERIAL",
             Self::Bigserial => "BIGSERIAL",
             Self::Text => "TEXT",
@@ -699,6 +706,7 @@ impl FieldInfo {
         let mut check_constraint = None;
         let mut foreign_key = None;
         let mut is_serial = false;
+        let mut is_smallserial = false;
         let mut is_bigserial = false;
         let mut is_generated_identity = false;
         let mut identity_mode = None;
@@ -719,6 +727,7 @@ impl FieldInfo {
                 check_constraint = column_info.check_constraint;
                 foreign_key = column_info.foreign_key;
                 is_serial = column_info.is_serial;
+                is_smallserial = column_info.is_smallserial;
                 is_bigserial = column_info.is_bigserial;
                 is_generated_identity = column_info.is_generated_identity;
                 identity_mode = column_info.identity_mode;
@@ -733,7 +742,9 @@ impl FieldInfo {
 
         // Determine the PostgreSQL column type
         #[cfg(feature = "serde")]
-        let column_type = if is_serial {
+        let column_type = if is_smallserial {
+            PostgreSQLType::Smallserial
+        } else if is_serial {
             PostgreSQLType::Serial
         } else if is_bigserial {
             PostgreSQLType::Bigserial
@@ -763,7 +774,9 @@ impl FieldInfo {
         };
 
         #[cfg(not(feature = "serde"))]
-        let column_type = if is_serial {
+        let column_type = if is_smallserial {
+            PostgreSQLType::Smallserial
+        } else if is_serial {
             PostgreSQLType::Serial
         } else if is_bigserial {
             PostgreSQLType::Bigserial
@@ -799,7 +812,7 @@ impl FieldInfo {
         // is_json is true for both inferred serde_json::Value and explicit #[column(json/jsonb)]
         let is_json =
             matches!(type_category, TypeCategory::Json) || is_explicit_json || is_explicit_jsonb;
-        let is_serial_type = is_serial || is_bigserial;
+        let is_serial_type = is_smallserial || is_serial || is_bigserial;
         let has_default = default.is_some() || default_fn.is_some() || is_serial_type;
 
         // Compute base_type once and store it
@@ -815,7 +828,7 @@ impl FieldInfo {
             is_primary_single: is_primary && !is_composite_pk,
             is_not_null: !is_nullable,
             is_unique,
-            is_serial: is_serial || is_bigserial,
+            is_serial: is_serial_type,
             default: &default,
             check_constraint: &check_constraint,
         });
@@ -877,6 +890,7 @@ impl FieldInfo {
         let mut check_constraint = None;
         let mut foreign_key = None;
         let mut is_serial = false;
+        let mut is_smallserial = false;
         let mut is_bigserial = false;
         let mut is_generated_identity = false;
         let mut identity_mode: Option<IdentityMode> = None;
@@ -928,7 +942,7 @@ impl FieldInfo {
                                 "smallserial constraint requires field type i16",
                             ));
                         }
-                        is_serial = true; // Treat as serial for now
+                        is_smallserial = true;
                         marker_exprs.push(make_uppercase_path(path_ident, "SMALLSERIAL"));
                     }
                     "PRIMARY" | "PRIMARY_KEY" => {
@@ -1146,6 +1160,7 @@ impl FieldInfo {
             check_constraint,
             foreign_key,
             is_serial,
+            is_smallserial,
             is_bigserial,
             is_generated_identity,
             identity_mode,
@@ -1437,6 +1452,7 @@ struct ColumnInfo {
     check_constraint: Option<String>,
     foreign_key: Option<PostgreSQLReference>,
     is_serial: bool,
+    is_smallserial: bool,
     is_bigserial: bool,
     is_generated_identity: bool,
     identity_mode: Option<IdentityMode>,

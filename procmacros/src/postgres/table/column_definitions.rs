@@ -62,7 +62,10 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             field_info.is_primary,
             !field_info.is_nullable,
             field_info.is_unique,
-            matches!(field_info.column_type, PostgreSQLType::Serial),
+            matches!(
+                field_info.column_type,
+                PostgreSQLType::Smallserial | PostgreSQLType::Serial
+            ),
             matches!(field_info.column_type, PostgreSQLType::Bigserial),
             field_info.is_generated_identity,
             field_info.has_default || field_info.default_fn.is_some(),
@@ -84,6 +87,16 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         let enum_impl = if field_info.is_enum || field_info.is_pgenum {
             let (conversion, reference_conversion) = match field_info.column_type {
                 PostgreSQLType::Smallint => (
+                    quote! {
+                        let smallint: i16 = value.into();
+                        PostgresValue::Smallint(smallint)
+                    },
+                    quote! {
+                        let smallint: i16 = value.into();
+                        PostgresValue::Smallint(smallint)
+                    },
+                ),
+                PostgreSQLType::Smallserial => (
                     quote! {
                         let smallint: i16 = value.into();
                         PostgresValue::Smallint(smallint)
@@ -214,6 +227,10 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
         // Only Serial/Bigserial columns have is_serial/is_bigserial fields - others are always false
         let (is_serial_expr, is_bigserial_expr) = match &field_info.column_type {
+            PostgreSQLType::Smallserial => (
+                quote! { true },  // Smallserial is serial-like
+                quote! { false }, // Smallserial is not bigserial
+            ),
             PostgreSQLType::Serial => (
                 quote! { true },  // Serial is always serial
                 quote! { false }, // Serial is not bigserial

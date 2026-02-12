@@ -20,6 +20,7 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
         PostgreSQLType::Integer
             | PostgreSQLType::Bigint
             | PostgreSQLType::Smallint
+            | PostgreSQLType::Smallserial
             | PostgreSQLType::Serial
             | PostgreSQLType::Bigserial
     )

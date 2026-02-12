@@ -77,7 +77,10 @@ pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     } else {
         // Our enum mapping (text or integer storage)
         match info.column_type {
-            PostgreSQLType::Integer | PostgreSQLType::Bigint | PostgreSQLType::Smallint => {
+            PostgreSQLType::Integer
+            | PostgreSQLType::Bigint
+            | PostgreSQLType::Smallint
+            | PostgreSQLType::Smallserial => {
                 Ok(quote! {
                     // sqlx Type/Encode/Decode for integer-stored enums
                     impl ::sqlx::Type<::sqlx::Postgres> for #value_type {

@@ -1526,6 +1526,7 @@ dependencies = [
  "bytes",
  "chrono",
  "cidr",
+ "compact_str",
  "drizzle-core",
  "drizzle-macros",
  "geo-types",
@@ -1533,6 +1534,7 @@ dependencies = [
  "postgres",
  "serde",
  "serde_json",
+ "smallvec",
  "tokio",
  "tokio-postgres",
  "uuid",
@@ -1543,6 +1545,7 @@ name = "drizzle-sqlite"
 version = "0.1.5"
 dependencies = [
  "arrayvec",
+ "bytes",
  "compact_str",
  "drizzle-core",
  "drizzle-macros",
@@ -1554,6 +1557,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "smallvec",
  "thiserror 2.0.18",
  "turso",
  "uuid",

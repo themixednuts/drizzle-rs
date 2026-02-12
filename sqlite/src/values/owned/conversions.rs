@@ -237,10 +237,37 @@ impl<const N: usize> From<arrayvec::ArrayString<N>> for OwnedSQLiteValue {
     }
 }
 
+impl From<compact_str::CompactString> for OwnedSQLiteValue {
+    fn from(value: compact_str::CompactString) -> Self {
+        OwnedSQLiteValue::Text(value.to_string())
+    }
+}
+
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for OwnedSQLiteValue {
     fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
         OwnedSQLiteValue::Blob(value.to_vec().into_boxed_slice())
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl From<bytes::Bytes> for OwnedSQLiteValue {
+    fn from(value: bytes::Bytes) -> Self {
+        OwnedSQLiteValue::Blob(value.to_vec().into_boxed_slice())
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl From<bytes::BytesMut> for OwnedSQLiteValue {
+    fn from(value: bytes::BytesMut) -> Self {
+        OwnedSQLiteValue::Blob(value.to_vec().into_boxed_slice())
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for OwnedSQLiteValue {
+    fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
+        OwnedSQLiteValue::Blob(value.into_vec().into_boxed_slice())
     }
 }
 
@@ -303,10 +330,23 @@ impl_try_from_owned_sqlite_value!(
     Rc<Vec<u8>>,
     Arc<Vec<u8>>,
     Vec<u8>,
+    compact_str::CompactString,
 );
 
 #[cfg(feature = "uuid")]
 impl_try_from_owned_sqlite_value!(Uuid);
+
+#[cfg(feature = "bytes")]
+impl_try_from_owned_sqlite_value!(bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> TryFrom<OwnedSQLiteValue> for smallvec::SmallVec<[u8; N]> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedSQLiteValue) -> Result<Self, Self::Error> {
+        value.convert()
+    }
+}
 
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> TryFrom<OwnedSQLiteValue> for arrayvec::ArrayString<N> {
@@ -397,10 +437,23 @@ impl_try_from_owned_sqlite_value_ref!(
     Rc<Vec<u8>>,
     Arc<Vec<u8>>,
     Vec<u8>,
+    compact_str::CompactString,
 );
 
 #[cfg(feature = "uuid")]
 impl_try_from_owned_sqlite_value_ref!(Uuid);
+
+#[cfg(feature = "bytes")]
+impl_try_from_owned_sqlite_value_ref!(bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> TryFrom<&OwnedSQLiteValue> for smallvec::SmallVec<[u8; N]> {
+    type Error = DrizzleError;
+
+    fn try_from(value: &OwnedSQLiteValue) -> Result<Self, Self::Error> {
+        value.convert_ref()
+    }
+}
 
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> TryFrom<&OwnedSQLiteValue> for arrayvec::ArrayString<N> {

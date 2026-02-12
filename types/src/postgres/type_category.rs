@@ -116,18 +116,26 @@ impl TypeCategory {
         }
 
         // Fixed-size arrays first
-        if type_str.starts_with("[u8;") || type_str.contains("[u8;") {
+        if type_str.starts_with("[u8;")
+            || (type_str.contains("[u8;") && !type_str.contains("SmallVec"))
+        {
             return TypeCategory::ByteArray;
         }
         if type_str.starts_with("[char;") || type_str.contains("[char;") {
             return TypeCategory::CharArray;
         }
 
-        // ArrayVec/ArrayString before generic checks
-        if type_str.contains("ArrayString") {
+        // ArrayVec/ArrayString and popular wrappers before generic checks
+        if type_str.contains("ArrayString") || type_str.contains("CompactString") {
             return TypeCategory::ArrayString;
         }
-        if type_str.contains("ArrayVec") && type_str.contains("u8") {
+        if (type_str.contains("ArrayVec") && type_str.contains("u8"))
+            || type_str.contains("bytes::Bytes")
+            || type_str.contains("bytes::BytesMut")
+            || type_str == "Bytes"
+            || type_str == "BytesMut"
+            || (type_str.contains("SmallVec") && type_str.contains("u8"))
+        {
             return TypeCategory::ArrayVec;
         }
 
@@ -309,6 +317,8 @@ impl TypeCategory {
     pub fn is_valid_constraint(&self, constraint: &str) -> bool {
         if constraint.eq_ignore_ascii_case("serial") {
             matches!(self, TypeCategory::I32)
+        } else if constraint.eq_ignore_ascii_case("smallserial") {
+            matches!(self, TypeCategory::I16)
         } else if constraint.eq_ignore_ascii_case("bigserial") {
             matches!(self, TypeCategory::I64)
         } else {
@@ -585,6 +595,26 @@ mod tests {
             TypeCategory::Blob
         );
         assert_eq!(TypeCategory::from_type_string("Uuid"), TypeCategory::Uuid);
+        assert_eq!(
+            TypeCategory::from_type_string("compact_str::CompactString"),
+            TypeCategory::ArrayString
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("bytes::Bytes"),
+            TypeCategory::ArrayVec
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("Bytes"),
+            TypeCategory::ArrayVec
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("BytesMut"),
+            TypeCategory::ArrayVec
+        );
+        assert_eq!(
+            TypeCategory::from_type_string("smallvec::SmallVec<[u8; 16]>"),
+            TypeCategory::ArrayVec
+        );
         assert_eq!(
             TypeCategory::from_type_string("Option<String>"),
             TypeCategory::String

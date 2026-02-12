@@ -3345,3 +3345,162 @@ impl<const N: usize> FromPostgresValue for arrayvec::ArrayVec<u8, N> {
         })
     }
 }
+
+#[cfg(feature = "compact-str")]
+impl FromPostgresValue for compact_str::CompactString {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value))
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        let s = String::from_utf8(value.to_vec()).map_err(|e| {
+            DrizzleError::ConversionError(format!("invalid UTF-8 in BYTEA: {}", e).into())
+        })?;
+        Ok(compact_str::CompactString::new(s))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl FromPostgresValue for bytes::Bytes {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bool(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i16(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i32(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i64(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f32(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f64(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_text(value).map(bytes::Bytes::from)
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        Ok(bytes::Bytes::copy_from_slice(value))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl FromPostgresValue for bytes::BytesMut {
+    fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_bool(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i16(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i32(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_i64(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f32(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_f64(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_postgres_text(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        Ok(bytes::BytesMut::from(value))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> FromPostgresValue for smallvec::SmallVec<[u8; N]> {
+    fn from_postgres_bool(_value: bool) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert bool to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_i16(_value: i16) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert i16 to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_i32(_value: i32) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert i32 to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_i64(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert i64 to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_f32(_value: f32) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert f32 to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_f64(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert f64 to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_text(_value: &str) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert TEXT to SmallVec<u8>, use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        let mut out = smallvec::SmallVec::<[u8; N]>::new();
+        out.extend_from_slice(value);
+        Ok(out)
+    }
+}

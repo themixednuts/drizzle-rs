@@ -19,6 +19,8 @@ cidr = { version = "0.3", optional = true, features = ["serde"] }
 geo-types = { version = "0.7", optional = true, features = ["serde"] }
 bit-vec = { version = "0.8", optional = true }
 arrayvec = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
+compact_str = { workspace = true, optional = true }
 # sqlx = { workspace = true, optional = true, default-features = false }
 paste = { workspace = true }
 postgres = { workspace = true, optional = true }
@@ -59,6 +61,9 @@ bit-vec = [
 ]
 
 arrayvec = ["dep:arrayvec"]
+smallvec = ["dep:smallvec"]
+compact-str = ["dep:compact_str"]
+bytes = ["dep:bytes"]
 
 # sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/uuid"]
 

@@ -242,6 +242,18 @@ impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for SQLiteValue<'a> {
     }
 }
 
+impl<'a> From<compact_str::CompactString> for SQLiteValue<'a> {
+    fn from(value: compact_str::CompactString) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+impl<'a> From<&'a compact_str::CompactString> for SQLiteValue<'a> {
+    fn from(value: &'a compact_str::CompactString) -> Self {
+        SQLiteValue::Text(Cow::Borrowed(value.as_str()))
+    }
+}
+
 // --- Binary Data ---
 
 impl<'a> From<&'a [u8]> for SQLiteValue<'a> {
@@ -310,6 +322,48 @@ impl<'a, const N: usize> From<arrayvec::ArrayVec<u8, N>> for SQLiteValue<'a> {
 #[cfg(feature = "arrayvec")]
 impl<'a, const N: usize> From<&arrayvec::ArrayVec<u8, N>> for SQLiteValue<'a> {
     fn from(value: &arrayvec::ArrayVec<u8, N>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<bytes::Bytes> for SQLiteValue<'a> {
+    fn from(value: bytes::Bytes) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<&'a bytes::Bytes> for SQLiteValue<'a> {
+    fn from(value: &'a bytes::Bytes) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<bytes::BytesMut> for SQLiteValue<'a> {
+    fn from(value: bytes::BytesMut) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<&'a bytes::BytesMut> for SQLiteValue<'a> {
+    fn from(value: &'a bytes::BytesMut) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<'a, const N: usize> From<smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> {
+    fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
+        SQLiteValue::Blob(Cow::Owned(value.into_vec()))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> {
+    fn from(value: &smallvec::SmallVec<[u8; N]>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
 }
@@ -402,10 +456,23 @@ impl_try_from_sqlite_value!(
     Rc<Vec<u8>>,
     Arc<Vec<u8>>,
     Vec<u8>,
+    compact_str::CompactString,
 );
 
 #[cfg(feature = "uuid")]
 impl_try_from_sqlite_value!(Uuid);
+
+#[cfg(feature = "bytes")]
+impl_try_from_sqlite_value!(bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> TryFrom<SQLiteValue<'_>> for smallvec::SmallVec<[u8; N]> {
+    type Error = DrizzleError;
+
+    fn try_from(value: SQLiteValue<'_>) -> Result<Self, Self::Error> {
+        value.convert()
+    }
+}
 
 //------------------------------------------------------------------------------
 // TryFrom<&SQLiteValue> implementations for borrowing without consuming
@@ -453,10 +520,23 @@ impl_try_from_sqlite_value_ref!(
     Rc<Vec<u8>>,
     Arc<Vec<u8>>,
     Vec<u8>,
+    compact_str::CompactString,
 );
 
 #[cfg(feature = "uuid")]
 impl_try_from_sqlite_value_ref!(Uuid);
+
+#[cfg(feature = "bytes")]
+impl_try_from_sqlite_value_ref!(bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> TryFrom<&SQLiteValue<'_>> for smallvec::SmallVec<[u8; N]> {
+    type Error = DrizzleError;
+
+    fn try_from(value: &SQLiteValue<'_>) -> Result<Self, Self::Error> {
+        value.convert_ref()
+    }
+}
 
 // --- Borrowed reference types (cannot use FromSQLiteValue) ---
 

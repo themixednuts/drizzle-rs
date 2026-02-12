@@ -150,12 +150,84 @@ pub(crate) fn type_is_char_array(ty: &Type) -> bool {
 }
 
 pub(crate) fn type_is_array_string(ty: &Type) -> bool {
-    type_path(ty)
-        .and_then(last_path_ident)
-        .is_some_and(|id| id == "ArrayString")
+    let Some(path) = type_path(ty) else {
+        return false;
+    };
+
+    if path
+        .segments
+        .last()
+        .is_some_and(|seg| seg.ident == "ArrayString")
+    {
+        return true;
+    }
+
+    #[cfg(feature = "compact-str")]
+    if path
+        .segments
+        .last()
+        .is_some_and(|seg| seg.ident == "CompactString")
+    {
+        return true;
+    }
+
+    false
+}
+
+#[cfg(feature = "smallvec")]
+fn type_is_smallvec_u8(ty: &Type) -> bool {
+    let Some(path) = type_path(ty) else {
+        return false;
+    };
+    let Some(segment) = path.segments.last() else {
+        return false;
+    };
+    if segment.ident != "SmallVec" {
+        return false;
+    }
+
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return false;
+    };
+
+    args.args.iter().any(|arg| {
+        if let GenericArgument::Type(Type::Array(array)) = arg {
+            matches!(
+                array.elem.as_ref(),
+                Type::Path(path) if path.path.segments.last().is_some_and(|seg| seg.ident == "u8")
+            )
+        } else {
+            false
+        }
+    })
+}
+
+#[cfg(feature = "bytes")]
+fn type_is_bytes_type(ty: &Type) -> bool {
+    let Some(path) = type_path(ty) else {
+        return false;
+    };
+
+    let Some(last) = path.segments.last() else {
+        return false;
+    };
+
+    // Accept both fully-qualified (`bytes::Bytes`) and imported (`Bytes`) names.
+    // This may match user-defined aliases with the same identifier.
+    last.ident == "Bytes" || last.ident == "BytesMut"
 }
 
 pub(crate) fn type_is_arrayvec_u8(ty: &Type) -> bool {
+    #[cfg(feature = "bytes")]
+    if type_is_bytes_type(ty) {
+        return true;
+    }
+
+    #[cfg(feature = "smallvec")]
+    if type_is_smallvec_u8(ty) {
+        return true;
+    }
+
     let Some(path) = type_path(ty) else {
         return false;
     };

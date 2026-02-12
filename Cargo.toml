@@ -181,6 +181,13 @@ arrayvec = [
   "drizzle-macros/arrayvec",
   "drizzle-core/arrayvec",
 ]
+compact-str = ["drizzle-postgres?/compact-str", "drizzle-macros/compact-str"]
+bytes = ["drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-macros/bytes"]
+smallvec-types = [
+  "drizzle-postgres?/smallvec",
+  "drizzle-sqlite?/smallvec",
+  "drizzle-macros/smallvec",
+]
 
 # Profiling feature
 profiling = [

@@ -41,6 +41,11 @@ pub enum PostgreSQLType {
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Serial,
 
+    /// PostgreSQL SMALLSERIAL type - auto-incrementing 16-bit integer
+    ///
+    /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
+    Smallserial,
+
     /// PostgreSQL BIGSERIAL type - auto-incrementing 64-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
@@ -232,6 +237,7 @@ impl PostgreSQLType {
             "integer" | "int" | "int4" => Some(Self::Integer),
             "bigint" | "int8" => Some(Self::Bigint),
             "smallint" | "int2" => Some(Self::Smallint),
+            "smallserial" | "serial2" => Some(Self::Smallserial),
             "serial" | "serial4" => Some(Self::Serial),
             "bigserial" | "serial8" => Some(Self::Bigserial),
 
@@ -321,6 +327,7 @@ impl PostgreSQLType {
             Self::Integer => "INTEGER",
             Self::Bigint => "BIGINT",
             Self::Smallint => "SMALLINT",
+            Self::Smallserial => "SMALLSERIAL",
             Self::Serial => "SERIAL",
             Self::Bigserial => "BIGSERIAL",
             Self::Text => "TEXT",
@@ -378,7 +385,7 @@ impl PostgreSQLType {
     /// Check if this type is an auto-incrementing type
     #[must_use]
     pub const fn is_serial(&self) -> bool {
-        matches!(self, Self::Serial | Self::Bigserial)
+        matches!(self, Self::Smallserial | Self::Serial | Self::Bigserial)
     }
 
     /// Check if this type supports primary keys
@@ -398,7 +405,7 @@ impl PostgreSQLType {
     #[must_use]
     pub fn is_valid_flag(&self, flag: &str) -> bool {
         match (self, flag) {
-            (Self::Serial | Self::Bigserial, "identity") => true,
+            (Self::Smallserial | Self::Serial | Self::Bigserial, "identity") => true,
             (Self::Text | Self::Bytea, "json") => true,
             #[cfg(feature = "serde")]
             (Self::Json | Self::Jsonb, "json") => true,
@@ -443,12 +450,17 @@ mod tests {
             PostgreSQLType::from_attribute_name("serial"),
             Some(PostgreSQLType::Serial)
         );
+        assert_eq!(
+            PostgreSQLType::from_attribute_name("smallserial"),
+            Some(PostgreSQLType::Smallserial)
+        );
         assert_eq!(PostgreSQLType::from_attribute_name("unknown"), None);
     }
 
     #[test]
     fn test_to_sql_type() {
         assert_eq!(PostgreSQLType::Integer.to_sql_type(), "INTEGER");
+        assert_eq!(PostgreSQLType::Smallserial.to_sql_type(), "SMALLSERIAL");
         assert_eq!(PostgreSQLType::Bigint.to_sql_type(), "BIGINT");
         assert_eq!(PostgreSQLType::Text.to_sql_type(), "TEXT");
         assert_eq!(
@@ -460,6 +472,7 @@ mod tests {
 
     #[test]
     fn test_is_serial() {
+        assert!(PostgreSQLType::Smallserial.is_serial());
         assert!(PostgreSQLType::Serial.is_serial());
         assert!(PostgreSQLType::Bigserial.is_serial());
         assert!(!PostgreSQLType::Integer.is_serial());

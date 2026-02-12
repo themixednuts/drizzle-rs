@@ -311,6 +311,20 @@ impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for PostgresValue<'a> {
     }
 }
 
+#[cfg(feature = "compact-str")]
+impl<'a> From<compact_str::CompactString> for PostgresValue<'a> {
+    fn from(value: compact_str::CompactString) -> Self {
+        PostgresValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "compact-str")]
+impl<'a> From<&'a compact_str::CompactString> for PostgresValue<'a> {
+    fn from(value: &'a compact_str::CompactString) -> Self {
+        PostgresValue::Text(Cow::Borrowed(value.as_str()))
+    }
+}
+
 // --- Binary Data ---
 
 impl<'a> From<&'a [u8]> for PostgresValue<'a> {
@@ -379,6 +393,48 @@ impl<'a, const N: usize> From<arrayvec::ArrayVec<u8, N>> for PostgresValue<'a> {
 #[cfg(feature = "arrayvec")]
 impl<'a, const N: usize> From<&arrayvec::ArrayVec<u8, N>> for PostgresValue<'a> {
     fn from(value: &arrayvec::ArrayVec<u8, N>) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<bytes::Bytes> for PostgresValue<'a> {
+    fn from(value: bytes::Bytes) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<&'a bytes::Bytes> for PostgresValue<'a> {
+    fn from(value: &'a bytes::Bytes) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<bytes::BytesMut> for PostgresValue<'a> {
+    fn from(value: bytes::BytesMut) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> From<&'a bytes::BytesMut> for PostgresValue<'a> {
+    fn from(value: &'a bytes::BytesMut) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<'a, const N: usize> From<smallvec::SmallVec<[u8; N]>> for PostgresValue<'a> {
+    fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.into_vec()))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for PostgresValue<'a> {
+    fn from(value: &smallvec::SmallVec<[u8; N]>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
 }
@@ -874,6 +930,15 @@ impl<'a> TryFrom<PostgresValue<'a>> for Arc<str> {
     }
 }
 
+#[cfg(feature = "compact-str")]
+impl<'a> TryFrom<PostgresValue<'a>> for compact_str::CompactString {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        String::try_from(value).map(compact_str::CompactString::new)
+    }
+}
+
 // --- Binary Data ---
 
 impl<'a> TryFrom<PostgresValue<'a>> for Vec<u8> {
@@ -910,6 +975,37 @@ impl<'a> TryFrom<PostgresValue<'a>> for Arc<Vec<u8>> {
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         Vec::<u8>::try_from(value).map(Arc::new)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> TryFrom<PostgresValue<'a>> for bytes::Bytes {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(bytes::Bytes::from)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> TryFrom<PostgresValue<'a>> for bytes::BytesMut {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for smallvec::SmallVec<[u8; N]> {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(|v| {
+            let mut out = smallvec::SmallVec::<[u8; N]>::new();
+            out.extend_from_slice(&v);
+            out
+        })
     }
 }
 

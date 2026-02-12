@@ -1028,10 +1028,38 @@ impl<const N: usize> From<arrayvec::ArrayString<N>> for OwnedPostgresValue {
     }
 }
 
+#[cfg(feature = "compact-str")]
+impl From<compact_str::CompactString> for OwnedPostgresValue {
+    fn from(value: compact_str::CompactString) -> Self {
+        OwnedPostgresValue::Text(value.to_string())
+    }
+}
+
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for OwnedPostgresValue {
     fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
         OwnedPostgresValue::Bytea(value.to_vec())
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl From<bytes::Bytes> for OwnedPostgresValue {
+    fn from(value: bytes::Bytes) -> Self {
+        OwnedPostgresValue::Bytea(value.to_vec())
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl From<bytes::BytesMut> for OwnedPostgresValue {
+    fn from(value: bytes::BytesMut) -> Self {
+        OwnedPostgresValue::Bytea(value.to_vec())
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for OwnedPostgresValue {
+    fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
+        OwnedPostgresValue::Bytea(value.into_vec())
     }
 }
 
@@ -1191,6 +1219,15 @@ impl TryFrom<OwnedPostgresValue> for Arc<str> {
     }
 }
 
+#[cfg(feature = "compact-str")]
+impl TryFrom<OwnedPostgresValue> for compact_str::CompactString {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        String::try_from(value).map(compact_str::CompactString::new)
+    }
+}
+
 impl TryFrom<OwnedPostgresValue> for Vec<u8> {
     type Error = DrizzleError;
 
@@ -1225,6 +1262,37 @@ impl TryFrom<OwnedPostgresValue> for Arc<Vec<u8>> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         Vec::<u8>::try_from(value).map(Arc::new)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl TryFrom<OwnedPostgresValue> for bytes::Bytes {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(bytes::Bytes::from)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl TryFrom<OwnedPostgresValue> for bytes::BytesMut {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> TryFrom<OwnedPostgresValue> for smallvec::SmallVec<[u8; N]> {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        Vec::<u8>::try_from(value).map(|v| {
+            let mut out = smallvec::SmallVec::<[u8; N]>::new();
+            out.extend_from_slice(&v);
+            out
+        })
     }
 }
 

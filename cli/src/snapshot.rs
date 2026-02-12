@@ -8,6 +8,8 @@ use drizzle_migrations::postgres::PostgresSnapshot;
 use drizzle_migrations::schema::Snapshot;
 use drizzle_migrations::sqlite::SQLiteSnapshot;
 use drizzle_types::Dialect;
+use drizzle_types::postgres::PostgreSQLType;
+use drizzle_types::sqlite::SQLiteType;
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -41,21 +43,58 @@ fn trim_wrapping_quotes(s: &str) -> String {
     s.trim().trim_matches('"').trim_matches('\'').to_string()
 }
 
-fn extract_index_name_attr(attr: &str) -> Option<String> {
-    let start = attr.find('(')?;
-    let end = attr.rfind(')')?;
-    let content = &attr[start + 1..end];
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ParsedIndexAttrs {
+    name: Option<String>,
+}
 
-    for part in content.split(',') {
-        let part = part.trim();
-        if let Some((k, v)) = part.split_once('=')
-            && k.trim() == "name"
-        {
-            return Some(trim_wrapping_quotes(v));
+impl ParsedIndexAttrs {
+    fn parse(attr: &str) -> Self {
+        let Some(start) = attr.find('(') else {
+            return Self::default();
+        };
+        let Some(end) = attr.rfind(')') else {
+            return Self::default();
+        };
+
+        let mut parsed = Self::default();
+        let content = &attr[start + 1..end];
+        for part in content.split(',') {
+            let part = part.trim();
+            if let Some((k, v)) = part.split_once('=')
+                && k.trim() == "name"
+            {
+                parsed.name = Some(trim_wrapping_quotes(v));
+            }
         }
-    }
 
-    None
+        parsed
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MemberRef<'a> {
+    table: &'a str,
+    field: &'a str,
+}
+
+impl<'a> MemberRef<'a> {
+    fn parse(raw: &'a str) -> Option<Self> {
+        let (table, field) = raw.split_once("::")?;
+        if table.is_empty() || field.is_empty() || field.contains("::") {
+            return None;
+        }
+
+        Some(Self { table, field })
+    }
+}
+
+fn sqlite_type_sql(ty: SQLiteType) -> String {
+    ty.to_sql_type().to_ascii_lowercase()
+}
+
+fn postgres_type_sql(ty: PostgreSQLType) -> String {
+    ty.to_sql_type().to_ascii_lowercase()
 }
 
 fn resolve_table_name(table: &ParsedTable, casing: Casing) -> String {
@@ -324,7 +363,11 @@ fn build_sqlite_column(
 
     let col_type = infer_sqlite_type(&field.ty);
 
-    let mut col = Column::new(table_name.to_string(), col_name.to_string(), col_type);
+    let mut col = Column::new(
+        table_name.to_string(),
+        col_name.to_string(),
+        sqlite_type_sql(col_type),
+    );
 
     if !field.is_nullable() {
         col = col.not_null();
@@ -352,14 +395,15 @@ fn build_postgres_column(
     use drizzle_migrations::postgres::{Column, Identity};
 
     let col_type = infer_postgres_type(&field.ty);
-    let is_serial = field.has_attr("serial") || field.has_attr("bigserial");
+    let is_serial =
+        field.has_attr("smallserial") || field.has_attr("serial") || field.has_attr("bigserial");
     let is_identity = field.has_attr("generated") || field.has_attr("identity");
 
     Column {
         schema: schema_name.to_string().into(),
         table: table_name.to_string().into(),
         name: col_name.to_string().into(),
-        sql_type: col_type.into(),
+        sql_type: postgres_type_sql(col_type).into(),
         type_schema: None,
         not_null: !field.is_nullable(),
         default: field.default_value().map(Cow::Owned),
@@ -400,20 +444,16 @@ fn build_sqlite_foreign_key(
 ) -> Option<drizzle_migrations::sqlite::ForeignKey> {
     use drizzle_migrations::sqlite::ForeignKey;
 
-    // Parse "Table::column" reference
-    let parts: Vec<&str> = ref_target.split("::").collect();
-    if parts.len() != 2 {
-        return None;
-    }
+    let target = MemberRef::parse(ref_target)?;
 
     let ref_table = table_name_map
-        .get(parts[0])
+        .get(target.table)
         .cloned()
-        .unwrap_or_else(|| apply_casing(parts[0], casing));
+        .unwrap_or_else(|| apply_casing(target.table, casing));
     let ref_column = field_name_map
-        .get(&(parts[0].to_string(), parts[1].to_string()))
+        .get(&(target.table.to_string(), target.field.to_string()))
         .cloned()
-        .unwrap_or_else(|| apply_casing(parts[1], casing));
+        .unwrap_or_else(|| apply_casing(target.field, casing));
     let fk_name = format!(
         "{}_{}_{}_{}_fk",
         table_name, col_name, ref_table, ref_column
@@ -447,21 +487,16 @@ fn build_postgres_foreign_key(
 ) -> Option<drizzle_migrations::postgres::ForeignKey> {
     use drizzle_migrations::postgres::ForeignKey;
 
-    // Parse "Table::column" reference
-    let parts: Vec<&str> = ref_target.split("::").collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    let ref_table_struct = parts[0];
+    let target = MemberRef::parse(ref_target)?;
+    let ref_table_struct = target.table;
     let ref_table = table_name_map
         .get(ref_table_struct)
         .cloned()
         .unwrap_or_else(|| apply_casing(ref_table_struct, casing));
     let ref_column = field_name_map
-        .get(&(ref_table_struct.to_string(), parts[1].to_string()))
+        .get(&(ref_table_struct.to_string(), target.field.to_string()))
         .cloned()
-        .unwrap_or_else(|| apply_casing(parts[1], casing));
+        .unwrap_or_else(|| apply_casing(target.field, casing));
     let ref_schema = table_schemas
         .get(ref_table_struct)
         .cloned()
@@ -499,21 +534,20 @@ fn build_sqlite_index(
         .get(table_struct)
         .cloned()
         .unwrap_or_else(|| apply_casing(table_struct, casing));
-    let index_name =
-        extract_index_name_attr(&index.attr).unwrap_or_else(|| apply_casing(&index.name, casing));
+    let index_attrs = ParsedIndexAttrs::parse(&index.attr);
+    let index_name = index_attrs
+        .name
+        .unwrap_or_else(|| apply_casing(&index.name, casing));
 
     let columns: Vec<IndexColumn> = index
         .columns
         .iter()
         .filter_map(|c| {
-            // Parse "Table::column" and extract just the column
-            let mut parts = c.split("::");
-            let table = parts.next()?;
-            let field = parts.next()?;
+            let target = MemberRef::parse(c)?;
             let col_name = field_name_map
-                .get(&(table.to_string(), field.to_string()))
+                .get(&(target.table.to_string(), target.field.to_string()))
                 .cloned()
-                .unwrap_or_else(|| apply_casing(field, casing));
+                .unwrap_or_else(|| apply_casing(target.field, casing));
             Some(IndexColumn::new(col_name))
         })
         .collect();
@@ -547,20 +581,20 @@ fn build_postgres_index(
         .get(table_struct)
         .cloned()
         .unwrap_or_else(|| "public".to_string());
-    let index_name =
-        extract_index_name_attr(&index.attr).unwrap_or_else(|| apply_casing(&index.name, casing));
+    let index_attrs = ParsedIndexAttrs::parse(&index.attr);
+    let index_name = index_attrs
+        .name
+        .unwrap_or_else(|| apply_casing(&index.name, casing));
 
     let columns: Vec<IndexColumn> = index
         .columns
         .iter()
         .filter_map(|c| {
-            let mut parts = c.split("::");
-            let table = parts.next()?;
-            let field = parts.next()?;
+            let target = MemberRef::parse(c)?;
             let col_name = field_name_map
-                .get(&(table.to_string(), field.to_string()))
+                .get(&(target.table.to_string(), target.field.to_string()))
                 .cloned()
-                .unwrap_or_else(|| apply_casing(field, casing));
+                .unwrap_or_else(|| apply_casing(target.field, casing));
             Some(IndexColumn::new(col_name))
         })
         .collect();
@@ -580,7 +614,7 @@ fn build_postgres_index(
 }
 
 /// Infer SQLite type from Rust type string
-fn infer_sqlite_type(rust_type: &str) -> String {
+fn infer_sqlite_type(rust_type: &str) -> SQLiteType {
     let base_type = rust_type
         .trim()
         .strip_prefix("Option<")
@@ -590,19 +624,28 @@ fn infer_sqlite_type(rust_type: &str) -> String {
 
     match base_type {
         "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize"
-        | "bool" => "integer".to_string(),
-        "f32" | "f64" => "real".to_string(),
-        "String" | "&str" | "str" => "text".to_string(),
-        "Vec<u8>" | "[u8]" => "blob".to_string(),
-        _ if base_type.contains("Uuid") => "text".to_string(),
-        _ if base_type.contains("DateTime") => "text".to_string(),
-        _ if base_type.contains("NaiveDate") => "text".to_string(),
-        _ => "any".to_string(),
+        | "bool" => SQLiteType::Integer,
+        "f32" | "f64" => SQLiteType::Real,
+        "String" | "&str" | "str" => SQLiteType::Text,
+        "Vec<u8>" | "[u8]" => SQLiteType::Blob,
+        _ if base_type.contains("CompactString") => SQLiteType::Text,
+        _ if base_type.contains("bytes::Bytes")
+            || base_type.contains("bytes::BytesMut")
+            || base_type == "Bytes"
+            || base_type == "BytesMut"
+            || (base_type.contains("SmallVec") && base_type.contains("u8")) =>
+        {
+            SQLiteType::Blob
+        }
+        _ if base_type.contains("Uuid") => SQLiteType::Text,
+        _ if base_type.contains("DateTime") => SQLiteType::Text,
+        _ if base_type.contains("NaiveDate") => SQLiteType::Text,
+        _ => SQLiteType::Any,
     }
 }
 
 /// Infer PostgreSQL type from Rust type string
-fn infer_postgres_type(rust_type: &str) -> String {
+fn infer_postgres_type(rust_type: &str) -> PostgreSQLType {
     let base_type = rust_type
         .trim()
         .strip_prefix("Option<")
@@ -611,26 +654,35 @@ fn infer_postgres_type(rust_type: &str) -> String {
         .trim();
 
     match base_type {
-        "i16" => "smallint".to_string(),
-        "i32" => "integer".to_string(),
-        "i64" => "bigint".to_string(),
-        "u8" | "u16" | "u32" => "integer".to_string(),
-        "u64" => "bigint".to_string(),
-        "f32" => "real".to_string(),
-        "f64" => "double precision".to_string(),
-        "bool" => "boolean".to_string(),
-        "String" | "&str" | "str" => "text".to_string(),
-        "Vec<u8>" | "[u8]" => "bytea".to_string(),
-        _ if base_type.contains("Uuid") => "uuid".to_string(),
-        _ if base_type.contains("DateTime") => "timestamptz".to_string(),
-        _ if base_type.contains("NaiveDateTime") => "timestamp".to_string(),
-        _ if base_type.contains("NaiveDate") => "date".to_string(),
-        _ if base_type.contains("NaiveTime") => "time".to_string(),
-        _ if base_type.contains("IpAddr") => "inet".to_string(),
-        _ if base_type.contains("MacAddr") => "macaddr".to_string(),
-        _ if base_type.contains("Point") => "point".to_string(),
-        _ if base_type.contains("Decimal") => "numeric".to_string(),
-        _ => "text".to_string(),
+        "i16" => PostgreSQLType::Smallint,
+        "i32" => PostgreSQLType::Integer,
+        "i64" => PostgreSQLType::Bigint,
+        "u8" | "u16" | "u32" => PostgreSQLType::Integer,
+        "u64" => PostgreSQLType::Bigint,
+        "f32" => PostgreSQLType::Real,
+        "f64" => PostgreSQLType::DoublePrecision,
+        "bool" => PostgreSQLType::Boolean,
+        "String" | "&str" | "str" => PostgreSQLType::Text,
+        "Vec<u8>" | "[u8]" => PostgreSQLType::Bytea,
+        _ if base_type.contains("CompactString") => PostgreSQLType::Text,
+        _ if base_type.contains("bytes::Bytes")
+            || base_type.contains("bytes::BytesMut")
+            || base_type == "Bytes"
+            || base_type == "BytesMut"
+            || (base_type.contains("SmallVec") && base_type.contains("u8")) =>
+        {
+            PostgreSQLType::Bytea
+        }
+        _ if base_type.contains("Uuid") => PostgreSQLType::Uuid,
+        _ if base_type.contains("DateTime") => PostgreSQLType::Timestamptz,
+        _ if base_type.contains("NaiveDateTime") => PostgreSQLType::Timestamp,
+        _ if base_type.contains("NaiveDate") => PostgreSQLType::Date,
+        _ if base_type.contains("NaiveTime") => PostgreSQLType::Time,
+        _ if base_type.contains("IpAddr") => PostgreSQLType::Inet,
+        _ if base_type.contains("MacAddr") => PostgreSQLType::MacAddr,
+        _ if base_type.contains("Point") => PostgreSQLType::Point,
+        _ if base_type.contains("Decimal") => PostgreSQLType::Numeric,
+        _ => PostgreSQLType::Text,
     }
 }
 
@@ -640,22 +692,40 @@ mod tests {
 
     #[test]
     fn test_infer_sqlite_type() {
-        assert_eq!(infer_sqlite_type("i32"), "integer");
-        assert_eq!(infer_sqlite_type("i64"), "integer");
-        assert_eq!(infer_sqlite_type("f64"), "real");
-        assert_eq!(infer_sqlite_type("String"), "text");
-        assert_eq!(infer_sqlite_type("Option<String>"), "text");
-        assert_eq!(infer_sqlite_type("Vec<u8>"), "blob");
+        assert_eq!(infer_sqlite_type("i32"), SQLiteType::Integer);
+        assert_eq!(infer_sqlite_type("i64"), SQLiteType::Integer);
+        assert_eq!(infer_sqlite_type("f64"), SQLiteType::Real);
+        assert_eq!(infer_sqlite_type("String"), SQLiteType::Text);
+        assert_eq!(
+            infer_sqlite_type("compact_str::CompactString"),
+            SQLiteType::Text
+        );
+        assert_eq!(infer_sqlite_type("bytes::Bytes"), SQLiteType::Blob);
+        assert_eq!(
+            infer_sqlite_type("smallvec::SmallVec<[u8; 16]>"),
+            SQLiteType::Blob
+        );
+        assert_eq!(infer_sqlite_type("Option<String>"), SQLiteType::Text);
+        assert_eq!(infer_sqlite_type("Vec<u8>"), SQLiteType::Blob);
     }
 
     #[test]
     fn test_infer_postgres_type() {
-        assert_eq!(infer_postgres_type("i32"), "integer");
-        assert_eq!(infer_postgres_type("i64"), "bigint");
-        assert_eq!(infer_postgres_type("bool"), "boolean");
-        assert_eq!(infer_postgres_type("String"), "text");
-        assert_eq!(infer_postgres_type("Vec<u8>"), "bytea");
-        assert_eq!(infer_postgres_type("Uuid"), "uuid");
+        assert_eq!(infer_postgres_type("i32"), PostgreSQLType::Integer);
+        assert_eq!(infer_postgres_type("i64"), PostgreSQLType::Bigint);
+        assert_eq!(infer_postgres_type("bool"), PostgreSQLType::Boolean);
+        assert_eq!(infer_postgres_type("String"), PostgreSQLType::Text);
+        assert_eq!(
+            infer_postgres_type("compact_str::CompactString"),
+            PostgreSQLType::Text
+        );
+        assert_eq!(infer_postgres_type("bytes::Bytes"), PostgreSQLType::Bytea);
+        assert_eq!(
+            infer_postgres_type("smallvec::SmallVec<[u8; 16]>"),
+            PostgreSQLType::Bytea
+        );
+        assert_eq!(infer_postgres_type("Vec<u8>"), PostgreSQLType::Bytea);
+        assert_eq!(infer_postgres_type("Uuid"), PostgreSQLType::Uuid);
     }
 
     /// Test that changing a column from Option<String> to String generates table recreation

@@ -243,6 +243,27 @@ impl FromSQLiteValue for String {
     }
 }
 
+impl FromSQLiteValue for compact_str::CompactString {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value))
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Ok(compact_str::CompactString::new(value.to_string()))
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        let s = String::from_utf8(value.to_vec()).map_err(|e| {
+            DrizzleError::ConversionError(format!("invalid UTF-8 in BLOB: {}", e).into())
+        })?;
+        Ok(compact_str::CompactString::new(s))
+    }
+}
+
 impl FromSQLiteValue for Box<String> {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
         String::from_sqlite_integer(value).map(Box::new)
@@ -366,6 +387,71 @@ impl FromSQLiteValue for Vec<u8> {
 
     fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
         Ok(value.to_vec())
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl FromSQLiteValue for bytes::Bytes {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_integer(value).map(bytes::Bytes::from)
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_text(value).map(bytes::Bytes::from)
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_real(value).map(bytes::Bytes::from)
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        Ok(bytes::Bytes::copy_from_slice(value))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl FromSQLiteValue for bytes::BytesMut {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_integer(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_text(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Vec::<u8>::from_sqlite_real(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        Ok(bytes::BytesMut::from(value))
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> FromSQLiteValue for smallvec::SmallVec<[u8; N]> {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to SmallVec<u8>, use BLOB".into(),
+        ))
+    }
+
+    fn from_sqlite_text(_value: &str) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert TEXT to SmallVec<u8>, use BLOB".into(),
+        ))
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to SmallVec<u8>, use BLOB".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        let mut out = smallvec::SmallVec::<[u8; N]>::new();
+        out.extend_from_slice(value);
+        Ok(out)
     }
 }
 
