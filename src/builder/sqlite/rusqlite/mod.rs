@@ -194,26 +194,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         &self,
         migrations: &drizzle_migrations::MigrationSet,
     ) -> drizzle_core::error::Result<()> {
-        use rusqlite::OptionalExtension;
-
         self.conn.execute(&migrations.create_table_sql(), [])?;
-        let last_created_at: Option<i64> = self
-            .conn
-            .query_row(
-                &migrations.query_last_applied_sql(),
-                [],
-                |row| row.get::<_, i64>(2), // created_at is the 3rd column
-            )
-            .optional()?;
-        let applied_hashes: Vec<String> = if last_created_at.is_some() {
-            let mut stmt = self.conn.prepare(&migrations.query_all_hashes_sql())?;
-            let rows = stmt.query_map([], |row| row.get(0))?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        } else {
-            Vec::new()
-        };
+        let mut stmt = self.conn.prepare(&migrations.query_all_created_at_sql())?;
+        let rows = stmt.query_map([], |row| row.get::<_, Option<i64>>(0))?;
+        let applied_created_at = rows.filter_map(Result::ok).flatten().collect::<Vec<_>>();
 
-        let pending: Vec<_> = migrations.pending(&applied_hashes).collect();
+        let pending: Vec<_> = migrations
+            .pending_by_created_at(&applied_created_at)
+            .collect();
 
         if pending.is_empty() {
             return Ok(());

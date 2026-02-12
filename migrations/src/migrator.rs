@@ -53,6 +53,7 @@
 //! ```
 
 use drizzle_types::Dialect;
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 /// A migration with its SQL content
@@ -181,10 +182,7 @@ impl MigrationSet {
 
     /// Load migrations from a filesystem directory (V3 folder-based format)
     ///
-    /// V3 format discovers migrations by scanning for folders containing `snapshot.json`.
-    /// Each migration folder contains:
-    /// - `migration.sql` - the SQL statements
-    /// - `snapshot.json` - the schema snapshot
+    /// V3 format discovers migrations by scanning for folders containing `migration.sql`.
     ///
     /// Folders are sorted alphabetically (timestamp prefix ensures correct order).
     pub fn from_dir(dir: impl AsRef<Path>, dialect: Dialect) -> Result<Self, MigratorError> {
@@ -194,14 +192,15 @@ impl MigrationSet {
             return Ok(Self::empty(dialect));
         }
 
-        // First try V3 format (folder-based)
-        let v3_migrations = discover_v3_migrations(dir)?;
-        if !v3_migrations.is_empty() {
-            return Ok(Self::new(v3_migrations, dialect));
+        // Match drizzle-orm behavior:
+        // if journal exists, treat as legacy format.
+        let journal_path = dir.join("meta").join("_journal.json");
+        if journal_path.exists() {
+            return Self::from_dir_legacy(dir, dialect);
         }
 
-        // Fall back to legacy format (journal-based)
-        Self::from_dir_legacy(dir, dialect)
+        // Otherwise use V3 folder-based discovery.
+        Ok(Self::new(discover_v3_migrations(dir)?, dialect))
     }
 
     /// Load migrations from a filesystem directory (legacy journal-based format)
@@ -272,11 +271,31 @@ impl MigrationSet {
             .filter(move |m| !applied_hashes.contains(&m.hash))
     }
 
+    /// Get migrations that haven't been applied yet, based on `created_at`.
+    ///
+    /// This matches drizzle-orm behavior, where migration execution is tracked
+    /// by `created_at` (folder millis), not by hash.
+    pub fn pending_by_created_at<'a>(
+        &'a self,
+        applied_created_at: &[i64],
+    ) -> impl Iterator<Item = &'a Migration> {
+        self.migrations
+            .iter()
+            .filter(move |m| !applied_created_at.contains(&m.created_at))
+    }
+
     /// Check if there are any pending migrations
     pub fn has_pending(&self, applied_hashes: &[String]) -> bool {
         self.migrations
             .iter()
             .any(|m| !applied_hashes.contains(&m.hash))
+    }
+
+    /// Check if there are pending migrations based on `created_at`.
+    pub fn has_pending_by_created_at(&self, applied_created_at: &[i64]) -> bool {
+        self.migrations
+            .iter()
+            .any(|m| !applied_created_at.contains(&m.created_at))
     }
 
     /// Get the dialect
@@ -304,9 +323,9 @@ impl MigrationSet {
     /// Get the SQL to create the migrations tracking table
     ///
     /// Table schema matches drizzle-orm:
-    /// - SQLite: id (INTEGER PK), hash (TEXT), created_at (numeric/INTEGER)
+    /// - SQLite: id (INTEGER PK), hash (text), created_at (numeric)
     /// - PostgreSQL: id (SERIAL PK), hash (TEXT), created_at (BIGINT)
-    /// - MySQL: id (INT PK AUTO_INCREMENT), hash (VARCHAR(255)), created_at (BIGINT)
+    /// - MySQL: id (SERIAL PK), hash (text), created_at (BIGINT)
     pub fn create_table_sql(&self) -> String {
         let table = self.table_ident();
 
@@ -314,8 +333,8 @@ impl MigrationSet {
             Dialect::SQLite => format!(
                 r#"CREATE TABLE IF NOT EXISTS {} (
     id INTEGER PRIMARY KEY,
-    hash TEXT NOT NULL,
-    created_at INTEGER
+    hash text NOT NULL,
+    created_at numeric
 );"#,
                 table
             ),
@@ -329,8 +348,8 @@ impl MigrationSet {
             ),
             Dialect::MySQL => format!(
                 r#"CREATE TABLE IF NOT EXISTS {} (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    hash VARCHAR(255) NOT NULL,
+    id SERIAL PRIMARY KEY,
+    hash text NOT NULL,
     created_at BIGINT
 );"#,
                 table
@@ -386,6 +405,18 @@ impl MigrationSet {
         format!(r#"SELECT hash FROM {} ORDER BY id;"#, table)
     }
 
+    /// Get the SQL to query all applied migrations (`hash`, `created_at`)
+    pub fn query_all_applied_sql(&self) -> String {
+        let table = self.table_ident();
+        format!(r#"SELECT hash, created_at FROM {} ORDER BY id;"#, table)
+    }
+
+    /// Get the SQL to query all applied migration timestamps (`created_at`)
+    pub fn query_all_created_at_sql(&self) -> String {
+        let table = self.table_ident();
+        format!(r#"SELECT created_at FROM {} ORDER BY id;"#, table)
+    }
+
     /// Get the SQL to check if migrations table exists
     pub fn table_exists_sql(&self) -> String {
         match self.dialect {
@@ -420,7 +451,7 @@ impl MigrationSet {
 
 /// Discover migrations in V3 folder-based format
 ///
-/// Scans for directories containing `snapshot.json` and reads `migration.sql`
+/// Scans for directories containing `migration.sql`
 fn discover_v3_migrations(dir: &Path) -> Result<Vec<Migration>, MigratorError> {
     use std::fs;
 
@@ -434,11 +465,9 @@ fn discover_v3_migrations(dir: &Path) -> Result<Vec<Migration>, MigratorError> {
         .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .filter_map(|entry| {
             let folder_name = entry.file_name().to_string_lossy().to_string();
-            let snapshot_path = entry.path().join("snapshot.json");
             let migration_path = entry.path().join("migration.sql");
 
-            // Must have both snapshot.json and migration.sql
-            if snapshot_path.exists() && migration_path.exists() {
+            if migration_path.exists() {
                 Some((folder_name, migration_path))
             } else {
                 None
@@ -492,17 +521,15 @@ pub enum MigratorError {
 
 /// Compute hash of the SQL content
 fn compute_hash(sql: &str) -> String {
-    // Stable FNV-1a 64-bit hash so migration IDs are reproducible
-    // across Rust/compiler versions and platforms.
-    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
+    let digest = Sha256::digest(sql.as_bytes());
+    let mut out = String::with_capacity(digest.len() * 2);
 
-    let mut hash = FNV_OFFSET;
-    for b in sql.as_bytes() {
-        hash ^= u64::from(*b);
-        hash = hash.wrapping_mul(FNV_PRIME);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{byte:02x}");
     }
-    format!("{hash:016x}")
+
+    out
 }
 
 /// Split SQL content into individual statements
@@ -720,7 +747,7 @@ fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
 fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
     if tag.len() >= 14
-        && let Ok(ts) = tag[0..14].parse::<i64>()
+        && let Some(ts) = parse_timestamp_prefix_to_millis(&tag[0..14])
     {
         return ts;
     }
@@ -738,6 +765,64 @@ fn parse_timestamp_from_tag(tag: &str) -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Parse a `YYYYMMDDHHMMSS` timestamp prefix to UTC milliseconds.
+fn parse_timestamp_prefix_to_millis(prefix: &str) -> Option<i64> {
+    if prefix.len() != 14 || !prefix.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    let year = prefix[0..4].parse::<i32>().ok()?;
+    let month = prefix[4..6].parse::<u32>().ok()?;
+    let day = prefix[6..8].parse::<u32>().ok()?;
+    let hour = prefix[8..10].parse::<u32>().ok()?;
+    let minute = prefix[10..12].parse::<u32>().ok()?;
+    let second = prefix[12..14].parse::<u32>().ok()?;
+
+    if !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+
+    let max_day = days_in_month(year, month);
+    if day == 0 || day > max_day {
+        return None;
+    }
+
+    let days = days_from_civil(year, month, day)?;
+    let day_secs = i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second);
+    let secs = days.checked_mul(86_400)?.checked_add(day_secs)?;
+    secs.checked_mul(1_000)
+}
+
+/// Days since Unix epoch (1970-01-01) from civil date, UTC.
+///
+/// Algorithm adapted from Howard Hinnant's civil calendar conversion.
+fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
+    let m = i32::try_from(month).ok()?;
+    let d = i32::try_from(day).ok()?;
+
+    let y = year - if m <= 2 { 1 } else { 0 };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+
+    Some(i64::from(era) * 146_097 + i64::from(doe) - 719_468)
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 // =============================================================================
@@ -767,7 +852,8 @@ macro_rules! migrations {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_hash, split_on_semicolons};
+    use super::{MigrationSet, compute_hash, parse_timestamp_from_tag, split_on_semicolons};
+    use drizzle_types::Dialect;
 
     #[test]
     fn split_handles_strings_and_comments() {
@@ -828,12 +914,88 @@ mod tests {
 
         assert_eq!(a, b);
         assert_ne!(a, c);
-        assert_eq!(a.len(), 16);
+        assert_eq!(a.len(), 64);
     }
 
     #[test]
     fn hash_matches_known_value() {
         let hash = compute_hash("CREATE TABLE users(id INTEGER);");
-        assert_eq!(hash, "54fb487ba1244c9c");
+        assert_eq!(
+            hash,
+            "238b0b8f98ac8bb3155ac1081ad6a3ce07cfba14eeaa6beeebf2161091265fcc"
+        );
+    }
+
+    #[test]
+    fn parse_timestamp_tag_matches_drizzle_orm_millis() {
+        let created_at = parse_timestamp_from_tag("20230331141203_test");
+        assert_eq!(created_at, 1_680_271_923_000);
+    }
+
+    #[test]
+    fn pending_by_created_at_ignores_hash_mismatches() {
+        let set = MigrationSet::new(
+            vec![super::Migration::with_hash(
+                "20230331141203_test",
+                "different_hash_than_db",
+                1_680_271_923_000,
+                vec!["CREATE TABLE users(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            Dialect::SQLite,
+        );
+
+        let applied_created_at = vec![1_680_271_923_000];
+        assert!(!set.has_pending_by_created_at(&applied_created_at));
+        assert_eq!(
+            set.pending_by_created_at(&applied_created_at).count(),
+            0,
+            "migration should be considered applied by created_at"
+        );
+    }
+
+    #[test]
+    fn from_dir_discovers_v3_migration_without_snapshot_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let migration_dir = dir.path().join("20230331141203_test");
+        std::fs::create_dir_all(&migration_dir).expect("create migration dir");
+        std::fs::write(
+            migration_dir.join("migration.sql"),
+            "CREATE TABLE users(id INTEGER PRIMARY KEY);",
+        )
+        .expect("write migration.sql");
+
+        let set = MigrationSet::from_dir(dir.path(), Dialect::SQLite).expect("load migrations");
+        assert_eq!(set.all().len(), 1);
+        assert_eq!(set.all()[0].created_at(), 1_680_271_923_000);
+    }
+
+    #[test]
+    fn from_dir_prefers_legacy_journal_when_present() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let mut journal = crate::journal::Journal::new(Dialect::SQLite);
+        journal.add_entry("0000_journal_first".to_string(), true);
+        journal
+            .save(&dir.path().join("meta").join("_journal.json"))
+            .expect("write journal");
+
+        std::fs::write(
+            dir.path().join("0000_journal_first.sql"),
+            "CREATE TABLE from_journal(id INTEGER PRIMARY KEY);",
+        )
+        .expect("write legacy migration file");
+
+        // This v3 migration should be ignored because journal format takes precedence.
+        let v3_dir = dir.path().join("20240101010101_v3_extra");
+        std::fs::create_dir_all(&v3_dir).expect("create v3 dir");
+        std::fs::write(
+            v3_dir.join("migration.sql"),
+            "CREATE TABLE from_v3(id INTEGER PRIMARY KEY);",
+        )
+        .expect("write v3 migration.sql");
+
+        let set = MigrationSet::from_dir(dir.path(), Dialect::SQLite).expect("load migrations");
+        assert_eq!(set.all().len(), 1);
+        assert_eq!(set.all()[0].tag(), "0000_journal_first");
     }
 }

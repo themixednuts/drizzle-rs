@@ -306,9 +306,13 @@ impl<Schema> Drizzle<Schema> {
             self.client.execute(&schema_sql, &[])?;
         }
         self.client.execute(&migrations.create_table_sql(), &[])?;
-        let rows = self.client.query(&migrations.query_all_hashes_sql(), &[])?;
-        let applied_hashes: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
-        let pending: Vec<_> = migrations.pending(&applied_hashes).collect();
+        let rows = self
+            .client
+            .query(&migrations.query_all_created_at_sql(), &[])?;
+        let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+        let pending: Vec<_> = migrations
+            .pending_by_created_at(&applied_created_at)
+            .collect();
 
         if pending.is_empty() {
             return Ok(());

@@ -197,22 +197,24 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .await?;
         let mut rows = self
             .conn
-            .query(&migrations.query_all_hashes_sql(), ())
+            .query(&migrations.query_all_created_at_sql(), ())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-        let mut applied_hashes: Vec<String> = Vec::new();
+        let mut applied_created_at: Vec<i64> = Vec::new();
         while let Some(row) = rows
             .next()
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
         {
-            if let Ok(hash) = row.get::<String>(0) {
-                applied_hashes.push(hash);
+            if let Ok(created_at) = row.get::<i64>(0) {
+                applied_created_at.push(created_at);
             }
         }
 
-        let pending: Vec<_> = migrations.pending(&applied_hashes).collect();
+        let pending: Vec<_> = migrations
+            .pending_by_created_at(&applied_created_at)
+            .collect();
 
         if pending.is_empty() {
             return Ok(());

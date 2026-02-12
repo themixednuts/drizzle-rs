@@ -12,6 +12,7 @@ pub mod index;
 pub mod insert;
 pub mod joins;
 pub mod json;
+pub mod migrations;
 pub mod parameters;
 pub mod prepare;
 pub mod schema;
