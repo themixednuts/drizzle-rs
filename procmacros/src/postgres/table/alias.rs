@@ -41,7 +41,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         quote! {
             #[allow(non_upper_case_globals, dead_code)]
-            #[derive(Debug, Clone, Default)]
+            #[derive(Debug, Clone, Copy, Default)]
             #struct_vis struct #aliased_field_type {
                 alias: &'static str,
             }
@@ -204,7 +204,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         // Generate the aliased table struct
         #[allow(non_upper_case_globals, dead_code)]
-        #[derive(Debug, Clone, Default)]
+        #[derive(Debug, Clone, Copy, Default)]
         #struct_vis struct #aliased_table_name {
             alias: &'static str,
             #(#aliased_struct_fields),*

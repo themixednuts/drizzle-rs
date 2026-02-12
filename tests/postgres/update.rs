@@ -182,3 +182,77 @@ postgres_test!(update_no_matching_rows, SimpleSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
 });
+
+postgres_test!(update_with_placeholders_sql, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
+    let stmt = db
+        .update(simple)
+        .set(update)
+        .r#where(eq(Simple::name, Placeholder::named("old_name")));
+
+    let sql = stmt.to_sql();
+    let sql_string = sql.sql();
+
+    assert!(
+        sql_string.starts_with("UPDATE"),
+        "Should be an UPDATE statement, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("\"simple\""),
+        "Should reference the simple table, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$1"),
+        "Expected first PostgreSQL placeholder in SQL, got: {}",
+        sql_string
+    );
+    assert!(
+        sql_string.contains("$2"),
+        "Expected second PostgreSQL placeholder in SQL, got: {}",
+        sql_string
+    );
+
+    let params: Vec<_> = sql.params().collect();
+    assert!(
+        params.is_empty(),
+        "Should have no bound params when using placeholders, got {}",
+        params.len()
+    );
+});
+
+postgres_test!(update_with_placeholders_execute, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("original_name")])
+            .execute()
+    );
+
+    let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
+    let prepared = db
+        .update(simple)
+        .set(update)
+        .r#where(eq(Simple::name, Placeholder::named("old_name")))
+        .prepare()
+        .into_owned();
+
+    let updated = drizzle_exec!(prepared.execute(
+        drizzle_client!(),
+        params![{new_name: "updated_name"}, {old_name: "original_name"}]
+    ));
+    assert_eq!(updated, 1);
+
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "updated_name"));
+    let rows: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "updated_name");
+});

@@ -254,6 +254,48 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     );
 });
 
+sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
+    let ViewTestSchema {
+        user,
+        user_emails,
+        default_name_view: _,
+        existing_users: _,
+    } = schema;
+
+    let insert_data = [
+        InsertUser::new("a@example.com", "User A"),
+        InsertUser::new("b@example.com", "User B"),
+    ];
+    let result = drizzle_exec!(db.insert(user).values(insert_data).execute());
+    assert_eq!(result, 2);
+
+    let ue = UserEmailsView::alias("ue");
+    let stmt = db
+        .select((ue.id, ue.email))
+        .from(ue)
+        .r#where(eq(ue.email, "a@example.com"))
+        .order_by([OrderBy::asc(ue.id)]);
+
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.contains("FROM \"user_emails\" AS \"ue\""),
+        "Expected aliased view in FROM clause, got: {}",
+        sql
+    );
+    assert!(
+        sql.contains("\"ue\".\"email\""),
+        "Expected alias-qualified column in WHERE clause, got: {}",
+        sql
+    );
+
+    let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].email, "a@example.com");
+
+    // Keep schema value used in this test scope.
+    let _ = user_emails;
+});
+
 // Multi-table schema with foreign key dependencies for deterministic ordering tests
 #[SQLiteTable(NAME = "departments")]
 struct Department {

@@ -141,7 +141,7 @@ mod tokio_postgres_edge_cases {
         for i in 0..20 {
             let name = format!("user_{}", i);
             db.insert(simple)
-                .values([InsertSimple::new(&name)])
+                .values([InsertSimple::new(name.as_str())])
                 .execute()
                 .await
                 .unwrap();

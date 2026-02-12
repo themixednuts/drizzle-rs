@@ -6,6 +6,7 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::schema::postgres::*;
+use drizzle::core::expr::eq;
 use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
 use drizzle::postgres::prelude::*;
 use drizzle_core::OrderBy;
@@ -150,6 +151,39 @@ postgres_test!(schema_with_view, ViewTestSchema, {
             .any(|sql| sql.contains("existing_simple_view")),
         "Existing view should not be created"
     );
+});
+
+postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
+    let ViewTestSchema {
+        simple,
+        simple_view,
+        simple_view_mat: _,
+        default_name_view: _,
+        existing_simple_view: _,
+    } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
+    drizzle_exec!(stmt.execute());
+
+    let sv = SimpleView::alias("sv");
+    let stmt = db
+        .select((sv.id, sv.name))
+        .from(sv)
+        .r#where(eq(sv.name, "alpha"))
+        .order_by([OrderBy::asc(sv.id)]);
+
+    let sql = stmt.to_sql().sql();
+    assert!(sql.contains("FROM \"simple_view\" AS \"sv\""));
+    assert!(sql.contains("\"sv\".\"name\""));
+
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "alpha");
+
+    // Keep schema value used in this test scope.
+    let _ = simple_view;
 });
 
 postgres_test!(view_definition_with_options_sql, SimpleSchema, {
