@@ -492,13 +492,17 @@ pub enum MigratorError {
 
 /// Compute hash of the SQL content
 fn compute_hash(sql: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    // Stable FNV-1a 64-bit hash so migration IDs are reproducible
+    // across Rust/compiler versions and platforms.
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
 
-    // Use a simple hash for now - in production you might want SHA-256
-    let mut hasher = DefaultHasher::new();
-    sql.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    let mut hash = FNV_OFFSET;
+    for b in sql.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{hash:016x}")
 }
 
 /// Split SQL content into individual statements
@@ -521,29 +525,160 @@ fn split_statements(sql: &str) -> Vec<String> {
 fn split_on_semicolons(sql: &str) -> Vec<String> {
     let mut statements = Vec::new();
     let mut current = String::new();
-    let mut in_string = false;
-    let mut string_char = ' ';
+    let mut pos = 0;
 
-    for ch in sql.chars() {
-        match ch {
-            '\'' | '"' if !in_string => {
-                in_string = true;
-                string_char = ch;
-                current.push(ch);
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_line_comment = false;
+    let mut block_comment_depth = 0usize;
+    let mut dollar_tag: Option<String> = None;
+
+    while pos < sql.len() {
+        // Line comment state
+        if in_line_comment {
+            let ch = sql[pos..].chars().next().unwrap_or('\0');
+            let ch_len = ch.len_utf8();
+            current.push_str(&sql[pos..pos + ch_len]);
+            pos += ch_len;
+            if ch == '\n' {
+                in_line_comment = false;
             }
-            c if in_string && c == string_char => {
-                in_string = false;
-                current.push(ch);
-            }
-            ';' if !in_string => {
-                let stmt = current.trim().to_string();
-                if !stmt.is_empty() {
-                    statements.push(stmt);
-                }
-                current.clear();
-            }
-            _ => current.push(ch),
+            continue;
         }
+
+        // Block comment state
+        if block_comment_depth > 0 {
+            if sql[pos..].starts_with("/*") {
+                current.push_str("/*");
+                pos += 2;
+                block_comment_depth += 1;
+                continue;
+            }
+            if sql[pos..].starts_with("*/") {
+                current.push_str("*/");
+                pos += 2;
+                block_comment_depth = block_comment_depth.saturating_sub(1);
+                continue;
+            }
+
+            let ch = sql[pos..].chars().next().unwrap_or('\0');
+            let ch_len = ch.len_utf8();
+            current.push_str(&sql[pos..pos + ch_len]);
+            pos += ch_len;
+            continue;
+        }
+
+        // Dollar-quoted string state ($$...$$ or $tag$...$tag$)
+        if let Some(tag) = dollar_tag.as_deref() {
+            if sql[pos..].starts_with(tag) {
+                current.push_str(tag);
+                pos += tag.len();
+                dollar_tag = None;
+                continue;
+            }
+
+            let ch = sql[pos..].chars().next().unwrap_or('\0');
+            let ch_len = ch.len_utf8();
+            current.push_str(&sql[pos..pos + ch_len]);
+            pos += ch_len;
+            continue;
+        }
+
+        // Single-quoted string state
+        if in_single_quote {
+            if sql[pos..].starts_with("''") {
+                current.push_str("''");
+                pos += 2;
+                continue;
+            }
+            if sql[pos..].starts_with('\'') {
+                current.push('\'');
+                pos += 1;
+                in_single_quote = false;
+                continue;
+            }
+
+            let ch = sql[pos..].chars().next().unwrap_or('\0');
+            let ch_len = ch.len_utf8();
+            current.push_str(&sql[pos..pos + ch_len]);
+            pos += ch_len;
+            continue;
+        }
+
+        // Double-quoted identifier/string state
+        if in_double_quote {
+            if sql[pos..].starts_with("\"\"") {
+                current.push_str("\"\"");
+                pos += 2;
+                continue;
+            }
+            if sql[pos..].starts_with('"') {
+                current.push('"');
+                pos += 1;
+                in_double_quote = false;
+                continue;
+            }
+
+            let ch = sql[pos..].chars().next().unwrap_or('\0');
+            let ch_len = ch.len_utf8();
+            current.push_str(&sql[pos..pos + ch_len]);
+            pos += ch_len;
+            continue;
+        }
+
+        // Enter comment states
+        if sql[pos..].starts_with("--") {
+            current.push_str("--");
+            pos += 2;
+            in_line_comment = true;
+            continue;
+        }
+        if sql[pos..].starts_with("/*") {
+            current.push_str("/*");
+            pos += 2;
+            block_comment_depth = 1;
+            continue;
+        }
+
+        // Enter quote states
+        if sql[pos..].starts_with('\'') {
+            current.push('\'');
+            pos += 1;
+            in_single_quote = true;
+            continue;
+        }
+        if sql[pos..].starts_with('"') {
+            current.push('"');
+            pos += 1;
+            in_double_quote = true;
+            continue;
+        }
+
+        // Enter dollar-quoted state if a valid tag starts here.
+        if sql[pos..].starts_with('$')
+            && let Some(tag) = parse_dollar_tag_start(sql, pos)
+        {
+            current.push_str(tag);
+            pos += tag.len();
+            dollar_tag = Some(tag.to_string());
+            continue;
+        }
+
+        // Statement boundary
+        if sql[pos..].starts_with(';') {
+            let stmt = current.trim().to_string();
+            if !stmt.is_empty() {
+                statements.push(stmt);
+            }
+            current.clear();
+            pos += 1;
+            continue;
+        }
+
+        let ch = sql[pos..].chars().next().unwrap_or('\0');
+        let ch_len = ch.len_utf8();
+        current.push_str(&sql[pos..pos + ch_len]);
+        pos += ch_len;
     }
 
     // Don't forget the last statement (might not end with ;)
@@ -553,6 +688,30 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
     }
 
     statements
+}
+
+/// Parse a starting PostgreSQL dollar-quote delimiter at `pos`.
+///
+/// Returns the full delimiter (e.g. "$$" or "$func$") when valid.
+fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
+    if !sql[pos..].starts_with('$') {
+        return None;
+    }
+
+    let mut i = pos + 1;
+    while i < sql.len() {
+        let ch = sql[i..].chars().next()?;
+        if ch == '$' {
+            return Some(&sql[pos..i + 1]);
+        }
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            i += ch.len_utf8();
+            continue;
+        }
+        return None;
+    }
+
+    None
 }
 
 /// Parse timestamp from migration tag
@@ -604,4 +763,77 @@ macro_rules! migrations {
             )*
         ]
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_hash, split_on_semicolons};
+
+    #[test]
+    fn split_handles_strings_and_comments() {
+        let sql = "\
+            CREATE TABLE users(id INTEGER, note TEXT DEFAULT 'a;b');\n\
+            -- comment with ; should not split\n\
+            CREATE INDEX users_id_idx ON users(id);\n\
+            /* block ; comment */\n\
+            CREATE TABLE posts(id INTEGER);\
+        ";
+
+        let stmts = split_on_semicolons(sql);
+        assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
+        assert!(stmts[0].starts_with("CREATE TABLE users"));
+        assert!(stmts[1].contains("CREATE INDEX users_id_idx"));
+        assert!(stmts[2].contains("CREATE TABLE posts"));
+    }
+
+    #[test]
+    fn split_handles_dollar_quoted_bodies() {
+        let sql = "\
+            CREATE FUNCTION f() RETURNS void AS $$\n\
+            BEGIN\n\
+              RAISE NOTICE 'x;y';\n\
+            END;\n\
+            $$ LANGUAGE plpgsql;\n\
+            CREATE TABLE t(id INTEGER);\
+        ";
+
+        let stmts = split_on_semicolons(sql);
+        assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
+        assert!(stmts[0].starts_with("CREATE FUNCTION f()"));
+        assert!(stmts[1].starts_with("CREATE TABLE t"));
+    }
+
+    #[test]
+    fn split_handles_tagged_dollar_quotes() {
+        let sql = "\
+            DO $body$\n\
+            BEGIN\n\
+              PERFORM 1;\n\
+            END;\n\
+            $body$;\n\
+            CREATE TABLE tagged(id INTEGER);\
+        ";
+
+        let stmts = split_on_semicolons(sql);
+        assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
+        assert!(stmts[0].starts_with("DO $body$"));
+        assert!(stmts[1].starts_with("CREATE TABLE tagged"));
+    }
+
+    #[test]
+    fn hash_is_stable_for_same_input() {
+        let a = compute_hash("CREATE TABLE users(id INTEGER);");
+        let b = compute_hash("CREATE TABLE users(id INTEGER);");
+        let c = compute_hash("CREATE TABLE users(id INTEGER PRIMARY KEY);");
+
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a.len(), 16);
+    }
+
+    #[test]
+    fn hash_matches_known_value() {
+        let hash = compute_hash("CREATE TABLE users(id INTEGER);");
+        assert_eq!(hash, "54fb487ba1244c9c");
+    }
 }

@@ -84,6 +84,27 @@ impl ParsedTable {
         self.attr.contains(attr)
     }
 
+    /// Get the value of a table attribute assignment (e.g. `schema = "auth"`).
+    pub fn attr_value(&self, key: &str) -> Option<String> {
+        extract_attr_value_from_attr(&self.attr, key)
+    }
+
+    /// Get the PostgreSQL schema name if set on `#[PostgresTable(...)]`.
+    pub fn schema_name(&self) -> Option<String> {
+        self.attr_value("schema")
+            .map(|v| trim_wrapping_quotes(v.trim()).to_string())
+    }
+
+    /// Check if table is marked as SQLite STRICT.
+    pub fn is_strict(&self) -> bool {
+        self.has_table_attr("strict")
+    }
+
+    /// Check if table is marked as SQLite WITHOUT ROWID.
+    pub fn is_without_rowid(&self) -> bool {
+        self.has_table_attr("without_rowid")
+    }
+
     /// Get all field names
     pub fn field_names(&self) -> Vec<&str> {
         self.fields.iter().map(|f| f.name.as_str()).collect()
@@ -96,9 +117,31 @@ impl ParsedIndex {
         self.attr.contains("unique")
     }
 
+    /// Check if PostgreSQL index is created concurrently.
+    pub fn is_concurrent(&self) -> bool {
+        self.attr.contains("concurrent")
+    }
+
+    /// Get PostgreSQL index method (e.g. `btree`, `gin`) if explicitly set.
+    pub fn method(&self) -> Option<String> {
+        self.attr_value("method")
+            .map(|v| trim_wrapping_quotes(v.trim()).to_string())
+    }
+
+    /// Get PostgreSQL partial-index WHERE clause if explicitly set.
+    pub fn where_clause(&self) -> Option<String> {
+        self.attr_value("where")
+            .map(|v| trim_wrapping_quotes(v.trim()).to_string())
+    }
+
     /// Get the table name from the first column reference
     pub fn table_name(&self) -> Option<&str> {
         self.columns.first().and_then(|c| c.split("::").next())
+    }
+
+    /// Get the value of an index attribute assignment.
+    fn attr_value(&self, key: &str) -> Option<String> {
+        extract_attr_value_from_attr(&self.attr, key)
     }
 }
 
@@ -128,7 +171,7 @@ impl ParsedField {
             {
                 let content = &attr[start + 1..end];
                 // Parse key = value pairs
-                for part in Self::split_attr_parts(content) {
+                for part in split_attr_parts(content) {
                     if let Some(eq_pos) = part.find('=') {
                         let key = part[..eq_pos].trim();
                         let value = part[eq_pos + 1..].trim();
@@ -187,48 +230,84 @@ impl ParsedField {
 
     /// Extract a value for a key from an attribute string
     fn extract_attr_value(attr: &str, key: &str) -> Option<String> {
-        // Extract content inside #[column(...)]
-        let start = attr.find('(')?;
-        let end = attr.rfind(')')?;
-        let content = &attr[start + 1..end];
+        extract_attr_value_from_attr(attr, key)
+    }
+}
 
-        // Find the key and extract its value
-        for part in Self::split_attr_parts(content) {
-            let part = part.trim();
-            if let Some(eq_pos) = part.find('=') {
-                let k = part[..eq_pos].trim();
-                if k == key {
-                    return Some(part[eq_pos + 1..].trim().to_string());
-                }
+/// Extract a value for `key` from an attribute string like `#[name(k = v, ...)]`.
+fn extract_attr_value_from_attr(attr: &str, key: &str) -> Option<String> {
+    let start = attr.find('(')?;
+    let end = attr.rfind(')')?;
+    let content = &attr[start + 1..end];
+
+    for part in split_attr_parts(content) {
+        let part = part.trim();
+        if let Some(eq_pos) = part.find('=') {
+            let k = part[..eq_pos].trim();
+            if k == key {
+                return Some(part[eq_pos + 1..].trim().to_string());
             }
         }
-        None
     }
 
-    /// Split attribute content by commas, respecting nested structures
-    fn split_attr_parts(content: &str) -> Vec<&str> {
-        let mut parts = Vec::new();
-        let mut depth: i32 = 0;
-        let mut start = 0;
+    None
+}
 
-        for (i, c) in content.char_indices() {
-            match c {
-                '(' | '<' | '[' | '{' => depth += 1,
-                ')' | '>' | ']' | '}' => depth = depth.saturating_sub(1),
-                ',' if depth == 0 => {
-                    parts.push(content[start..i].trim());
-                    start = i + 1;
-                }
-                _ => {}
+/// Split attribute content by commas, respecting nested structures and quoted strings.
+fn split_attr_parts(content: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for (i, c) in content.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match c {
+            '\\' if in_single || in_double => {
+                escaped = true;
             }
+            '\'' if !in_double => {
+                in_single = !in_single;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+            }
+            '(' | '<' | '[' | '{' if !in_single && !in_double => {
+                depth += 1;
+            }
+            ')' | '>' | ']' | '}' if !in_single && !in_double => {
+                depth = depth.saturating_sub(1);
+            }
+            ',' if depth == 0 && !in_single && !in_double => {
+                parts.push(content[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
         }
+    }
 
-        // Add the last part
-        if start < content.len() {
-            parts.push(content[start..].trim());
-        }
+    if start < content.len() {
+        parts.push(content[start..].trim());
+    }
 
-        parts
+    parts
+}
+
+fn trim_wrapping_quotes(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2
+        && ((bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\''))
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
     }
 }
 

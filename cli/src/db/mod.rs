@@ -165,8 +165,28 @@ fn is_destructive_statement(sql: &str) -> bool {
     s.contains("DROP TABLE")
         || s.contains("DROP COLUMN")
         || s.contains("DROP INDEX")
+        || s.contains("DROP VIEW")
+        || s.contains("DROP MATERIALIZED VIEW")
+        || s.contains("DROP TYPE")
+        || s.contains("DROP SCHEMA")
+        || s.contains("DROP SEQUENCE")
+        || s.contains("DROP ROLE")
+        || s.contains("DROP POLICY")
         || s.contains("TRUNCATE")
         || (s.contains("ALTER TABLE") && s.contains(" DROP "))
+}
+
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
+    let s = sql.trim().to_ascii_uppercase();
+    (s.starts_with("CREATE") || s.starts_with("DROP")) && s.contains("INDEX CONCURRENTLY")
+}
+
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn has_postgres_concurrent_index(statements: &[String]) -> bool {
+    statements
+        .iter()
+        .any(|stmt| is_postgres_concurrent_index_statement(stmt))
 }
 
 fn confirm_destructive() -> Result<bool, CliError> {
@@ -466,21 +486,34 @@ fn execute_postgres_sync_statements(
         CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
     })?;
 
-    let mut tx = client
-        .transaction()
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    for stmt in statements {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
+    if has_postgres_concurrent_index(statements) {
+        // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
+        for stmt in statements {
+            let s = stmt.trim();
+            if s.is_empty() {
+                continue;
+            }
+            client
+                .execute(s, &[])
+                .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
         }
-        tx.execute(s, &[])
-            .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
-    }
+    } else {
+        let mut tx = client
+            .transaction()
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
-    tx.commit()
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        for stmt in statements {
+            let s = stmt.trim();
+            if s.is_empty() {
+                continue;
+            }
+            tx.execute(s, &[])
+                .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
+        }
+
+        tx.commit()
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
 
     Ok(())
 }
@@ -519,6 +552,40 @@ fn run_postgres_sync_migrations(
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+        });
+    }
+
+    let has_concurrent = pending
+        .iter()
+        .any(|m| has_postgres_concurrent_index(m.statements()));
+
+    if has_concurrent {
+        // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
+        let mut applied = Vec::new();
+        for migration in &pending {
+            for stmt in migration.statements() {
+                if !stmt.trim().is_empty() {
+                    client.execute(stmt, &[]).map_err(|e| {
+                        CliError::MigrationError(format!(
+                            "Migration '{}' failed: {}",
+                            migration.hash(),
+                            e
+                        ))
+                    })?;
+                }
+            }
+            client
+                .execute(
+                    &set.record_migration_sql(migration.hash(), migration.created_at()),
+                    &[],
+                )
+                .map_err(|e| CliError::MigrationError(e.to_string()))?;
+            applied.push(migration.hash().to_string());
+        }
+
+        return Ok(MigrationResult {
+            applied_count: applied.len(),
+            applied_migrations: applied,
         });
     }
 
@@ -595,24 +662,38 @@ async fn execute_postgres_async_inner(
         }
     });
 
-    let tx = client
-        .transaction()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    for stmt in statements {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
+    if has_postgres_concurrent_index(statements) {
+        // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
+        for stmt in statements {
+            let s = stmt.trim();
+            if s.is_empty() {
+                continue;
+            }
+            client
+                .execute(s, &[])
+                .await
+                .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
         }
-        tx.execute(s, &[])
+    } else {
+        let tx = client
+            .transaction()
             .await
-            .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
-    }
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
-    tx.commit()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        for stmt in statements {
+            let s = stmt.trim();
+            if s.is_empty() {
+                continue;
+            }
+            tx.execute(s, &[])
+                .await
+                .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
 
     Ok(())
 }
@@ -681,6 +762,41 @@ async fn run_postgres_async_inner(
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+        });
+    }
+
+    let has_concurrent = pending
+        .iter()
+        .any(|m| has_postgres_concurrent_index(m.statements()));
+
+    if has_concurrent {
+        // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
+        let mut applied = Vec::new();
+        for migration in &pending {
+            for stmt in migration.statements() {
+                if !stmt.trim().is_empty() {
+                    client.execute(stmt, &[]).await.map_err(|e| {
+                        CliError::MigrationError(format!(
+                            "Migration '{}' failed: {}",
+                            migration.hash(),
+                            e
+                        ))
+                    })?;
+                }
+            }
+            client
+                .execute(
+                    &set.record_migration_sql(migration.hash(), migration.created_at()),
+                    &[],
+                )
+                .await
+                .map_err(|e| CliError::MigrationError(e.to_string()))?;
+            applied.push(migration.hash().to_string());
+        }
+
+        return Ok(MigrationResult {
+            applied_count: applied.len(),
+            applied_migrations: applied,
         });
     }
 
@@ -3265,4 +3381,265 @@ fn mask_url(url: &str) -> String {
         }
     }
     url.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    fn test_postgres_url() -> String {
+        std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/drizzle_test".into())
+    }
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    fn test_postgres_creds() -> crate::config::PostgresCreds {
+        crate::config::PostgresCreds::Url(test_postgres_url().into_boxed_str())
+    }
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    fn unique_pg_name(prefix: &str) -> String {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        format!("{}_{}_{}", prefix, std::process::id(), nanos)
+    }
+
+    #[test]
+    fn destructive_statement_detection_covers_drop_variants() {
+        assert!(is_destructive_statement("DROP TABLE users;"));
+        assert!(is_destructive_statement("DROP VIEW active_users;"));
+        assert!(is_destructive_statement("DROP TYPE status;"));
+        assert!(is_destructive_statement("DROP SCHEMA auth;"));
+        assert!(is_destructive_statement("DROP ROLE app_user;"));
+        assert!(is_destructive_statement(
+            "DROP POLICY users_rls_policy ON users;"
+        ));
+        assert!(is_destructive_statement("TRUNCATE users;"));
+        assert!(is_destructive_statement(
+            "ALTER TABLE users DROP CONSTRAINT users_email_key;"
+        ));
+
+        assert!(!is_destructive_statement("CREATE TABLE users(id INTEGER);"));
+        assert!(!is_destructive_statement(
+            "ALTER TABLE users ADD COLUMN email text;"
+        ));
+    }
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    #[test]
+    fn postgres_concurrent_index_detection_is_case_insensitive() {
+        assert!(is_postgres_concurrent_index_statement(
+            "CREATE INDEX CONCURRENTLY users_email_idx ON users (email);"
+        ));
+        assert!(is_postgres_concurrent_index_statement(
+            "CREATE UNIQUE INDEX CONCURRENTLY users_email_idx ON users (email);"
+        ));
+        assert!(is_postgres_concurrent_index_statement(
+            "drop index concurrently users_email_idx;"
+        ));
+        assert!(!is_postgres_concurrent_index_statement(
+            "CREATE INDEX users_email_idx ON users (email);"
+        ));
+    }
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    #[test]
+    fn postgres_concurrent_index_detection_over_statement_list() {
+        let with_concurrent = vec![
+            "CREATE TABLE users(id integer);".to_string(),
+            "CREATE INDEX CONCURRENTLY users_email_idx ON users (id);".to_string(),
+        ];
+        let without_concurrent = vec![
+            "CREATE TABLE users(id integer);".to_string(),
+            "CREATE INDEX users_email_idx ON users (id);".to_string(),
+        ];
+
+        assert!(has_postgres_concurrent_index(&with_concurrent));
+        assert!(!has_postgres_concurrent_index(&without_concurrent));
+    }
+
+    #[test]
+    fn generate_push_sql_includes_concurrent_postgres_index() {
+        use crate::snapshot::parse_result_to_snapshot;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_types::Dialect;
+
+        let previous = r#"
+#[PostgresTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i32,
+    pub email: String,
+}
+"#;
+
+        let current = r#"
+#[PostgresTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i32,
+    pub email: String,
+}
+
+#[PostgresIndex(concurrent)]
+pub struct UsersEmailIdx(Users::email);
+"#;
+
+        let prev = parse_result_to_snapshot(&SchemaParser::parse(previous), Dialect::PostgreSQL);
+        let curr = parse_result_to_snapshot(&SchemaParser::parse(current), Dialect::PostgreSQL);
+
+        let (sql, warnings) = generate_push_sql(&prev, &curr, false).expect("push sql generation");
+        assert!(warnings.is_empty());
+        assert!(
+            sql.iter().any(|s| s.contains("CREATE INDEX CONCURRENTLY")),
+            "expected concurrent index SQL, got: {sql:?}"
+        );
+    }
+
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_migrate_applies_concurrent_index_without_transaction() {
+        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let url = creds.connection_url();
+
+        let mut setup_client = match postgres::Client::connect(&url, postgres::NoTls) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "Skipping postgres_sync_migrate_applies_concurrent_index_without_transaction: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        let table = unique_pg_name("cli_sync_users");
+        let index = format!("{}_email_idx", table);
+        let migration_schema = unique_pg_name("cli_sync_mig");
+
+        setup_client
+            .batch_execute(&format!(
+                "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
+                 CREATE TABLE \"{table}\" (id integer, email text NOT NULL); \
+                 INSERT INTO \"{table}\" (id, email) VALUES (1, 'a@example.com');"
+            ))
+            .expect("setup table for concurrent index test");
+        drop(setup_client);
+
+        let migration_tag = format!("20260212000000_{table}");
+        let migration_sql =
+            format!("CREATE INDEX CONCURRENTLY \"{index}\" ON \"{table}\" (\"email\");");
+        let set = MigrationSet::new(
+            vec![Migration::new(&migration_tag, &migration_sql)],
+            Dialect::PostgreSQL,
+        )
+        .with_schema(migration_schema.clone());
+
+        let result = run_postgres_sync_migrations(&set, &creds)
+            .expect("sync migration with concurrent index should succeed");
+        assert_eq!(result.applied_count, 1);
+
+        let mut verify_client =
+            postgres::Client::connect(&url, postgres::NoTls).expect("reconnect for verification");
+        let exists: i64 = verify_client
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM pg_indexes \
+                 WHERE schemaname = 'public' AND tablename = $1 AND indexname = $2",
+                &[&table, &index],
+            )
+            .expect("query pg_indexes")
+            .get(0);
+        assert_eq!(exists, 1, "concurrent index was not created");
+
+        let _ = verify_client.batch_execute(&format!(
+            "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
+             DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
+    #[cfg(feature = "tokio-postgres")]
+    #[test]
+    fn tokio_postgres_migrate_applies_concurrent_index_without_transaction() {
+        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let url = creds.connection_url();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("create tokio runtime");
+
+        rt.block_on(async {
+            let (client, connection) = match tokio_postgres::connect(&url, tokio_postgres::NoTls).await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!(
+                        "Skipping tokio_postgres_migrate_applies_concurrent_index_without_transaction: {}",
+                        e
+                    );
+                    return;
+                }
+            };
+
+            tokio::spawn(async move {
+                let _ = connection.await;
+            });
+
+            let table = unique_pg_name("cli_async_users");
+            let index = format!("{}_email_idx", table);
+            let migration_schema = unique_pg_name("cli_async_mig");
+
+            client
+                .batch_execute(&format!(
+                    "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
+                     CREATE TABLE \"{table}\" (id integer, email text NOT NULL); \
+                     INSERT INTO \"{table}\" (id, email) VALUES (1, 'a@example.com');"
+                ))
+                .await
+                .expect("setup table for async concurrent index test");
+
+            let migration_tag = format!("20260212000000_{table}");
+            let migration_sql = format!(
+                "CREATE INDEX CONCURRENTLY \"{index}\" ON \"{table}\" (\"email\");"
+            );
+            let set = MigrationSet::new(
+                vec![Migration::new(&migration_tag, &migration_sql)],
+                Dialect::PostgreSQL,
+            )
+            .with_schema(migration_schema.clone());
+
+            let result = run_postgres_async_inner(&set, &creds)
+                .await
+                .expect("async migration with concurrent index should succeed");
+            assert_eq!(result.applied_count, 1);
+
+            let exists: i64 = client
+                .query_one(
+                    "SELECT COUNT(*)::bigint FROM pg_indexes \
+                     WHERE schemaname = 'public' AND tablename = $1 AND indexname = $2",
+                    &[&table, &index],
+                )
+                .await
+                .expect("query pg_indexes")
+                .get(0);
+            assert_eq!(exists, 1, "async concurrent index was not created");
+
+            let _ = client
+                .batch_execute(&format!(
+                    "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
+                     DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+                ))
+                .await;
+        });
+    }
 }

@@ -151,7 +151,7 @@ fn build_column(table_name: &str, field: &FieldInfo, is_composite_pk: bool) -> C
             syn::Lit::Int(i) => i.to_string(),
             syn::Lit::Float(f) => f.to_string(),
             syn::Lit::Bool(b) => if b.value() { "1" } else { "0" }.to_string(),
-            syn::Lit::Str(s) => format!("'{}'", s.value()),
+            syn::Lit::Str(s) => format!("'{}'", s.value().replace('\'', "''")),
             _ => return col,
         };
         col.default = Some(Cow::Owned(default_str));
@@ -221,7 +221,7 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
                     syn::Lit::Int(i) => i.to_string(),
                     syn::Lit::Float(f) => f.to_string(),
                     syn::Lit::Bool(b) => if b.value() { "1" } else { "0" }.to_string(),
-                    syn::Lit::Str(s) => format!("'{}'", s.value()),
+                    syn::Lit::Str(s) => format!("'{}'", s.value().replace('\'', "''")),
                     _ => String::new(),
                 };
                 if !default_str.is_empty() {
@@ -367,4 +367,46 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
                 .create_table_sql()
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_create_table_sql_from_params;
+    use crate::sqlite::field::{FieldInfo, SQLiteType};
+
+    #[test]
+    fn create_table_sql_escapes_single_quotes_in_default_string_literals() {
+        let ident: syn::Ident = syn::parse_str("display_name").expect("valid ident");
+        let ty: syn::Type = syn::parse_str("String").expect("valid type");
+        let default_expr: syn::Expr = syn::parse_str("\"O'Hara\"").expect("valid expr");
+
+        let field = FieldInfo {
+            ident: &ident,
+            field_type: &ty,
+            base_type: &ty,
+            column_name: "display_name".to_string(),
+            sql_definition: String::new(),
+            is_nullable: false,
+            has_default: true,
+            is_primary: false,
+            is_autoincrement: false,
+            is_unique: false,
+            is_json: false,
+            is_enum: false,
+            is_uuid: false,
+            column_type: SQLiteType::Text,
+            foreign_key: None,
+            default_value: Some(default_expr),
+            default_fn: None,
+            marker_exprs: Vec::new(),
+            select_type: None,
+            update_type: None,
+        };
+
+        let sql = generate_create_table_sql_from_params("users", &[field], false, false, false);
+        assert!(
+            sql.contains("DEFAULT 'O''Hara'"),
+            "expected escaped default string, got: {sql}"
+        );
+    }
 }

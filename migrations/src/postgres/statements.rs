@@ -830,7 +830,7 @@ impl PostgresGenerator {
             JsonStatement::CreateIndex { index } => {
                 let unique = if index.is_unique { "UNIQUE " } else { "" };
                 let concurrently = if index.concurrently {
-                    "CONCURRENTLY "
+                    " CONCURRENTLY"
                 } else {
                     ""
                 };
@@ -862,7 +862,7 @@ impl PostgresGenerator {
                     .join(", ");
 
                 format!(
-                    "CREATE {}{}INDEX \"{}\" ON {}\"{}\" USING {} ({});",
+                    "CREATE {}INDEX{} \"{}\" ON {}\"{}\" USING {} ({});",
                     unique,
                     concurrently,
                     index.name,
@@ -1211,7 +1211,7 @@ impl PostgresGenerator {
                     String::new()
                 };
                 format!(
-                    "DROP POLICY \"{}\" ON \"{}\"{}\";",
+                    "DROP POLICY \"{}\" ON {}\"{}\";",
                     policy.name, schema_prefix, policy.table
                 )
             }

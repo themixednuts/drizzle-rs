@@ -264,7 +264,7 @@ pub(crate) fn generate_const_ddl(
                         const FK_REF_COLS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#ref_column)];
                         #foreign_key_def::new(#schema_name, #table_name, #fk_name)
                             .columns(FK_COLS)
-                            .references(#schema_name, <#ref_table_ident>::TABLE_NAME, FK_REF_COLS)
+                            .references(<#ref_table_ident>::DDL_TABLE.schema, <#ref_table_ident>::TABLE_NAME, FK_REF_COLS)
                             #(#modifiers)*
                     }
                 }
@@ -336,4 +336,88 @@ pub(crate) fn generate_const_ddl(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_const_ddl;
+    use crate::postgres::field::{FieldInfo, PostgreSQLReference, PostgreSQLType};
+    use crate::postgres::table::{attributes::TableAttributes, context::MacroContext};
+    use std::collections::HashSet;
+
+    #[test]
+    fn generated_fk_uses_referenced_table_schema_constant() {
+        let struct_ident: syn::Ident = syn::parse_str("Posts").expect("valid ident");
+        let struct_vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+
+        let id_ident: syn::Ident = syn::parse_str("user_id").expect("valid ident");
+        let id_type: syn::Type = syn::parse_str("i32").expect("valid type");
+
+        let field = FieldInfo {
+            ident: id_ident,
+            vis: struct_vis.clone(),
+            field_type: id_type.clone(),
+            base_type: id_type,
+            column_name: "user_id".to_string(),
+            sql_definition: "\"user_id\" integer".to_string(),
+            column_type: PostgreSQLType::Integer,
+            flags: HashSet::new(),
+            is_primary: false,
+            is_unique: false,
+            is_nullable: false,
+            is_enum: false,
+            is_pgenum: false,
+            is_json: false,
+            is_jsonb: false,
+            is_serial: false,
+            is_generated_identity: false,
+            identity_mode: None,
+            generated_column: None,
+            default: None,
+            default_fn: None,
+            check_constraint: None,
+            foreign_key: Some(PostgreSQLReference {
+                table: syn::parse_str("Users").expect("valid ref table"),
+                column: syn::parse_str("id").expect("valid ref column"),
+                on_delete: None,
+                on_update: None,
+            }),
+            has_default: false,
+            marker_exprs: Vec::new(),
+        };
+
+        let fields = vec![field];
+        let attrs = TableAttributes {
+            name: None,
+            schema: Some("app".to_string()),
+            unlogged: false,
+            temporary: false,
+            inherits: None,
+            tablespace: None,
+            marker_exprs: Vec::new(),
+        };
+
+        let ctx = MacroContext {
+            struct_ident: &struct_ident,
+            struct_vis: &struct_vis,
+            table_name: "posts".to_string(),
+            create_table_sql: String::new(),
+            field_infos: &fields,
+            select_model_ident: syn::parse_str("PostsSelect").expect("valid ident"),
+            select_model_partial_ident: syn::parse_str("PostsPartial").expect("valid ident"),
+            insert_model_ident: syn::parse_str("PostsInsert").expect("valid ident"),
+            update_model_ident: syn::parse_str("PostsUpdate").expect("valid ident"),
+            has_foreign_keys: true,
+            is_composite_pk: false,
+            attrs: &attrs,
+        };
+
+        let tokens = generate_const_ddl(&ctx, &[])
+            .expect("token generation")
+            .to_string();
+        assert!(
+            tokens.contains(":: DDL_TABLE . schema"),
+            "expected FK references to use referenced table schema constant, got: {tokens}"
+        );
+    }
 }
