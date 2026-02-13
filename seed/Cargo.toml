@@ -1,0 +1,15 @@
+[package]
+name = "drizzle-seed"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Deterministic database seeding for drizzle-rs"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+drizzle-core = { workspace = true }
+drizzle-types = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }

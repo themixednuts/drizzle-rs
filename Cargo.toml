@@ -20,6 +20,7 @@ members = [
   "migrations",
   "types",
   "cli",
+  "seed",
 ]
 
 [workspace.package]
@@ -41,6 +42,7 @@ drizzle-postgres = { path = "./postgres", version = "0.1" }
 drizzle-sqlite = { path = "./sqlite", version = "0.1" }
 drizzle-migrations = { path = "./migrations", version = "0.1" }
 drizzle-types = { path = "./types", version = "0.1" }
+drizzle-seed = { path = "./seed", version = "0.1" }
 regex = { version = "1.12" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env", "color"] }
@@ -95,6 +97,7 @@ predicates = { version = "3.1" }
 
 [dev-dependencies]
 divan = { version = "0.1" }
+drizzle-seed = { workspace = true }
 futures-util = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

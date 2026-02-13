@@ -1402,6 +1402,7 @@ dependencies = [
  "drizzle-migrations",
  "drizzle-mysql",
  "drizzle-postgres",
+ "drizzle-seed",
  "drizzle-sqlite",
  "drizzle-types",
  "eframe",
@@ -1419,6 +1420,7 @@ dependencies = [
  "smallvec",
  "tokio",
  "tokio-postgres",
+ "tracing",
  "trybuild",
  "turso",
  "uuid",
@@ -1468,6 +1470,7 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.18",
  "tokio-postgres",
+ "tracing",
  "turso",
  "uuid",
 ]
@@ -1540,6 +1543,16 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "uuid",
+]
+
+[[package]]
+name = "drizzle-seed"
+version = "0.1.5"
+dependencies = [
+ "drizzle-core",
+ "drizzle-types",
+ "rand 0.9.2",
+ "sha2",
 ]
 
 [[package]]

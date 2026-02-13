@@ -16,6 +16,7 @@ pub mod migrations;
 pub mod parameters;
 pub mod prepare;
 pub mod schema;
+pub mod seed;
 pub mod select;
 pub mod sql_generation;
 pub mod subquery;
