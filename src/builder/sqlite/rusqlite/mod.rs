@@ -67,6 +67,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "drizzle.execute.build");
         let (sql_str, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         self.conn.execute(&sql_str, params_from_iter(params))
     }
@@ -98,6 +99,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "drizzle.all.build");
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.conn.prepare(&sql_str)?;
 
@@ -128,6 +130,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "drizzle.get.build");
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.conn.prepare(&sql_str)?;
 
@@ -145,6 +148,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     where
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.rusqlite");
         let tx = self.conn.transaction_with_behavior(tx_type.into())?;
 
         let transaction = Transaction::new(tx, tx_type);
@@ -154,15 +158,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         match result {
             Ok(callback_result) => match callback_result {
                 Ok(value) => {
+                    drizzle_core::drizzle_trace_tx!("commit", "sqlite.rusqlite");
                     transaction.commit()?;
                     Ok(value)
                 }
                 Err(e) => {
+                    drizzle_core::drizzle_trace_tx!("rollback", "sqlite.rusqlite");
                     transaction.rollback()?;
                     Err(e)
                 }
             },
             Err(panic_payload) => {
+                drizzle_core::drizzle_trace_tx!("rollback", "sqlite.rusqlite");
                 let _ = transaction.rollback();
                 std::panic::resume_unwind(panic_payload);
             }
@@ -247,6 +254,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.execute");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         Ok(self
             .drizzle
             .conn
@@ -275,6 +283,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.all");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
         let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
@@ -300,6 +309,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.get");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
         stmt.query_row(params_from_iter(params), |row| {

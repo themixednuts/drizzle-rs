@@ -22,6 +22,7 @@ hashbrown = { workspace = true }
 turso = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
 puffin = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 drizzle-types = { workspace = true }
@@ -50,6 +51,9 @@ tokio-postgres = ["std", "dep:tokio-postgres"]
 
 # Profiling
 profiling = ["std", "dep:puffin"]
+
+# Tracing
+tracing = ["dep:tracing"]
 
 # Column count variants
 col8 = []

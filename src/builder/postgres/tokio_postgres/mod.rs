@@ -126,6 +126,7 @@ impl<Schema> Drizzle<Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute.build");
         let (sql, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute.param_refs");
@@ -166,6 +167,7 @@ impl<Schema> Drizzle<Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all.build");
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all.param_refs");
@@ -195,6 +197,7 @@ impl<Schema> Drizzle<Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get.build");
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get.param_refs");
@@ -236,16 +239,19 @@ impl<Schema> Drizzle<Schema> {
         } else {
             builder
         };
+        drizzle_core::drizzle_trace_tx!("begin", "postgres.tokio");
         let tx = builder.start().await?;
 
         let transaction = Transaction::new(tx, tx_type);
 
         match f(&transaction).await {
             Ok(value) => {
+                drizzle_core::drizzle_trace_tx!("commit", "postgres.tokio");
                 transaction.commit().await?;
                 Ok(value)
             }
             Err(e) => {
+                drizzle_core::drizzle_trace_tx!("rollback", "postgres.tokio");
                 transaction.rollback().await?;
                 Err(e)
             }
@@ -328,6 +334,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute.param_refs");
@@ -367,6 +374,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all.param_refs");
@@ -392,6 +400,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get.param_refs");

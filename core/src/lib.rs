@@ -57,6 +57,7 @@ pub mod prepared;
 pub mod profiling;
 pub mod schema;
 pub mod sql;
+pub mod tracing;
 pub mod traits;
 pub mod types;
 

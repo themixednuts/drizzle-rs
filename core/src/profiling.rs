@@ -4,6 +4,7 @@
 //! SQL rendering and database operation performance when the "profiling" feature is enabled.
 
 /// Re-export puffin macros for convenience
+#[cfg(feature = "profiling")]
 pub use puffin::{profile_function, profile_scope};
 
 /// Generic profiling scope macro for high-level operation instrumentation.

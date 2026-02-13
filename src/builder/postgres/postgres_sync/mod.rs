@@ -120,6 +120,7 @@ impl<Schema> Drizzle<Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.build");
         let (sql, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
 
         let param_refs = {
             #[cfg(feature = "profiling")]
@@ -186,6 +187,7 @@ impl<Schema> Drizzle<Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all.build");
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all.param_refs");
@@ -215,6 +217,7 @@ impl<Schema> Drizzle<Schema> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get.build");
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get.param_refs");
@@ -252,6 +255,7 @@ impl<Schema> Drizzle<Schema> {
         } else {
             builder
         };
+        drizzle_core::drizzle_trace_tx!("begin", "postgres.sync");
         let tx = builder.start()?;
 
         let transaction = Transaction::new(tx, tx_type);
@@ -261,15 +265,18 @@ impl<Schema> Drizzle<Schema> {
         match result {
             Ok(callback_result) => match callback_result {
                 Ok(value) => {
+                    drizzle_core::drizzle_trace_tx!("commit", "postgres.sync");
                     transaction.commit()?;
                     Ok(value)
                 }
                 Err(e) => {
+                    drizzle_core::drizzle_trace_tx!("rollback", "postgres.sync");
                     transaction.rollback()?;
                     Err(e)
                 }
             },
             Err(panic_payload) => {
+                drizzle_core::drizzle_trace_tx!("rollback", "postgres.sync");
                 let _ = transaction.rollback();
                 std::panic::resume_unwind(panic_payload);
             }
@@ -348,6 +355,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let param_refs = {
             #[cfg(feature = "profiling")]
@@ -412,6 +420,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all.param_refs");
@@ -437,6 +446,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get.param_refs");
