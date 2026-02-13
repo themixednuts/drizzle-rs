@@ -695,3 +695,73 @@ sqlite_test!(test_foreign_key_impl, ComplexPostSchema, {
 
     drizzle_assert_eq!(Some(id), row.author_id);
 });
+
+//------------------------------------------------------------------------------
+// HasRelations and SchemaRelations Tests
+//------------------------------------------------------------------------------
+
+#[test]
+fn test_has_relations_outgoing() {
+    // FkCascade has a FK to FkParent
+    let rels = FkCascade::outgoing_relations();
+    assert_eq!(rels.len(), 1, "FkCascade should have 1 outgoing relation");
+
+    let rel = rels[0];
+    assert_eq!(rel.source_table(), "fk_cascade");
+    assert_eq!(rel.target_table(), "fk_parent");
+    assert_eq!(rel.fk_columns(), &["parent_id"]);
+    assert_eq!(rel.ref_columns(), &["id"]);
+    assert_eq!(rel.relation_type(), RelationType::ManyToOne);
+}
+
+#[test]
+fn test_has_relations_no_fk() {
+    // FkParent has no foreign keys
+    let rels = FkParent::outgoing_relations();
+    assert_eq!(rels.len(), 0, "FkParent should have no outgoing relations");
+}
+
+#[test]
+fn test_schema_relations_includes_reverse() {
+    use drizzle::core::SchemaRelations;
+
+    let schema = FkCascadeSchema::new();
+    let all_rels = schema.all_relations();
+
+    // Should have 1 outgoing (FkCascade -> FkParent) and 1 reverse (FkParent -> FkCascade)
+    assert_eq!(
+        all_rels.len(),
+        2,
+        "Schema should have 2 relations (outgoing + reverse)"
+    );
+
+    // Find the ManyToOne relation
+    let many_to_one = all_rels
+        .iter()
+        .find(|r| r.relation_type() == RelationType::ManyToOne)
+        .expect("Should have a ManyToOne relation");
+    assert_eq!(many_to_one.source_table(), "fk_cascade");
+    assert_eq!(many_to_one.target_table(), "fk_parent");
+
+    // Find the OneToMany relation (reverse)
+    let one_to_many = all_rels
+        .iter()
+        .find(|r| r.relation_type() == RelationType::OneToMany)
+        .expect("Should have a OneToMany relation");
+    assert_eq!(one_to_many.source_table(), "fk_parent");
+    assert_eq!(one_to_many.target_table(), "fk_cascade");
+    // FK/ref columns stay the same in reverse
+    assert_eq!(one_to_many.fk_columns(), &["parent_id"]);
+    assert_eq!(one_to_many.ref_columns(), &["id"]);
+}
+
+#[test]
+fn test_has_relations_multiple_fks() {
+    // FkBothActions has 1 FK (parent_id -> FkParent::id)
+    let rels = FkBothActions::outgoing_relations();
+    assert_eq!(
+        rels.len(),
+        1,
+        "FkBothActions should have 1 outgoing relation"
+    );
+}

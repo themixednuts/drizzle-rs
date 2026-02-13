@@ -92,6 +92,9 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
     let mig_sqlite_view = mig_paths::sqlite::view();
 
+    // Generate SchemaRelations implementation
+    let schema_relations_impl = generate_schema_relations(struct_name, &all_fields);
+
     Ok(quote! {
         impl Default for #struct_name {
             fn default() -> Self {
@@ -230,6 +233,8 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                 #mig_snapshot::Sqlite(snapshot)
             }
         }
+
+        #schema_relations_impl
     })
 }
 
@@ -413,6 +418,51 @@ fn generate_items_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     quote! {
         pub fn items(&self) -> (#(#item_types,)*) {
             (#(#item_refs,)*)
+        }
+    }
+}
+
+fn generate_schema_relations(
+    struct_name: &syn::Ident,
+    fields: &[(&syn::Ident, &syn::Type)],
+) -> TokenStream {
+    let relation_trait = core_paths::relation();
+    let relation_type_path = core_paths::relation_type();
+    let has_relations = core_paths::has_relations();
+    let schema_relations = core_paths::schema_relations();
+    let reverse_relation = core_paths::reverse_relation();
+
+    let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
+
+    quote! {
+        impl #schema_relations for #struct_name {
+            fn all_relations(&self) -> &'static [&'static dyn #relation_trait] {
+                static RELATIONS: ::std::sync::LazyLock<::std::vec::Vec<&'static dyn #relation_trait>> =
+                    ::std::sync::LazyLock::new(|| {
+                        let mut rels: ::std::vec::Vec<&'static dyn #relation_trait> = ::std::vec::Vec::new();
+
+                        // Collect outgoing ManyToOne relations from each schema element
+                        // (indexes, views, enums return empty slices)
+                        #(
+                            rels.extend_from_slice(<#field_types as #has_relations>::outgoing_relations());
+                        )*
+
+                        // Generate reverse OneToMany relations for each outgoing relation
+                        let outgoing_count = rels.len();
+                        for i in 0..outgoing_count {
+                            let rel = rels[i];
+                            if let #relation_type_path::ManyToOne = rel.relation_type() {
+                                let reverse: &'static dyn #relation_trait =
+                                    ::std::boxed::Box::leak(::std::boxed::Box::new(#reverse_relation::new(rel)));
+                                rels.push(reverse);
+                            }
+                        }
+
+                        rels
+                    });
+
+                &RELATIONS
+            }
         }
     }
 }

@@ -387,5 +387,11 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             type Aggregate = drizzle::core::expr::Scalar;
         }
 
+        impl drizzle::core::HasRelations for #name {
+            fn outgoing_relations() -> &'static [&'static dyn drizzle::core::Relation] {
+                &[]
+            }
+        }
+
     })
 }

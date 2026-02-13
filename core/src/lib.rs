@@ -55,6 +55,7 @@ pub mod placeholder;
 pub mod prepared;
 #[cfg(feature = "profiling")]
 pub mod profiling;
+pub mod relation;
 pub mod schema;
 pub mod sql;
 pub mod tracing;
@@ -67,6 +68,7 @@ pub use dialect::{Dialect, DialectExt};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
+pub use relation::{HasRelations, Relation, RelationType, ReverseRelation, SchemaRelations};
 pub use schema::OrderBy;
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
 pub use traits::*;

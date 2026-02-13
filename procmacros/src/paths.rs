@@ -159,6 +159,31 @@ pub mod core {
     pub fn to_sql_trait() -> TokenStream {
         quote!(drizzle::core::ToSQL)
     }
+
+    /// Path to the Relation trait
+    pub fn relation() -> TokenStream {
+        quote!(drizzle::core::Relation)
+    }
+
+    /// Path to the RelationType enum
+    pub fn relation_type() -> TokenStream {
+        quote!(drizzle::core::RelationType)
+    }
+
+    /// Path to the HasRelations trait
+    pub fn has_relations() -> TokenStream {
+        quote!(drizzle::core::HasRelations)
+    }
+
+    /// Path to the SchemaRelations trait
+    pub fn schema_relations() -> TokenStream {
+        quote!(drizzle::core::SchemaRelations)
+    }
+
+    /// Path to the ReverseRelation struct
+    pub fn reverse_relation() -> TokenStream {
+        quote!(drizzle::core::ReverseRelation)
+    }
 }
 
 // =============================================================================

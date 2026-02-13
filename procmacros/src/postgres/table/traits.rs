@@ -1,6 +1,8 @@
 use super::context::MacroContext;
 use crate::generators::generate_sql_table_info;
+use crate::paths::core as core_paths;
 use crate::postgres::generators::*;
+use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::HashSet;
@@ -133,6 +135,9 @@ pub(super) fn generate_table_impls(
     let postgres_table_impl = generate_postgres_table(struct_ident);
     let to_sql_impl = generate_to_sql(struct_ident, to_sql_body);
 
+    // Generate relation ZSTs and HasRelations impl
+    let relations_impl = generate_relations(ctx)?;
+
     Ok(quote! {
         #sql_schema_impl
         #sql_table_impl
@@ -140,5 +145,96 @@ pub(super) fn generate_table_impls(
         #postgres_table_info_impl
         #postgres_table_impl
         #to_sql_impl
+        #relations_impl
+    })
+}
+
+/// Generates relation ZST structs and HasRelations impl for outgoing FK relations.
+fn generate_relations(ctx: &MacroContext) -> Result<TokenStream> {
+    let relation_trait = core_paths::relation();
+    let relation_type_path = core_paths::relation_type();
+    let has_relations = core_paths::has_relations();
+
+    let struct_ident = ctx.struct_ident;
+    let table_name = &ctx.table_name;
+
+    // Collect FK fields
+    let fk_fields: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .filter(|f| f.foreign_key.is_some())
+        .collect();
+
+    if fk_fields.is_empty() {
+        // No FKs: generate an empty HasRelations impl
+        return Ok(quote! {
+            impl #has_relations for #struct_ident {
+                fn outgoing_relations() -> &'static [&'static dyn #relation_trait] {
+                    &[]
+                }
+            }
+        });
+    }
+
+    let mut relation_zsts = Vec::new();
+    let mut relation_static_names = Vec::new();
+    let mut relation_zst_idents = Vec::new();
+
+    for field in &fk_fields {
+        let fk = field.foreign_key.as_ref().unwrap();
+        let fk_column = &field.column_name;
+        let ref_table = fk.table.to_string().to_snake_case();
+        let ref_column = fk.column.to_string();
+
+        // ZST name: __Rel_{SourceTable}_{fk_column}
+        let zst_ident = format_ident!("__Rel_{}_{}", struct_ident, fk_column);
+        let static_name = format_ident!(
+            "__REL_STATIC_{}_{}",
+            struct_ident.to_string().to_ascii_uppercase(),
+            fk_column.to_ascii_uppercase()
+        );
+
+        relation_zsts.push(quote! {
+            #[doc(hidden)]
+            #[allow(non_camel_case_types)]
+            struct #zst_ident;
+
+            impl #relation_trait for #zst_ident {
+                fn source_table(&self) -> &'static str {
+                    #table_name
+                }
+                fn target_table(&self) -> &'static str {
+                    #ref_table
+                }
+                fn fk_columns(&self) -> &'static [&'static str] {
+                    &[#fk_column]
+                }
+                fn ref_columns(&self) -> &'static [&'static str] {
+                    &[#ref_column]
+                }
+                fn relation_type(&self) -> #relation_type_path {
+                    #relation_type_path::ManyToOne
+                }
+            }
+        });
+
+        relation_static_names.push(static_name);
+        relation_zst_idents.push(zst_ident);
+    }
+
+    let relations_len = fk_fields.len();
+
+    Ok(quote! {
+        #(#relation_zsts)*
+
+        impl #has_relations for #struct_ident {
+            fn outgoing_relations() -> &'static [&'static dyn #relation_trait] {
+                #(#[allow(non_upper_case_globals)] static #relation_static_names: #relation_zst_idents = #relation_zst_idents;)*
+                #[allow(non_upper_case_globals)]
+                static RELATIONS: [&'static dyn #relation_trait; #relations_len] =
+                    [#(&#relation_static_names,)*];
+                &RELATIONS
+            }
+        }
     })
 }

@@ -253,6 +253,12 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
                 #sql::raw(Self::create_index_sql())
             }
         }
+
+        impl drizzle::core::HasRelations for #struct_ident {
+            fn outgoing_relations() -> &'static [&'static dyn drizzle::core::Relation] {
+                &[]
+            }
+        }
     })
 }
 

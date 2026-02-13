@@ -495,6 +495,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         #to_sql_impl
         #sql_view_impl
         #sql_view_info_impl
+
+        impl drizzle::core::HasRelations for #struct_ident {
+            fn outgoing_relations() -> &'static [&'static dyn drizzle::core::Relation] {
+                &[]
+            }
+        }
     })
 }
 
