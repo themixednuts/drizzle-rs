@@ -3,7 +3,10 @@ use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
 use std::cell::RefCell;
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
 pub mod delete;
@@ -31,6 +34,7 @@ pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<TokioPgTransaction<'conn>>>,
     tx_type: PostgresTransactionType,
+    savepoint_depth: AtomicU32,
     _schema: PhantomData<Schema>,
 }
 
@@ -49,6 +53,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Self {
             tx: RefCell::new(Some(tx)),
             tx_type,
+            savepoint_depth: AtomicU32::new(0),
             _schema: PhantomData,
         }
     }
@@ -57,6 +62,57 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub fn tx_type(&self) -> PostgresTransactionType {
         self.tx_type
+    }
+
+    /// Executes a raw SQL string with no parameters.
+    async fn execute_raw(&self, sql: &str) -> drizzle_core::error::Result<()> {
+        let tx_ref = self.tx.borrow();
+        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        tx.execute(sql, &[])
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(())
+    }
+
+    /// Executes a nested savepoint within this transaction.
+    ///
+    /// The callback receives a reference to this transaction for executing
+    /// queries. If the callback returns `Ok`, the savepoint is released.
+    /// If it returns `Err`, the savepoint is rolled back.
+    pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
+    where
+        F: for<'t> FnOnce(
+            &'t Self,
+        ) -> Pin<
+            Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
+        >,
+    {
+        let depth = self.savepoint_depth.load(Ordering::Relaxed);
+        let sp_name = format!("drizzle_sp_{}", depth);
+        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
+
+        self.execute_raw(&format!("SAVEPOINT {}", sp_name)).await?;
+
+        let result = f(self).await;
+
+        self.savepoint_depth.store(depth, Ordering::Relaxed);
+
+        match result {
+            Ok(value) => {
+                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                    .await?;
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self
+                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name))
+                    .await;
+                let _ = self
+                    .execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                    .await;
+                Err(e)
+            }
+        }
     }
 
     /// Creates a SELECT query builder within the transaction
@@ -180,6 +236,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.execute");
         let query_sql = query.to_sql();
         let (sql, params) = query_sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.execute.param_refs");
@@ -208,6 +265,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.all");
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.all.param_refs");
@@ -248,6 +306,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.get");
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.get.param_refs");
@@ -359,6 +418,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute.param_refs");
@@ -389,6 +449,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all.param_refs");
@@ -427,6 +488,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get.param_refs");

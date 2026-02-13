@@ -4,7 +4,10 @@ use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::traits::SQLiteTable;
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU32, Ordering};
 use turso::Row;
 
 use crate::builder::sqlite::rows::TursoRows as Rows;
@@ -37,6 +40,7 @@ pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
 pub struct Transaction<'conn, Schema = ()> {
     tx: turso::transaction::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
+    savepoint_depth: AtomicU32,
     _schema: PhantomData<Schema>,
 }
 
@@ -49,6 +53,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Self {
             tx,
             tx_type,
+            savepoint_depth: AtomicU32::new(0),
             _schema: PhantomData,
         }
     }
@@ -63,6 +68,53 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub fn tx_type(&self) -> SQLiteTransactionType {
         self.tx_type
+    }
+
+    /// Executes a raw SQL string with no parameters.
+    async fn execute_raw(&self, sql: &str) -> Result<(), DrizzleError> {
+        self.tx.execute(sql, ()).await?;
+        Ok(())
+    }
+
+    /// Executes a nested savepoint within this transaction.
+    ///
+    /// The callback receives a reference to this transaction for executing
+    /// queries. If the callback returns `Ok`, the savepoint is released.
+    /// If it returns `Err`, the savepoint is rolled back.
+    pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
+    where
+        F: for<'t> FnOnce(
+            &'t Self,
+        ) -> Pin<
+            Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
+        >,
+    {
+        let depth = self.savepoint_depth.load(Ordering::Relaxed);
+        let sp_name = format!("drizzle_sp_{}", depth);
+        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
+
+        self.execute_raw(&format!("SAVEPOINT {}", sp_name)).await?;
+
+        let result = f(self).await;
+
+        self.savepoint_depth.store(depth, Ordering::Relaxed);
+
+        match result {
+            Ok(value) => {
+                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                    .await?;
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self
+                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name))
+                    .await;
+                let _ = self
+                    .execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                    .await;
+                Err(e)
+            }
+        }
     }
 
     /// Creates a SELECT query builder within the transaction

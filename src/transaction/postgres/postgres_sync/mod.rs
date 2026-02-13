@@ -6,6 +6,7 @@ use postgres::fallible_iterator::FallibleIterator;
 use postgres::{Row, Transaction as PgTransaction};
 use std::cell::RefCell;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub mod delete;
 pub mod insert;
@@ -34,6 +35,7 @@ pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<PgTransaction<'conn>>>,
     tx_type: PostgresTransactionType,
+    savepoint_depth: AtomicU32,
     _schema: PhantomData<Schema>,
 }
 
@@ -52,6 +54,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Self {
             tx: RefCell::new(Some(tx)),
             tx_type,
+            savepoint_depth: AtomicU32::new(0),
             _schema: PhantomData,
         }
     }
@@ -60,6 +63,52 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub fn tx_type(&self) -> PostgresTransactionType {
         self.tx_type
+    }
+
+    /// Executes a raw SQL string with no parameters.
+    fn execute_raw(&self, sql: &str) -> drizzle_core::error::Result<()> {
+        let mut tx_ref = self.tx.borrow_mut();
+        let tx = tx_ref.as_mut().expect("Transaction already consumed");
+        tx.execute(sql, &[])
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(())
+    }
+
+    /// Executes a nested savepoint within this transaction.
+    ///
+    /// The callback receives a reference to this transaction for executing
+    /// queries. If the callback returns `Ok`, the savepoint is released.
+    /// If it returns `Err` or panics, the savepoint is rolled back.
+    pub fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
+    where
+        F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
+    {
+        let depth = self.savepoint_depth.load(Ordering::Relaxed);
+        let sp_name = format!("drizzle_sp_{}", depth);
+        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
+
+        self.execute_raw(&format!("SAVEPOINT {}", sp_name))?;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+
+        self.savepoint_depth.store(depth, Ordering::Relaxed);
+
+        match result {
+            Ok(Ok(value)) => {
+                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))?;
+                Ok(value)
+            }
+            Ok(Err(e)) => {
+                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name));
+                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name));
+                Err(e)
+            }
+            Err(panic_payload) => {
+                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name));
+                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name));
+                std::panic::resume_unwind(panic_payload);
+            }
+        }
     }
 
     /// Creates a SELECT query builder within the transaction
@@ -183,6 +232,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.execute");
         let query_sql = query.to_sql();
         let (sql, params) = query_sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
 
         let mut tx_ref = self.tx.borrow_mut();
         let tx = tx_ref.as_mut().expect("Transaction already consumed");
@@ -250,6 +300,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.all");
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.all.param_refs");
@@ -282,6 +333,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.get");
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.get.param_refs");
@@ -390,6 +442,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut tx_ref = self.transaction.tx.borrow_mut();
         let tx = tx_ref.as_mut().expect("Transaction already consumed");
@@ -462,6 +515,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.all");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.all.param_refs");
@@ -492,6 +546,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.get");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.get.param_refs");

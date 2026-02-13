@@ -6,6 +6,7 @@ use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, Updat
 use drizzle_sqlite::traits::SQLiteTable;
 use rusqlite::params_from_iter;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::builder::sqlite::rows::Rows;
 
@@ -37,6 +38,7 @@ pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
 pub struct Transaction<'conn, Schema = ()> {
     tx: rusqlite::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
+    savepoint_depth: AtomicU32,
     _schema: PhantomData<Schema>,
 }
 
@@ -46,6 +48,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Self {
             tx,
             tx_type,
+            savepoint_depth: AtomicU32::new(0),
             _schema: PhantomData,
         }
     }
@@ -60,6 +63,49 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub fn tx_type(&self) -> SQLiteTransactionType {
         self.tx_type
+    }
+
+    /// Executes a raw SQL string with no parameters.
+    fn execute_raw(&self, sql: &str) -> rusqlite::Result<()> {
+        self.tx.execute(sql, [])?;
+        Ok(())
+    }
+
+    /// Executes a nested savepoint within this transaction.
+    ///
+    /// The callback receives a reference to this transaction for executing
+    /// queries. If the callback returns `Ok`, the savepoint is released.
+    /// If it returns `Err` or panics, the savepoint is rolled back.
+    pub fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
+    where
+        F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
+    {
+        let depth = self.savepoint_depth.load(Ordering::Relaxed);
+        let sp_name = format!("drizzle_sp_{}", depth);
+        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
+
+        self.execute_raw(&format!("SAVEPOINT {}", sp_name))?;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+
+        self.savepoint_depth.store(depth, Ordering::Relaxed);
+
+        match result {
+            Ok(Ok(value)) => {
+                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))?;
+                Ok(value)
+            }
+            Ok(Err(e)) => {
+                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name));
+                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name));
+                Err(e)
+            }
+            Err(panic_payload) => {
+                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name));
+                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name));
+                std::panic::resume_unwind(panic_payload);
+            }
+        }
     }
 
     /// Creates a SELECT query builder within the transaction
@@ -166,6 +212,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.execute");
         let query = query.to_sql();
         let (sql_str, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         self.tx.execute(&sql_str, params_from_iter(params))
     }
@@ -194,6 +241,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.all");
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.tx.prepare(&sql_str)?;
 
@@ -222,6 +270,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.get");
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.tx.prepare(&sql_str)?;
 
@@ -252,6 +301,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         Ok(self
             .transaction
             .tx
@@ -279,6 +329,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.all");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.transaction.tx.prepare(&sql_str)?;
 
@@ -305,6 +356,7 @@ where
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.get");
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.transaction.tx.prepare(&sql_str)?;
 
