@@ -1,4 +1,5 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::Role;
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
@@ -7,10 +8,10 @@ use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
+#[cfg(not(feature = "uuid"))]
+use crate::common::schema::sqlite::Post;
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, InsertComplex, InsertPost, Post, SelectPost};
-#[cfg(not(feature = "uuid"))]
-use crate::common::schema::sqlite::{FullBlogSchema, InsertPost, Post, SelectPost};
 
 //------------------------------------------------------------------------------
 // Foreign Key Action Type Schema Definitions
@@ -217,6 +218,7 @@ struct ParentResult {
     name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct ChildResult {
     id: i32,
@@ -224,6 +226,7 @@ struct ChildResult {
     value: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct ChildDefaultResult {
     id: i32,
@@ -238,8 +241,6 @@ struct ChildDefaultResult {
 #[test]
 fn test_on_delete_cascade_sql() {
     let sql = FkCascade::create_table_sql();
-    println!("FkCascade SQL: {}", sql);
-
     assert!(
         sql.contains("ON DELETE CASCADE"),
         "Should contain ON DELETE CASCADE. Got: {}",
@@ -250,8 +251,6 @@ fn test_on_delete_cascade_sql() {
 #[test]
 fn test_on_delete_set_null_sql() {
     let sql = FkSetNull::create_table_sql();
-    println!("FkSetNull SQL: {}", sql);
-
     assert!(
         sql.contains("ON DELETE SET NULL"),
         "Should contain ON DELETE SET NULL. Got: {}",
@@ -262,8 +261,6 @@ fn test_on_delete_set_null_sql() {
 #[test]
 fn test_on_delete_set_default_sql() {
     let sql = FkSetDefault::create_table_sql();
-    println!("FkSetDefault SQL: {}", sql);
-
     assert!(
         sql.contains("ON DELETE SET DEFAULT"),
         "Should contain ON DELETE SET DEFAULT. Got: {}",
@@ -274,8 +271,6 @@ fn test_on_delete_set_default_sql() {
 #[test]
 fn test_on_delete_restrict_sql() {
     let sql = FkRestrict::create_table_sql();
-    println!("FkRestrict SQL: {}", sql);
-
     assert!(
         sql.contains("ON DELETE RESTRICT"),
         "Should contain ON DELETE RESTRICT. Got: {}",
@@ -286,8 +281,6 @@ fn test_on_delete_restrict_sql() {
 #[test]
 fn test_on_delete_no_action_sql() {
     let sql = FkNoAction::create_table_sql();
-    println!("FkNoAction SQL: {}", sql);
-
     // NO ACTION is the default, so it may not appear explicitly in the SQL
     // Just verify the FK constraint references the parent table
     assert!(
@@ -300,8 +293,6 @@ fn test_on_delete_no_action_sql() {
 #[test]
 fn test_on_update_cascade_sql() {
     let sql = FkUpdateCascade::create_table_sql();
-    println!("FkUpdateCascade SQL: {}", sql);
-
     assert!(
         sql.contains("ON UPDATE CASCADE"),
         "Should contain ON UPDATE CASCADE. Got: {}",
@@ -312,8 +303,6 @@ fn test_on_update_cascade_sql() {
 #[test]
 fn test_on_update_set_null_sql() {
     let sql = FkUpdateSetNull::create_table_sql();
-    println!("FkUpdateSetNull SQL: {}", sql);
-
     assert!(
         sql.contains("ON UPDATE SET NULL"),
         "Should contain ON UPDATE SET NULL. Got: {}",
@@ -324,8 +313,6 @@ fn test_on_update_set_null_sql() {
 #[test]
 fn test_both_actions_sql() {
     let sql = FkBothActions::create_table_sql();
-    println!("FkBothActions SQL: {}", sql);
-
     assert!(
         sql.contains("ON DELETE CASCADE"),
         "Should contain ON DELETE CASCADE. Got: {}",
@@ -341,9 +328,6 @@ fn test_both_actions_sql() {
 #[test]
 fn test_foreign_key_reference_sql() {
     let post_sql = Post::create_table_sql();
-
-    println!("Post table SQL: {}", post_sql);
-
     assert!(post_sql.contains("CREATE TABLE"));
     assert!(post_sql.contains("posts"));
 

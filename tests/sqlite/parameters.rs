@@ -89,7 +89,6 @@ sqlite_test!(test_insert_with_placeholders, SimpleSchema, {
 
     // Check that the generated SQL contains the placeholder
     let sql_string = insert_result.to_sql().sql();
-    println!("Generated SQL: {}", sql_string);
 
     // The SQL should contain the named placeholder
     assert!(
@@ -110,6 +109,7 @@ sqlite_test!(
     test_insert_with_placeholders_execute_and_retrieve,
     SimpleSchema,
     {
+        #[allow(dead_code)]
         #[derive(SQLiteFromRow, Debug)]
         struct SimpleResult {
             id: i32,
@@ -146,8 +146,6 @@ sqlite_test!(
             results[0].name, "Alice",
             "Name should match the bound placeholder value"
         );
-
-        println!("Successfully inserted and retrieved: {:?}", results[0]);
     }
 );
 
@@ -245,6 +243,7 @@ sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
 });
 
 sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
+    #[allow(dead_code)]
     #[derive(SQLiteFromRow, Debug)]
     struct SimpleResult {
         id: i32,
@@ -303,6 +302,7 @@ sqlite_test!(
     test_update_with_mixed_values_and_placeholders,
     ComplexSchema,
     {
+        #[allow(dead_code)]
         #[derive(SQLiteFromRow, Debug)]
         struct ComplexResult {
             name: String,

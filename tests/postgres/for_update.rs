@@ -9,6 +9,7 @@ use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct PgSimpleResult {
     id: i32,
@@ -26,7 +27,6 @@ postgres_test!(for_update_sql_generation, SimpleSchema, {
         .for_update();
 
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE SQL: {}", sql);
 
     assert!(
         sql.contains("FOR UPDATE"),
@@ -46,7 +46,6 @@ postgres_test!(for_share_sql_generation, SimpleSchema, {
         .for_share();
 
     let sql = stmt.to_sql().sql();
-    println!("FOR SHARE SQL: {}", sql);
 
     assert!(
         sql.contains("FOR") && sql.contains("SHARE"),
@@ -66,7 +65,6 @@ postgres_test!(for_no_key_update_sql_generation, SimpleSchema, {
         .for_no_key_update();
 
     let sql = stmt.to_sql().sql();
-    println!("FOR NO KEY UPDATE SQL: {}", sql);
 
     assert!(
         sql.contains("FOR NO KEY UPDATE"),
@@ -86,7 +84,6 @@ postgres_test!(for_key_share_sql_generation, SimpleSchema, {
         .for_key_share();
 
     let sql = stmt.to_sql().sql();
-    println!("FOR KEY SHARE SQL: {}", sql);
 
     assert!(
         sql.contains("FOR KEY") && sql.contains("SHARE"),
@@ -107,7 +104,6 @@ postgres_test!(for_update_nowait_sql_generation, SimpleSchema, {
         .nowait();
 
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE NOWAIT SQL: {}", sql);
 
     assert!(
         sql.contains("FOR UPDATE"),
@@ -129,7 +125,6 @@ postgres_test!(for_update_skip_locked_sql_generation, SimpleSchema, {
         .skip_locked();
 
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE SKIP LOCKED SQL: {}", sql);
 
     assert!(
         sql.contains("FOR UPDATE"),
@@ -154,7 +149,6 @@ postgres_test!(for_update_of_sql_generation, SimpleSchema, {
         .for_update_of(simple);
 
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE OF SQL: {}", sql);
 
     assert!(
         sql.contains("FOR UPDATE OF"),
@@ -180,7 +174,6 @@ postgres_test!(for_share_of_sql_generation, SimpleSchema, {
         .for_share_of(simple);
 
     let sql = stmt.to_sql().sql();
-    println!("FOR SHARE OF SQL: {}", sql);
 
     assert!(
         sql.contains("FOR") && sql.contains("SHARE OF"),
@@ -202,7 +195,6 @@ postgres_test!(for_update_from_different_states, SimpleSchema, {
     // From SelectFromSet
     let stmt = db.select(()).from(simple).for_update();
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE from FROM: {}", sql);
     assert!(sql.contains("FOR UPDATE"));
 
     // From SelectWhereSet
@@ -212,7 +204,6 @@ postgres_test!(for_update_from_different_states, SimpleSchema, {
         .r#where(eq(simple.id, 1))
         .for_update();
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE from WHERE: {}", sql);
     assert!(sql.contains("FOR UPDATE"));
 
     // From SelectOrderSet
@@ -222,13 +213,11 @@ postgres_test!(for_update_from_different_states, SimpleSchema, {
         .order_by([drizzle_core::OrderBy::asc(simple.id)])
         .for_update();
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE from ORDER BY: {}", sql);
     assert!(sql.contains("FOR UPDATE"));
 
     // From SelectLimitSet
     let stmt = db.select(()).from(simple).limit(10).for_update();
     let sql = stmt.to_sql().sql();
-    println!("FOR UPDATE from LIMIT: {}", sql);
     assert!(sql.contains("FOR UPDATE"));
 });
 

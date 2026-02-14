@@ -6,9 +6,10 @@
 
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
-use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_core::OrderBy;
+#[cfg(feature = "uuid")]
+use drizzle_core::types::Double;
 use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
@@ -17,6 +18,38 @@ struct PgSimpleResult {
     name: String,
 }
 
+#[derive(Debug, PostgresFromRow)]
+struct PgCountResult {
+    count: i64,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgSumResult {
+    total_age: i64,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgAvgResult {
+    avg_age: f64,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgMinMaxResult {
+    min_age: i32,
+    max_age: i32,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgAliasResult {
+    user_name: String,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgCoalesceResult {
+    email: String,
+}
+
+#[allow(dead_code)]
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow)]
 struct PgComplexResult {
@@ -38,7 +71,6 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
     ];
 
     let stmt = db.insert(simple).values(test_data);
-    println!("Insert stmt: {}", stmt.to_sql());
     drizzle_exec!(stmt.execute());
 
     // Test WHERE condition
@@ -46,7 +78,6 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "beta"));
-    println!("Select where stmt: {}", stmt.to_sql());
 
     let where_results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
@@ -59,7 +90,6 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .from(simple)
         .order_by([OrderBy::asc(simple.name)])
         .limit(2);
-    println!("Select order stmt: {}", stmt.to_sql());
 
     let ordered_results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
@@ -74,7 +104,6 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .order_by([OrderBy::asc(simple.name)])
         .limit(2)
         .offset(2);
-    println!("Select limit stmt: {}", stmt.to_sql());
 
     let offset_results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
 
@@ -86,44 +115,36 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
 postgres_test!(select_all_columns, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    // Insert test data
-    let stmt = db.insert(simple).values(vec![InsertSimple::new("test")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values(vec![InsertSimple::new("test")])
+            .execute()
+    );
 
-    // Select all columns - SQL generation test
-    let stmt = db.select(()).from(simple);
-
-    let sql = stmt.to_sql().sql();
-    println!("Select all SQL: {}", sql);
-
-    // Should include all columns from the table
-    assert!(sql.contains(r#""simple"."id""#));
-    assert!(sql.contains(r#""simple"."name""#));
+    let sql = db.select(()).from(simple).to_sql().sql();
+    assert_eq!(
+        sql,
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple""#
+    );
 });
 
 postgres_test!(select_with_where, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let stmt = db
-        .insert(simple)
-        .values(vec![InsertSimple::new("test"), InsertSimple::new("other")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values(vec![InsertSimple::new("test"), InsertSimple::new("other")])
+            .execute()
+    );
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "test"));
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with WHERE SQL: {}", sql);
-
-    assert!(sql.contains("WHERE"));
-    assert!(sql.contains(r#""simple"."name""#));
-    // PostgreSQL uses $1 for parameters
-    assert!(
-        sql.contains("$1"),
-        "Expected PostgreSQL $1 placeholder: {}",
-        sql
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."name" = $1"#
     );
 
     let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
@@ -134,12 +155,15 @@ postgres_test!(select_with_where, SimpleSchema, {
 postgres_test!(select_with_order_by, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values(vec![
-        InsertSimple::new("zebra"),
-        InsertSimple::new("alpha"),
-        InsertSimple::new("beta"),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values(vec![
+                InsertSimple::new("zebra"),
+                InsertSimple::new("alpha"),
+                InsertSimple::new("beta"),
+            ])
+            .execute()
+    );
 
     let stmt = db
         .select((simple.id, simple.name))
@@ -147,13 +171,10 @@ postgres_test!(select_with_order_by, SimpleSchema, {
         .order_by([OrderBy::asc(simple.name)])
         .limit(2);
 
-    let sql = stmt.to_sql().sql();
-    println!("Order by SQL: {}", sql);
-
-    assert!(sql.contains("ORDER BY"));
-    assert!(sql.contains(r#""simple"."name""#));
-    assert!(sql.contains("ASC"));
-    assert!(sql.contains("LIMIT"));
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2"#
+    );
 
     let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
     assert_eq!(results.len(), 2);
@@ -164,19 +185,22 @@ postgres_test!(select_with_order_by, SimpleSchema, {
 postgres_test!(select_with_limit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values(vec![
-        InsertSimple::new("one"),
-        InsertSimple::new("two"),
-        InsertSimple::new("three"),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values(vec![
+                InsertSimple::new("one"),
+                InsertSimple::new("two"),
+                InsertSimple::new("three"),
+            ])
+            .execute()
+    );
 
     let stmt = db.select((simple.id, simple.name)).from(simple).limit(2);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with LIMIT SQL: {}", sql);
-
-    assert!(sql.contains("LIMIT"));
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" LIMIT 2"#
+    );
 
     let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
     assert_eq!(results.len(), 2);
@@ -185,13 +209,16 @@ postgres_test!(select_with_limit, SimpleSchema, {
 postgres_test!(select_with_offset, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values([
-        InsertSimple::new("one"),
-        InsertSimple::new("two"),
-        InsertSimple::new("three"),
-        InsertSimple::new("four"),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values([
+                InsertSimple::new("one"),
+                InsertSimple::new("two"),
+                InsertSimple::new("three"),
+                InsertSimple::new("four"),
+            ])
+            .execute()
+    );
 
     let stmt = db
         .select((simple.id, simple.name))
@@ -200,11 +227,10 @@ postgres_test!(select_with_offset, SimpleSchema, {
         .limit(2)
         .offset(1);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with LIMIT and OFFSET SQL: {}", sql);
-
-    assert!(sql.contains("LIMIT"));
-    assert!(sql.contains("OFFSET"));
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
+    );
 
     let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
     assert_eq!(results.len(), 2);
@@ -268,13 +294,13 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
             .limit(2)
             .offset(1)
             .into_cte("paged_simple");
-        let paged_alias = paged_simple.table.clone();
+        let paged_alias = paged_simple.table;
 
         drizzle_exec!(
             db.with(&paged_simple)
-                .select((paged_alias.id.clone(), paged_alias.name.clone()))
+                .select((paged_alias.id, paged_alias.name))
                 .from(&paged_simple)
-                .order_by([OrderBy::asc(paged_alias.id.clone())])
+                .order_by([OrderBy::asc(paged_alias.id)])
                 .all()
         )
     };
@@ -309,30 +335,33 @@ postgres_test!(select_with_generated_model, SimpleSchema, {
 postgres_test!(select_with_multiple_order_by, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
-    let stmt = db.insert(complex).values(vec![
-        InsertComplex::new("Alice", true, Role::User)
-            .with_email("alice@example.com")
-            .with_age(30),
-        InsertComplex::new("Bob", true, Role::User)
-            .with_email("bob@example.com")
-            .with_age(25),
-        InsertComplex::new("Charlie", true, Role::User)
-            .with_email("charlie@example.com")
-            .with_age(30),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values(vec![
+                InsertComplex::new("Alice", true, Role::User)
+                    .with_email("alice@example.com")
+                    .with_age(30),
+                InsertComplex::new("Bob", true, Role::User)
+                    .with_email("bob@example.com")
+                    .with_age(25),
+                InsertComplex::new("Charlie", true, Role::User)
+                    .with_email("charlie@example.com")
+                    .with_age(30),
+            ])
+            .execute()
+    );
 
     let stmt = db
-        .select(())
+        .select((complex.id, complex.name, complex.email, complex.age))
         .from(complex)
         .order_by([OrderBy::desc(complex.age), OrderBy::asc(complex.name)]);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with multiple ORDER BY SQL: {}", sql);
-
-    assert!(sql.contains("ORDER BY"));
-    assert!(sql.contains("DESC"));
-    assert!(sql.contains("ASC"));
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    assert_eq!(results.len(), 3);
+    // age DESC, name ASC: Alice(30), Charlie(30), Bob(25)
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[1].name, "Charlie");
+    assert_eq!(results[2].name, "Bob");
 });
 
 postgres_test!(select_with_in_array, SimpleSchema, {
@@ -352,7 +381,6 @@ postgres_test!(select_with_in_array, SimpleSchema, {
         .r#where(in_array(simple.name, ["Alice", "Bob", "Charlie"]));
 
     let sql = stmt.to_sql().sql();
-    println!("Select with IN SQL: {}", sql);
 
     assert!(sql.contains("IN"));
     // Should have PostgreSQL numbered placeholders
@@ -378,7 +406,6 @@ postgres_test!(select_with_like_pattern, SimpleSchema, {
         .r#where(like(simple.name, "%test%"));
 
     let sql = stmt.to_sql().sql();
-    println!("Select with LIKE SQL: {}", sql);
 
     assert!(sql.contains("LIKE"));
     assert!(sql.contains("$1"));
@@ -405,7 +432,6 @@ postgres_test!(select_with_null_check, ComplexSchema, {
     let stmt = db.select(()).from(complex).r#where(is_null(complex.email));
 
     let sql = stmt.to_sql().sql();
-    println!("IS NULL condition SQL: {}", sql);
 
     assert!(sql.contains("IS NULL"));
 
@@ -437,7 +463,6 @@ postgres_test!(select_with_between, ComplexSchema, {
         .r#where(between(complex.age, 18, 65));
 
     let sql = stmt.to_sql().sql();
-    println!("Select with BETWEEN SQL: {}", sql);
 
     assert!(sql.contains("BETWEEN"));
     assert!(sql.contains("$1"));
@@ -468,7 +493,6 @@ postgres_test!(select_with_enum_condition, ComplexSchema, {
         .r#where(eq(complex.role, Role::Admin));
 
     let sql = stmt.to_sql().sql();
-    println!("Select with enum condition SQL: {}", sql);
 
     assert!(sql.contains(r#""complex"."role""#));
     assert!(sql.contains("$1"));
@@ -503,7 +527,6 @@ postgres_test!(select_complex_where, ComplexSchema, {
     ]));
 
     let sql = stmt.to_sql().sql();
-    println!("Complex WHERE SQL: {}", sql);
 
     assert!(sql.contains("AND"));
     assert!(sql.contains("OR"));
@@ -516,85 +539,94 @@ postgres_test!(select_complex_where, ComplexSchema, {
 postgres_test!(select_with_aggregate_count, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values(vec![
-        InsertSimple::new("one"),
-        InsertSimple::new("two"),
-        InsertSimple::new("three"),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values(vec![
+                InsertSimple::new("one"),
+                InsertSimple::new("two"),
+                InsertSimple::new("three"),
+            ])
+            .execute()
+    );
 
     let stmt = db.select(alias(count(simple.id), "count")).from(simple);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with COUNT SQL: {}", sql);
-
-    assert!(sql.contains("COUNT"));
+    let result: PgCountResult = drizzle_exec!(stmt.get());
+    assert_eq!(result.count, 3);
 });
 
 #[cfg(feature = "uuid")]
 postgres_test!(select_with_aggregate_sum, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
-    let stmt = db.insert(complex).values(vec![
-        InsertComplex::new("Alice", true, Role::User)
-            .with_email("alice@example.com")
-            .with_age(30),
-        InsertComplex::new("Bob", true, Role::User)
-            .with_email("bob@example.com")
-            .with_age(25),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values(vec![
+                InsertComplex::new("Alice", true, Role::User)
+                    .with_email("alice@example.com")
+                    .with_age(30),
+                InsertComplex::new("Bob", true, Role::User)
+                    .with_email("bob@example.com")
+                    .with_age(25),
+            ])
+            .execute()
+    );
 
     let stmt = db
         .select(alias(sum(complex.age), "total_age"))
         .from(complex);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with SUM SQL: {}", sql);
-
-    assert!(sql.contains("SUM"));
+    let result: PgSumResult = drizzle_exec!(stmt.get());
+    assert_eq!(result.total_age, 55);
 });
 
 #[cfg(feature = "uuid")]
 postgres_test!(select_with_aggregate_avg, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
-    let stmt = db.insert(complex).values(vec![
-        InsertComplex::new("Alice", true, Role::User)
-            .with_email("alice@example.com")
-            .with_age(30),
-        InsertComplex::new("Bob", true, Role::User)
-            .with_email("bob@example.com")
-            .with_age(20),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values(vec![
+                InsertComplex::new("Alice", true, Role::User)
+                    .with_email("alice@example.com")
+                    .with_age(30),
+                InsertComplex::new("Bob", true, Role::User)
+                    .with_email("bob@example.com")
+                    .with_age(20),
+            ])
+            .execute()
+    );
 
     let stmt = db
-        .select(alias(avg(complex.score), "avg_score"))
+        .select(alias(
+            cast::<_, _, Double>(avg(complex.age), "float8"),
+            "avg_age",
+        ))
         .from(complex);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with AVG SQL: {}", sql);
-
-    assert!(sql.contains("AVG"));
+    let result: PgAvgResult = drizzle_exec!(stmt.get());
+    assert!((result.avg_age - 25.0).abs() < 0.01);
 });
 
 #[cfg(feature = "uuid")]
 postgres_test!(select_with_aggregate_min_max, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
-    let stmt = db.insert(complex).values(vec![
-        InsertComplex::new("Alice", true, Role::User)
-            .with_email("alice@example.com")
-            .with_age(30),
-        InsertComplex::new("Bob", true, Role::User)
-            .with_email("bob@example.com")
-            .with_age(25),
-        InsertComplex::new("Charlie", true, Role::User)
-            .with_email("charlie@example.com")
-            .with_age(35),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values(vec![
+                InsertComplex::new("Alice", true, Role::User)
+                    .with_email("alice@example.com")
+                    .with_age(30),
+                InsertComplex::new("Bob", true, Role::User)
+                    .with_email("bob@example.com")
+                    .with_age(25),
+                InsertComplex::new("Charlie", true, Role::User)
+                    .with_email("charlie@example.com")
+                    .with_age(35),
+            ])
+            .execute()
+    );
 
     let stmt = db
         .select((
@@ -603,59 +635,70 @@ postgres_test!(select_with_aggregate_min_max, ComplexSchema, {
         ))
         .from(complex);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with MIN/MAX SQL: {}", sql);
-
-    assert!(sql.contains("MIN"));
-    assert!(sql.contains("MAX"));
+    let result: PgMinMaxResult = drizzle_exec!(stmt.get());
+    assert_eq!(result.min_age, 25);
+    assert_eq!(result.max_age, 35);
 });
 
 #[cfg(feature = "uuid")]
 postgres_test!(select_distinct, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
-    let stmt = db.insert(complex).values(vec![
-        InsertComplex::new("Alice", true, Role::User)
-            .with_email("alice@example.com")
-            .with_age(30),
-        InsertComplex::new("Bob", true, Role::User)
-            .with_email("bob@example.com")
-            .with_age(25),
-    ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values(vec![
+                InsertComplex::new("Alice", true, Role::User)
+                    .with_email("alice@example.com")
+                    .with_age(30),
+                InsertComplex::new("Bob", true, Role::Admin)
+                    .with_email("bob@example.com")
+                    .with_age(25),
+                InsertComplex::new("Charlie", true, Role::User)
+                    .with_email("charlie@example.com")
+                    .with_age(35),
+            ])
+            .execute()
+    );
 
-    let stmt = db
-        .select(alias(distinct(complex.role), "role"))
-        .from(complex);
-
-    let sql = stmt.to_sql().sql();
-    println!("Select DISTINCT SQL: {}", sql);
-
-    assert!(sql.contains("DISTINCT"));
+    #[allow(dead_code)]
+    #[derive(Debug, PostgresFromRow)]
+    struct PgDistinctRoleResult {
+        role: Role,
+    }
+    let results: Vec<PgDistinctRoleResult> = drizzle_exec!(
+        db.select(alias(distinct(complex.role), "role"))
+            .from(complex)
+            .all()
+    );
+    assert_eq!(results.len(), 2);
 });
 
 postgres_test!(select_with_alias, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let stmt = db.insert(simple).values(vec![InsertSimple::new("test")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(simple)
+            .values(vec![InsertSimple::new("test")])
+            .execute()
+    );
 
     let stmt = db.select(alias(simple.name, "user_name")).from(simple);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with alias SQL: {}", sql);
-
-    assert!(sql.contains("AS"));
+    let result: PgAliasResult = drizzle_exec!(stmt.get());
+    assert_eq!(result.user_name, "test");
 });
 
 #[cfg(feature = "uuid")]
 postgres_test!(select_with_coalesce, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
 
-    let data = InsertComplex::new("Alice", true, Role::User).with_age(30);
-
-    let stmt = db.insert(complex).values(vec![data]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(
+        db.insert(complex)
+            .values(vec![
+                InsertComplex::new("Alice", true, Role::User).with_age(30),
+            ])
+            .execute()
+    );
 
     let stmt = db
         .select(alias(
@@ -664,8 +707,6 @@ postgres_test!(select_with_coalesce, ComplexSchema, {
         ))
         .from(complex);
 
-    let sql = stmt.to_sql().sql();
-    println!("Select with COALESCE SQL: {}", sql);
-
-    assert!(sql.contains("COALESCE"));
+    let result: PgCoalesceResult = drizzle_exec!(stmt.get());
+    assert_eq!(result.email, "unknown@example.com");
 });

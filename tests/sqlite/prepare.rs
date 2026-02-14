@@ -28,8 +28,6 @@ sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
         .r#where(and([eq(simple.name, SQL::placeholder("name"))]))
         .prepare();
 
-    println!("Prepared SQL: {prepared}");
-
     #[derive(SQLiteFromRow, Default)]
     struct PartialSimple {
         name: String,
@@ -208,9 +206,6 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
             drizzle_exec!(prepared.all(db.conn(), params![{name: format!("User{}", i)}]));
     }
     let prepared_duration = start.elapsed();
-
-    println!("Regular queries: {:?}", regular_duration);
-    println!("Prepared statements: {:?}", prepared_duration);
 
     // Prepared statements should generally be faster for repeated queries
     assert!(

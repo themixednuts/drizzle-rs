@@ -27,7 +27,6 @@ fn test_placeholder_indexing_sequential() {
         .append(SQL::param(PostgresValue::from(true)));
 
     let sql_string = sql.sql();
-    println!("Generated SQL: {}", sql_string);
 
     // PostgreSQL should use $1, $2, $3 for positional placeholders
     assert!(
@@ -69,7 +68,6 @@ fn test_named_placeholder_rendering() {
         .append(SQL::placeholder("user_id"));
 
     let sql_string = sql.sql();
-    println!("Generated SQL: {}", sql_string);
 
     // PostgreSQL uses $N style even for named placeholders
     // The name is used for binding, not for SQL syntax
@@ -102,7 +100,6 @@ fn test_mixed_placeholder_styles() {
         .append(SQL::placeholder("status")); // Named - becomes $3
 
     let sql_string = sql.sql();
-    println!("Generated SQL: {}", sql_string);
 
     // All placeholders in PostgreSQL use $N style
     assert!(
@@ -143,11 +140,10 @@ fn test_many_positional_placeholders() {
             sql = sql.append(SQL::raw(" AND "));
         }
         sql = sql.append(SQL::raw(format!("col{} = ", i)));
-        sql = sql.append(SQL::param(PostgresValue::from(i as i32)));
+        sql = sql.append(SQL::param(PostgresValue::from(i)));
     }
 
     let sql_string = sql.sql();
-    println!("Generated SQL: {}", sql_string);
 
     // Verify all placeholders from $1 to $10 are present
     for i in 1..=10 {
@@ -177,6 +173,7 @@ fn test_many_positional_placeholders() {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow, Default)]
 struct PgSimpleResult {
     id: i32,
@@ -199,8 +196,6 @@ postgres_test!(test_prepare_with_placeholder, SimpleSchema, {
         .r#where(eq(simple.name, SQL::placeholder("name")))
         .prepare()
         .into_owned();
-
-    println!("Prepared SQL: {prepared}");
 
     // Execute the prepared statement with bound parameter
     let result: Vec<PgSimpleResult> =
@@ -382,9 +377,6 @@ postgres_test!(test_prepared_performance_comparison, SimpleSchema, {
             drizzle_exec!(prepared.all(drizzle_client!(), params![{name: format!("User{}", i)}]));
     }
     let prepared_duration = start.elapsed();
-
-    println!("Regular queries: {:?}", regular_duration);
-    println!("Prepared statements: {:?}", prepared_duration);
 
     // Prepared statements shouldn't be significantly slower
     assert!(

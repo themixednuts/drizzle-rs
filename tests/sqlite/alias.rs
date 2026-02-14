@@ -1,7 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::Role;
+#[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, InsertComplex, InsertPost, Post};
-use crate::common::schema::sqlite::{InsertSimple, Role, Simple};
+use crate::common::schema::sqlite::{InsertSimple, Simple};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
@@ -24,6 +26,7 @@ struct JoinResult {
     post_title: String,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(SQLiteFromRow, Debug)]
 struct NamePair {
     name1: String,
@@ -45,7 +48,6 @@ sqlite_test!(basic_table_alias, SimpleSchema, {
     // Test basic table alias
     let s = Simple::alias("s");
     let stmt = db.select((s.id, s.name)).from(s).r#where(eq(s.name, "bob"));
-    println!("Basic alias SQL: {}", stmt.to_sql());
     let results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
@@ -70,7 +72,6 @@ sqlite_test!(table_alias_with_conditions, SimpleSchema, {
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
         .r#where(and([gt(s_alias.id, 1), neq(s_alias.name, "test3")]));
-    println!("Alias with conditions SQL: {}", stmt.to_sql());
     let results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 1);
@@ -105,7 +106,6 @@ sqlite_test!(self_join_with_aliases, ComplexSchema, {
         .from(c1)
         .inner_join((c2, eq(c1.email, c2.email)))
         .r#where(neq(c1.id, c2.id));
-    println!("Self-join with aliases SQL: {}", stmt.to_sql());
     let results: Vec<NamePair> = drizzle_exec!(stmt.all());
 
     // Should find the pair of users with same email
@@ -154,7 +154,6 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
         .inner_join((p, eq(u.id, p.author_id)))
         .r#where(eq(p.published, true))
         .order_by([OrderBy::asc(u.name)]);
-    println!("Multiple table aliases join SQL: {}", stmt.to_sql());
     let results: Vec<JoinResult> = drizzle_exec!(stmt.all());
 
     assert_eq!(results.len(), 2);
@@ -186,7 +185,6 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
         .r#where(eq(s_alias.name, "aliased"));
-    println!("Original vs alias comparison SQL: {}", alias_stmt.to_sql());
     let alias_results: Vec<SimpleResult> = drizzle_exec!(alias_stmt.all());
 
     assert_eq!(original_results.len(), 1);

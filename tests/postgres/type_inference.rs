@@ -2,8 +2,8 @@
 //! map to PostgreSQL column types and that the driver can handle them.
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+#![allow(clippy::approx_constant)]
 
-use crate::common::schema::postgres::*;
 use drizzle::core::OrderBy;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;

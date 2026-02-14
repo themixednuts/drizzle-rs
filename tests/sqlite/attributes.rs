@@ -1,6 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#![allow(clippy::approx_constant)]
 
-use drizzle::core::expr::*;
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
@@ -325,8 +325,8 @@ sqlite_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "default_name");
     assert_eq!(results[0].1, 42);
-    assert_eq!((results[0].2 - 3.14).abs() < f64::EPSILON, true); // Float comparison
-    assert_eq!(results[0].3, true);
+    assert!((results[0].2 - 3.14).abs() < f64::EPSILON);
+    assert!(results[0].3);
     assert_eq!(results[0].4, "pending");
 });
 
@@ -518,20 +518,19 @@ sqlite_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
 #[test]
 fn test_schema_generation() {
     // Test that all schema SQL generates without errors
-    println!("AllTypes SQL: {}", AllTypes::SQL);
-    println!("PrimaryKeyVariations SQL: {}", PrimaryKeyVariations::SQL);
-    println!("UniqueFields SQL: {}", UniqueFields::SQL);
-    println!("CompileTimeDefaults SQL: {}", CompileTimeDefaults::SQL);
-    println!("RuntimeDefaults SQL: {}", RuntimeDefaults::SQL);
-    println!("EnumFields SQL: {}", EnumFields::SQL);
-    println!("NullableTest SQL: {}", NullableTest::SQL);
+    let _ = AllTypes::SQL;
+    let _ = PrimaryKeyVariations::SQL;
+    let _ = UniqueFields::SQL;
+    let _ = CompileTimeDefaults::SQL;
+    let _ = RuntimeDefaults::SQL;
+    let _ = EnumFields::SQL;
+    let _ = NullableTest::SQL;
 
     #[cfg(feature = "serde")]
-    println!("JsonFields SQL: {}", JsonFields::SQL);
+    let _ = JsonFields::SQL;
 
     #[cfg(feature = "uuid")]
-    println!("UuidFields SQL: {}", UuidFields::SQL);
+    let _ = UuidFields::SQL;
 
-    // Just verify they all compile and don't panic
-    assert!(true);
+    // If we reach this point, all table definitions compiled and didn't panic.
 }

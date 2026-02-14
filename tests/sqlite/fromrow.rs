@@ -1,4 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#![allow(clippy::approx_constant)]
+
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
@@ -86,7 +88,6 @@ sqlite_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
     };
 
     assert_eq!(result, expected);
-    println!("✅ All data types test passed: {:?}", result);
 });
 
 #[derive(SQLiteSchema)]
@@ -112,7 +113,6 @@ sqlite_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
     };
 
     assert_eq!(result, expected);
-    println!("✅ Integer types test passed: {:?}", result);
 });
 
 #[derive(SQLiteSchema)]
@@ -136,7 +136,6 @@ sqlite_test!(test_fromrow_with_float_types, FloatSchema, {
     };
 
     assert_eq!(result, expected);
-    println!("✅ Float types test passed: {:?}", result);
 });
 
 sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
@@ -159,7 +158,6 @@ sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
     };
 
     assert_eq!(result, expected);
-    println!("✅ Edge cases test passed: {:?}", result);
 });
 
 // Test FromRow derive macro with partial selection

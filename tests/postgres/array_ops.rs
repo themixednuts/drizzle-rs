@@ -22,7 +22,6 @@ postgres_test!(array_contains_sql_generation, SimpleSchema, {
         .r#where(array_contains(simple.name, "test"));
 
     let sql = stmt.to_sql().sql();
-    println!("array_contains SQL: {}", sql);
 
     // Verify the @> operator is present in the generated SQL
     assert!(sql.contains("@>"), "Expected @> operator in SQL: {}", sql);
@@ -38,7 +37,6 @@ postgres_test!(array_contained_sql_generation, SimpleSchema, {
         .r#where(array_contained(simple.name, "test"));
 
     let sql = stmt.to_sql().sql();
-    println!("array_contained SQL: {}", sql);
 
     // Verify the <@ operator is present in the generated SQL
     assert!(sql.contains("<@"), "Expected <@ operator in SQL: {}", sql);
@@ -54,7 +52,6 @@ postgres_test!(array_overlaps_sql_generation, SimpleSchema, {
         .r#where(array_overlaps(simple.name, "test"));
 
     let sql = stmt.to_sql().sql();
-    println!("array_overlaps SQL: {}", sql);
 
     // Verify the && operator is present in the generated SQL
     assert!(sql.contains("&&"), "Expected && operator in SQL: {}", sql);
@@ -73,7 +70,6 @@ postgres_test!(array_ops_method_syntax, SimpleSchema, {
         .r#where(simple.name.array_contains("test"));
 
     let sql = stmt.to_sql().sql();
-    println!("array_contains (method) SQL: {}", sql);
     assert!(sql.contains("@>"), "Expected @> operator in SQL: {}", sql);
 
     // Test method syntax for array_contained
@@ -83,7 +79,6 @@ postgres_test!(array_ops_method_syntax, SimpleSchema, {
         .r#where(simple.name.array_contained("test"));
 
     let sql = stmt.to_sql().sql();
-    println!("array_contained (method) SQL: {}", sql);
     assert!(sql.contains("<@"), "Expected <@ operator in SQL: {}", sql);
 
     // Test method syntax for array_overlaps
@@ -93,6 +88,5 @@ postgres_test!(array_ops_method_syntax, SimpleSchema, {
         .r#where(simple.name.array_overlaps("test"));
 
     let sql = stmt.to_sql().sql();
-    println!("array_overlaps (method) SQL: {}", sql);
     assert!(sql.contains("&&"), "Expected && operator in SQL: {}", sql);
 });

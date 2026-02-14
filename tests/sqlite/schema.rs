@@ -21,47 +21,33 @@ struct StrictTable {
 
 #[test]
 fn table_sql() {
-    let sql = TestTable::create_table_sql();
-    // Verify the SQL contains key elements
-    assert!(sql.contains("CREATE TABLE"), "Should have CREATE TABLE");
-    assert!(sql.contains("test_table"), "Should have table name");
-    assert!(
-        sql.contains("INTEGER") && sql.contains("PRIMARY"),
-        "Should have integer primary key"
-    );
-    assert!(
-        sql.contains("TEXT NOT NULL"),
-        "Should have non-null text for name"
+    assert_eq!(
+        TestTable::create_table_sql(),
+        "CREATE TABLE `test_table` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL,\n\t`email` TEXT\n);"
     );
 }
 
 #[test]
 fn strict_table() {
-    let sql = StrictTable::create_table_sql();
-    // Verify the SQL contains key elements
-    assert!(sql.contains("CREATE TABLE"), "Should have CREATE TABLE");
-    assert!(sql.contains("strict_table"), "Should have table name");
-    assert!(sql.contains("STRICT"), "Should have STRICT modifier");
+    assert_eq!(
+        StrictTable::create_table_sql(),
+        "CREATE TABLE `strict_table` (\n\t`id` INTEGER PRIMARY KEY,\n\t`content` TEXT NOT NULL\n) STRICT;"
+    );
 }
 
 #[test]
 fn name_attribute() {
-    let sql = TestTable::create_table_sql();
-    // The table name should be derived from struct name (snake_case)
-    assert!(
-        sql.contains("test_table"),
-        "Should have table name test_table"
+    assert_eq!(
+        TestTable::create_table_sql(),
+        "CREATE TABLE `test_table` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL,\n\t`email` TEXT\n);"
     );
 }
 
 #[test]
 fn column_types() {
-    let sql = TestTable::create_table_sql();
-    // Verify column types are properly defined
-    assert!(sql.contains("INTEGER"), "Should have INTEGER type for id");
-    assert!(
-        sql.contains("TEXT"),
-        "Should have TEXT type for string columns"
+    assert_eq!(
+        TestTable::create_table_sql(),
+        "CREATE TABLE `test_table` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL,\n\t`email` TEXT\n);"
     );
 }
 
@@ -128,13 +114,13 @@ sqlite_test!(test_schema_derive, AppTestSchema, {
     );
 
     // Test index SQL generation
-    let email_idx_sql = UserEmailIdx::default().sql().sql();
+    let email_idx_sql = UserEmailIdx.sql().sql();
     assert_eq!(
         email_idx_sql,
         "CREATE UNIQUE INDEX `user_email_idx` ON `users`(`email`);"
     );
 
-    let name_idx_sql = UserNameIdx::default().sql().sql();
+    let name_idx_sql = UserNameIdx.sql().sql();
     assert_eq!(
         name_idx_sql,
         "CREATE INDEX `user_name_idx` ON `users`(`name`);"
@@ -227,9 +213,10 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     assert_eq!(results[0].email, "a@example.com");
 
     let view_sql = UserEmailsView::create_view_sql();
-    assert!(view_sql.contains("CREATE VIEW"));
-    assert!(view_sql.contains("SELECT"));
-    assert!(view_sql.contains("users"));
+    assert_eq!(
+        view_sql,
+        r#"CREATE VIEW `user_emails` AS SELECT "users"."id", "users"."email" FROM "users";"#
+    );
 
     assert_eq!(DefaultNameView::VIEW_NAME, "default_name_view");
     assert_eq!(default_name_view.name(), "default_name_view");
@@ -277,15 +264,9 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
         .order_by([OrderBy::asc(ue.id)]);
 
     let sql = stmt.to_sql().sql();
-    assert!(
-        sql.contains("FROM \"user_emails\" AS \"ue\""),
-        "Expected aliased view in FROM clause, got: {}",
-        sql
-    );
-    assert!(
-        sql.contains("\"ue\".\"email\""),
-        "Expected alias-qualified column in WHERE clause, got: {}",
-        sql
+    assert_eq!(
+        sql,
+        r#"SELECT "ue"."id", "ue"."email" FROM "user_emails" AS "ue" WHERE "ue"."email" = ? ORDER BY "ue"."id" ASC"#
     );
 
     let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt.all());

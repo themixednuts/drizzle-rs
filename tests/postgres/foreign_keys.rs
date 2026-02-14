@@ -185,12 +185,7 @@ pub struct CompositeFkSchema {
 // Result Types
 //------------------------------------------------------------------------------
 
-#[derive(Debug, PostgresFromRow)]
-struct ParentResult {
-    id: i32,
-    name: String,
-}
-
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct ChildResult {
     id: i32,
@@ -198,6 +193,7 @@ struct ChildResult {
     value: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct ChildDefaultResult {
     id: i32,
@@ -212,7 +208,6 @@ struct ChildDefaultResult {
 #[test]
 fn test_on_delete_cascade_sql() {
     let sql = FkCascade::create_table_sql();
-    println!("FkCascade SQL: {}", sql);
 
     assert!(
         sql.contains("ON DELETE CASCADE"),
@@ -224,7 +219,6 @@ fn test_on_delete_cascade_sql() {
 #[test]
 fn test_on_delete_set_null_sql() {
     let sql = FkSetNull::create_table_sql();
-    println!("FkSetNull SQL: {}", sql);
 
     assert!(
         sql.contains("ON DELETE SET NULL"),
@@ -236,7 +230,6 @@ fn test_on_delete_set_null_sql() {
 #[test]
 fn test_on_delete_set_default_sql() {
     let sql = FkSetDefault::create_table_sql();
-    println!("FkSetDefault SQL: {}", sql);
 
     assert!(
         sql.contains("ON DELETE SET DEFAULT"),
@@ -248,7 +241,6 @@ fn test_on_delete_set_default_sql() {
 #[test]
 fn test_on_delete_restrict_sql() {
     let sql = FkRestrict::create_table_sql();
-    println!("FkRestrict SQL: {}", sql);
 
     assert!(
         sql.contains("ON DELETE RESTRICT"),
@@ -260,7 +252,6 @@ fn test_on_delete_restrict_sql() {
 #[test]
 fn test_on_delete_no_action_sql() {
     let sql = FkNoAction::create_table_sql();
-    println!("FkNoAction SQL: {}", sql);
 
     // NO ACTION is the default, so it may not appear explicitly in the SQL
     // Just verify the FK constraint references the parent table
@@ -274,7 +265,6 @@ fn test_on_delete_no_action_sql() {
 #[test]
 fn test_on_update_cascade_sql() {
     let sql = FkUpdateCascade::create_table_sql();
-    println!("FkUpdateCascade SQL: {}", sql);
 
     assert!(
         sql.contains("ON UPDATE CASCADE"),
@@ -286,7 +276,6 @@ fn test_on_update_cascade_sql() {
 #[test]
 fn test_on_update_set_null_sql() {
     let sql = FkUpdateSetNull::create_table_sql();
-    println!("FkUpdateSetNull SQL: {}", sql);
 
     assert!(
         sql.contains("ON UPDATE SET NULL"),
@@ -298,7 +287,6 @@ fn test_on_update_set_null_sql() {
 #[test]
 fn test_both_actions_sql() {
     let sql = FkBothActions::create_table_sql();
-    println!("FkBothActions SQL: {}", sql);
 
     assert!(
         sql.contains("ON DELETE CASCADE"),
