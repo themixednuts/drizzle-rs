@@ -13,7 +13,7 @@ Pick a database driver feature (drivers imply the corresponding dialect module):
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1.5", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
+drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
 ```
 
 ### CLI
@@ -21,7 +21,7 @@ drizzle = { version = "0.1.5", features = ["rusqlite"] } # or: libsql / turso / 
 Install the `drizzle` binary:
 
 ```bash
-cargo install drizzle-cli --locked --all-features
+cargo install drizzle-cli --git https://github.com/themixednuts/drizzle-rs --locked --all-features
 ```
 
 ## Define your schema (`schema.rs`)
