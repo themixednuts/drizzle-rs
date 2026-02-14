@@ -55,6 +55,7 @@ fn generate_model_trait_impls(
     let sql_column_info = core_paths::sql_column_info();
     let sql_table_info = core_paths::sql_table_info();
     let sqlite_value = sqlite_paths::sqlite_value();
+    let non_empty_marker = core_paths::non_empty_marker();
 
     let partial_impl = quote! {
         impl<'a> #sql_model<'a, #sqlite_value<'a>> for #select_model_partial {
@@ -100,7 +101,7 @@ fn generate_model_trait_impls(
             type Partial = #select_model_partial;
         }
 
-        impl<'a> #sql_model<'a, #sqlite_value<'a>> for #update_model<'a> {
+        impl<'a> #sql_model<'a, #sqlite_value<'a>> for #update_model<'a, #non_empty_marker> {
             fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
                 // For update model, return all columns (same as other models)
                 static INSTANCE: #struct_ident = #struct_ident::new();

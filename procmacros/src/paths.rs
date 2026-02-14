@@ -317,6 +317,16 @@ pub mod core {
     pub fn named_constraint() -> TokenStream {
         quote!(drizzle::core::NamedConstraint)
     }
+
+    /// Path to the Empty marker (no fields set on update model).
+    pub fn empty_marker() -> TokenStream {
+        quote!(drizzle::core::Empty)
+    }
+
+    /// Path to the NonEmpty marker (at least one field set on update model).
+    pub fn non_empty_marker() -> TokenStream {
+        quote!(drizzle::core::NonEmpty)
+    }
 }
 
 // =============================================================================

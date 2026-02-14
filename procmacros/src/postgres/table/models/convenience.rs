@@ -3,6 +3,7 @@
 //! Generates `with_*` methods for Insert, Update, and PartialSelect models.
 
 use super::super::context::{MacroContext, ModelType};
+use crate::paths::core as core_paths;
 use crate::postgres::field::{FieldInfo, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
@@ -179,6 +180,7 @@ fn generate_update_convenience_method(
 ) -> TokenStream {
     let field_name = &field.ident;
     let update_model = &ctx.update_model_ident;
+    let non_empty_marker = core_paths::non_empty_marker();
     let category = field.type_category();
 
     // Determine the inner type for the UpdateValue wrapper
@@ -188,13 +190,30 @@ fn generate_update_convenience_method(
         _ => quote!(#base_type),
     };
 
-    // Each method in its own impl<'a> block so 'a is declared and used
-    // within the same quote! invocation (matching the Insert pattern)
+    // Generate field assignments: the target field gets the new value, others are moved
+    let field_assignments: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let fname = &f.ident;
+            if *fname == *field_name {
+                quote! { #fname: value.into() }
+            } else {
+                quote! { #fname: self.#fname }
+            }
+        })
+        .collect();
+
+    // Each method in its own impl<'a, S> block so 'a is declared and used
+    // within the same quote! invocation (matching the Insert pattern).
+    // Accepts any state S, always returns NonEmpty.
     quote! {
-        impl<'a> #update_model<'a> {
-            pub fn #method_name<V: Into<PostgresUpdateValue<'a, PostgresValue<'a>, #inner_type>>>(mut self, value: V) -> Self {
-                self.#field_name = value.into();
-                self
+        impl<'a, S> #update_model<'a, S> {
+            pub fn #method_name<V: Into<PostgresUpdateValue<'a, PostgresValue<'a>, #inner_type>>>(self, value: V) -> #update_model<'a, #non_empty_marker> {
+                #update_model {
+                    #(#field_assignments,)*
+                    _state: ::std::marker::PhantomData,
+                }
             }
         }
     }

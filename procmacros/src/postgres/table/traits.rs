@@ -4,7 +4,7 @@ use crate::paths::core as core_paths;
 use crate::postgres::generators::*;
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use std::collections::{HashMap, HashSet};
 use syn::{Ident, Result};
 
@@ -114,11 +114,12 @@ pub(super) fn generate_table_impls(
         }
     };
 
+    let non_empty_marker = core_paths::non_empty_marker();
     let sql_table_impl = generate_sql_table(SQLTableConfig {
         struct_ident,
         select: quote! { #select_model },
         insert: quote! { #insert_model<'a, T> },
-        update: quote! { #update_model<'a> },
+        update: quote! { #update_model<'a, #non_empty_marker> },
         aliased: quote! { #aliased_table_ident },
         foreign_keys: quote! { #foreign_keys_type },
         primary_key: quote! { #primary_key_type },
@@ -282,6 +283,18 @@ fn generate_foreign_keys(
 
         let constraint_name = format!("{}_{}_fk", ctx.table_name, source_column);
 
+        let field_span = field.ident.span();
+        let type_match_assert = quote_spanned! {field_span=>
+            const _: () = {
+                const fn assert_fk_types()
+                where
+                    (): #fk_type_match<(#source_col_zst_ident,), (#ref_column_zst_ident,)>,
+                {
+                }
+                assert_fk_types();
+            };
+        };
+
         fk_impls.push(quote! {
             #[doc(hidden)]
             #[allow(non_camel_case_types)]
@@ -298,14 +311,15 @@ fn generate_foreign_keys(
                         + #non_empty_col_set<(#ref_column_zst_ident,)>
                         + #columns_belong_to<#struct_ident, (#source_col_zst_ident,)>
                         + #columns_belong_to<#ref_table_ident, (#ref_column_zst_ident,)>
-                        + #fk_arity_match<(#source_col_zst_ident,), (#ref_column_zst_ident,)>
-                        + #fk_type_match<(#source_col_zst_ident,), (#ref_column_zst_ident,)>,
+                        + #fk_arity_match<(#source_col_zst_ident,), (#ref_column_zst_ident,)>,
                     __ValidateFk: #no_duplicate_col_set<(#source_col_zst_ident,)>
                         + #no_duplicate_col_set<(#ref_column_zst_ident,)>,
                 {
                 }
                 assert_fk();
             };
+
+            #type_match_assert
 
             impl #sql_foreign_key_info for #fk_zst_ident {
                 fn source_table(&self) -> &'static dyn #sql_table_info {
@@ -602,10 +616,30 @@ fn generate_primary_key(
     let pk_name = format!("{}_pk", ctx.table_name);
     let pk_col_tuple = quote! { (#(#pk_col_zst_idents,)*) };
 
+    let column_not_null = core_paths::column_not_null();
+    let pk_not_null_asserts: Vec<TokenStream> = pk_fields
+        .iter()
+        .map(|field| {
+            let field_span = field.ident.span();
+            let pascal = field.ident.to_string().to_upper_camel_case();
+            let col_zst = format_ident!("{}{}", struct_ident, pascal);
+            quote_spanned! {field_span=>
+                const _: () = {
+                    const fn assert_pk_not_null()
+                    where #col_zst: #column_not_null,
+                    { }
+                    assert_pk_not_null();
+                };
+            }
+        })
+        .collect();
+
     let pk_impl = quote! {
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
         #struct_vis struct #pk_zst_ident;
+
+        #(#pk_not_null_asserts)*
 
         const _: () = {
             struct __ValidatePk;

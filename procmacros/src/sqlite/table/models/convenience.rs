@@ -312,6 +312,7 @@ fn generate_update_convenience_method(
 ) -> TokenStream {
     let field_name = field.ident;
     let update_model = &ctx.update_model_ident;
+    let non_empty_marker = core_paths::non_empty_marker();
     let sqlite_update_value = sqlite_paths::sqlite_update_value();
     let sqlite_value = sqlite_paths::sqlite_value();
     let category = field.type_category();
@@ -323,13 +324,30 @@ fn generate_update_convenience_method(
         _ => quote!(#base_type),
     };
 
-    // Each method in its own impl<'a> block so 'a is declared and used
-    // within the same quote! invocation (matching the Insert pattern)
+    // Generate field assignments: the target field gets the new value, others are moved
+    let field_assignments: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let fname = f.ident;
+            if fname == field_name {
+                quote! { #fname: value.into() }
+            } else {
+                quote! { #fname: self.#fname }
+            }
+        })
+        .collect();
+
+    // Each method in its own impl<'a, S> block so 'a is declared and used
+    // within the same quote! invocation (matching the Insert pattern).
+    // Accepts any state S, always returns NonEmpty.
     quote! {
-        impl<'a> #update_model<'a> {
-            pub fn #method_name<V: ::std::convert::Into<#sqlite_update_value<'a, #sqlite_value<'a>, #inner_type>>>(mut self, value: V) -> Self {
-                self.#field_name = value.into();
-                self
+        impl<'a, S> #update_model<'a, S> {
+            pub fn #method_name<V: ::std::convert::Into<#sqlite_update_value<'a, #sqlite_value<'a>, #inner_type>>>(self, value: V) -> #update_model<'a, #non_empty_marker> {
+                #update_model {
+                    #(#field_assignments,)*
+                    _state: ::std::marker::PhantomData,
+                }
             }
         }
     }

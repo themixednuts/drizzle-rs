@@ -1,5 +1,6 @@
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
+use crate::paths::core as core_paths;
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -9,6 +10,8 @@ use syn::Result;
 pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
     let update_ident = &ctx.update_model_ident;
     let struct_vis = ctx.struct_vis;
+    let empty_marker = core_paths::empty_marker();
+    let non_empty_marker = core_paths::non_empty_marker();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
     let mut field_types: Vec<TokenStream> = Vec::new();
@@ -22,7 +25,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
         // Generate field conversion for ToSQL (column_name, SQL) pairs
         update_field_conversions.push(get_update_field_conversion(field_info));
 
-        // Generate convenience methods (each as standalone impl<'a> block)
+        // Generate convenience methods (each as standalone impl<'a, S> block)
         update_convenience_methods.push(generate_convenience_method(
             field_info,
             ModelType::Update,
@@ -35,23 +38,27 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     Ok(quote! {
         // Update Model — all 'a tokens generated within this single quote! block
+        // S = Empty means no fields set yet; S = NonEmpty means at least one field was set.
         #[derive(Debug, Clone)]
-        #struct_vis struct #update_ident<'a> {
-            #(pub #field_names: #field_types,)*
+        #struct_vis struct #update_ident<'a, S = #empty_marker> {
+            #(pub(crate) #field_names: #field_types,)*
+            pub(crate) _state: ::std::marker::PhantomData<S>,
         }
 
         impl<'a> ::std::default::Default for #update_ident<'a> {
             fn default() -> Self {
                 Self {
                     #(#field_names2: PostgresUpdateValue::Skip,)*
+                    _state: ::std::marker::PhantomData,
                 }
             }
         }
 
-        // Convenience methods — each in its own impl<'a> block
+        // Convenience methods — each in its own impl<'a, S> block
         #(#update_convenience_methods)*
 
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_ident<'a> {
+        // ToSQL is only implemented for NonEmpty state
+        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_ident<'a, #non_empty_marker> {
             fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
                 let mut assignments = Vec::new();
                 #(#update_field_conversions)*

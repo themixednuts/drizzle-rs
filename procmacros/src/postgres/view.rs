@@ -373,12 +373,13 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let select_model_ident = &ctx.select_model_ident;
     let insert_model_ident = &ctx.insert_model_ident;
     let update_model_ident = &ctx.update_model_ident;
+    let non_empty_marker = core_paths::non_empty_marker();
 
     let sql_table_impl = generate_sql_table(SQLTableConfig {
         struct_ident,
         select: quote! { #select_model_ident },
         insert: quote! { #insert_model_ident<'a, T> },
-        update: quote! { #update_model_ident<'a> },
+        update: quote! { #update_model_ident<'a, #non_empty_marker> },
         aliased: quote! { #aliased_table_ident },
         foreign_keys: quote! { () },
         primary_key: quote! { #no_primary_key },
