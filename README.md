@@ -148,10 +148,30 @@ struct UserWithPost {
     content: Option<String>,
 }
 
+// Explicit ON condition
 let rows: Vec<UserWithPost> = db
     .select(UserWithPost::default())
     .from(users)
-    .left_join(posts, eq(users.id, posts.author_id))
+    .left_join((posts, eq(users.id, posts.author_id)))
+    .all()?;
+
+// Auto-FK: derives the ON condition from #[column(references = ...)]
+let rows: Vec<UserWithPost> = db
+    .select(UserWithPost::default())
+    .from(users)
+    .left_join(posts)
+    .all()?;
+```
+
+## Order By / Limit / Offset
+
+```rust
+let rows: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .order_by([OrderBy::asc(users.name)])
+    .limit(10)
+    .offset(20)
     .all()?;
 ```
 
