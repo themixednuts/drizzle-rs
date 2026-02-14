@@ -210,14 +210,6 @@ pub struct SimpleSchema {
     pub simple: Simple,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(PostgresSchema)]
-pub struct ComplexSchema {
-    pub role: Role,
-    pub complex: Complex,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(PostgresSchema)]
 pub struct ComplexSchema {
     pub role: Role,
@@ -231,15 +223,6 @@ pub struct SimpleComplexSchema {
     pub complex: Complex,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(PostgresSchema)]
-pub struct ComplexPostSchema {
-    pub role: Role,
-    pub complex: Complex,
-    pub post: Post,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(PostgresSchema)]
 pub struct ComplexPostSchema {
     pub role: Role,
@@ -264,18 +247,6 @@ pub struct TaskSchema {
     pub task: Task,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(PostgresSchema)]
-pub struct FullBlogSchema {
-    pub role: Role,
-    pub simple: Simple,
-    pub complex: Complex,
-    pub post: Post,
-    pub category: Category,
-    pub post_category: PostCategory,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(PostgresSchema)]
 pub struct FullBlogSchema {
     pub role: Role,
@@ -293,15 +264,6 @@ pub struct SimpleWithIndexSchema {
     pub simple_name_idx: SimpleNameIdx,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(PostgresSchema)]
-pub struct ComplexWithIndexSchema {
-    pub role: Role,
-    pub complex: Complex,
-    pub complex_email_idx: ComplexEmailIdx,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(PostgresSchema)]
 pub struct ComplexWithIndexSchema {
     pub role: Role,

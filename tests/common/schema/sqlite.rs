@@ -115,7 +115,7 @@ pub struct Complex {
 }
 
 #[cfg(all(not(feature = "uuid"), not(feature = "serde")))]
-#[SQLiteTable(NAME = "complex")]
+#[SQLiteTable]
 pub struct Complex {
     #[column(PRIMARY)]
     pub id: i64,
@@ -136,21 +136,7 @@ pub struct Complex {
     pub created_at: Option<String>,
 }
 
-#[cfg(all(not(feature = "uuid"), feature = "serde"))]
-#[SQLiteTable(NAME = "posts")]
-pub struct Post {
-    #[column(PRIMARY)]
-    pub id: i32,
-    pub title: String,
-    pub content: Option<String>,
-    #[column(REFERENCES = Complex::id)]
-    pub author_id: Option<i64>,
-    pub published: bool,
-    pub tags: Option<String>,
-    pub created_at: Option<String>,
-}
-
-#[cfg(all(not(feature = "uuid"), not(feature = "serde")))]
+#[cfg(not(feature = "uuid"))]
 #[SQLiteTable(NAME = "posts")]
 pub struct Post {
     #[column(PRIMARY)]
@@ -165,13 +151,13 @@ pub struct Post {
 }
 
 #[cfg(feature = "uuid")]
-#[SQLiteTable(name = "posts")]
+#[SQLiteTable(NAME = "posts")]
 pub struct Post {
-    #[column(primary, default_fn = Uuid::new_v4)]
+    #[column(PRIMARY, DEFAULT_FN = Uuid::new_v4)]
     pub id: Uuid,
     pub title: String,
     pub content: Option<String>,
-    #[column(references = Complex::id)]
+    #[column(REFERENCES = Complex::id)]
     pub author_id: Option<Uuid>,
     pub published: bool,
     pub tags: Option<String>,
@@ -200,14 +186,6 @@ pub struct PostCategory {
     pub category_id: i32,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(SQLiteSchema)]
-pub struct SimpleComplexSchema {
-    pub simple: Simple,
-    pub complex: Complex,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(SQLiteSchema)]
 pub struct SimpleComplexSchema {
     pub simple: Simple,
@@ -219,13 +197,6 @@ pub struct SimpleSchema {
     pub simple: Simple,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(SQLiteSchema, Debug)]
-pub struct ComplexSchema {
-    pub complex: Complex,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(SQLiteSchema)]
 pub struct ComplexSchema {
     pub complex: Complex,
@@ -237,14 +208,6 @@ pub struct PostSchema {
     pub post: Post,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(SQLiteSchema)]
-pub struct ComplexPostSchema {
-    pub complex: Complex,
-    pub post: Post,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(SQLiteSchema)]
 pub struct ComplexPostSchema {
     pub complex: Complex,
@@ -261,17 +224,6 @@ pub struct PostCategorySchema {
     pub post_category: PostCategory,
 }
 
-#[cfg(feature = "uuid")]
-#[derive(SQLiteSchema)]
-pub struct FullBlogSchema {
-    pub simple: Simple,
-    pub complex: Complex,
-    pub post: Post,
-    pub category: Category,
-    pub post_category: PostCategory,
-}
-
-#[cfg(not(feature = "uuid"))]
 #[derive(SQLiteSchema)]
 pub struct FullBlogSchema {
     pub simple: Simple,
