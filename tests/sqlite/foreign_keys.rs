@@ -105,6 +105,29 @@ pub struct FkBothActions {
     pub value: String,
 }
 
+#[SQLiteTable]
+pub struct CompositeFkParent {
+    #[column(primary)]
+    pub id_a: i32,
+    #[column(primary)]
+    pub id_b: i32,
+    pub label: String,
+}
+
+#[SQLiteTable(FOREIGN_KEY(
+    columns(parent_a, parent_b),
+    references(CompositeFkParent, id_a, id_b),
+    on_delete = "CASCADE",
+    on_update = "CASCADE"
+))]
+pub struct CompositeFkChild {
+    #[column(primary, autoincrement)]
+    pub id: i32,
+    pub parent_a: Option<i32>,
+    pub parent_b: Option<i32>,
+    pub value: String,
+}
+
 //------------------------------------------------------------------------------
 // Schema Definitions for Tests
 //------------------------------------------------------------------------------
@@ -155,6 +178,33 @@ pub struct FkUpdateSetNullSchema {
 pub struct FkBothActionsSchema {
     pub fk_parent: FkParent,
     pub fk_both_actions: FkBothActions,
+}
+
+#[derive(SQLiteSchema)]
+pub struct CompositeFkSchema {
+    pub composite_fk_parent: CompositeFkParent,
+    pub composite_fk_child: CompositeFkChild,
+}
+
+#[SQLiteTable(name = "parents_custom")]
+pub struct NamedFkParent {
+    #[column(primary, autoincrement, name = "parent_pk")]
+    pub id: i32,
+    pub name: String,
+}
+
+#[SQLiteTable(name = "children_custom")]
+pub struct NamedFkChild {
+    #[column(primary, autoincrement)]
+    pub id: i32,
+    #[column(name = "parent_ref", references = NamedFkParent::id)]
+    pub parent_id: Option<i32>,
+}
+
+#[derive(SQLiteSchema)]
+pub struct NamedFkSchema {
+    pub parent: NamedFkParent,
+    pub child: NamedFkChild,
 }
 
 //------------------------------------------------------------------------------
@@ -315,6 +365,80 @@ fn test_foreign_key_reference_sql() {
 
     // Note: The common Post schema doesn't define ON DELETE/ON UPDATE actions
     // Those are tested separately in the dedicated action tests above
+}
+
+#[test]
+fn test_composite_foreign_key_sql() {
+    let sql = CompositeFkChild::create_table_sql();
+
+    assert!(
+        sql.contains("FOREIGN KEY"),
+        "missing FOREIGN KEY clause: {sql}"
+    );
+    assert!(
+        sql.contains("parent_a"),
+        "missing parent_a source column: {sql}"
+    );
+    assert!(
+        sql.contains("parent_b"),
+        "missing parent_b source column: {sql}"
+    );
+    assert!(
+        sql.contains("REFERENCES"),
+        "missing REFERENCES clause: {sql}"
+    );
+    assert!(sql.contains("id_a"), "missing id_a target column: {sql}");
+    assert!(sql.contains("id_b"), "missing id_b target column: {sql}");
+    assert!(
+        sql.contains("ON DELETE CASCADE"),
+        "missing ON DELETE CASCADE action: {sql}"
+    );
+    assert!(
+        sql.contains("ON UPDATE CASCADE"),
+        "missing ON UPDATE CASCADE action: {sql}"
+    );
+}
+
+#[test]
+fn test_composite_foreign_key_metadata_grouping() {
+    let table = CompositeFkChild::new();
+    let fks = table.foreign_keys();
+
+    assert_eq!(fks.len(), 1, "expected a single grouped FK");
+    assert_eq!(fks[0].source_columns(), &["parent_a", "parent_b"]);
+    assert_eq!(fks[0].target_columns(), &["id_a", "id_b"]);
+}
+
+#[test]
+fn test_table_constraints_metadata() {
+    let parent = CompositeFkParent::new();
+    let child = CompositeFkChild::new();
+
+    let parent_constraints = parent.constraints();
+    assert!(
+        parent_constraints
+            .iter()
+            .any(|c| c.kind() == SQLConstraintKind::PrimaryKey),
+        "expected parent to expose a primary key constraint"
+    );
+
+    let child_constraints = child.constraints();
+    assert!(
+        child_constraints
+            .iter()
+            .any(|c| c.kind() == SQLConstraintKind::ForeignKey),
+        "expected child to expose a foreign key constraint"
+    );
+}
+
+#[test]
+fn test_composite_primary_key_metadata() {
+    let table = CompositeFkParent::new();
+    let pk = table
+        .primary_key()
+        .expect("expected composite primary key metadata");
+
+    assert_eq!(pk.columns(), &["id_a", "id_b"]);
 }
 
 //------------------------------------------------------------------------------
@@ -697,71 +821,44 @@ sqlite_test!(test_foreign_key_impl, ComplexPostSchema, {
 });
 
 //------------------------------------------------------------------------------
-// HasRelations and SchemaRelations Tests
+// Compile-time Relation Marker Tests
 //------------------------------------------------------------------------------
 
-#[test]
-fn test_has_relations_outgoing() {
-    // FkCascade has a FK to FkParent
-    let rels = FkCascade::outgoing_relations();
-    assert_eq!(rels.len(), 1, "FkCascade should have 1 outgoing relation");
-
-    let rel = rels[0];
-    assert_eq!(rel.source_table(), "fk_cascade");
-    assert_eq!(rel.target_table(), "fk_parent");
-    assert_eq!(rel.fk_columns(), &["parent_id"]);
-    assert_eq!(rel.ref_columns(), &["id"]);
-    assert_eq!(rel.relation_type(), RelationType::ManyToOne);
+fn assert_relation<Child, Parent>()
+where
+    Child: Relation<Parent>,
+{
 }
 
 #[test]
-fn test_has_relations_no_fk() {
-    // FkParent has no foreign keys
-    let rels = FkParent::outgoing_relations();
-    assert_eq!(rels.len(), 0, "FkParent should have no outgoing relations");
+fn test_relation_marker_outgoing() {
+    assert_relation::<FkCascade, FkParent>();
 }
 
 #[test]
-fn test_schema_relations_includes_reverse() {
-    use drizzle::core::SchemaRelations;
-
-    let schema = FkCascadeSchema::new();
-    let all_rels = schema.all_relations();
-
-    // Should have 1 outgoing (FkCascade -> FkParent) and 1 reverse (FkParent -> FkCascade)
-    assert_eq!(
-        all_rels.len(),
-        2,
-        "Schema should have 2 relations (outgoing + reverse)"
-    );
-
-    // Find the ManyToOne relation
-    let many_to_one = all_rels
-        .iter()
-        .find(|r| r.relation_type() == RelationType::ManyToOne)
-        .expect("Should have a ManyToOne relation");
-    assert_eq!(many_to_one.source_table(), "fk_cascade");
-    assert_eq!(many_to_one.target_table(), "fk_parent");
-
-    // Find the OneToMany relation (reverse)
-    let one_to_many = all_rels
-        .iter()
-        .find(|r| r.relation_type() == RelationType::OneToMany)
-        .expect("Should have a OneToMany relation");
-    assert_eq!(one_to_many.source_table(), "fk_parent");
-    assert_eq!(one_to_many.target_table(), "fk_cascade");
-    // FK/ref columns stay the same in reverse
-    assert_eq!(one_to_many.fk_columns(), &["parent_id"]);
-    assert_eq!(one_to_many.ref_columns(), &["id"]);
+fn test_relation_marker_multiple_fks() {
+    assert_relation::<FkBothActions, FkParent>();
 }
 
 #[test]
-fn test_has_relations_multiple_fks() {
-    // FkBothActions has 1 FK (parent_id -> FkParent::id)
-    let rels = FkBothActions::outgoing_relations();
-    assert_eq!(
-        rels.len(),
-        1,
-        "FkBothActions should have 1 outgoing relation"
-    );
+fn test_relation_marker_respects_custom_table_and_column_names() {
+    assert_relation::<NamedFkChild, NamedFkParent>();
+}
+
+#[test]
+fn test_relation_marker_composite_foreign_key() {
+    assert_relation::<CompositeFkChild, CompositeFkParent>();
+}
+
+#[test]
+fn test_constraint_capability_markers() {
+    fn assert_has_pk<T: HasPrimaryKey>() {}
+    fn assert_has_fk<T: HasConstraint<ForeignKeyK>>() {}
+    fn assert_has_pk_constraint<T: HasConstraint<PrimaryKeyK>>() {}
+    fn assert_joinable<A: Joinable<B>, B>() {}
+
+    assert_has_pk::<CompositeFkParent>();
+    assert_has_pk_constraint::<CompositeFkParent>();
+    assert_has_fk::<FkCascade>();
+    assert_joinable::<FkCascade, FkParent>();
 }

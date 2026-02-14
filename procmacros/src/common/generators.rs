@@ -147,6 +147,7 @@ pub(crate) fn generate_sql_column<D: Dialect>(
     struct_ident: &Ident,
     table: TokenStream,
     table_type: TokenStream,
+    foreign_keys: TokenStream,
     r#type: TokenStream,
     primary_key: TokenStream,
     not_null: TokenStream,
@@ -161,6 +162,7 @@ pub(crate) fn generate_sql_column<D: Dialect>(
         impl<'a> #sql_column<'a, #value_type<'a>> for #struct_ident {
             type Table = #table;
             type TableType = #table_type;
+            type ForeignKeys = #foreign_keys;
             type Type = #r#type;
 
             const PRIMARY_KEY: bool = #primary_key;
@@ -176,14 +178,19 @@ pub(crate) fn generate_sql_column<D: Dialect>(
 }
 
 /// Generate SQLTable trait implementation for a given dialect.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_sql_table<D: Dialect>(
     struct_ident: &Ident,
     select: TokenStream,
     insert: TokenStream,
     update: TokenStream,
     aliased: TokenStream,
+    foreign_keys: TokenStream,
+    primary_key: TokenStream,
+    constraints: TokenStream,
 ) -> TokenStream {
     let sql_table = core_paths::sql_table();
+    let sql_table_meta = core_paths::sql_table_meta();
     let schema_type = D::schema_type();
     let value_type = D::value_type();
 
@@ -193,10 +200,19 @@ pub(crate) fn generate_sql_table<D: Dialect>(
             type Insert<T> = #insert;
             type Update = #update;
             type Aliased = #aliased;
+            type ForeignKeys = #foreign_keys;
+            type PrimaryKey = #primary_key;
+            type Constraints = #constraints;
 
             fn alias(name: &'static str) -> Self::Aliased {
                 #aliased::new(name)
             }
+        }
+
+        impl #sql_table_meta for #struct_ident {
+            type ForeignKeys = #foreign_keys;
+            type PrimaryKey = #primary_key;
+            type Constraints = #constraints;
         }
     }
 }

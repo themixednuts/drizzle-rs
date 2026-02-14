@@ -28,6 +28,7 @@ pub fn generate_sql_column(
     struct_ident: &Ident,
     table: TokenStream,
     table_type: TokenStream,
+    foreign_keys: TokenStream,
     r#type: TokenStream,
     primary_key: TokenStream,
     not_null: TokenStream,
@@ -39,6 +40,7 @@ pub fn generate_sql_column(
         struct_ident,
         table,
         table_type,
+        foreign_keys,
         r#type,
         primary_key,
         not_null,
@@ -140,14 +142,27 @@ pub fn generate_sqlite_table(
 /// Generate SQLite SQLTable trait implementation.
 ///
 /// Delegates to the common generator with SQLite dialect.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_sql_table(
     struct_ident: &Ident,
     select: TokenStream,
     insert: TokenStream,
     update: TokenStream,
     aliased: TokenStream,
+    foreign_keys: TokenStream,
+    primary_key: TokenStream,
+    constraints: TokenStream,
 ) -> TokenStream {
-    common_gen::generate_sql_table::<SqliteDialect>(struct_ident, select, insert, update, aliased)
+    common_gen::generate_sql_table::<SqliteDialect>(
+        struct_ident,
+        select,
+        insert,
+        update,
+        aliased,
+        foreign_keys,
+        primary_key,
+        constraints,
+    )
 }
 
 /// Generate SQLite SQLSchema trait implementation.

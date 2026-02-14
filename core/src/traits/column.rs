@@ -36,6 +36,7 @@ pub trait SQLColumn<'a, Value: SQLParam + 'a>:
 {
     type Table: SQLTable<'a, Self::TableType, Value>;
     type TableType: SQLSchemaType;
+    type ForeignKeys;
     type Type: TryInto<Value>;
 
     const PRIMARY_KEY: bool = false;

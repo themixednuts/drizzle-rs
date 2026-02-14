@@ -49,6 +49,8 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
     let sql_index = core_paths::sql_index();
     let sql_index_info = core_paths::sql_index_info();
     let sql_table_info = core_paths::sql_table_info();
+    let schema_item_tables = core_paths::schema_item_tables();
+    let type_set_nil = core_paths::type_set_nil();
     let to_sql = core_paths::to_sql();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
@@ -171,7 +173,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
         quote! {}
     };
 
-    Ok(quote! {
+    let mut expanded = quote! {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #struct_vis struct #struct_ident;
 
@@ -254,12 +256,27 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             }
         }
 
-        impl drizzle::core::HasRelations for #struct_ident {
-            fn outgoing_relations() -> &'static [&'static dyn drizzle::core::Relation] {
-                &[]
-            }
+        impl #schema_item_tables for #struct_ident {
+            type Tables = #type_set_nil;
         }
-    })
+
+    };
+
+    // Generate ConflictTarget + NamedConstraint for unique indexes
+    if is_unique {
+        let conflict_target = core_paths::conflict_target();
+        let named_constraint = core_paths::named_constraint();
+        expanded.extend(quote! {
+            impl #conflict_target<#table_type> for #struct_ident {
+                fn conflict_columns(&self) -> &'static [&'static str] { Self::COLUMN_NAMES }
+            }
+            impl #named_constraint<#table_type> for #struct_ident {
+                fn constraint_name(&self) -> &'static str { #index_name }
+            }
+        });
+    }
+
+    Ok(expanded)
 }
 
 fn extract_table_from_column(column: &Expr) -> Result<Type> {

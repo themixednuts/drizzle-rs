@@ -7,6 +7,8 @@ use syn::{DataEnum, Ident};
 pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
     // Get paths for fully-qualified types
     let drizzle_error = core_paths::drizzle_error();
+    let schema_item_tables = core_paths::schema_item_tables();
+    let type_set_nil = core_paths::type_set_nil();
     #[allow(unused_variables)]
     let from_sqlite_value = sqlite_paths::from_sqlite_value();
     let impl_try_from_int = core_paths::impl_try_from_int();
@@ -290,5 +292,9 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         #base_impls
         #rusqlite_impls
         #from_sqlite_value_impl
+
+        impl #schema_item_tables for #name {
+            type Tables = #type_set_nil;
+        }
     })
 }

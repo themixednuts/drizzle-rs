@@ -1,0 +1,17 @@
+error[E0277]: the trait bound `Simple: drizzle::core::Relation<Parent>` is not satisfied
+  --> tests/compile_fail/no_relation.rs:24:35
+   |
+24 |     requires_relation_to_parent::<Simple>();
+   |                                   ^^^^^^ unsatisfied trait bound
+   |
+help: the trait `drizzle::core::Relation<Parent>` is not implemented for `Simple`
+  --> tests/compile_fail/no_relation.rs:13:1
+   |
+13 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^
+note: required by a bound in `requires_relation_to_parent`
+  --> tests/compile_fail/no_relation.rs:20:35
+   |
+20 | fn requires_relation_to_parent<T: Relation<Parent>>() {}
+   |                                   ^^^^^^^^^^^^^^^^ required by this bound in `requires_relation_to_parent`
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

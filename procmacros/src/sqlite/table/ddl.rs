@@ -266,7 +266,7 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
     };
 
     // Build foreign key DDL definitions
-    let fk_defs: Vec<TokenStream> = ctx
+    let mut fk_defs: Vec<TokenStream> = ctx
         .field_infos
         .iter()
         .filter_map(|field| {
@@ -303,6 +303,53 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
             })
         })
         .collect();
+
+    for fk in &ctx.attrs.composite_foreign_keys {
+        let ref_table_ident = &fk.target_table;
+        let source_columns: Vec<String> = fk
+            .source_columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| f.ident == src)
+                    .map(|f| f.column_name.clone())
+                    .unwrap_or_else(|| src.to_string())
+            })
+            .collect();
+        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+
+        let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
+        let fk_cols: Vec<TokenStream> = source_columns
+            .iter()
+            .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
+            .collect();
+        let fk_ref_cols: Vec<TokenStream> = target_columns
+            .iter()
+            .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
+            .collect();
+
+        let mut modifiers = Vec::new();
+        if let Some(ref on_delete) = fk.on_delete {
+            let action_token = referential_action_token(on_delete.as_str(), &referential_action);
+            modifiers.push(quote! { .on_delete(#action_token) });
+        }
+        if let Some(ref on_update) = fk.on_update {
+            let action_token = referential_action_token(on_update.as_str(), &referential_action);
+            modifiers.push(quote! { .on_update(#action_token) });
+        }
+
+        fk_defs.push(quote! {
+            {
+                const FK_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#fk_cols),*];
+                const FK_REF_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#fk_ref_cols),*];
+                #foreign_key_def::new(#table_name, #fk_name)
+                    .columns(FK_COLS)
+                    .references(<#ref_table_ident>::TABLE_NAME, FK_REF_COLS)
+                    #(#modifiers)*
+            }
+        });
+    }
 
     // Build unique constraint DDL definitions (for non-primary unique columns)
     let unique_defs: Vec<TokenStream> = ctx

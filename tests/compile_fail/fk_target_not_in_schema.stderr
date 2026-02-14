@@ -1,0 +1,18 @@
+error[E0277]: the trait bound `BadSchema: SchemaHasTable<Parent>` is not satisfied
+  --> tests/compile_fail/fk_target_not_in_schema.rs:24:12
+   |
+24 |     child: Child,
+   |            ^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `SchemaHasTable<Parent>` is not implemented for `BadSchema`
+           but trait `SchemaHasTable<Child>` is implemented for it
+   = help: for that trait implementation, expected `Child`, found `Parent`
+   = note: required for `(__Fk_Child_ParentId,)` to implement `ForeignKeysInSchema<BadSchema>`
+   = note: required for `Cons<Child, Nil>` to implement `ValidateTableSetForeignKeys<BadSchema>`
+   = note: required for `Child` to implement `ValidateSchemaItemForeignKeys<BadSchema>`
+note: required by a bound in `__assert_schema_item`
+  --> tests/compile_fail/fk_target_not_in_schema.rs:22:10
+   |
+22 | #[derive(SQLiteSchema)]
+   |          ^^^^^^^^^^^^ required by this bound in `__assert_schema_item`
+   = note: this error originates in the derive macro `SQLiteSchema` (in Nightly builds, run with -Z macro-backtrace for more info)

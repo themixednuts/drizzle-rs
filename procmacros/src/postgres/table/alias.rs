@@ -132,6 +132,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             impl<'a> SQLColumn<'a, PostgresValue<'a>> for #aliased_field_type {
                 type Table = #aliased_table_name;
                 type TableType = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::TableType;
+                type ForeignKeys = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::ForeignKeys;
                 type Type = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::Type;
 
                 const PRIMARY_KEY: bool = <#original_field_type as SQLColumn<'a, PostgresValue<'a>>>::PRIMARY_KEY;
@@ -240,6 +241,21 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 <#table_name as SQLTableInfo>::columns(&ORIGINAL_TABLE)
             }
 
+            fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as SQLTableInfo>::primary_key(&ORIGINAL_TABLE)
+            }
+
+            fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as SQLTableInfo>::foreign_keys(&ORIGINAL_TABLE)
+            }
+
+            fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as SQLTableInfo>::constraints(&ORIGINAL_TABLE)
+            }
+
             fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as SQLTableInfo>::dependencies(&ORIGINAL_TABLE)
@@ -274,6 +290,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         // Implement core SQLTable trait for aliased table
         impl<'a> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #aliased_table_name {
             type Select = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Select;
+            type ForeignKeys = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::ForeignKeys;
+            type PrimaryKey = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::PrimaryKey;
+            type Constraints = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Constraints;
             type Insert<T> = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Insert<T>;
             type Update = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Update;
             // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
@@ -282,6 +301,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             fn alias(name: &'static str) -> Self::Aliased {
                 #aliased_table_name::new(name)
             }
+        }
+
+        impl SQLTableMeta for #aliased_table_name {
+            type ForeignKeys = <#table_name as SQLTableMeta>::ForeignKeys;
+            type PrimaryKey = <#table_name as SQLTableMeta>::PrimaryKey;
+            type Constraints = <#table_name as SQLTableMeta>::Constraints;
         }
 
         // Implement SQLSchema trait for aliased table

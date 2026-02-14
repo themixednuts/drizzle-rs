@@ -1,0 +1,17 @@
+error[E0277]: the trait bound `Unrelated: drizzle::core::Joinable<Parent>` is not satisfied
+  --> tests/compile_fail/join_no_relation.rs:24:25
+   |
+24 |     requires_joinable::<Unrelated, Parent>();
+   |                         ^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `drizzle::core::Joinable<Parent>` is not implemented for `Unrelated`
+  --> tests/compile_fail/join_no_relation.rs:13:1
+   |
+13 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^
+note: required by a bound in `requires_joinable`
+  --> tests/compile_fail/join_no_relation.rs:20:25
+   |
+20 | fn requires_joinable<A: Joinable<B>, B>() {}
+   |                         ^^^^^^^^^^^ required by this bound in `requires_joinable`
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

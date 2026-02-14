@@ -233,6 +233,7 @@ pub struct ComplexSchema {
 
 #[derive(SQLiteSchema)]
 pub struct PostSchema {
+    pub complex: Complex,
     pub post: Post,
 }
 

@@ -4,18 +4,26 @@ use crate::prelude::*;
 use core::any::Any;
 
 mod column;
+mod constraint;
+mod foreign_key;
 mod index;
 mod param;
+mod primary_key;
 mod table;
 mod to_sql;
 mod tuple;
+mod type_set;
 mod view;
 
 pub use column::*;
+pub use constraint::*;
+pub use foreign_key::*;
 pub use index::*;
 pub use param::*;
+pub use primary_key::*;
 pub use table::*;
 pub use to_sql::*;
+pub use type_set::*;
 pub use view::*;
 
 use crate::sql::SQL;
@@ -36,10 +44,19 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     }
 }
 
+/// Maps a schema item type to its table contribution.
+///
+/// - Table items map to `Cons<Table, Nil>`
+/// - Non-table items (indexes/views/enums) map to `Nil`
+pub trait SchemaItemTables {
+    type Tables: TypeSet;
+}
+
 /// Marker trait for schema types (used for type-level discrimination).
 pub trait SQLSchemaType: core::fmt::Debug + Any + Send + Sync {}
 
 /// Trait for schema implementations that can generate CREATE statements.
 pub trait SQLSchemaImpl: Any + Send + Sync {
+    fn tables(&self) -> &'static [&'static dyn crate::traits::table::SQLTableInfo];
     fn create_statements(&self) -> crate::error::Result<Box<dyn Iterator<Item = String> + '_>>;
 }

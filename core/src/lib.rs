@@ -68,7 +68,7 @@ pub use dialect::{Dialect, DialectExt};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
-pub use relation::{HasRelations, Relation, RelationType, ReverseRelation, SchemaRelations};
+pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use schema::OrderBy;
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
 pub use traits::*;

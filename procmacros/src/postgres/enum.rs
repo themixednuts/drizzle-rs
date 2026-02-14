@@ -10,6 +10,8 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
     let sql_enum_info = core_paths::sql_enum_info();
+    let schema_item_tables = core_paths::schema_item_tables();
+    let type_set_nil = core_paths::type_set_nil();
     let drizzle_error = core_paths::drizzle_error();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
@@ -387,10 +389,8 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             type Aggregate = drizzle::core::expr::Scalar;
         }
 
-        impl drizzle::core::HasRelations for #name {
-            fn outgoing_relations() -> &'static [&'static dyn drizzle::core::Relation] {
-                &[]
-            }
+        impl #schema_item_tables for #name {
+            type Tables = #type_set_nil;
         }
 
     })

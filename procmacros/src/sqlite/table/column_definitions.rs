@@ -23,16 +23,16 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
 
     let field_name = info.ident.to_string().to_uppercase();
     let marker_const_name = format_ident!("_ATTR_MARKERS_{}", field_name);
-    let marker_count = info.marker_exprs.len();
     let markers = &info.marker_exprs;
-    let column_marker = sqlite_paths::column_marker();
 
     quote! {
         /// Hidden const that references the original attribute markers.
         /// This enables IDE hover documentation for `#[column(...)]` attributes.
         #[doc(hidden)]
         #[allow(dead_code, non_upper_case_globals)]
-        const #marker_const_name: [#column_marker; #marker_count] = [#(#markers),*];
+        const #marker_const_name: () = {
+            #( let _ = #markers; )*
+        };
     }
 }
 
@@ -53,6 +53,10 @@ pub(crate) fn generate_column_definitions<'a>(
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
     let sql_column = core_paths::sql_column();
+    let no_foreign_key = core_paths::no_foreign_key();
+    let column_of = core_paths::column_of();
+    let column_not_null = core_paths::column_not_null();
+    let column_value_type = core_paths::column_value_type();
     let sqlite_column = sqlite_paths::sqlite_column();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
@@ -62,7 +66,7 @@ pub(crate) fn generate_column_definitions<'a>(
         let zst_ident = format_ident!("{}{}", ctx.struct_ident, field_pascal_case);
         column_zst_idents.push(zst_ident.clone());
 
-        let (_value_type, rust_type) = (&info.base_type, &info.field_type);
+        let (value_type, rust_type) = (&info.base_type, &info.field_type);
         let (_is_primary, _is_not_null, _is_unique, _is_autoincrement, has_default) = (
             info.is_primary,
             !info.is_nullable,
@@ -189,10 +193,29 @@ pub(crate) fn generate_column_definitions<'a>(
         let sql_type_marker = rust_type_to_sql_type(rust_type);
         let sql_nullable_marker = rust_type_to_nullability(rust_type);
 
+        let mut foreign_key_types = Vec::new();
+        if info.foreign_key.is_some() {
+            let field_pascal_case = info.ident.to_string().to_upper_camel_case();
+            let fk_ident = format_ident!("__Fk_{}_{}", struct_ident, field_pascal_case);
+            foreign_key_types.push(quote! { #fk_ident });
+        }
+        for (fk_idx, fk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
+            if fk.source_columns.iter().any(|src| src == info.ident) {
+                let fk_ident = format_ident!("__FkComposite_{}_{}", struct_ident, fk_idx);
+                foreign_key_types.push(quote! { #fk_ident });
+            }
+        }
+        let foreign_keys_type = if foreign_key_types.is_empty() {
+            quote! { (#no_foreign_key,) }
+        } else {
+            quote! { (#(#foreign_key_types,)*) }
+        };
+
         let sql_column_impl = generate_sql_column(
             &zst_ident,
             quote! {#struct_ident},
             quote! {#sqlite_schema_type},
+            foreign_keys_type,
             quote! {#rust_type},
             quote! { #is_primary },
             quote! { #is_not_null || #is_primary },
@@ -227,6 +250,20 @@ pub(crate) fn generate_column_definitions<'a>(
         // Generate marker const using original tokens for IDE documentation
         let marker_const = generate_marker_const(info, &zst_ident);
 
+        let column_membership_impl = quote! {
+            impl #column_of<#struct_ident> for #zst_ident {}
+            impl #column_value_type for #zst_ident {
+                type ValueType = #value_type;
+            }
+        };
+        let column_not_null_impl = if !info.is_nullable || info.is_primary {
+            quote! {
+                impl #column_not_null for #zst_ident {}
+            }
+        } else {
+            quote! {}
+        };
+
         let column_code = quote! {
             #struct_def
             #impl_new
@@ -240,6 +277,8 @@ pub(crate) fn generate_column_definitions<'a>(
             #sqlite_column_info_impl
             #sql_column_impl
             #sqlite_column_impl
+            #column_membership_impl
+            #column_not_null_impl
             #to_sql_impl
             #into_sqlite_value_impl
             #expr_impl

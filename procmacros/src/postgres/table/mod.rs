@@ -55,7 +55,8 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
 
     // Calculate has_foreign_keys before creating context
-    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some());
+    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
+        || !attrs.composite_foreign_keys.is_empty();
 
     // Generate CREATE TABLE SQL (only for tables without foreign keys)
     let schema_name = attrs.schema.as_deref().unwrap_or("public");

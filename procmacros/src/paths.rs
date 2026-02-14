@@ -69,6 +69,114 @@ pub mod core {
         quote!(drizzle::core::SQLTableInfo)
     }
 
+    pub fn sql_foreign_key_info() -> TokenStream {
+        quote!(drizzle::core::SQLForeignKeyInfo)
+    }
+
+    pub fn sql_foreign_key() -> TokenStream {
+        quote!(drizzle::core::SQLForeignKey)
+    }
+
+    pub fn no_foreign_key() -> TokenStream {
+        quote!(drizzle::core::NoForeignKey)
+    }
+
+    pub fn sql_primary_key_info() -> TokenStream {
+        quote!(drizzle::core::SQLPrimaryKeyInfo)
+    }
+
+    pub fn sql_primary_key() -> TokenStream {
+        quote!(drizzle::core::SQLPrimaryKey)
+    }
+
+    pub fn no_primary_key() -> TokenStream {
+        quote!(drizzle::core::NoPrimaryKey)
+    }
+
+    pub fn sql_constraint_info() -> TokenStream {
+        quote!(drizzle::core::SQLConstraintInfo)
+    }
+
+    pub fn sql_constraint() -> TokenStream {
+        quote!(drizzle::core::SQLConstraint)
+    }
+
+    pub fn no_constraint() -> TokenStream {
+        quote!(drizzle::core::NoConstraint)
+    }
+
+    pub fn sql_constraint_kind() -> TokenStream {
+        quote!(drizzle::core::SQLConstraintKind)
+    }
+
+    pub fn primary_key_kind() -> TokenStream {
+        quote!(drizzle::core::PrimaryKeyK)
+    }
+
+    pub fn foreign_key_kind() -> TokenStream {
+        quote!(drizzle::core::ForeignKeyK)
+    }
+
+    pub fn unique_kind() -> TokenStream {
+        quote!(drizzle::core::UniqueK)
+    }
+
+    pub fn check_kind() -> TokenStream {
+        quote!(drizzle::core::CheckK)
+    }
+
+    pub fn has_primary_key() -> TokenStream {
+        quote!(drizzle::core::HasPrimaryKey)
+    }
+
+    pub fn has_constraint() -> TokenStream {
+        quote!(drizzle::core::HasConstraint)
+    }
+
+    pub fn column_of() -> TokenStream {
+        quote!(drizzle::core::ColumnOf)
+    }
+
+    pub fn column_not_null() -> TokenStream {
+        quote!(drizzle::core::ColumnNotNull)
+    }
+
+    pub fn column_value_type() -> TokenStream {
+        quote!(drizzle::core::ColumnValueType)
+    }
+
+    pub fn columns_belong_to() -> TokenStream {
+        quote!(drizzle::core::ColumnsBelongTo)
+    }
+
+    pub fn non_empty_col_set() -> TokenStream {
+        quote!(drizzle::core::NonEmptyColSet)
+    }
+
+    pub fn no_duplicate_col_set() -> TokenStream {
+        quote!(drizzle::core::NoDuplicateColSet)
+    }
+
+    pub fn pk_not_null() -> TokenStream {
+        quote!(drizzle::core::PkNotNull)
+    }
+
+    pub fn fk_arity_match() -> TokenStream {
+        quote!(drizzle::core::FkArityMatch)
+    }
+
+    pub fn fk_type_match() -> TokenStream {
+        quote!(drizzle::core::FkTypeMatch)
+    }
+
+    pub fn validate_schema_item_foreign_keys() -> TokenStream {
+        quote!(drizzle::core::ValidateSchemaItemForeignKeys)
+    }
+
+    pub fn sql_table_meta() -> TokenStream {
+        quote!(drizzle::core::SQLTableMeta)
+    }
+
     pub fn sql_column() -> TokenStream {
         quote!(drizzle::core::SQLColumn)
     }
@@ -160,29 +268,54 @@ pub mod core {
         quote!(drizzle::core::ToSQL)
     }
 
-    /// Path to the Relation trait
-    pub fn relation() -> TokenStream {
+    /// Path to the type-level Relation marker trait
+    pub fn relation_marker() -> TokenStream {
         quote!(drizzle::core::Relation)
     }
 
-    /// Path to the RelationType enum
-    pub fn relation_type() -> TokenStream {
-        quote!(drizzle::core::RelationType)
+    /// Path to the `Joinable` trait
+    pub fn joinable_marker() -> TokenStream {
+        quote!(drizzle::core::Joinable)
     }
 
-    /// Path to the HasRelations trait
-    pub fn has_relations() -> TokenStream {
-        quote!(drizzle::core::HasRelations)
+    /// Path to the SchemaItemTables trait
+    pub fn schema_item_tables() -> TokenStream {
+        quote!(drizzle::core::SchemaItemTables)
     }
 
-    /// Path to the SchemaRelations trait
-    pub fn schema_relations() -> TokenStream {
-        quote!(drizzle::core::SchemaRelations)
+    /// Path to the SchemaHasTable marker trait.
+    pub fn schema_has_table() -> TokenStream {
+        quote!(drizzle::core::SchemaHasTable)
     }
 
-    /// Path to the ReverseRelation struct
-    pub fn reverse_relation() -> TokenStream {
-        quote!(drizzle::core::ReverseRelation)
+    /// Path to the type-set Nil marker.
+    pub fn type_set_nil() -> TokenStream {
+        quote!(drizzle::core::Nil)
+    }
+
+    /// Path to the type-set Cons node.
+    pub fn type_set_cons() -> TokenStream {
+        quote!(drizzle::core::Cons)
+    }
+
+    /// Path to the type-set Concat trait.
+    pub fn type_set_concat() -> TokenStream {
+        quote!(drizzle::core::Concat)
+    }
+
+    /// Path to SQLStaticTableInfo trait.
+    pub fn sql_static_table_info() -> TokenStream {
+        quote!(drizzle::core::SQLStaticTableInfo)
+    }
+
+    /// Path to the ConflictTarget trait.
+    pub fn conflict_target() -> TokenStream {
+        quote!(drizzle::core::ConflictTarget)
+    }
+
+    /// Path to the NamedConstraint trait.
+    pub fn named_constraint() -> TokenStream {
+        quote!(drizzle::core::NamedConstraint)
     }
 }
 

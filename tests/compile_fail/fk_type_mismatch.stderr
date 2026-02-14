@@ -1,0 +1,43 @@
+error[E0277]: the trait bound `std::string::String: TypeEq<i32>` is not satisfied
+  --> tests/compile_fail/fk_type_mismatch.rs:13:1
+   |
+13 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^ the trait `TypeEq<i32>` is not implemented for `std::string::String`
+   |
+   = help: the following other types implement trait `FkTypeMatch<SrcCols, DstCols>`:
+             `()` implements `FkTypeMatch<(), ()>`
+             `()` implements `FkTypeMatch<(S0, S1), (D0, D1)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2), (D0, D1, D2)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3), (D0, D1, D2, D3)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4), (D0, D1, D2, D3, D4)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4, S5), (D0, D1, D2, D3, D4, D5)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4, S5, S6), (D0, D1, D2, D3, D4, D5, D6)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4, S5, S6, S7), (D0, D1, D2, D3, D4, D5, D6, D7)>`
+           and $N others
+   = note: required for `()` to implement `FkTypeMatch<(ChildParentRef,), (ParentId,)>`
+   = help: see issue #48214
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `std::string::String: TypeEq<i32>` is not satisfied
+  --> tests/compile_fail/fk_type_mismatch.rs:13:1
+   |
+13 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^ the trait `TypeEq<i32>` is not implemented for `std::string::String`
+   |
+   = help: the following other types implement trait `FkTypeMatch<SrcCols, DstCols>`:
+             `()` implements `FkTypeMatch<(), ()>`
+             `()` implements `FkTypeMatch<(S0, S1), (D0, D1)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2), (D0, D1, D2)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3), (D0, D1, D2, D3)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4), (D0, D1, D2, D3, D4)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4, S5), (D0, D1, D2, D3, D4, D5)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4, S5, S6), (D0, D1, D2, D3, D4, D5, D6)>`
+             `()` implements `FkTypeMatch<(S0, S1, S2, S3, S4, S5, S6, S7), (D0, D1, D2, D3, D4, D5, D6, D7)>`
+           and $N others
+   = note: required for `()` to implement `FkTypeMatch<(ChildParentRef,), (ParentId,)>`
+note: required by a bound in `assert_fk`
+  --> tests/compile_fail/fk_type_mismatch.rs:13:1
+   |
+13 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^ required by this bound in `assert_fk`
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

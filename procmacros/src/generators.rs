@@ -55,15 +55,22 @@ pub fn generate_sql_column_info(
 }
 
 /// Generate SQLTableInfo trait implementation
+#[allow(clippy::too_many_arguments)]
 pub fn generate_sql_table_info(
     struct_ident: &Ident,
     name: TokenStream,
     schema: TokenStream,
     columns: TokenStream,
+    primary_key: TokenStream,
+    foreign_keys: TokenStream,
+    constraints: TokenStream,
     dependencies: TokenStream,
 ) -> TokenStream {
     let sql_table_info = core_paths::sql_table_info();
     let sql_column_info = core_paths::sql_column_info();
+    let sql_primary_key_info = core_paths::sql_primary_key_info();
+    let sql_foreign_key_info = core_paths::sql_foreign_key_info();
+    let sql_constraint_info = core_paths::sql_constraint_info();
 
     quote! {
         impl #sql_table_info for #struct_ident {
@@ -77,6 +84,18 @@ pub fn generate_sql_table_info(
 
             fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
                 #columns
+            }
+
+            fn primary_key(&self) -> ::std::option::Option<&'static dyn #sql_primary_key_info> {
+                #primary_key
+            }
+
+            fn foreign_keys(&self) -> &'static [&'static dyn #sql_foreign_key_info] {
+                #foreign_keys
+            }
+
+            fn constraints(&self) -> &'static [&'static dyn #sql_constraint_info] {
+                #constraints
             }
 
             fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {

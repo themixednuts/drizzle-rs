@@ -225,6 +225,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         temporary: false,
         inherits: None,
         tablespace: None,
+        composite_foreign_keys: Vec::new(),
         marker_exprs: Vec::new(),
     };
 
@@ -314,6 +315,10 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let sql_column_info = core_paths::sql_column_info();
     let sql_view = core_paths::sql_view();
     let sql_view_info = core_paths::sql_view_info();
+    let no_primary_key = core_paths::no_primary_key();
+    let no_constraint = core_paths::no_constraint();
+    let schema_item_tables = core_paths::schema_item_tables();
+    let type_set_nil = core_paths::type_set_nil();
     let sql_to_sql = core_paths::to_sql();
     let std_cow = std_paths::cow();
     let postgres_value = postgres_paths::postgres_value();
@@ -352,6 +357,9 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         quote! { Self::VIEW_NAME },
         quote! { ::std::option::Option::Some(Self::VIEW_SCHEMA) },
         sql_columns,
+        quote! { ::std::option::Option::None },
+        quote! { &[] },
+        quote! { &[] },
         sql_dependencies,
     );
     let postgres_table_info_impl = generate_postgres_table_info(
@@ -372,6 +380,9 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         quote! { #insert_model_ident<'a, T> },
         quote! { #update_model_ident<'a> },
         quote! { #aliased_table_ident },
+        quote! { () },
+        quote! { #no_primary_key },
+        quote! { #no_constraint },
     );
     let postgres_table_impl = generate_postgres_table(struct_ident);
     let sql_schema_impl = generate_sql_schema(
@@ -492,15 +503,13 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         #sql_table_info_impl
         #postgres_table_info_impl
         #postgres_table_impl
+        impl #schema_item_tables for #struct_ident {
+            type Tables = #type_set_nil;
+        }
         #to_sql_impl
         #sql_view_impl
         #sql_view_info_impl
 
-        impl drizzle::core::HasRelations for #struct_ident {
-            fn outgoing_relations() -> &'static [&'static dyn drizzle::core::Relation] {
-                &[]
-            }
-        }
     })
 }
 

@@ -100,6 +100,29 @@ pub struct FkBothActions {
     pub value: String,
 }
 
+#[PostgresTable]
+pub struct CompositeFkParent {
+    #[column(primary)]
+    pub id_a: i32,
+    #[column(primary)]
+    pub id_b: i32,
+    pub label: String,
+}
+
+#[PostgresTable(FOREIGN_KEY(
+    columns(parent_a, parent_b),
+    references(CompositeFkParent, id_a, id_b),
+    on_delete = "CASCADE",
+    on_update = "CASCADE"
+))]
+pub struct CompositeFkChild {
+    #[column(serial, primary)]
+    pub id: i32,
+    pub parent_a: Option<i32>,
+    pub parent_b: Option<i32>,
+    pub value: String,
+}
+
 //------------------------------------------------------------------------------
 // Schema Definitions for Tests
 //------------------------------------------------------------------------------
@@ -150,6 +173,12 @@ pub struct FkUpdateSetNullSchema {
 pub struct FkBothActionsSchema {
     pub fk_parent: FkParent,
     pub fk_both_actions: FkBothActions,
+}
+
+#[derive(PostgresSchema)]
+pub struct CompositeFkSchema {
+    pub composite_fk_parent: CompositeFkParent,
+    pub composite_fk_child: CompositeFkChild,
 }
 
 //------------------------------------------------------------------------------
@@ -281,6 +310,93 @@ fn test_both_actions_sql() {
         "Should contain ON UPDATE SET NULL. Got: {}",
         sql
     );
+}
+
+#[test]
+fn test_composite_foreign_key_sql() {
+    let sql = CompositeFkChild::create_table_sql();
+
+    assert!(
+        sql.contains("FOREIGN KEY"),
+        "missing FOREIGN KEY clause: {sql}"
+    );
+    assert!(
+        sql.contains("parent_a"),
+        "missing parent_a source column: {sql}"
+    );
+    assert!(
+        sql.contains("parent_b"),
+        "missing parent_b source column: {sql}"
+    );
+    assert!(
+        sql.contains("REFERENCES"),
+        "missing REFERENCES clause: {sql}"
+    );
+    assert!(sql.contains("id_a"), "missing id_a target column: {sql}");
+    assert!(sql.contains("id_b"), "missing id_b target column: {sql}");
+    assert!(
+        sql.contains("ON DELETE CASCADE"),
+        "missing ON DELETE CASCADE action: {sql}"
+    );
+    assert!(
+        sql.contains("ON UPDATE CASCADE"),
+        "missing ON UPDATE CASCADE action: {sql}"
+    );
+}
+
+#[test]
+fn test_composite_foreign_key_metadata_grouping() {
+    let table = CompositeFkChild::new();
+    let fks = table.foreign_keys();
+
+    assert_eq!(fks.len(), 1, "expected a single grouped FK");
+    assert_eq!(fks[0].source_columns(), &["parent_a", "parent_b"]);
+    assert_eq!(fks[0].target_columns(), &["id_a", "id_b"]);
+}
+
+#[test]
+fn test_table_constraints_metadata() {
+    let parent = CompositeFkParent::new();
+    let child = CompositeFkChild::new();
+
+    let parent_constraints = parent.constraints();
+    assert!(
+        parent_constraints
+            .iter()
+            .any(|c| c.kind() == SQLConstraintKind::PrimaryKey),
+        "expected parent to expose a primary key constraint"
+    );
+
+    let child_constraints = child.constraints();
+    assert!(
+        child_constraints
+            .iter()
+            .any(|c| c.kind() == SQLConstraintKind::ForeignKey),
+        "expected child to expose a foreign key constraint"
+    );
+}
+
+#[test]
+fn test_composite_primary_key_metadata() {
+    let table = CompositeFkParent::new();
+    let pk = table
+        .primary_key()
+        .expect("expected composite primary key metadata");
+
+    assert_eq!(pk.columns(), &["id_a", "id_b"]);
+}
+
+#[test]
+fn test_constraint_capability_markers() {
+    fn assert_has_pk<T: HasPrimaryKey>() {}
+    fn assert_has_fk<T: HasConstraint<ForeignKeyK>>() {}
+    fn assert_has_pk_constraint<T: HasConstraint<PrimaryKeyK>>() {}
+    fn assert_joinable<A: Joinable<B>, B>() {}
+
+    assert_has_pk::<CompositeFkParent>();
+    assert_has_pk_constraint::<CompositeFkParent>();
+    assert_has_fk::<FkCascade>();
+    assert_joinable::<FkCascade, FkParent>();
 }
 
 //------------------------------------------------------------------------------

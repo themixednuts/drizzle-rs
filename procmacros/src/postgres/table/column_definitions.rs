@@ -3,6 +3,7 @@ use crate::common::{
     generate_arithmetic_ops, generate_expr_impl, is_numeric_sql_type, rust_type_to_nullability,
     rust_type_to_sql_type,
 };
+use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
 use crate::postgres::field::{FieldInfo, PostgreSQLType};
 use heck::ToUpperCamelCase;
@@ -21,7 +22,6 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
 
     let field_name = info.ident.to_string().to_uppercase();
     let marker_const_name = format_ident!("_ATTR_MARKERS_{}", field_name);
-    let marker_count = info.marker_exprs.len();
     let markers = &info.marker_exprs;
 
     quote! {
@@ -29,7 +29,9 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
         /// This enables IDE hover documentation for `#[column(...)]` attributes.
         #[doc(hidden)]
         #[allow(dead_code, non_upper_case_globals)]
-        const #marker_const_name: [ColumnMarker; #marker_count] = [#(#markers),*];
+        const #marker_const_name: () = {
+            #( let _ = #markers; )*
+        };
     }
 }
 
@@ -43,6 +45,10 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         field_infos,
         ..
     } = ctx;
+    let no_foreign_key = core_paths::no_foreign_key();
+    let column_of = core_paths::column_of();
+    let column_not_null = core_paths::column_not_null();
+    let column_value_type = core_paths::column_value_type();
 
     for field_info in *field_infos {
         let field_pascal_case = field_info.ident.to_string().to_upper_camel_case();
@@ -50,6 +56,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         column_zst_idents.push(zst_ident.clone());
 
         let rust_type = &field_info.field_type;
+        let value_type = &field_info.base_type;
         let (
             _is_primary,
             _is_not_null,
@@ -216,6 +223,23 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             quote! { None }
         };
 
+        let mut foreign_key_types = Vec::new();
+        if field_info.foreign_key.is_some() {
+            let fk_ident = format_ident!("__Fk_{}_{}", struct_ident, field_pascal_case);
+            foreign_key_types.push(quote! { #fk_ident });
+        }
+        for (fk_idx, fk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
+            if fk.source_columns.iter().any(|src| src == &field_info.ident) {
+                let fk_ident = format_ident!("__FkComposite_{}_{}", struct_ident, fk_idx);
+                foreign_key_types.push(quote! { #fk_ident });
+            }
+        }
+        let foreign_keys_type = if foreign_key_types.is_empty() {
+            quote! { (#no_foreign_key,) }
+        } else {
+            quote! { (#(#foreign_key_types,)*) }
+        };
+
         // Direct const expressions - no runtime builder types needed
         let is_primary = field_info.is_primary;
         let is_not_null = !field_info.is_nullable;
@@ -265,6 +289,14 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 sql_type_marker,
                 sql_nullable_marker,
             )
+        } else {
+            quote! {}
+        };
+
+        let column_not_null_impl = if !field_info.is_nullable || field_info.is_primary {
+            quote! {
+                impl #column_not_null for #zst_ident {}
+            }
         } else {
             quote! {}
         };
@@ -343,6 +375,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             impl<'a> SQLColumn<'a, PostgresValue<'a>> for #zst_ident {
                 type Table = #struct_ident;
                 type TableType = PostgresSchemaType;
+                type ForeignKeys = #foreign_keys_type;
                 type Type = #rust_type;
 
                 const PRIMARY_KEY: bool = #is_primary;
@@ -360,6 +393,12 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 const BIGSERIAL: bool = #is_bigserial_expr;
                 const GENERATED_IDENTITY: bool = #is_generated_identity;
             }
+
+            impl #column_of<#struct_ident> for #zst_ident {}
+            impl #column_value_type for #zst_ident {
+                type ValueType = #value_type;
+            }
+            #column_not_null_impl
 
 
             impl<'a> ToSQL<'a, PostgresValue<'a>> for #zst_ident {

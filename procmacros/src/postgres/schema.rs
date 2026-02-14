@@ -1,6 +1,7 @@
 use crate::paths::{core as core_paths, migrations as mig_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::collections::HashSet;
 use syn::{Data, DeriveInput, Fields, Result};
 
 /// Generates the PostgresSchema derive implementation
@@ -10,6 +11,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     // Get paths for fully-qualified types
     let sql_schema = core_paths::sql_schema();
     let sql_schema_impl = core_paths::sql_schema_impl();
+    let validate_schema_item_foreign_keys = core_paths::validate_schema_item_foreign_keys();
     let sql_table_info = core_paths::sql_table_info();
     let _sql_column_info = core_paths::sql_column_info();
     let sql_index_info = core_paths::sql_index_info();
@@ -95,8 +97,13 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let mig_pg_enum = mig_paths::postgres::enum_type();
     let mig_pg_view = mig_paths::postgres::view();
 
-    // Generate SchemaRelations implementation
-    let schema_relations_impl = generate_schema_relations(struct_name, &all_fields);
+    let schema_tables_method = generate_schema_tables_method(&all_fields);
+    let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &all_fields);
+    let schema_fk_validation_asserts = generate_schema_fk_validation_asserts(
+        &all_fields,
+        struct_name,
+        &validate_schema_item_foreign_keys,
+    );
 
     Ok(quote! {
         impl Default for #struct_name {
@@ -120,6 +127,10 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
 
         // Implement SQLSchemaImpl trait
         impl #sql_schema_impl for #struct_name {
+            fn tables(&self) -> &'static [&'static dyn #sql_table_info] {
+                #schema_tables_method
+            }
+
             fn create_statements(&self) -> ::std::result::Result<::std::boxed::Box<dyn ::std::iter::Iterator<Item = ::std::string::String> + '_>, drizzle::error::DrizzleError> {
                 let statements = { #create_statements_impl };
                 ::std::result::Result::Ok(::std::boxed::Box::new(statements.into_iter()))
@@ -132,6 +143,10 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 (#(schema.#all_field_names,)*)
             }
         }
+
+        #schema_has_table_impls
+
+        #schema_fk_validation_asserts
 
         // Implement migrations Schema trait for migration config
         impl #mig_schema for #struct_name {
@@ -269,8 +284,29 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
             }
         }
 
-        #schema_relations_impl
     })
+}
+
+fn generate_schema_fk_validation_asserts(
+    fields: &[(&syn::Ident, &syn::Type)],
+    struct_name: &syn::Ident,
+    validate_schema_item_foreign_keys: &TokenStream,
+) -> TokenStream {
+    let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
+
+    quote! {
+        const _: () = {
+            const fn __assert_schema_item<Item>()
+            where
+                Item: #validate_schema_item_foreign_keys<#struct_name>,
+            {
+            }
+
+            #(
+                __assert_schema_item::<#field_types>();
+            )*
+        };
+    }
 }
 
 fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
@@ -456,47 +492,49 @@ fn generate_items_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     }
 }
 
-fn generate_schema_relations(
-    struct_name: &syn::Ident,
-    fields: &[(&syn::Ident, &syn::Type)],
-) -> TokenStream {
-    let relation_trait = core_paths::relation();
-    let relation_type_path = core_paths::relation_type();
-    let has_relations = core_paths::has_relations();
-    let schema_relations = core_paths::schema_relations();
-    let reverse_relation = core_paths::reverse_relation();
+fn generate_schema_tables_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    let sql_schema = core_paths::sql_schema();
+    let sql_table_info = core_paths::sql_table_info();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let postgres_value = postgres_paths::postgres_value();
 
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        impl #schema_relations for #struct_name {
-            fn all_relations(&self) -> &'static [&'static dyn #relation_trait] {
-                static RELATIONS: ::std::sync::LazyLock<::std::vec::Vec<&'static dyn #relation_trait>> =
-                    ::std::sync::LazyLock::new(|| {
-                        let mut rels: ::std::vec::Vec<&'static dyn #relation_trait> = ::std::vec::Vec::new();
+        static TABLES: ::std::sync::LazyLock<::std::vec::Vec<&'static dyn #sql_table_info>> =
+            ::std::sync::LazyLock::new(|| {
+                let mut tables: ::std::vec::Vec<&'static dyn #sql_table_info> = ::std::vec::Vec::new();
+                #(
+                    if let #postgres_schema_type::Table(table_info) =
+                        <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE
+                    {
+                        tables.push(table_info);
+                    }
+                )*
+                tables
+            });
 
-                        // Collect outgoing ManyToOne relations from each schema element
-                        // (indexes, views, enums return empty slices)
-                        #(
-                            rels.extend_from_slice(<#field_types as #has_relations>::outgoing_relations());
-                        )*
+        TABLES.as_slice()
+    }
+}
 
-                        // Generate reverse OneToMany relations for each outgoing relation
-                        let outgoing_count = rels.len();
-                        for i in 0..outgoing_count {
-                            let rel = rels[i];
-                            if let #relation_type_path::ManyToOne = rel.relation_type() {
-                                let reverse: &'static dyn #relation_trait =
-                                    ::std::boxed::Box::leak(::std::boxed::Box::new(#reverse_relation::new(rel)));
-                                rels.push(reverse);
-                            }
-                        }
-
-                        rels
-                    });
-
-                &RELATIONS
-            }
+fn generate_schema_has_table_impls(
+    struct_name: &syn::Ident,
+    fields: &[(&syn::Ident, &syn::Type)],
+) -> TokenStream {
+    let schema_has_table = core_paths::schema_has_table();
+    let mut unique_types = Vec::new();
+    let mut seen = HashSet::new();
+    for (_, ty) in fields {
+        let key = quote!(#ty).to_string();
+        if seen.insert(key) {
+            unique_types.push(*ty);
         }
+    }
+
+    quote! {
+        #(
+            impl #schema_has_table<#unique_types> for #struct_name {}
+        )*
     }
 }

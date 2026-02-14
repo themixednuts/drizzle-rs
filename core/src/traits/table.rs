@@ -1,5 +1,8 @@
 use crate::prelude::*;
-use crate::{SQL, SQLColumnInfo, SQLParam, SQLSchema, SQLSchemaType, ToSQL};
+use crate::{
+    SQL, SQLColumnInfo, SQLConstraintInfo, SQLForeignKeyInfo, SQLParam, SQLPrimaryKeyInfo,
+    SQLSchema, SQLSchemaType, ToSQL,
+};
 use core::any::Any;
 
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
@@ -24,6 +27,9 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone
 {
     type Select: SQLModel<'a, Value> + SQLPartial<'a, Value> + Default + 'a;
+    type ForeignKeys;
+    type PrimaryKey;
+    type Constraints;
 
     /// The type representing a model for INSERT operations on this table.
     /// Uses PhantomData with tuple markers to track which fields are set
@@ -60,6 +66,15 @@ pub trait SQLTableInfo: Any + Send + Sync {
     }
 
     fn columns(&self) -> &'static [&'static dyn SQLColumnInfo];
+    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
+        None
+    }
+    fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
+        &[]
+    }
+    fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
+        &[]
+    }
     fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo];
 
     /// Lookup a column by name.
@@ -69,6 +84,11 @@ pub trait SQLTableInfo: Any + Send + Sync {
             .copied()
             .find(|col| col.name() == name)
     }
+}
+
+/// Implemented by concrete table structs to expose a canonical static instance.
+pub trait SQLStaticTableInfo: SQLTableInfo + Sized + 'static {
+    fn static_table() -> &'static Self;
 }
 
 // Blanket implementation for static references
@@ -89,6 +109,18 @@ impl<T: SQLTableInfo> SQLTableInfo for &'static T {
         (*self).columns()
     }
 
+    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
+        (*self).primary_key()
+    }
+
+    fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
+        (*self).foreign_keys()
+    }
+
+    fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
+        (*self).constraints()
+    }
+
     fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
         (*self).dependencies()
     }
@@ -101,6 +133,8 @@ impl core::fmt::Debug for dyn SQLTableInfo {
             .field("schema", &self.schema())
             .field("qualified_name", &self.qualified_name())
             .field("columns", &self.columns())
+            .field("primary_key", &self.primary_key().map(|pk| pk.columns()))
+            .field("constraints", &self.constraints().len())
             .finish()
     }
 }

@@ -24,6 +24,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql_column_info = core_paths::sql_column_info();
     let sql_schema = core_paths::sql_schema();
     let sql_table = core_paths::sql_table();
+    let sql_table_meta = core_paths::sql_table_meta();
     let sql_table_info = core_paths::sql_table_info();
     let token = core_paths::token();
     let to_sql = core_paths::to_sql();
@@ -139,6 +140,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         let sql_column_impl = generate_sql_column(aliased_field_type,
             quote! {#aliased_table_name},
             quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::TableType},
+            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::ForeignKeys},
             quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::Type},
             quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::PRIMARY_KEY},
             quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::NOT_NULL},
@@ -220,6 +222,18 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         },
         quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as #sql_table_info>::primary_key(&ORIGINAL_TABLE)
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as #sql_table_info>::foreign_keys(&ORIGINAL_TABLE)
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
+            <#table_name as #sql_table_info>::constraints(&ORIGINAL_TABLE)
+        },
+        quote! {
+            static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::dependencies(&ORIGINAL_TABLE)
         },
     );
@@ -255,6 +269,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Update},
         // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
         quote! {#aliased_table_name},
+        quote! {<#table_name as #sql_table_meta>::ForeignKeys},
+        quote! {<#table_name as #sql_table_meta>::PrimaryKey},
+        quote! {<#table_name as #sql_table_meta>::Constraints},
     );
 
     let sqlite_table_impl = generate_sqlite_table(
