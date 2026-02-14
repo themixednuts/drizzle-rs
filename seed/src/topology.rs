@@ -7,6 +7,20 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use drizzle_core::SQLTableInfo;
 
+fn parent_names<'a>(table: &'a dyn SQLTableInfo, table_names: &HashSet<&'a str>) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+
+    for fk in table.foreign_keys() {
+        let name = fk.target_table().name();
+        if table_names.contains(name) && name != table.name() && seen.insert(name) {
+            out.push(name);
+        }
+    }
+
+    out
+}
+
 /// Compute seeding order for tables using topological sort.
 ///
 /// Returns table names in order such that parent tables come before children.
@@ -21,12 +35,9 @@ pub fn seeding_order(tables: &[&dyn SQLTableInfo]) -> Vec<String> {
 
     for &table in tables {
         in_degree.entry(table.name()).or_insert(0);
-        for dep in table.dependencies() {
-            let dep_name = dep.name();
-            if table_names.contains(dep_name) && dep_name != table.name() {
-                *in_degree.entry(table.name()).or_insert(0) += 1;
-                dependents.entry(dep_name).or_default().push(table.name());
-            }
+        for dep_name in parent_names(table, &table_names) {
+            *in_degree.entry(table.name()).or_insert(0) += 1;
+            dependents.entry(dep_name).or_default().push(table.name());
         }
     }
 
@@ -74,10 +85,33 @@ pub fn seeding_order(tables: &[&dyn SQLTableInfo]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use drizzle_core::SQLForeignKeyInfo;
 
     struct TestTable {
         name: &'static str,
-        deps: &'static [&'static dyn SQLTableInfo],
+        fks: &'static [&'static dyn SQLForeignKeyInfo],
+    }
+
+    struct TestForeignKey {
+        target: &'static dyn SQLTableInfo,
+    }
+
+    impl SQLForeignKeyInfo for TestForeignKey {
+        fn source_table(&self) -> &'static dyn SQLTableInfo {
+            panic!("test FK source_table is not used")
+        }
+
+        fn target_table(&self) -> &'static dyn SQLTableInfo {
+            self.target
+        }
+
+        fn source_columns(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn target_columns(&self) -> &'static [&'static str] {
+            &[]
+        }
     }
 
     impl SQLTableInfo for TestTable {
@@ -87,8 +121,11 @@ mod tests {
         fn columns(&self) -> &'static [&'static dyn drizzle_core::SQLColumnInfo] {
             &[]
         }
+        fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
+            self.fks
+        }
         fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
-            self.deps
+            &[]
         }
     }
 
@@ -96,15 +133,19 @@ mod tests {
     fn linear_dependency() {
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[],
+            fks: &[],
         };
+        static B_FK_A: TestForeignKey = TestForeignKey { target: &A };
+        static B_FKS: [&dyn SQLForeignKeyInfo; 1] = [&B_FK_A];
         static B: TestTable = TestTable {
             name: "b",
-            deps: &[&A],
+            fks: &B_FKS,
         };
+        static C_FK_B: TestForeignKey = TestForeignKey { target: &B };
+        static C_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C_FK_B];
         static C: TestTable = TestTable {
             name: "c",
-            deps: &[&B],
+            fks: &C_FKS,
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&C, &B, &A];
@@ -116,15 +157,15 @@ mod tests {
     fn no_dependencies() {
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[],
+            fks: &[],
         };
         static B: TestTable = TestTable {
             name: "b",
-            deps: &[],
+            fks: &[],
         };
         static C: TestTable = TestTable {
             name: "c",
-            deps: &[],
+            fks: &[],
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&C, &B, &A];
@@ -143,19 +184,26 @@ mod tests {
         //     D
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[],
+            fks: &[],
         };
+        static B_FK_A: TestForeignKey = TestForeignKey { target: &A };
+        static B_FKS: [&dyn SQLForeignKeyInfo; 1] = [&B_FK_A];
         static B: TestTable = TestTable {
             name: "b",
-            deps: &[&A],
+            fks: &B_FKS,
         };
+        static C_FK_A: TestForeignKey = TestForeignKey { target: &A };
+        static C_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C_FK_A];
         static C: TestTable = TestTable {
             name: "c",
-            deps: &[&A],
+            fks: &C_FKS,
         };
+        static D_FK_B: TestForeignKey = TestForeignKey { target: &B };
+        static D_FK_C: TestForeignKey = TestForeignKey { target: &C };
+        static D_FKS: [&dyn SQLForeignKeyInfo; 2] = [&D_FK_B, &D_FK_C];
         static D: TestTable = TestTable {
             name: "d",
-            deps: &[&B, &C],
+            fks: &D_FKS,
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&D, &C, &A, &B];
@@ -168,17 +216,23 @@ mod tests {
     fn cycle_detection() {
         // A -> B -> C -> A (cycle)
         // Cycles should still produce all tables (appended at end)
+        static A_FK_C: TestForeignKey = TestForeignKey { target: &C };
+        static A_FKS: [&dyn SQLForeignKeyInfo; 1] = [&A_FK_C];
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[&C],
+            fks: &A_FKS,
         };
+        static B_FK_A: TestForeignKey = TestForeignKey { target: &A };
+        static B_FKS: [&dyn SQLForeignKeyInfo; 1] = [&B_FK_A];
         static B: TestTable = TestTable {
             name: "b",
-            deps: &[&A],
+            fks: &B_FKS,
         };
+        static C_FK_B: TestForeignKey = TestForeignKey { target: &B };
+        static C_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C_FK_B];
         static C: TestTable = TestTable {
             name: "c",
-            deps: &[&B],
+            fks: &C_FKS,
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&A, &B, &C];
@@ -193,9 +247,11 @@ mod tests {
     #[test]
     fn self_reference_ignored() {
         // A table that references itself (self-referential FK)
+        static A_FK_A: TestForeignKey = TestForeignKey { target: &A };
+        static A_FKS: [&dyn SQLForeignKeyInfo; 1] = [&A_FK_A];
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[&A],
+            fks: &A_FKS,
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&A];
@@ -208,7 +264,7 @@ mod tests {
     fn single_table() {
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[],
+            fks: &[],
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&A];
@@ -221,15 +277,17 @@ mod tests {
         // B depends on X, but X is not in our table set
         static X: TestTable = TestTable {
             name: "x",
-            deps: &[],
+            fks: &[],
         };
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[],
+            fks: &[],
         };
+        static B_FK_X: TestForeignKey = TestForeignKey { target: &X };
+        static B_FKS: [&dyn SQLForeignKeyInfo; 1] = [&B_FK_X];
         static B: TestTable = TestTable {
             name: "b",
-            deps: &[&X],
+            fks: &B_FKS,
         };
 
         // Only pass A and B, not X
@@ -244,27 +302,37 @@ mod tests {
         // Parent with many children
         static PARENT: TestTable = TestTable {
             name: "parent",
-            deps: &[],
+            fks: &[],
         };
+        static C1_FK_PARENT: TestForeignKey = TestForeignKey { target: &PARENT };
+        static C1_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C1_FK_PARENT];
         static C1: TestTable = TestTable {
             name: "child_1",
-            deps: &[&PARENT],
+            fks: &C1_FKS,
         };
+        static C2_FK_PARENT: TestForeignKey = TestForeignKey { target: &PARENT };
+        static C2_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C2_FK_PARENT];
         static C2: TestTable = TestTable {
             name: "child_2",
-            deps: &[&PARENT],
+            fks: &C2_FKS,
         };
+        static C3_FK_PARENT: TestForeignKey = TestForeignKey { target: &PARENT };
+        static C3_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C3_FK_PARENT];
         static C3: TestTable = TestTable {
             name: "child_3",
-            deps: &[&PARENT],
+            fks: &C3_FKS,
         };
+        static C4_FK_PARENT: TestForeignKey = TestForeignKey { target: &PARENT };
+        static C4_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C4_FK_PARENT];
         static C4: TestTable = TestTable {
             name: "child_4",
-            deps: &[&PARENT],
+            fks: &C4_FKS,
         };
+        static C5_FK_PARENT: TestForeignKey = TestForeignKey { target: &PARENT };
+        static C5_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C5_FK_PARENT];
         static C5: TestTable = TestTable {
             name: "child_5",
-            deps: &[&PARENT],
+            fks: &C5_FKS,
         };
 
         let tables: Vec<&dyn SQLTableInfo> = vec![&C5, &C3, &C1, &PARENT, &C4, &C2];
@@ -282,23 +350,31 @@ mod tests {
         // A -> B -> C -> D -> E (5 levels deep)
         static A: TestTable = TestTable {
             name: "a",
-            deps: &[],
+            fks: &[],
         };
+        static B_FK_A: TestForeignKey = TestForeignKey { target: &A };
+        static B_FKS: [&dyn SQLForeignKeyInfo; 1] = [&B_FK_A];
         static B: TestTable = TestTable {
             name: "b",
-            deps: &[&A],
+            fks: &B_FKS,
         };
+        static C_FK_B: TestForeignKey = TestForeignKey { target: &B };
+        static C_FKS: [&dyn SQLForeignKeyInfo; 1] = [&C_FK_B];
         static C: TestTable = TestTable {
             name: "c",
-            deps: &[&B],
+            fks: &C_FKS,
         };
+        static D_FK_C: TestForeignKey = TestForeignKey { target: &C };
+        static D_FKS: [&dyn SQLForeignKeyInfo; 1] = [&D_FK_C];
         static D: TestTable = TestTable {
             name: "d",
-            deps: &[&C],
+            fks: &D_FKS,
         };
+        static E_FK_D: TestForeignKey = TestForeignKey { target: &D };
+        static E_FKS: [&dyn SQLForeignKeyInfo; 1] = [&E_FK_D];
         static E: TestTable = TestTable {
             name: "e",
-            deps: &[&D],
+            fks: &E_FKS,
         };
 
         // Pass in reverse order

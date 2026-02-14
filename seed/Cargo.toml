@@ -10,6 +10,19 @@ rust-version.workspace = true
 
 [dependencies]
 drizzle-core = { workspace = true }
-drizzle-types = { workspace = true }
+drizzle-sqlite = { workspace = true, optional = true }
+drizzle-postgres = { workspace = true, optional = true }
 rand = { workspace = true }
-sha2 = { workspace = true }
+
+[features]
+default = ["sqlite", "postgres"]
+
+sqlite = ["dep:drizzle-sqlite"]
+postgres = ["dep:drizzle-postgres"]
+
+serde = ["postgres", "drizzle-postgres/serde"]
+uuid = ["postgres", "drizzle-postgres/uuid"]
+chrono = ["postgres", "drizzle-postgres/chrono"]
+cidr = ["postgres", "drizzle-postgres/cidr"]
+geo-types = ["postgres", "drizzle-postgres/geo-types"]
+bit-vec = ["postgres", "drizzle-postgres/bit-vec"]

@@ -1,15 +1,15 @@
-use super::{Generator, RngCore, SqlValue};
+use super::{Generator, RngCore, SeedValue};
 use rand::Rng;
 
 /// Generates random dates in YYYY-MM-DD format (2000-01-01 to 2030-12-31).
 pub struct DateGen;
 
 impl Generator for DateGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let year = rng.random_range(2000u16..=2030);
         let month = rng.random_range(1u8..=12);
         let day = rng.random_range(1u8..=28); // safe for all months
-        SqlValue::Text(format!("{year:04}-{month:02}-{day:02}"))
+        SeedValue::Text(format!("{year:04}-{month:02}-{day:02}"))
     }
     fn name(&self) -> &'static str {
         "Date"
@@ -20,14 +20,14 @@ impl Generator for DateGen {
 pub struct TimestampGen;
 
 impl Generator for TimestampGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let year = rng.random_range(2000u16..=2030);
         let month = rng.random_range(1u8..=12);
         let day = rng.random_range(1u8..=28);
         let hour = rng.random_range(0u8..=23);
         let minute = rng.random_range(0u8..=59);
         let second = rng.random_range(0u8..=59);
-        SqlValue::Text(format!(
+        SeedValue::Text(format!(
             "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
         ))
     }
@@ -40,14 +40,45 @@ impl Generator for TimestampGen {
 pub struct TimeGen;
 
 impl Generator for TimeGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let hour = rng.random_range(0u8..=23);
         let minute = rng.random_range(0u8..=59);
         let second = rng.random_range(0u8..=59);
-        SqlValue::Text(format!("{hour:02}:{minute:02}:{second:02}"))
+        SeedValue::Text(format!("{hour:02}:{minute:02}:{second:02}"))
     }
     fn name(&self) -> &'static str {
         "Time"
+    }
+}
+
+/// Generates random times with timezone offsets in HH:MM:SS+HH format.
+pub struct TimeTzGen;
+
+impl Generator for TimeTzGen {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+        use rand::Rng;
+        let hour = rng.random_range(0u8..=23);
+        let minute = rng.random_range(0u8..=59);
+        let second = rng.random_range(0u8..=59);
+        let offset = rng.random_range(-12i8..=14);
+        SeedValue::Text(format!("{hour:02}:{minute:02}:{second:02}{offset:+03}"))
+    }
+    fn name(&self) -> &'static str {
+        "TimeTz"
+    }
+}
+
+/// Generates simple PostgreSQL interval strings.
+pub struct IntervalGen;
+
+impl Generator for IntervalGen {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+        use rand::Rng;
+        let amount = rng.random_range(1u16..=72);
+        SeedValue::Text(format!("{amount} hours"))
+    }
+    fn name(&self) -> &'static str {
+        "Interval"
     }
 }
 
@@ -62,8 +93,8 @@ mod tests {
         let g = DateGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..50 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert_eq!(s.len(), 10, "date wrong length: {}", s);
                     assert_eq!(&s[4..5], "-");
                     assert_eq!(&s[7..8], "-");
@@ -84,8 +115,8 @@ mod tests {
         let g = TimestampGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..50 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert_eq!(s.len(), 19, "timestamp wrong length: {}", s);
                     assert_eq!(&s[10..11], " ");
                     assert_eq!(&s[13..14], ":");
@@ -107,8 +138,8 @@ mod tests {
         let g = TimeGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..50 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert_eq!(s.len(), 8, "time wrong length: {}", s);
                     assert_eq!(&s[2..3], ":");
                     assert_eq!(&s[5..6], ":");
@@ -130,21 +161,49 @@ mod tests {
             let mut rng1 = StdRng::seed_from_u64(seed);
             let mut rng2 = StdRng::seed_from_u64(seed);
             assert_eq!(
-                DateGen.generate(&mut rng1, 0),
-                DateGen.generate(&mut rng2, 0)
+                DateGen.generate(&mut rng1, 0, "TEXT"),
+                DateGen.generate(&mut rng2, 0, "TEXT")
             );
             let mut rng1 = StdRng::seed_from_u64(seed);
             let mut rng2 = StdRng::seed_from_u64(seed);
             assert_eq!(
-                TimestampGen.generate(&mut rng1, 5),
-                TimestampGen.generate(&mut rng2, 5)
+                TimestampGen.generate(&mut rng1, 5, "TEXT"),
+                TimestampGen.generate(&mut rng2, 5, "TEXT")
             );
             let mut rng1 = StdRng::seed_from_u64(seed);
             let mut rng2 = StdRng::seed_from_u64(seed);
             assert_eq!(
-                TimeGen.generate(&mut rng1, 10),
-                TimeGen.generate(&mut rng2, 10)
+                TimeGen.generate(&mut rng1, 10, "TEXT"),
+                TimeGen.generate(&mut rng2, 10, "TEXT")
             );
+        }
+    }
+
+    #[test]
+    fn timetz_format_contains_offset() {
+        let g = TimeTzGen;
+        let mut rng = StdRng::seed_from_u64(42);
+        match g.generate(&mut rng, 0, "TEXT") {
+            SeedValue::Text(s) => {
+                assert!(s.len() >= 11, "timetz too short: {s}");
+                assert!(
+                    s.contains('+') || s.contains('-'),
+                    "timetz missing offset: {s}"
+                );
+            }
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn interval_looks_like_interval_literal() {
+        let g = IntervalGen;
+        let mut rng = StdRng::seed_from_u64(42);
+        match g.generate(&mut rng, 0, "TEXT") {
+            SeedValue::Text(s) => {
+                assert!(s.ends_with(" hours"), "interval format mismatch: {s}");
+            }
+            _ => panic!("expected Text"),
         }
     }
 }

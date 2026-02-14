@@ -16,6 +16,7 @@ path = "src/main.rs"
 # Core drizzle dependencies
 drizzle-migrations = { workspace = true }
 drizzle-types = { workspace = true, features = ["serde", "uuid", "chrono", "time", "geo-types", "cidr", "bit-vec"] }
+drizzle-seed = { workspace = true, optional = true, default-features = false }
 
 # CLI framework
 clap = { workspace = true }
@@ -54,13 +55,21 @@ predicates = { workspace = true }
 default = []
 
 # SQLite drivers
-rusqlite = ["dep:rusqlite"]
-libsql = ["dep:libsql", "dep:tokio"]
-turso = ["dep:turso", "dep:libsql", "dep:tokio"]
+rusqlite = ["dep:rusqlite", "dep:drizzle-seed", "drizzle-seed/sqlite"]
+libsql = ["dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
+turso = ["dep:turso", "dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
 
 # PostgreSQL drivers
-postgres-sync = ["dep:postgres"]
-tokio-postgres = ["dep:tokio-postgres", "dep:tokio"]
+postgres-sync = ["dep:postgres", "dep:drizzle-seed", "drizzle-seed/postgres"]
+tokio-postgres = ["dep:tokio-postgres", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/postgres"]
+
+# Optional PostgreSQL value-type passthroughs for seed
+uuid = ["dep:drizzle-seed", "drizzle-seed/uuid"]
+serde = ["dep:drizzle-seed", "drizzle-seed/serde"]
+chrono = ["dep:drizzle-seed", "drizzle-seed/chrono"]
+cidr = ["dep:drizzle-seed", "drizzle-seed/cidr"]
+geo-types = ["dep:drizzle-seed", "drizzle-seed/geo-types"]
+bit-vec = ["dep:drizzle-seed", "drizzle-seed/bit-vec"]
 
 # Convenience bundles
 sqlite-all = ["rusqlite", "libsql", "turso"]

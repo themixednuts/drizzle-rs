@@ -1,9 +1,9 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use crate::common::schema::sqlite::*;
-use crate::sqlite::foreign_keys::{FkCascade, FkCascadeSchema, FkParent};
-use drizzle::core::SQLTableInfo;
-use drizzle_seed::{Dialect, Generator, GeneratorKind, SeedConfig, Seeder, SqlValue};
+use crate::sqlite::foreign_keys::{CompositeFkSchema, FkCascade, FkCascadeSchema, FkParent};
+use drizzle::sqlite::traits::SQLiteTableInfo;
+use drizzle_seed::{Generator, GeneratorKind, RngCore, SeedConfig, SeedValue};
 
 // ---------------------------------------------------------------------------
 // SeedConfig type-safe builder tests
@@ -13,20 +13,18 @@ use drizzle_seed::{Dialect, Generator, GeneratorKind, SeedConfig, Seeder, SqlVal
 fn config_count_extracts_table_name() {
     let schema = FkCascadeSchema::new();
 
-    let config = SeedConfig::new()
+    let stmts = SeedConfig::sqlite(&schema)
         .count(&schema.fk_parent, 50)
-        .count(&schema.fk_cascade, 200);
-
-    // count_for is pub(crate), so verify indirectly via Seeder output
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.fk_parent, &schema.fk_cascade];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+        .count(&schema.fk_cascade, 200)
+        .generate();
 
     // Count rows in parent INSERT
-    let parent_stmt = stmts
+    let parent_sql = stmts
         .iter()
-        .find(|s| s.starts_with("INSERT INTO fk_parent"))
+        .map(|s| s.sql())
+        .find(|s| s.contains("INSERT INTO") && s.contains("fk_parent"))
         .unwrap();
-    let values_section = &parent_stmt[parent_stmt.find("VALUES ").unwrap() + 7..];
+    let values_section = &parent_sql[parent_sql.find("VALUES ").unwrap() + 7..];
     let parent_rows = values_section.matches('(').count();
     assert_eq!(parent_rows, 50, "fk_parent should have 50 rows");
 }
@@ -36,24 +34,41 @@ fn config_kind_override_via_column_ref() {
     let schema = SimpleSchema::new();
 
     // Override the "name" column to generate emails instead of names
-    let config = SeedConfig::new()
+    let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.simple, 5)
-        .kind(&Simple::name, GeneratorKind::Email);
+        .kind(&Simple::name, GeneratorKind::Email)
+        .generate();
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let (sql, params) = stmts[0].build();
+    assert!(sql.starts_with("INSERT INTO") && sql.contains("simple"));
 
-    let stmt = &stmts[0];
-    assert!(stmt.starts_with("INSERT INTO simple"));
+    for name_param in params.iter().skip(1).step_by(2) {
+        let drizzle::sqlite::values::OwnedSQLiteValue::Text(name_val) = name_param else {
+            panic!("expected TEXT for name column");
+        };
+        assert!(
+            name_val.contains('@') && name_val.contains('.'),
+            "with Email override, name column should produce emails, got: {name_val}"
+        );
+    }
+}
 
-    // Parse out name values (second column in each tuple)
-    let values_start = stmt.find("VALUES ").unwrap() + 7;
-    let values_section = &stmt[values_start..stmt.len() - 1];
-    for tuple_str in values_section.split("), (") {
-        let clean = tuple_str.trim_start_matches('(').trim_end_matches(')');
-        let fields: Vec<&str> = clean.splitn(2, ", ").collect();
-        let name_val = fields[1].trim().trim_matches('\'');
+#[test]
+fn config_kind_override_via_schema_config() {
+    let schema = SimpleSchema::new();
+
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.simple, 5)
+        .kind(&Simple::name, GeneratorKind::Email)
+        .generate();
+
+    let (_sql, params) = stmts[0].build();
+    for name_param in params.iter().skip(1).step_by(2) {
+        let drizzle::sqlite::values::OwnedSQLiteValue::Text(name_val) = name_param else {
+            panic!("expected TEXT for name column");
+        };
         assert!(
             name_val.contains('@') && name_val.contains('.'),
             "with Email override, name column should produce emails, got: {name_val}"
@@ -65,12 +80,8 @@ fn config_kind_override_via_column_ref() {
 fn config_custom_generator_via_column_ref() {
     struct ConstGen;
     impl Generator for ConstGen {
-        fn generate(
-            &self,
-            _rng: &mut dyn drizzle_seed::generator::RngCore,
-            _index: usize,
-        ) -> SqlValue {
-            SqlValue::Text("FIXED".to_string())
+        fn generate(&self, _rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+            SeedValue::Text("FIXED".to_string())
         }
         fn name(&self) -> &'static str {
             "Const"
@@ -78,33 +89,223 @@ fn config_custom_generator_via_column_ref() {
     }
 
     let schema = SimpleSchema::new();
-    let config = SeedConfig::new()
+    let stmts = SeedConfig::sqlite(&schema)
         .seed(1)
         .count(&schema.simple, 4)
-        .generator(&Simple::name, Box::new(ConstGen));
+        .generator(&Simple::name, ConstGen)
+        .generate();
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let (_sql, params) = stmts[0].build();
+    let fixed_count = params
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .filter(|v| {
+            matches!(
+                v,
+                drizzle::sqlite::values::OwnedSQLiteValue::Text(s) if s == "FIXED"
+            )
+        })
+        .count();
+    assert_eq!(fixed_count, 4, "custom generator should produce FIXED");
+}
 
-    let stmt = &stmts[0];
-    let fixed_count = stmt.matches("'FIXED'").count();
-    assert_eq!(
-        fixed_count, 4,
-        "custom generator should produce 'FIXED' for all 4 rows, got {fixed_count}"
+#[test]
+fn config_generator_accepts_column_generator() {
+    let schema = SimpleSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(1)
+        .count(&schema.simple, 4)
+        .generator(&Simple::name, &Simple::name)
+        .generate();
+
+    let (_sql, params) = stmts[0].build();
+    let generated_text_count = params
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .filter(|v| matches!(v, drizzle::sqlite::values::OwnedSQLiteValue::Text(_)))
+        .count();
+    assert_eq!(generated_text_count, 4);
+}
+
+#[test]
+fn config_skip_parent_allows_explicit_unconstrained_generation() {
+    let schema = FkCascadeSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .skip(&schema.fk_parent)
+        .count(&schema.fk_cascade, 2)
+        .generate();
+
+    let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
+    assert!(
+        !sqls
+            .iter()
+            .any(|sql| sql.contains("INSERT INTO") && sql.contains("fk_parent"))
     );
 }
 
 #[test]
-fn config_with_relation_via_table_refs() {
+fn config_skip_child_is_allowed() {
+    let schema = FkCascadeSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .skip(&schema.fk_cascade)
+        .count(&schema.fk_parent, 3)
+        .generate();
+
+    let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
+    assert!(
+        sqls.iter()
+            .any(|sql| sql.contains("INSERT INTO") && sql.contains("fk_parent"))
+    );
+    assert!(
+        !sqls
+            .iter()
+            .any(|sql| sql.contains("INSERT INTO") && sql.contains("fk_cascade"))
+    );
+}
+
+#[test]
+fn config_relation_via_table_refs() {
     let schema = FkCascadeSchema::new();
 
-    // Just verify it builds without panic — relation_counts is pub(crate)
-    // so we test indirectly via the fact that the config is accepted
-    let _config = SeedConfig::new()
+    // Just verify it builds without panic
+    let _config = SeedConfig::sqlite(&schema)
         .seed(1)
         .count(&schema.fk_parent, 10)
         .count(&schema.fk_cascade, 50)
-        .with_relation(&schema.fk_parent, &schema.fk_cascade, 5);
+        .relation(&schema.fk_parent, &schema.fk_cascade, 5);
+}
+
+#[test]
+fn config_relation_derives_child_count_when_unset() {
+    let schema = FkCascadeSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(7)
+        .count(&schema.fk_parent, 4)
+        .relation(&schema.fk_parent, &schema.fk_cascade, 3)
+        .generate();
+
+    let child_sql = stmts
+        .iter()
+        .map(|s| s.sql())
+        .find(|s| s.contains("INSERT INTO") && s.contains("fk_cascade"))
+        .unwrap();
+    let values_start = child_sql.find("VALUES ").unwrap() + 7;
+    let values_section = &child_sql[values_start..child_sql.len() - 1];
+    let child_rows = values_section.matches('(').count();
+    assert_eq!(
+        child_rows, 12,
+        "relation(3) and parent count 4 should derive 12 child rows"
+    );
+}
+
+#[test]
+fn config_schema_config_includes_all_schema_tables() {
+    let schema = FullBlogSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(7)
+        .count(&schema.simple, 2)
+        .count(&schema.complex, 2)
+        .count(&schema.post, 2)
+        .count(&schema.category, 2)
+        .count(&schema.post_category, 2)
+        .generate();
+
+    let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
+    for table in [
+        "simple",
+        "complex",
+        "posts",
+        "categories",
+        "post_categories",
+    ] {
+        assert!(
+            sqls.iter()
+                .any(|sql| sql.contains("INSERT INTO") && sql.contains(table)),
+            "expected INSERT for table {table}"
+        );
+    }
+}
+
+#[test]
+fn fk_child_count_derives_automatically_without_relation() {
+    let schema = FkCascadeSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(7)
+        .count(&schema.fk_parent, 4)
+        .generate();
+
+    let child_sql = stmts
+        .iter()
+        .map(|s| s.sql())
+        .find(|s| s.contains("INSERT INTO") && s.contains("fk_cascade"))
+        .unwrap();
+    let values_start = child_sql.find("VALUES ").unwrap() + 7;
+    let values_section = &child_sql[values_start..child_sql.len() - 1];
+    let child_rows = values_section.matches('(').count();
+    assert_eq!(
+        child_rows, 4,
+        "without relation, FK child count should default to 1:1 with parent count"
+    );
+}
+
+#[test]
+fn config_relation_groups_fk_values_per_parent() {
+    let schema = FkCascadeSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(7)
+        .count(&schema.fk_parent, 3)
+        .relation(&schema.fk_parent, &schema.fk_cascade, 2)
+        .generate();
+
+    let (_sql, params) = stmts
+        .iter()
+        .map(|s| s.build())
+        .find(|(sql, _)| sql.contains("INSERT INTO") && sql.contains("fk_cascade"))
+        .unwrap();
+
+    let mut parent_ids = Vec::new();
+    for parent_param in params.iter().skip(1).step_by(3) {
+        let drizzle::sqlite::values::OwnedSQLiteValue::Integer(v) = parent_param else {
+            panic!("expected integer parent_id param");
+        };
+        parent_ids.push(*v);
+    }
+
+    assert_eq!(parent_ids, vec![1, 1, 2, 2, 3, 3]);
+}
+
+#[test]
+fn config_relation_groups_composite_fk_values_per_parent() {
+    let schema = CompositeFkSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(11)
+        .count(&schema.composite_fk_parent, 3)
+        .relation(&schema.composite_fk_parent, &schema.composite_fk_child, 2)
+        .generate();
+
+    let (_sql, params) = stmts
+        .iter()
+        .map(|s| s.build())
+        .find(|(sql, _)| sql.contains("INSERT INTO") && sql.contains("composite_fk_child"))
+        .unwrap();
+
+    let mut fk_pairs = Vec::new();
+    for row_params in params.chunks_exact(4) {
+        let drizzle::sqlite::values::OwnedSQLiteValue::Integer(parent_a) = row_params[1] else {
+            panic!("expected integer parent_a param");
+        };
+        let drizzle::sqlite::values::OwnedSQLiteValue::Integer(parent_b) = row_params[2] else {
+            panic!("expected integer parent_b param");
+        };
+        fk_pairs.push((parent_a, parent_b));
+    }
+
+    assert_eq!(
+        fk_pairs,
+        vec![(1, 1), (1, 1), (2, 2), (2, 2), (3, 3), (3, 3)]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -114,130 +315,115 @@ fn config_with_relation_via_table_refs() {
 #[test]
 fn seeder_simple_table_pk_sequential_and_name_inferred() {
     let schema = SimpleSchema::new();
-    let config = SeedConfig::new().seed(42).count(&schema.simple, 5);
-
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.simple, 5)
+        .generate();
 
     assert_eq!(stmts.len(), 1);
-    let stmt = &stmts[0];
+    let (sql, params) = stmts[0].build();
 
-    // Verify INSERT structure
-    assert!(stmt.starts_with("INSERT INTO simple (id, name) VALUES "));
-    assert!(stmt.ends_with(';'));
+    assert!(sql.contains("INSERT INTO") && sql.contains("simple"));
+    assert!(sql.contains("VALUES"));
 
-    // PKs should be sequential 1..=5
-    for i in 1..=5 {
-        assert!(
-            stmt.contains(&format!("({i}, ")),
-            "should contain PK={i}: {stmt}"
-        );
+    let mut ids = Vec::new();
+    for id_param in params.iter().step_by(2) {
+        let drizzle::sqlite::values::OwnedSQLiteValue::Integer(id) = id_param else {
+            panic!("expected integer id");
+        };
+        ids.push(*id);
     }
+    assert_eq!(ids, vec![1, 2, 3, 4, 5]);
 
-    // "name" column → FullName heuristic → should produce non-empty quoted strings
-    let values_start = stmt.find("VALUES ").unwrap() + 7;
-    let values_section = &stmt[values_start..stmt.len() - 1];
-    for tuple_str in values_section.split("), (") {
-        let clean = tuple_str.trim_start_matches('(').trim_end_matches(')');
-        let fields: Vec<&str> = clean.splitn(2, ", ").collect();
-        let name_val = fields[1].trim();
-        assert!(
-            name_val.starts_with('\'') && name_val.ends_with('\''),
-            "name should be a quoted string, got: {name_val}"
-        );
-        let inner = name_val.trim_matches('\'');
-        assert!(!inner.is_empty(), "name should not be empty");
+    for name_param in params.iter().skip(1).step_by(2) {
+        let drizzle::sqlite::values::OwnedSQLiteValue::Text(name) = name_param else {
+            panic!("expected text name");
+        };
+        assert!(!name.is_empty());
     }
 }
 
 #[test]
 fn seeder_deterministic_output() {
     let schema = SimpleSchema::new();
-    let config = SeedConfig::new().seed(123).count(&schema.simple, 20);
+    let config = SeedConfig::sqlite(&schema)
+        .seed(123)
+        .count(&schema.simple, 20);
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts_a = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
-    let stmts_b = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let sql_a: Vec<String> = config.generate().iter().map(|s| s.sql()).collect();
+    let sql_b: Vec<String> = config.generate().iter().map(|s| s.sql()).collect();
 
-    assert_eq!(stmts_a, stmts_b, "same seed must produce identical output");
+    assert_eq!(sql_a, sql_b, "same seed must produce identical output");
 }
 
 #[test]
 fn seeder_different_seeds_produce_different_output() {
     let schema = SimpleSchema::new();
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
 
-    let config_a = SeedConfig::new().seed(1).count(&schema.simple, 10);
-    let config_b = SeedConfig::new().seed(2).count(&schema.simple, 10);
+    let stmts_a = SeedConfig::sqlite(&schema)
+        .seed(1)
+        .count(&schema.simple, 10)
+        .generate();
+    let stmts_b = SeedConfig::sqlite(&schema)
+        .seed(2)
+        .count(&schema.simple, 10)
+        .generate();
 
-    let stmts_a = Seeder::new(&tables, Dialect::Sqlite, &config_a).generate();
-    let stmts_b = Seeder::new(&tables, Dialect::Sqlite, &config_b).generate();
-
+    let params_a = stmts_a[0].build().1;
+    let params_b = stmts_b[0].build().1;
     assert_ne!(
-        stmts_a, stmts_b,
-        "different seeds must produce different output"
+        params_a, params_b,
+        "different seeds must produce different values"
     );
 }
 
 #[test]
 fn seeder_fk_parent_before_child() {
     let schema = FkCascadeSchema::new();
-    let config = SeedConfig::new()
+
+    let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.fk_parent, 3)
-        .count(&schema.fk_cascade, 10);
+        .count(&schema.fk_cascade, 10)
+        .generate();
 
-    // Pass child first — seeder should still emit parent first
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.fk_cascade, &schema.fk_parent];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
 
-    assert!(stmts.len() >= 2, "should have at least 2 statements");
+    assert!(sqls.len() >= 2, "should have at least 2 statements");
     assert!(
-        stmts[0].starts_with("INSERT INTO fk_parent"),
+        sqls[0].contains("INSERT INTO") && sqls[0].contains("fk_parent"),
         "first INSERT should be parent table, got: {}",
-        &stmts[0][..60.min(stmts[0].len())]
+        &sqls[0][..60.min(sqls[0].len())]
     );
     assert!(
-        stmts[1].starts_with("INSERT INTO fk_cascade"),
+        sqls[1].contains("INSERT INTO") && sqls[1].contains("fk_cascade"),
         "second INSERT should be child table, got: {}",
-        &stmts[1][..60.min(stmts[1].len())]
+        &sqls[1][..60.min(sqls[1].len())]
     );
 }
 
 #[test]
 fn seeder_fk_values_are_valid_parent_pks() {
     let schema = FkCascadeSchema::new();
-    let config = SeedConfig::new()
+    let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.fk_parent, 5)
-        .count(&schema.fk_cascade, 30);
-
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.fk_parent, &schema.fk_cascade];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+        .count(&schema.fk_cascade, 30)
+        .generate();
 
     // Parent PKs are sequential 1..=5
     let valid_pks: Vec<i64> = (1..=5).collect();
 
-    // Parse child statement — columns are (id, parent_id, value)
-    let child_stmt = stmts
+    let (_sql, params) = stmts
         .iter()
-        .find(|s| s.starts_with("INSERT INTO fk_cascade"))
+        .map(|s| s.build())
+        .find(|(sql, _)| sql.contains("INSERT INTO") && sql.contains("fk_cascade"))
         .unwrap();
-    let values_start = child_stmt.find("VALUES ").unwrap() + 7;
-    let values_section = &child_stmt[values_start..child_stmt.len() - 1];
 
-    for tuple_str in values_section.split("), (") {
-        let clean = tuple_str.trim_start_matches('(').trim_end_matches(')');
-        let fields: Vec<&str> = clean.splitn(3, ", ").collect();
-        let parent_id_str = fields[1].trim();
-
-        // parent_id is Option<i32>, so it could be NULL or an integer
-        if parent_id_str != "NULL" {
-            let parent_id: i64 = parent_id_str
-                .parse()
-                .unwrap_or_else(|_| panic!("parent_id should be integer, got: {parent_id_str}"));
+    for parent_param in params.iter().skip(1).step_by(3) {
+        if let drizzle::sqlite::values::OwnedSQLiteValue::Integer(parent_id) = parent_param {
             assert!(
-                valid_pks.contains(&parent_id),
+                valid_pks.contains(parent_id),
                 "FK parent_id={parent_id} not in valid parent PKs {valid_pks:?}"
             );
         }
@@ -247,29 +433,24 @@ fn seeder_fk_values_are_valid_parent_pks() {
 #[test]
 fn seeder_complex_table_column_heuristics() {
     let schema = ComplexSchema::new();
-    let config = SeedConfig::new().seed(42).count(&schema.complex, 10);
-
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.complex];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.complex, 10)
+        .generate();
 
     assert!(!stmts.is_empty(), "should produce at least one statement");
 
-    let stmt = &stmts[0];
+    let sql = stmts[0].sql();
     assert!(
-        stmt.starts_with("INSERT INTO complex"),
+        sql.contains("INSERT INTO") && sql.contains("complex"),
         "should insert into complex table"
     );
 
-    // The Complex table has columns: id, name, email, age, score, active, role, description, data_blob, created_at
-    // Verify column names appear in the INSERT
+    assert!(sql.contains("id"), "should have id column");
+    assert!(sql.contains("email"), "should have email column");
+    assert!(sql.contains("name"), "should have name column");
     assert!(
-        stmt.contains("id,") || stmt.contains("id)"),
-        "should have id column"
-    );
-    assert!(stmt.contains("email"), "should have email column");
-    assert!(stmt.contains("name"), "should have name column");
-    assert!(
-        stmt.contains("description"),
+        sql.contains("description"),
         "should have description column"
     );
 }
@@ -277,10 +458,10 @@ fn seeder_complex_table_column_heuristics() {
 #[test]
 fn seeder_zero_count_produces_nothing() {
     let schema = SimpleSchema::new();
-    let config = SeedConfig::new().seed(1).count(&schema.simple, 0);
-
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(1)
+        .count(&schema.simple, 0)
+        .generate();
 
     assert!(stmts.is_empty(), "count=0 should produce no statements");
 }
@@ -288,14 +469,14 @@ fn seeder_zero_count_produces_nothing() {
 #[test]
 fn seeder_default_count_used_when_not_overridden() {
     let schema = SimpleSchema::new();
-    let config = SeedConfig::new().seed(1).default_count(7);
     // Don't call .count() for simple — should use default_count=7
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(1)
+        .default_count(7)
+        .generate();
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
-
-    let stmt = &stmts[0];
-    let value_section = &stmt[stmt.find("VALUES ").unwrap() + 7..];
+    let sql = stmts[0].sql();
+    let value_section = &sql[sql.find("VALUES ").unwrap() + 7..];
     let row_count = value_section.matches('(').count();
     assert_eq!(
         row_count, 7,
@@ -305,24 +486,17 @@ fn seeder_default_count_used_when_not_overridden() {
 
 #[test]
 fn seeder_multi_table_blog_schema() {
-    // Use FullBlogSchema which has simple, complex, post, category, post_category
     let schema = FullBlogSchema::new();
-    let config = SeedConfig::new()
+    let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.simple, 3)
         .count(&schema.complex, 5)
         .count(&schema.post, 10)
         .count(&schema.category, 4)
-        .count(&schema.post_category, 15);
+        .count(&schema.post_category, 15)
+        .generate();
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![
-        &schema.simple,
-        &schema.complex,
-        &schema.post,
-        &schema.category,
-        &schema.post_category,
-    ];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
+    let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
 
     // Verify all tables got INSERT statements
     let table_names = [
@@ -334,21 +508,20 @@ fn seeder_multi_table_blog_schema() {
     ];
     for name in &table_names {
         assert!(
-            stmts
-                .iter()
-                .any(|s| s.starts_with(&format!("INSERT INTO {name}"))),
+            sqls.iter()
+                .any(|s| s.contains("INSERT INTO") && s.contains(name)),
             "should have INSERT for table {name}"
         );
     }
 
     // Verify ordering: complex must come before posts (posts has FK to complex)
-    let complex_idx = stmts
+    let complex_idx = sqls
         .iter()
-        .position(|s| s.starts_with("INSERT INTO complex"))
+        .position(|s| s.contains("INSERT INTO") && s.contains("complex"))
         .unwrap();
-    let posts_idx = stmts
+    let posts_idx = sqls
         .iter()
-        .position(|s| s.starts_with("INSERT INTO posts"))
+        .position(|s| s.contains("INSERT INTO") && s.contains("posts"))
         .unwrap();
     assert!(
         complex_idx < posts_idx,
@@ -357,62 +530,54 @@ fn seeder_multi_table_blog_schema() {
 }
 
 #[test]
-fn seeder_postgres_dialect_generates_valid_sql() {
+fn seeder_statements_return_sql_and_params() {
     let schema = SimpleSchema::new();
-    let config = SeedConfig::new().seed(42).count(&schema.simple, 3);
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.simple, 3)
+        .generate();
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.simple];
-    let stmts = Seeder::new(&tables, Dialect::Postgres, &config).generate();
-
-    // Postgres dialect should produce the same SQL structure
     assert_eq!(stmts.len(), 1);
-    let stmt = &stmts[0];
-    assert!(stmt.starts_with("INSERT INTO simple (id, name) VALUES "));
-    assert!(stmt.ends_with(';'));
 
-    // 3 rows
-    let value_section = &stmt[stmt.find("VALUES ").unwrap() + 7..];
-    let row_count = value_section.matches('(').count();
-    assert_eq!(row_count, 3);
+    let (sql, params) = stmts[0].build();
+    assert!(sql.starts_with("INSERT INTO"));
+    assert!(sql.contains('?'));
+    assert_eq!(params.len(), 6);
+}
+
+#[test]
+fn seeder_respects_max_params() {
+    let schema = SimpleSchema::new();
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.simple, 10)
+        .max_params(4)
+        .generate();
+
+    // simple has 2 params/row => limit 4 means 2 rows per statement => 5 statements
+    assert_eq!(stmts.len(), 5);
+    for stmt in &stmts {
+        let (_sql, params) = stmt.build();
+        assert!(params.len() <= 4);
+    }
 }
 
 #[test]
 fn seeder_email_column_produces_emails() {
     let schema = ComplexSchema::new();
-    let config = SeedConfig::new().seed(42).count(&schema.complex, 10);
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.complex, 10)
+        .generate();
 
-    let tables: Vec<&dyn SQLTableInfo> = vec![&schema.complex];
-    let stmts = Seeder::new(&tables, Dialect::Sqlite, &config).generate();
-
-    let stmt = &stmts[0];
-    // The Complex table has an "email" column — verify generated values contain '@'
-    // Find the position of "email" in the column list to know which field index to check
-    let col_section = &stmt[stmt.find('(').unwrap() + 1..stmt.find(')').unwrap()];
-    let columns: Vec<&str> = col_section.split(", ").collect();
-    let email_idx = columns
-        .iter()
-        .position(|c| *c == "email")
-        .expect("Complex table should have an email column");
-
-    let values_start = stmt.find("VALUES ").unwrap() + 7;
-    let values_section = &stmt[values_start..stmt.len() - 1];
-
+    let (_sql, params) = stmts[0].build();
     let mut email_count = 0;
-    for tuple_str in values_section.split("), (") {
-        let clean = tuple_str.trim_start_matches('(').trim_end_matches(')');
-        // Split into the right number of fields
-        let fields: Vec<&str> = clean.splitn(columns.len(), ", ").collect();
-        if fields.len() > email_idx {
-            let email_val = fields[email_idx].trim();
-            // email is Option<String> so it could be NULL
-            if email_val != "NULL" {
-                let email_text = email_val.trim_matches('\'');
-                assert!(
-                    email_text.contains('@') && email_text.contains('.'),
-                    "email column should produce valid emails, got: {email_text}"
-                );
-                email_count += 1;
-            }
+    for param in &params {
+        if let drizzle::sqlite::values::OwnedSQLiteValue::Text(email_text) = param
+            && email_text.contains('@')
+            && email_text.contains('.')
+        {
+            email_count += 1;
         }
     }
     assert!(

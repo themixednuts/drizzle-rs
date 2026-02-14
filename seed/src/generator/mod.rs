@@ -1,38 +1,22 @@
 //! Value generators for seeding database columns.
 
-pub mod numeric;
-pub mod special;
-pub mod string;
-pub mod temporal;
+pub(crate) mod numeric;
+pub(crate) mod special;
+pub(crate) mod string;
+pub(crate) mod temporal;
 
-/// A SQL-compatible value produced by a generator.
+/// Dialect-agnostic seed value (IR only — rendering to SQL is done by core).
 #[derive(Debug, Clone, PartialEq)]
-pub enum SqlValue {
+pub enum SeedValue {
+    Default,
     Null,
     Integer(i64),
     Float(f64),
     Text(String),
     Bool(bool),
     Blob(Vec<u8>),
-}
-
-impl SqlValue {
-    /// Render as a SQL literal for use in INSERT statements.
-    pub fn to_sql_literal(&self) -> String {
-        match self {
-            SqlValue::Null => "NULL".to_string(),
-            SqlValue::Integer(v) => v.to_string(),
-            SqlValue::Float(v) => format!("{v}"),
-            SqlValue::Text(v) => format!("'{}'", v.replace('\'', "''")),
-            SqlValue::Bool(true) => "1".to_string(),
-            SqlValue::Bool(false) => "0".to_string(),
-            SqlValue::Blob(b) => format!("X'{}'", hex(b)),
-        }
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    /// Semantic keyword that maps to a dialect-specific current timestamp expression/value.
+    CurrentTime,
 }
 
 /// Trait for deterministic value generators.
@@ -40,7 +24,7 @@ fn hex(bytes: &[u8]) -> String {
 /// Each generator produces a single column value given an RNG and a row index.
 pub trait Generator: Send + Sync {
     /// Generate a value for row `index`.
-    fn generate(&self, rng: &mut dyn RngCore, index: usize) -> SqlValue;
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue;
 
     /// Human-readable name of this generator for debugging.
     fn name(&self) -> &'static str;
@@ -94,8 +78,40 @@ pub enum GeneratorKind {
     Timestamp,
     /// Time (HH:MM:SS)
     Time,
+    /// Time with timezone (HH:MM:SS+00)
+    TimeTz,
+    /// Interval (e.g. "12 hours")
+    Interval,
     /// Binary blob
     Blob,
+    /// PostgreSQL INET
+    PgInet,
+    /// PostgreSQL CIDR
+    PgCidr,
+    /// PostgreSQL MACADDR
+    PgMacAddr,
+    /// PostgreSQL MACADDR8
+    PgMacAddr8,
+    /// PostgreSQL POINT
+    PgPoint,
+    /// PostgreSQL LINE
+    PgLine,
+    /// PostgreSQL LSEG
+    PgLseg,
+    /// PostgreSQL BOX
+    PgBox,
+    /// PostgreSQL PATH
+    PgPath,
+    /// PostgreSQL POLYGON
+    PgPolygon,
+    /// PostgreSQL CIRCLE
+    PgCircle,
+    /// PostgreSQL BIT
+    PgBit,
+    /// PostgreSQL VARBIT
+    PgVarBit,
+    /// PostgreSQL arrays (generic empty array literal)
+    PgArray,
 }
 
 impl GeneratorKind {
@@ -132,7 +148,29 @@ impl GeneratorKind {
             GeneratorKind::Date => Box::new(temporal::DateGen),
             GeneratorKind::Timestamp => Box::new(temporal::TimestampGen),
             GeneratorKind::Time => Box::new(temporal::TimeGen),
+            GeneratorKind::TimeTz => Box::new(temporal::TimeTzGen),
+            GeneratorKind::Interval => Box::new(temporal::IntervalGen),
             GeneratorKind::Blob => Box::new(special::BlobGen { size: 32 }),
+            GeneratorKind::PgInet => Box::new(special::InetGen),
+            GeneratorKind::PgCidr => Box::new(special::CidrGen),
+            GeneratorKind::PgMacAddr => Box::new(special::MacAddrGen),
+            GeneratorKind::PgMacAddr8 => Box::new(special::MacAddr8Gen),
+            GeneratorKind::PgPoint => Box::new(special::PointGen),
+            GeneratorKind::PgLine => Box::new(special::LineGen),
+            GeneratorKind::PgLseg => Box::new(special::LsegGen),
+            GeneratorKind::PgBox => Box::new(special::BoxGen),
+            GeneratorKind::PgPath => Box::new(special::PathGen),
+            GeneratorKind::PgPolygon => Box::new(special::PolygonGen),
+            GeneratorKind::PgCircle => Box::new(special::CircleGen),
+            GeneratorKind::PgBit => Box::new(special::BitGen {
+                min_len: 8,
+                max_len: 8,
+            }),
+            GeneratorKind::PgVarBit => Box::new(special::BitGen {
+                min_len: 1,
+                max_len: 32,
+            }),
+            GeneratorKind::PgArray => Box::new(special::ArrayGen),
         }
     }
 }

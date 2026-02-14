@@ -116,6 +116,8 @@ fn infer_from_name(name: &str) -> Option<GeneratorKind> {
 
 fn infer_from_type(sql_type: &str) -> GeneratorKind {
     match sql_type {
+        t if t.ends_with("[]") => GeneratorKind::PgArray,
+        t if t.contains("SMALLINT") => GeneratorKind::Int,
         t if t.contains("INT") || t.contains("SERIAL") => GeneratorKind::Int,
         t if t.contains("REAL")
             || t.contains("FLOAT")
@@ -125,15 +127,31 @@ fn infer_from_type(sql_type: &str) -> GeneratorKind {
         {
             GeneratorKind::Float
         }
-        t if t.contains("BOOL") => GeneratorKind::Bool,
         t if t.contains("UUID") => GeneratorKind::Uuid,
-        t if t.contains("JSON") => GeneratorKind::Json,
-        t if t.contains("BLOB") || t.contains("BYTEA") => GeneratorKind::Blob,
-        t if t.contains("DATE") && !t.contains("TIME") => GeneratorKind::Date,
+        t if t.contains("JSONB") || t.contains("JSON") => GeneratorKind::Json,
+        t if t.contains("BYTEA") || t.contains("BLOB") => GeneratorKind::Blob,
+        t if t.contains("BOOL") => GeneratorKind::Bool,
+        t if t.contains("TIMESTAMPTZ") => GeneratorKind::Timestamp,
         t if t.contains("TIMESTAMP") || t.contains("DATETIME") => GeneratorKind::Timestamp,
+        t if t.contains("TIMETZ") => GeneratorKind::TimeTz,
+        t if t.contains("DATE") && !t.contains("TIME") => GeneratorKind::Date,
         t if t.contains("TIME") && !t.contains("STAMP") && !t.contains("DATE") => {
             GeneratorKind::Time
         }
+        t if t.contains("INTERVAL") => GeneratorKind::Interval,
+        t if t.contains("INET") => GeneratorKind::PgInet,
+        t if t.contains("CIDR") => GeneratorKind::PgCidr,
+        t if t.contains("MACADDR8") => GeneratorKind::PgMacAddr8,
+        t if t.contains("MACADDR") => GeneratorKind::PgMacAddr,
+        t if t.contains("POINT") => GeneratorKind::PgPoint,
+        t if t.contains("LSEG") => GeneratorKind::PgLseg,
+        t if t.contains("LINE") => GeneratorKind::PgLine,
+        t if t.contains("BOX") => GeneratorKind::PgBox,
+        t if t.contains("PATH") => GeneratorKind::PgPath,
+        t if t.contains("POLYGON") => GeneratorKind::PgPolygon,
+        t if t.contains("CIRCLE") => GeneratorKind::PgCircle,
+        t if t.contains("VARBIT") => GeneratorKind::PgVarBit,
+        t if t.contains("BIT") => GeneratorKind::PgBit,
         // TEXT, VARCHAR, CHAR, etc.
         _ => GeneratorKind::Text,
     }

@@ -1,4 +1,4 @@
-use super::{Generator, RngCore, SqlValue};
+use super::{Generator, RngCore, SeedValue};
 use crate::datasets::{domains, locations, names};
 use rand::Rng;
 
@@ -9,7 +9,7 @@ pub struct TextGen {
 }
 
 impl Generator for TextGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let len = rng.random_range(self.min_len..=self.max_len);
         let s: String = (0..len)
             .map(|_| {
@@ -17,7 +17,7 @@ impl Generator for TextGen {
                 (b'a' + idx) as char
             })
             .collect();
-        SqlValue::Text(s)
+        SeedValue::Text(s)
     }
     fn name(&self) -> &'static str {
         "Text"
@@ -28,9 +28,9 @@ impl Generator for TextGen {
 pub struct FirstNameGen;
 
 impl Generator for FirstNameGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let idx = rng.random_range(0..names::FIRST_NAMES.len());
-        SqlValue::Text(names::FIRST_NAMES[idx].to_string())
+        SeedValue::Text(names::FIRST_NAMES[idx].to_string())
     }
     fn name(&self) -> &'static str {
         "FirstName"
@@ -41,9 +41,9 @@ impl Generator for FirstNameGen {
 pub struct LastNameGen;
 
 impl Generator for LastNameGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let idx = rng.random_range(0..names::LAST_NAMES.len());
-        SqlValue::Text(names::LAST_NAMES[idx].to_string())
+        SeedValue::Text(names::LAST_NAMES[idx].to_string())
     }
     fn name(&self) -> &'static str {
         "LastName"
@@ -54,10 +54,10 @@ impl Generator for LastNameGen {
 pub struct FullNameGen;
 
 impl Generator for FullNameGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let first = names::FIRST_NAMES[rng.random_range(0..names::FIRST_NAMES.len())];
         let last = names::LAST_NAMES[rng.random_range(0..names::LAST_NAMES.len())];
-        SqlValue::Text(format!("{first} {last}"))
+        SeedValue::Text(format!("{first} {last}"))
     }
     fn name(&self) -> &'static str {
         "FullName"
@@ -68,13 +68,13 @@ impl Generator for FullNameGen {
 pub struct EmailGen;
 
 impl Generator for EmailGen {
-    fn generate(&self, rng: &mut dyn RngCore, index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, _sql_type: &str) -> SeedValue {
         let first =
             names::FIRST_NAMES[rng.random_range(0..names::FIRST_NAMES.len())].to_lowercase();
         let last = names::LAST_NAMES[rng.random_range(0..names::LAST_NAMES.len())].to_lowercase();
         let domain = domains::EMAIL_DOMAINS[rng.random_range(0..domains::EMAIL_DOMAINS.len())];
         // Add index suffix for uniqueness
-        SqlValue::Text(format!("{first}.{last}{index}@{domain}"))
+        SeedValue::Text(format!("{first}.{last}{index}@{domain}"))
     }
     fn name(&self) -> &'static str {
         "Email"
@@ -85,11 +85,11 @@ impl Generator for EmailGen {
 pub struct PhoneGen;
 
 impl Generator for PhoneGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let area: u16 = rng.random_range(200..999);
         let exchange: u16 = rng.random_range(200..999);
         let subscriber: u16 = rng.random_range(1000..9999);
-        SqlValue::Text(format!("({area}) {exchange}-{subscriber}"))
+        SeedValue::Text(format!("({area}) {exchange}-{subscriber}"))
     }
     fn name(&self) -> &'static str {
         "Phone"
@@ -100,9 +100,9 @@ impl Generator for PhoneGen {
 pub struct CityGen;
 
 impl Generator for CityGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let idx = rng.random_range(0..locations::CITIES.len());
-        SqlValue::Text(locations::CITIES[idx].to_string())
+        SeedValue::Text(locations::CITIES[idx].to_string())
     }
     fn name(&self) -> &'static str {
         "City"
@@ -113,9 +113,9 @@ impl Generator for CityGen {
 pub struct CountryGen;
 
 impl Generator for CountryGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let idx = rng.random_range(0..locations::COUNTRIES.len());
-        SqlValue::Text(locations::COUNTRIES[idx].to_string())
+        SeedValue::Text(locations::COUNTRIES[idx].to_string())
     }
     fn name(&self) -> &'static str {
         "Country"
@@ -126,12 +126,12 @@ impl Generator for CountryGen {
 pub struct AddressGen;
 
 impl Generator for AddressGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let num: u16 = rng.random_range(1..9999);
         let first = names::FIRST_NAMES[rng.random_range(0..names::FIRST_NAMES.len())];
         let suffix =
             locations::STREET_SUFFIXES[rng.random_range(0..locations::STREET_SUFFIXES.len())];
-        SqlValue::Text(format!("{num} {first} {suffix}"))
+        SeedValue::Text(format!("{num} {first} {suffix}"))
     }
     fn name(&self) -> &'static str {
         "Address"
@@ -142,9 +142,9 @@ impl Generator for AddressGen {
 pub struct JobTitleGen;
 
 impl Generator for JobTitleGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let idx = rng.random_range(0..names::JOB_TITLES.len());
-        SqlValue::Text(names::JOB_TITLES[idx].to_string())
+        SeedValue::Text(names::JOB_TITLES[idx].to_string())
     }
     fn name(&self) -> &'static str {
         "JobTitle"
@@ -155,11 +155,11 @@ impl Generator for JobTitleGen {
 pub struct CompanyGen;
 
 impl Generator for CompanyGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let last = names::LAST_NAMES[rng.random_range(0..names::LAST_NAMES.len())];
         let suffix =
             domains::COMPANY_SUFFIXES[rng.random_range(0..domains::COMPANY_SUFFIXES.len())];
-        SqlValue::Text(format!("{last} {suffix}"))
+        SeedValue::Text(format!("{last} {suffix}"))
     }
     fn name(&self) -> &'static str {
         "Company"
@@ -172,14 +172,14 @@ pub struct LoremGen {
 }
 
 impl Generator for LoremGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize) -> SqlValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
         let text: Vec<&str> = (0..self.words)
             .map(|_| {
                 let idx = rng.random_range(0..domains::LOREM_WORDS.len());
                 domains::LOREM_WORDS[idx]
             })
             .collect();
-        SqlValue::Text(text.join(" "))
+        SeedValue::Text(text.join(" "))
     }
     fn name(&self) -> &'static str {
         "Lorem"
@@ -197,7 +197,10 @@ mod tests {
         let g = EmailGen;
         let mut rng1 = StdRng::seed_from_u64(42);
         let mut rng2 = StdRng::seed_from_u64(42);
-        assert_eq!(g.generate(&mut rng1, 0), g.generate(&mut rng2, 0));
+        assert_eq!(
+            g.generate(&mut rng1, 0, "TEXT"),
+            g.generate(&mut rng2, 0, "TEXT")
+        );
     }
 
     #[test]
@@ -205,8 +208,8 @@ mod tests {
         let g = EmailGen;
         let mut rng = StdRng::seed_from_u64(42);
         for i in 0..20 {
-            match g.generate(&mut rng, i) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, i, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(s.contains('@'), "email missing @: {}", s);
                     assert!(s.contains('.'), "email missing dot: {}", s);
                     // Index is appended for uniqueness
@@ -229,8 +232,8 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..50 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(
                         (5..=10).contains(&s.len()),
                         "length out of range: {}",
@@ -252,8 +255,8 @@ mod tests {
         let g = FirstNameGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(!s.is_empty());
                     assert!(
                         names::FIRST_NAMES.contains(&s.as_str()),
@@ -271,8 +274,8 @@ mod tests {
         let g = LastNameGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(!s.is_empty());
                     assert!(
                         names::LAST_NAMES.contains(&s.as_str()),
@@ -290,8 +293,8 @@ mod tests {
         let g = FullNameGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     let parts: Vec<&str> = s.split(' ').collect();
                     assert_eq!(parts.len(), 2, "full name should be 'first last': {}", s);
                     assert!(!parts[0].is_empty());
@@ -307,8 +310,8 @@ mod tests {
         let g = PhoneGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     // Format: (NNN) NNN-NNNN
                     assert!(s.starts_with('('), "phone should start with '(': {}", s);
                     assert!(s.contains(") "), "phone missing ') ': {}", s);
@@ -325,8 +328,8 @@ mod tests {
         let g = CityGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(
                         locations::CITIES.contains(&s.as_str()),
                         "city not in dataset: {}",
@@ -343,8 +346,8 @@ mod tests {
         let g = CountryGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(
                         locations::COUNTRIES.contains(&s.as_str()),
                         "country not in dataset: {}",
@@ -361,8 +364,8 @@ mod tests {
         let g = AddressGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     let parts: Vec<&str> = s.splitn(2, ' ').collect();
                     assert_eq!(parts.len(), 2, "address should have number + street: {}", s);
                     // First part should be a number
@@ -382,8 +385,8 @@ mod tests {
         let g = JobTitleGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(
                         names::JOB_TITLES.contains(&s.as_str()),
                         "job title not in dataset: {}",
@@ -400,8 +403,8 @@ mod tests {
         let g = CompanyGen;
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     assert!(s.contains(' '), "company should have name + suffix: {}", s);
                     let suffix = s.rsplit(' ').next().unwrap();
                     assert!(
@@ -421,8 +424,8 @@ mod tests {
         let g = LoremGen { words: 7 };
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..20 {
-            match g.generate(&mut rng, 0) {
-                SqlValue::Text(s) => {
+            match g.generate(&mut rng, 0, "TEXT") {
+                SeedValue::Text(s) => {
                     let word_count = s.split(' ').count();
                     assert_eq!(word_count, 7, "expected 7 words, got {}: {}", word_count, s);
                 }
