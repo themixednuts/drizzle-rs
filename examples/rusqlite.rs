@@ -1,10 +1,11 @@
 mod schema;
+#[cfg(feature = "rusqlite")]
 use drizzle::sqlite::prelude::*;
 
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
 
-#[cfg(feature = "uuid")]
+#[cfg(all(feature = "rusqlite", feature = "uuid"))]
 use uuid::Uuid;
 
 #[cfg(feature = "rusqlite")]
