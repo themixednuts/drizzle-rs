@@ -1,9 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::InsertComplex;
-use crate::common::schema::sqlite::{
-    InsertSimple, Role, Simple, SimpleSchema, UserConfig, UserMetadata,
-};
+#[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::Role;
+use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
+#[cfg(feature = "serde")]
+use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
@@ -13,34 +15,21 @@ use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::ComplexSchema;
 
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct SimpleResult {
     id: i32,
     name: String,
 }
 
-#[cfg(not(feature = "uuid"))]
-#[derive(Debug)]
-struct ComplexResult {
-    id: i32,
-    name: String,
-    email: Option<String>,
-    age: Option<i32>,
-}
-
 #[cfg(feature = "uuid")]
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct ComplexResult {
     id: uuid::Uuid,
     name: String,
     email: Option<String>,
     age: Option<i32>,
-}
-
-#[derive(Debug, SQLiteFromRow)]
-struct JoinResult {
-    name: String,
-    title: String,
 }
 
 sqlite_test!(simple_select_with_conditions, SimpleSchema, {
@@ -54,14 +43,12 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
     ];
 
     let stmt = db.insert(simple).values(test_data);
-    println!("Insert stmt: {}", stmt.to_sql());
     drizzle_exec!(stmt.execute());
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "beta"));
-    println!("Select where stmt: {}", stmt.to_sql());
 
     // Test WHERE condition
     let where_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
@@ -74,7 +61,6 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .from(simple)
         .order_by([OrderBy::asc(simple.name)])
         .limit(2);
-    println!("Select order stmt: {}", stmt.to_sql());
     // Test ORDER BY with LIMIT
     let ordered_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
 
@@ -88,7 +74,6 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .order_by([OrderBy::asc(simple.name)])
         .limit(2)
         .offset(2);
-    println!("Select limit stmt: {}", stmt.to_sql());
 
     // Test LIMIT with OFFSET
     let offset_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
@@ -131,11 +116,7 @@ sqlite_test!(complex_select_with_conditions, ComplexSchema, {
             .with_age(50),
     ];
 
-    // println!("Test data: {:?}", test_data);
     let stmt = db.insert(complex).values(test_data);
-    // let sql = stmt.to_sql();
-    // println!("SQL {sql}");
-
     drizzle_exec!(stmt.execute());
 
     // Test complex WHERE with GT condition

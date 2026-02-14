@@ -1,30 +1,24 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::Role;
+#[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
-use crate::common::schema::sqlite::{InsertSimple, Role, Simple, SimpleSchema, UpdateSimple};
+use crate::common::schema::sqlite::{InsertSimple, Simple, SimpleSchema, UpdateSimple};
 #[cfg(all(feature = "serde", feature = "uuid"))]
 use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct SimpleResult {
     id: i32,
     name: String,
 }
 
-#[cfg(not(feature = "uuid"))]
-#[derive(SQLiteFromRow, Debug)]
-struct ComplexResult {
-    id: i32,
-    name: String,
-    email: Option<String>,
-    age: Option<i32>,
-    description: Option<String>,
-}
-
 #[cfg(feature = "uuid")]
+#[allow(dead_code)]
 #[derive(SQLiteFromRow, Debug)]
 struct ComplexResult {
     id: uuid::Uuid,
@@ -46,7 +40,6 @@ sqlite_test!(simple_update, SimpleSchema, {
         .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(eq(Simple::name, "original"));
-    println!("{}", stmt.to_sql());
     let update_result = drizzle_exec!(stmt.execute());
     assert_eq!(update_result, 1);
 
@@ -103,7 +96,6 @@ sqlite_test!(complex_update, ComplexSchema, {
                 .with_description("Updated description".to_string()),
         )
         .r#where(eq(Complex::name, "user"));
-    println!("{}", stmt.to_sql());
     let update_result = drizzle_exec!(stmt.execute());
     assert_eq!(update_result, 1);
 
@@ -297,7 +289,6 @@ sqlite_test!(feature_gated_update, ComplexSchema, {
                 }),
         )
         .r#where(eq(Complex::id, test_id));
-    println!("{}", stmt.to_sql());
     let update_result = drizzle_exec!(stmt.execute());
     assert_eq!(update_result, 1);
 

@@ -1,10 +1,10 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
-use drizzle::core::expr::{avg, min};
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct SubqueryResult {
     id: i32,
@@ -62,7 +62,7 @@ sqlite_test!(test_two_level_subquery, SimpleSchema, {
     );
 
     // Should find records with id > average of (2,3,4) = 3, so only id=4
-    drizzle_assert!(results.len() >= 1);
+    drizzle_assert!(!results.is_empty());
     drizzle_assert!(results.iter().any(|r| r.name == "user4"));
 });
 
@@ -94,6 +94,6 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
     );
 
     // Average of (30,40,50) = 40, so should return records with id > 40 (just epsilon with id=50)
-    drizzle_assert!(results.len() >= 1);
+    drizzle_assert!(!results.is_empty());
     drizzle_assert!(results.iter().any(|r| r.name == "epsilon"));
 });

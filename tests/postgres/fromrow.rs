@@ -56,6 +56,7 @@ mod tokio_fromrow_checks {
         name: String,
     }
 
+    #[allow(dead_code)]
     #[derive(PostgresFromRow, Debug)]
     struct UserRow {
         id: i32,

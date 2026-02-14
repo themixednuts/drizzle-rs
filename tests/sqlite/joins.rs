@@ -1,13 +1,14 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use crate::common::schema::sqlite::{
-    Category, InsertCategory, InsertPost, InsertPostCategory, Post, Role,
+    Category, InsertCategory, InsertPost, InsertPostCategory, Post,
 };
 #[cfg(feature = "uuid")]
-use crate::common::schema::sqlite::{Complex, InsertComplex};
+use crate::common::schema::sqlite::{Complex, InsertComplex, Role};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
+#[cfg(feature = "uuid")]
 use std::array;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -86,8 +87,6 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
             .all()
     );
-
-    dbg!(&join_results);
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded because no posts
     assert_eq!(join_results.len(), 3);
@@ -264,9 +263,6 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
         .join((post_category, eq(post.id, post_category.post_id)))
         .join((category, eq(post_category.category_id, category.id)))
         .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)]);
-    let sql = join_smt.to_sql().sql();
-
-    println!("{sql:?}");
 
     let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt.all());
 

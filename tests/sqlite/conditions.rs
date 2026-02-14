@@ -1,13 +1,15 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
-use crate::common::schema::sqlite::{
-    ComplexSchema, InsertComplex, InsertSimple, Role, SelectComplex, SelectSimple, SimpleSchema,
-};
+#[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::{ComplexSchema, InsertComplex, Role, SelectComplex};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle::core::expr::*;
+#[cfg(feature = "serde")]
 use drizzle::sqlite::expressions::json_extract;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
+#[cfg(feature = "serde")]
 #[derive(Debug, SQLiteFromRow)]
 struct JsonExtractResult {
     extract: String,

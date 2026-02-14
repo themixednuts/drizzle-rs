@@ -4,7 +4,6 @@ use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, Up
 use drizzle::core::expr::*;
 use drizzle::error::DrizzleError;
 use drizzle::sqlite::connection::SQLiteTransactionType;
-use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
 sqlite_test!(test_transaction_commit, SimpleSchema, {
@@ -563,7 +562,6 @@ sqlite_test!(test_nested_savepoints, SimpleSchema, {
 mod test_deep_savepoint_nesting_rusqlite {
     use crate::common::schema::sqlite::{SelectSimple, SimpleSchema};
     use drizzle::sqlite::connection::SQLiteTransactionType;
-    use drizzle::sqlite::prelude::*;
 
     fn nest<S>(
         tx: &drizzle::sqlite::rusqlite::Transaction<'_, S>,
@@ -631,7 +629,6 @@ mod test_deep_savepoint_partial_rollback_rusqlite {
     use crate::common::schema::sqlite::{SelectSimple, SimpleSchema};
     use drizzle::error::DrizzleError;
     use drizzle::sqlite::connection::SQLiteTransactionType;
-    use drizzle::sqlite::prelude::*;
 
     fn nest_with_rollback_at<S>(
         tx: &drizzle::sqlite::rusqlite::Transaction<'_, S>,

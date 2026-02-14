@@ -1,7 +1,11 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::Role;
+#[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, InsertComplex};
-use crate::common::schema::sqlite::{InsertSimple, Role, UpdateSimple, UserConfig, UserMetadata};
+use crate::common::schema::sqlite::{InsertSimple, UpdateSimple};
+#[cfg(feature = "serde")]
+use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
@@ -12,23 +16,15 @@ use uuid::Uuid;
 use crate::common::schema::sqlite::ComplexSchema;
 use crate::common::schema::sqlite::SimpleSchema;
 
+#[allow(dead_code)]
 #[derive(SQLiteFromRow, Debug)]
 struct SimpleResult {
     id: i32,
     name: String,
 }
 
-#[cfg(not(feature = "uuid"))]
-#[derive(Debug)]
-struct ComplexResult {
-    id: i32,
-    name: String,
-    email: Option<String>,
-    age: Option<i32>,
-    description: Option<String>,
-}
-
 #[cfg(feature = "uuid")]
+#[allow(dead_code)]
 #[derive(SQLiteFromRow, Debug)]
 struct ComplexResult {
     id: Uuid,
@@ -120,8 +116,6 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
         .insert(simple)
         .values([duplicate_data])
         .on_conflict_do_nothing();
-    println!("{}", stmt.to_sql());
-
     let result = drizzle_exec!(stmt.execute());
 
     assert_eq!(result, 0); // No rows affected due to conflict
@@ -139,7 +133,6 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
 });
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-#[cfg(feature = "uuid")]
 sqlite_test!(feature_gated_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
 
@@ -158,8 +151,6 @@ sqlite_test!(feature_gated_insert, ComplexSchema, {
         });
 
     let stmt = db.insert(complex).values([data]);
-    println!("debug: {:?}", stmt.to_sql());
-    println!("display: {}", stmt.to_sql());
     let result = drizzle_exec!(stmt.execute());
 
     assert_eq!(result, 1);

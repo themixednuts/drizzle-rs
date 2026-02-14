@@ -69,16 +69,12 @@ mod execution {
     use drizzle::postgres::prelude::*;
     use drizzle_macros::postgres_test;
 
+    #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
     struct PgComplexResult {
         id: uuid::Uuid,
         name: String,
         active: bool,
-    }
-
-    #[derive(Debug, PostgresFromRow)]
-    struct RoleResult {
-        role: String,
     }
 
     postgres_test!(enum_insert_and_select, ComplexSchema, {

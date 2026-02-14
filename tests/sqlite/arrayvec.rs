@@ -5,7 +5,6 @@
 
 use arrayvec::{ArrayString, ArrayVec};
 use drizzle::core::expr::*;
-use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
@@ -60,7 +59,7 @@ sqlite_test!(test_arraystring_text_storage, ArrayStringSchema, {
 
     // Create ArrayString (within capacity)
     let name = ArrayString::<16>::from("Hello").unwrap();
-    let data = InsertArrayStringTest::new(name.clone(), "test description");
+    let data = InsertArrayStringTest::new(name, "test description");
 
     // Insert data
     drizzle_exec!(db.insert(table).values([data]).execute());
@@ -131,7 +130,7 @@ sqlite_test!(test_arraystring_roundtrip, ArrayStringSchema, {
     let table = schema.arraystring_test;
 
     // Test with various string lengths (within capacity)
-    let test_strings = vec!["A", "Hello", "Test", "1234567890123"];
+    let test_strings = ["A", "Hello", "Test", "1234567890123"];
 
     for (idx, test_str) in test_strings.iter().enumerate() {
         let name = ArrayString::<16>::from(test_str).unwrap();
@@ -203,8 +202,8 @@ sqlite_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
     large_data.extend((0..100).map(|i| (i % 256) as u8));
 
     let data = InsertMixedArrayVecTest::new(
-        short_name.clone(),
-        long_name.clone(),
+        short_name,
+        long_name,
         small_data.clone(),
         large_data.clone(),
     );

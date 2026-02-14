@@ -8,6 +8,7 @@
 use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
 use drizzle::sqlite::prelude::*;
 
+#[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct SimpleResult {
     id: i32,
@@ -27,7 +28,7 @@ mod libsql_edge_cases {
 
     #[tokio::test]
     async fn cancellation_via_timeout_does_not_break_connection() {
-        let (mut db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("before_timeout")])
@@ -68,7 +69,7 @@ mod libsql_edge_cases {
 
     #[tokio::test]
     async fn select_cancellation_via_drop() {
-        let (mut db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
 
         // Insert data
         for i in 0..10 {
@@ -108,7 +109,7 @@ mod libsql_edge_cases {
 
     #[tokio::test]
     async fn panic_recovery_in_async_context() {
-        let (mut db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("before_panic")])
@@ -138,7 +139,7 @@ mod libsql_edge_cases {
 
     #[tokio::test]
     async fn error_recovery_connection_reuse() {
-        let (mut db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("valid")])
@@ -182,7 +183,7 @@ mod libsql_edge_cases {
 
     #[tokio::test]
     async fn rapid_sequential_operations() {
-        let (mut db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
 
         // Rapidly insert, query, update, delete in sequence
         for i in 0..20 {
@@ -234,7 +235,7 @@ mod turso_edge_cases {
 
     #[tokio::test]
     async fn cancellation_via_timeout_does_not_break_connection() {
-        let (mut db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("before_timeout")])
@@ -274,7 +275,7 @@ mod turso_edge_cases {
 
     #[tokio::test]
     async fn select_cancellation_via_drop() {
-        let (mut db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
 
         for i in 0..10 {
             db.insert(simple)
@@ -311,7 +312,7 @@ mod turso_edge_cases {
 
     #[tokio::test]
     async fn panic_recovery_in_async_context() {
-        let (mut db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("before_panic")])
@@ -339,7 +340,7 @@ mod turso_edge_cases {
 
     #[tokio::test]
     async fn rapid_sequential_operations() {
-        let (mut db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
 
         for i in 0..20 {
             let name = format!("user_{}", i);

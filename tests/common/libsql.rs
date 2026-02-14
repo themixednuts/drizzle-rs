@@ -71,11 +71,11 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
     #[cfg(not(feature = "uuid"))]
     let mut complex_ids: Vec<i64> = Vec::new();
 
-    for i in 0..rows {
+    for _i in 0..rows {
         #[cfg(feature = "uuid")]
         let id = Uuid::new_v4();
         #[cfg(not(feature = "uuid"))]
-        let id = i as i64 + 1;
+        let id = _i as i64 + 1;
 
         complex_ids.push(id);
 

@@ -62,11 +62,11 @@ pub fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
     #[cfg(not(feature = "uuid"))]
     let mut complex_ids: Vec<i64> = Vec::new();
 
-    for i in 0..rows {
+    for _i in 0..rows {
         #[cfg(feature = "uuid")]
         let id = Uuid::new_v4();
         #[cfg(not(feature = "uuid"))]
-        let id = i as i64 + 1;
+        let id = _i as i64 + 1;
 
         complex_ids.push(id);
 
@@ -120,28 +120,29 @@ pub fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
         )
         .unwrap();
 
-        let bytes: Vec<u8> = vec![rng.random_range(0..=255), rng.random_range(0..=255)];
-
         #[cfg(all(not(feature = "uuid"), feature = "rusqlite"))]
-        conn.execute(
-            r#"
-            INSERT INTO complex (
-                id, name, email, age, score, active, description, data_blob, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-            "#,
-            rusqlite::params![
-                id,
-                name,
-                email,
-                age,
-                score,
-                active,
-                Some("Generated user"),
-                Some(bytes),
-                Some("2025-08-11T12:00:00Z"),
-            ],
-        )
-        .unwrap();
+        {
+            let bytes: Vec<u8> = vec![rng.random_range(0..=255), rng.random_range(0..=255)];
+            conn.execute(
+                r#"
+                INSERT INTO complex (
+                    id, name, email, age, score, active, description, data_blob, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                rusqlite::params![
+                    id,
+                    name,
+                    email,
+                    age,
+                    score,
+                    active,
+                    Some("Generated user"),
+                    Some(bytes),
+                    Some("2025-08-11T12:00:00Z"),
+                ],
+            )
+            .unwrap();
+        }
     }
 
     // --- Categories ---

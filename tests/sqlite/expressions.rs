@@ -1,9 +1,10 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 #[cfg(feature = "uuid")]
+use crate::common::schema::sqlite::Role;
+#[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{ComplexSchema, InsertComplex};
-use crate::common::schema::sqlite::{InsertSimple, Role, SelectSimple, Simple, SimpleSchema};
-use drizzle::core::expr::*;
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sql;
 use drizzle::sqlite::prelude::*;
@@ -34,16 +35,19 @@ struct AvgResult {
     avg: f64,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct SumRealResult {
     sum: f64,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct MinRealResult {
     min: f64,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct MaxRealResult {
     max: f64,
@@ -59,6 +63,7 @@ struct CoalesceStringResult {
     coalesce: String,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct CoalesceIntResult {
     coalesce: i32,
@@ -79,6 +84,7 @@ struct SumAliasResult {
     id_sum: i32,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct ComplexAggregateResult {
     count: i32,
@@ -86,6 +92,7 @@ struct ComplexAggregateResult {
     max_age: i32,
 }
 
+#[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct CoalesceAvgResult {
     coalesce: f64,
@@ -130,7 +137,7 @@ sqlite_test!(test_aggregate_functions, SimpleSchema, {
     let result: Vec<AvgResult> =
         drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple).all());
     assert_eq!(result[0].avg, 25.0);
-}); /////
+});
 
 #[cfg(feature = "uuid")]
 sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
@@ -663,11 +670,6 @@ sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
 // =============================================================================
 // New Expression DX Tests
 // =============================================================================
-
-#[derive(Debug, SQLiteFromRow)]
-struct ModuloResult {
-    result: i32,
-}
 
 sqlite_test!(test_modulo_operator, SimpleSchema, {
     let SimpleSchema { simple } = schema;

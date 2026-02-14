@@ -7,12 +7,14 @@ use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct PgSimpleResult {
     id: i32,
     name: String,
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow)]
 struct PgComplexResult {

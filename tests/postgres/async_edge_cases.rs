@@ -9,6 +9,7 @@ use crate::common::schema::postgres::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct PgSimpleResult {
     id: i32,
@@ -23,8 +24,7 @@ mod tokio_postgres_edge_cases {
 
     #[tokio::test]
     async fn cancellation_via_timeout_does_not_break_connection() {
-        let (mut db, SimpleSchema { simple }) =
-            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("before_timeout")])
@@ -64,8 +64,7 @@ mod tokio_postgres_edge_cases {
 
     #[tokio::test]
     async fn select_cancellation_via_drop() {
-        let (mut db, SimpleSchema { simple }) =
-            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
         for i in 0..10 {
             db.insert(simple)
@@ -103,8 +102,7 @@ mod tokio_postgres_edge_cases {
 
     #[tokio::test]
     async fn panic_recovery_in_async_context() {
-        let (mut db, SimpleSchema { simple }) =
-            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
         db.insert(simple)
             .values([InsertSimple::new("before_panic")])
@@ -134,8 +132,7 @@ mod tokio_postgres_edge_cases {
 
     #[tokio::test]
     async fn rapid_sequential_operations() {
-        let (mut db, SimpleSchema { simple }) =
-            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+        let (db, SimpleSchema { simple }) = tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
         // Rapidly insert many records
         for i in 0..20 {

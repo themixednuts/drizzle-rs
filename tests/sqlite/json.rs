@@ -1,14 +1,12 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#![cfg(all(feature = "serde", feature = "uuid"))]
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-#[cfg(feature = "serde")]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct Profile {
     age: i64,
@@ -16,14 +14,12 @@ pub struct Profile {
     interests: Vec<String>,
 }
 
-#[cfg(all(feature = "serde", feature = "uuid"))]
 #[derive(SQLiteFromRow, Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct UserResult {
     id: Uuid,
     age: i64,
 }
 
-#[cfg(all(feature = "serde", feature = "uuid"))]
 #[SQLiteTable(NAME = "json_users", STRICT)]
 struct JsonUser {
     id: Uuid,
@@ -31,13 +27,11 @@ struct JsonUser {
     #[column(JSON)]
     profile: Profile,
 }
-#[cfg(all(feature = "serde", feature = "uuid"))]
 #[derive(SQLiteSchema)]
 struct Schema {
     jsonuser: JsonUser,
 }
 
-#[cfg(all(feature = "serde", feature = "uuid"))]
 #[derive(SQLiteFromRow, Debug, PartialEq, Default)]
 pub struct JsonReadResult {
     id: Uuid,
@@ -46,11 +40,8 @@ pub struct JsonReadResult {
     profile: Profile,
 }
 
-#[cfg(all(feature = "serde", feature = "uuid"))]
 sqlite_test!(json_storage, Schema, {
     let Schema { jsonuser } = schema;
-
-    println!("{}", jsonuser.sql());
 
     let profile = Profile {
         age: 30,
@@ -68,9 +59,6 @@ sqlite_test!(json_storage, Schema, {
     //     db.insert(jsonuser)
     //         .values([InsertJsonUser::new(id, "john@test.com", jsonb(profile))]);
 
-    println!("{}", stmt.to_sql());
-
-    println!("{}", profile.to_sql());
     drizzle_exec!(stmt.execute());
 
     let stmt = db
@@ -80,8 +68,6 @@ sqlite_test!(json_storage, Schema, {
         ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
-
-    println!("{}", stmt.to_sql());
 
     let user: UserResult = drizzle_exec!(stmt.get());
 

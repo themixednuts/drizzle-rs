@@ -2,8 +2,6 @@ use crate::common::schema::sqlite::{Category, Complex, Post, PostCategory, Role,
 use drizzle_core::SQLSchema;
 use rand::seq::IndexedRandom;
 use turso::Connection;
-#[cfg(feature = "uuid")]
-use turso::params;
 use turso::{Builder, IntoValue};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -71,7 +69,7 @@ pub async fn seed(conn: &Connection, rows: usize, rng_seed: u64) {
         #[cfg(not(feature = "uuid"))]
         let id = format!("user_{}", rng.random_range(100000..999999));
 
-        complex_ids.push(id.clone());
+        complex_ids.push(id);
 
         let name = format!("User{}", rng.random_range(1..=1000));
         let email: Option<String> = if rng.random_bool(0.7) {

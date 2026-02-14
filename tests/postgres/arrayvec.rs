@@ -36,6 +36,7 @@ struct PgArrayVecBlobSchema {
     table: PgArrayVecBlobTest,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct ArrayStringResult {
     id: i32,
@@ -43,6 +44,7 @@ struct ArrayStringResult {
     description: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct ArrayVecBlobResult {
     id: i32,
@@ -199,6 +201,7 @@ struct PgArrayNullableSchema {
     table: PgArrayNullableTest,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, PostgresFromRow)]
 struct ArrayNullableResult {
     id: i32,

@@ -3,7 +3,6 @@
     any(feature = "compact-str", feature = "bytes", feature = "smallvec-types")
 ))]
 
-use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable, postgres_test};
 
@@ -31,6 +30,7 @@ struct PgCompactStringSchema {
     table: PgCompactStringTest,
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "compact-str")]
 #[derive(Debug, PostgresFromRow)]
 struct CompactStringRow {
@@ -74,6 +74,7 @@ struct PgBytesBlobSchema {
     table: PgBytesBlobTest,
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "bytes")]
 #[derive(Debug, PostgresFromRow)]
 struct BytesBlobRow {
@@ -121,6 +122,7 @@ struct PgSmallVecBlobSchema {
     table: PgSmallVecBlobTest,
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "smallvec-types")]
 #[derive(Debug, PostgresFromRow)]
 struct SmallVecBlobRow {

@@ -1,8 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use crate::common::schema::sqlite::*;
-use crate::sqlite::foreign_keys::{CompositeFkSchema, FkCascade, FkCascadeSchema, FkParent};
-use drizzle::sqlite::traits::SQLiteTableInfo;
+use crate::sqlite::foreign_keys::{CompositeFkSchema, FkCascadeSchema};
 use drizzle_seed::{Generator, GeneratorKind, RngCore, SeedConfig, SeedValue};
 
 // ---------------------------------------------------------------------------

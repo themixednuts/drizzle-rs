@@ -4,7 +4,6 @@
 ))]
 
 use drizzle::core::expr::*;
-use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 use uuid::Uuid;
@@ -101,7 +100,7 @@ sqlite_test!(test_uuid_text_storage, UuidTextSchema, {
             .get()
     );
 
-    dbg!(&result);
+    assert_eq!(result.0, "text");
 });
 
 sqlite_test!(test_uuid_blob_storage, UuidBlobSchema, {
