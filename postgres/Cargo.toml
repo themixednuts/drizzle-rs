@@ -30,6 +30,8 @@ bytes = { version = "1.11", optional = true }
 
 [dev-dependencies]
 drizzle-macros = { workspace = true, features = ["postgres"] }
+drizzle-types = { workspace = true }
+drizzle-migrations = { workspace = true }
 
 [features]
 

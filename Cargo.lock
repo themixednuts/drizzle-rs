@@ -1534,6 +1534,8 @@ dependencies = [
  "compact_str",
  "drizzle-core",
  "drizzle-macros",
+ "drizzle-migrations",
+ "drizzle-types",
  "geo-types",
  "paste",
  "postgres",

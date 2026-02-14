@@ -4,8 +4,39 @@
 //! attributes. Import them from the prelude to get IDE hover documentation.
 //!
 //! # Example
-//! ```ignore
-//! # use drizzle::postgres::prelude::*;
+//! ```rust,no_run
+//! # mod drizzle {
+//! #     pub mod core { pub use drizzle_core::*; }
+//! #     pub mod error { pub use drizzle_core::error::*; }
+//! #     pub mod types { pub use drizzle_types::*; }
+//! #     pub mod migrations { pub use drizzle_migrations::*; }
+//! #     pub use drizzle_types::Dialect;
+//! #     pub use drizzle_types as ddl;
+//! #     pub mod postgres {
+//! #         pub mod values { pub use drizzle_postgres::values::*; }
+//! #         pub mod traits { pub use drizzle_postgres::traits::*; }
+//! #         pub mod common { pub use drizzle_postgres::common::*; }
+//! #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+//! #         pub mod builder { pub use drizzle_postgres::builder::*; }
+//! #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+//! #         pub mod expr { pub use drizzle_postgres::expr::*; }
+//! #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+//! #         pub struct Row;
+//! #         impl Row {
+//! #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+//! #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+//! #         }
+//! #         pub mod prelude {
+//! #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+//! #             pub use drizzle_postgres::attrs::*;
+//! #             pub use drizzle_postgres::common::PostgresSchemaType;
+//! #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+//! #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+//! #             pub use drizzle_core::*;
+//! #         }
+//! #     }
+//! # }
+//! use drizzle::postgres::prelude::*;
 //!
 //! #[PostgresTable(NAME = "users")]
 //! struct User {
@@ -479,8 +510,39 @@ pub struct TableMarker;
 /// Creates an UNLOGGED table.
 ///
 /// ## Example
-/// ```ignore
-/// # use drizzle::postgres::prelude::*;
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(UNLOGGED)]
 /// struct SessionCache {
@@ -498,8 +560,39 @@ pub const UNLOGGED: TableMarker = TableMarker;
 /// Creates a TEMPORARY table.
 ///
 /// ## Example
-/// ```ignore
-/// # use drizzle::postgres::prelude::*;
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(TEMPORARY)]
 /// struct TempData {
@@ -516,8 +609,39 @@ pub const TEMPORARY: TableMarker = TableMarker;
 /// Specifies inheritance from a parent table.
 ///
 /// ## Example
-/// ```ignore
-/// # use drizzle::postgres::prelude::*;
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(INHERITS = "base_table")]
 /// struct ChildTable {
@@ -531,8 +655,39 @@ pub const INHERITS: TableMarker = TableMarker;
 /// Specifies a tablespace for the table.
 ///
 /// ## Example
-/// ```ignore
-/// # use drizzle::postgres::prelude::*;
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(TABLESPACE = "fast_storage")]
 /// struct HighPerfTable {
@@ -540,8 +695,9 @@ pub const INHERITS: TableMarker = TableMarker;
 ///     id: i32,
 /// }
 ///
-/// #[PostgresView(MATERIALIZED, TABLESPACE = "fast_storage")]
-/// struct ActiveUsers { id: i32 }
+/// // Views also support TABLESPACE:
+/// // #[PostgresView(MATERIALIZED, TABLESPACE = "fast_storage")]
+/// // struct ActiveUsers { id: i32 }
 /// ```
 ///
 /// See: <https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-TABLESPACE>

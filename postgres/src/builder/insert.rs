@@ -225,6 +225,62 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// use drizzle::postgres::prelude::*;
+    /// use drizzle::postgres::builder::QueryBuilder;
+    ///
+    /// #[PostgresTable(name = "users")]
+    /// struct User {
+    ///     #[column(serial, primary)]
+    ///     id: i32,
+    ///     name: String,
+    ///     #[column(unique)]
+    ///     email: Option<String>,
+    /// }
+    ///
+    /// #[PostgresIndex(unique)]
+    /// struct UserEmailIdx(User::email);
+    ///
+    /// #[derive(PostgresSchema)]
+    /// struct Schema {
+    ///     user: User,
+    ///     user_email_idx: UserEmailIdx,
+    /// }
+    ///
+    /// let builder = QueryBuilder::new::<Schema>();
+    /// let schema = Schema::new();
+    /// let user = schema.user;
+    ///
     /// // Target a specific column
     /// builder.insert(user).values([InsertUser::new("Alice")])
     ///     .on_conflict(user.id).do_nothing();
@@ -259,7 +315,62 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// builder.insert(user).values([InsertUser::new("Alice")])
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// use drizzle::postgres::prelude::*;
+    /// use drizzle::postgres::builder::QueryBuilder;
+    ///
+    /// #[PostgresTable(name = "users")]
+    /// struct User {
+    ///     #[column(serial, primary)]
+    ///     id: i32,
+    ///     name: String,
+    ///     #[column(unique)]
+    ///     email: Option<String>,
+    /// }
+    ///
+    /// #[PostgresIndex(unique)]
+    /// struct UserEmailIdx(User::email);
+    ///
+    /// #[derive(PostgresSchema)]
+    /// struct Schema {
+    ///     user: User,
+    ///     user_email_idx: UserEmailIdx,
+    /// }
+    ///
+    /// let builder = QueryBuilder::new::<Schema>();
+    /// let schema = Schema::new();
+    ///
+    /// builder.insert(schema.user).values([InsertUser::new("Alice")])
     ///     .on_conflict_on_constraint(schema.user_email_idx).do_nothing();
     /// ```
     pub fn on_conflict_on_constraint<C: NamedConstraint<T>>(
