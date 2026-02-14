@@ -1,5 +1,7 @@
 use crate::common::generate_expr_impl;
-use crate::generators::{generate_impl, generate_sql_column_info, generate_sql_table_info};
+use crate::generators::{
+    SQLTableInfoConfig, generate_impl, generate_sql_column_info, generate_sql_table_info,
+};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::generators::*;
 use crate::sqlite::table::context::MacroContext;
@@ -212,31 +214,31 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         })
         .collect();
 
-    let sql_table_info_impl = generate_sql_table_info(
-        &aliased_table_name,
-        quote! {self.alias},
-        quote! { ::std::option::Option::None },
-        quote! {
+    let sql_table_info_impl = generate_sql_table_info(SQLTableInfoConfig {
+        struct_ident: &aliased_table_name,
+        name: quote! {self.alias},
+        schema: quote! { ::std::option::Option::None },
+        columns: quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::columns(&ORIGINAL_TABLE)
         },
-        quote! {
+        primary_key: quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::primary_key(&ORIGINAL_TABLE)
         },
-        quote! {
+        foreign_keys: quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::foreign_keys(&ORIGINAL_TABLE)
         },
-        quote! {
+        constraints: quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::constraints(&ORIGINAL_TABLE)
         },
-        quote! {
+        dependencies: quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             <#table_name as #sql_table_info>::dependencies(&ORIGINAL_TABLE)
         },
-    );
+    });
 
     let sqlite_table_info_impl = generate_sqlite_table_info(
         &aliased_table_name,
@@ -262,17 +264,17 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         },
     );
 
-    let sql_table_impl = generate_sql_table(
-        &aliased_table_name,
-        quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Select},
-        quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Insert<T>},
-        quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Update},
+    let sql_table_impl = generate_sql_table(SQLTableConfig {
+        struct_ident: &aliased_table_name,
+        select: quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Select},
+        insert: quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Insert<T>},
+        update: quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Update},
         // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
-        quote! {#aliased_table_name},
-        quote! {<#table_name as #sql_table_meta>::ForeignKeys},
-        quote! {<#table_name as #sql_table_meta>::PrimaryKey},
-        quote! {<#table_name as #sql_table_meta>::Constraints},
-    );
+        aliased: quote! {#aliased_table_name},
+        foreign_keys: quote! {<#table_name as #sql_table_meta>::ForeignKeys},
+        primary_key: quote! {<#table_name as #sql_table_meta>::PrimaryKey},
+        constraints: quote! {<#table_name as #sql_table_meta>::Constraints},
+    });
 
     let sqlite_table_impl = generate_sqlite_table(
         &aliased_table_name,

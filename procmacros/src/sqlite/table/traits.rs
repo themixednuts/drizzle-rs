@@ -1,5 +1,5 @@
 use super::context::MacroContext;
-use crate::generators::generate_sql_table_info;
+use crate::generators::{SQLTableInfoConfig, generate_sql_table_info};
 use crate::paths::core as core_paths;
 #[allow(unused_imports)]
 use crate::paths::sqlite as sqlite_paths;
@@ -122,16 +122,16 @@ pub(crate) fn generate_table_impls(
     };
 
     let aliased_table_ident = format_ident!("Aliased{}", struct_ident);
-    let sql_table_impl = generate_sql_table(
+    let sql_table_impl = generate_sql_table(SQLTableConfig {
         struct_ident,
-        quote! {#select_model},
-        quote! {#insert_model<'a, T>},
-        quote! {#update_model<'a>},
-        quote! {#aliased_table_ident},
-        quote! {#foreign_keys_type},
-        quote! {#primary_key_type},
-        quote! { #constraints_type },
-    );
+        select: quote! {#select_model},
+        insert: quote! {#insert_model<'a, T>},
+        update: quote! {#update_model<'a>},
+        aliased: quote! {#aliased_table_ident},
+        foreign_keys: quote! {#foreign_keys_type},
+        primary_key: quote! {#primary_key_type},
+        constraints: quote! { #constraints_type },
+    });
 
     let mut dependencies = Vec::new();
     let mut seen_dependencies = HashSet::new();
@@ -169,30 +169,30 @@ pub(crate) fn generate_table_impls(
             [#(&#dependency_statics,)*];
         &DEPENDENCIES
     };
-    let sql_table_info_impl = generate_sql_table_info(
+    let sql_table_info_impl = generate_sql_table_info(SQLTableInfoConfig {
         struct_ident,
-        quote! {
+        name: quote! {
             <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME
         },
-        quote! { ::std::option::Option::None },
-        quote! {
+        schema: quote! { ::std::option::Option::None },
+        columns: quote! {
             #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
             #[allow(non_upper_case_globals)]
             static COLUMNS: [&'static dyn #sql_column_info; #columns_len] =
                 [#(&#column_zst_idents,)*];
             &COLUMNS
         },
-        quote! {
+        primary_key: quote! {
             #sql_primary_key
         },
-        quote! {
+        foreign_keys: quote! {
             #sql_foreign_keys
         },
-        quote! {
+        constraints: quote! {
             #sql_constraints
         },
-        sql_dependencies,
-    );
+        dependencies: sql_dependencies,
+    });
     let sqlite_table_info_impl = generate_sqlite_table_info(
         struct_ident,
         quote! {

@@ -177,22 +177,35 @@ pub(crate) fn generate_sql_column<D: Dialect>(
     }
 }
 
+/// Configuration for generating an `SQLTable` trait implementation.
+pub(crate) struct SQLTableConfig<'a> {
+    pub struct_ident: &'a Ident,
+    pub select: TokenStream,
+    pub insert: TokenStream,
+    pub update: TokenStream,
+    pub aliased: TokenStream,
+    pub foreign_keys: TokenStream,
+    pub primary_key: TokenStream,
+    pub constraints: TokenStream,
+}
+
 /// Generate SQLTable trait implementation for a given dialect.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn generate_sql_table<D: Dialect>(
-    struct_ident: &Ident,
-    select: TokenStream,
-    insert: TokenStream,
-    update: TokenStream,
-    aliased: TokenStream,
-    foreign_keys: TokenStream,
-    primary_key: TokenStream,
-    constraints: TokenStream,
-) -> TokenStream {
+pub(crate) fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> TokenStream {
     let sql_table = core_paths::sql_table();
     let sql_table_meta = core_paths::sql_table_meta();
     let schema_type = D::schema_type();
     let value_type = D::value_type();
+
+    let SQLTableConfig {
+        struct_ident,
+        select,
+        insert,
+        update,
+        aliased,
+        foreign_keys,
+        primary_key,
+        constraints,
+    } = config;
 
     quote! {
         impl<'a> #sql_table<'a, #schema_type, #value_type<'a>> for #struct_ident {

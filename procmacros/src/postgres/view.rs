@@ -2,14 +2,14 @@ use crate::common::{
     count_primary_keys, make_uppercase_path, required_fields_pattern, struct_fields,
     table_name_from_attrs,
 };
-use crate::generators::generate_sql_table_info;
+use crate::generators::{SQLTableInfoConfig, generate_sql_table_info};
 use crate::paths::{
     core as core_paths, ddl as ddl_paths, postgres as postgres_paths, std as std_paths,
 };
 use crate::postgres::field::FieldInfo;
 use crate::postgres::generators::{
-    generate_postgres_table, generate_postgres_table_info, generate_sql_schema, generate_sql_table,
-    generate_to_sql,
+    SQLTableConfig, generate_postgres_table, generate_postgres_table_info, generate_sql_schema,
+    generate_sql_table, generate_to_sql,
 };
 use crate::postgres::table::{
     alias, attributes::TableAttributes, column_definitions, context::MacroContext, drivers, models,
@@ -352,16 +352,16 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         &DEPENDENCIES
     };
 
-    let sql_table_info_impl = generate_sql_table_info(
+    let sql_table_info_impl = generate_sql_table_info(SQLTableInfoConfig {
         struct_ident,
-        quote! { Self::VIEW_NAME },
-        quote! { ::std::option::Option::Some(Self::VIEW_SCHEMA) },
-        sql_columns,
-        quote! { ::std::option::Option::None },
-        quote! { &[] },
-        quote! { &[] },
-        sql_dependencies,
-    );
+        name: quote! { Self::VIEW_NAME },
+        schema: quote! { ::std::option::Option::Some(Self::VIEW_SCHEMA) },
+        columns: sql_columns,
+        primary_key: quote! { ::std::option::Option::None },
+        foreign_keys: quote! { &[] },
+        constraints: quote! { &[] },
+        dependencies: sql_dependencies,
+    });
     let postgres_table_info_impl = generate_postgres_table_info(
         struct_ident,
         quote! { &<Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE },
@@ -374,16 +374,16 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let insert_model_ident = &ctx.insert_model_ident;
     let update_model_ident = &ctx.update_model_ident;
 
-    let sql_table_impl = generate_sql_table(
+    let sql_table_impl = generate_sql_table(SQLTableConfig {
         struct_ident,
-        quote! { #select_model_ident },
-        quote! { #insert_model_ident<'a, T> },
-        quote! { #update_model_ident<'a> },
-        quote! { #aliased_table_ident },
-        quote! { () },
-        quote! { #no_primary_key },
-        quote! { #no_constraint },
-    );
+        select: quote! { #select_model_ident },
+        insert: quote! { #insert_model_ident<'a, T> },
+        update: quote! { #update_model_ident<'a> },
+        aliased: quote! { #aliased_table_ident },
+        foreign_keys: quote! { () },
+        primary_key: quote! { #no_primary_key },
+        constraints: quote! { #no_constraint },
+    });
     let postgres_table_impl = generate_postgres_table(struct_ident);
     let sql_schema_impl = generate_sql_schema(
         struct_ident,

@@ -54,23 +54,36 @@ pub fn generate_sql_column_info(
     }
 }
 
+/// Configuration for generating an `SQLTableInfo` trait implementation.
+pub struct SQLTableInfoConfig<'a> {
+    pub struct_ident: &'a Ident,
+    pub name: TokenStream,
+    pub schema: TokenStream,
+    pub columns: TokenStream,
+    pub primary_key: TokenStream,
+    pub foreign_keys: TokenStream,
+    pub constraints: TokenStream,
+    pub dependencies: TokenStream,
+}
+
 /// Generate SQLTableInfo trait implementation
-#[allow(clippy::too_many_arguments)]
-pub fn generate_sql_table_info(
-    struct_ident: &Ident,
-    name: TokenStream,
-    schema: TokenStream,
-    columns: TokenStream,
-    primary_key: TokenStream,
-    foreign_keys: TokenStream,
-    constraints: TokenStream,
-    dependencies: TokenStream,
-) -> TokenStream {
+pub fn generate_sql_table_info(config: SQLTableInfoConfig<'_>) -> TokenStream {
     let sql_table_info = core_paths::sql_table_info();
     let sql_column_info = core_paths::sql_column_info();
     let sql_primary_key_info = core_paths::sql_primary_key_info();
     let sql_foreign_key_info = core_paths::sql_foreign_key_info();
     let sql_constraint_info = core_paths::sql_constraint_info();
+
+    let SQLTableInfoConfig {
+        struct_ident,
+        name,
+        schema,
+        columns,
+        primary_key,
+        foreign_keys,
+        constraints,
+        dependencies,
+    } = config;
 
     quote! {
         impl #sql_table_info for #struct_ident {
