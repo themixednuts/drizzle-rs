@@ -221,6 +221,43 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// # Examples
     ///
     /// ```rust,no_run
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// use drizzle::sqlite::prelude::*;
+    /// use drizzle::sqlite::builder::QueryBuilder;
+    ///
+    /// #[SQLiteTable(name = "users")]
+    /// struct User {
+    ///     #[column(primary)]
+    ///     id: i32,
+    ///     name: String,
+    ///     #[column(unique)]
+    ///     email: Option<String>,
+    /// }
+    ///
+    /// #[derive(SQLiteSchema)]
+    /// struct Schema {
+    ///     user: User,
+    /// }
+    ///
+    /// let builder = QueryBuilder::new::<Schema>();
+    /// let schema = Schema::new();
+    /// let user = schema.user;
+    ///
     /// // Target a specific column (requires PK or unique constraint)
     /// builder.insert(user).values([InsertUser::new("Alice")])
     ///     .on_conflict(user.id).do_nothing();
