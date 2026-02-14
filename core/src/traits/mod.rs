@@ -72,5 +72,5 @@ pub trait SQLSchemaType: core::fmt::Debug + Any + Send + Sync {}
 /// Trait for schema implementations that can generate CREATE statements.
 pub trait SQLSchemaImpl: Any + Send + Sync {
     fn tables(&self) -> &'static [&'static dyn crate::traits::table::SQLTableInfo];
-    fn create_statements(&self) -> crate::error::Result<Box<dyn Iterator<Item = String> + '_>>;
+    fn create_statements(&self) -> crate::error::Result<impl Iterator<Item = String>>;
 }

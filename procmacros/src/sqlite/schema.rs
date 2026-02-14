@@ -128,9 +128,9 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                 #schema_tables_method
             }
 
-            fn create_statements(&self) -> ::std::result::Result<::std::boxed::Box<dyn ::std::iter::Iterator<Item = ::std::string::String> + '_>, drizzle::error::DrizzleError> {
-                let statements = { #create_statements_impl };
-                ::std::result::Result::Ok(::std::boxed::Box::new(statements.into_iter()))
+            fn create_statements(&self) -> ::std::result::Result<impl ::std::iter::Iterator<Item = ::std::string::String>, drizzle::error::DrizzleError> {
+                let statements: ::std::vec::Vec<::std::string::String> = { #create_statements_impl };
+                ::std::result::Result::Ok(statements.into_iter())
             }
         }
 
