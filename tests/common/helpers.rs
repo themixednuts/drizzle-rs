@@ -54,34 +54,42 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
                 if current_width + word_width <= width {
                     current_line.push_str(word);
                     current_width += word_width;
-                } else if current_line.is_empty() {
-                    // Word is longer than width, force split
-                    let mut chars = word.chars().peekable();
-                    while chars.peek().is_some() {
-                        let mut chunk = String::new();
-                        let mut chunk_width = 0;
-                        while let Some(&c) = chars.peek() {
-                            let c_width = if c == '\t' {
-                                4
-                            } else if c.is_ascii() {
-                                1
-                            } else {
-                                2
-                            };
-                            if chunk_width + c_width > width {
-                                break;
+                } else {
+                    // Flush current line if non-empty
+                    if !current_line.is_empty() {
+                        lines.push(current_line.trim_end().to_string());
+                        current_line = String::new();
+                        current_width = 0;
+                    }
+
+                    if word_width <= width {
+                        current_line.push_str(word);
+                        current_width = word_width;
+                    } else {
+                        // Word is longer than width, force split
+                        let mut chars = word.chars().peekable();
+                        while chars.peek().is_some() {
+                            let mut chunk = String::new();
+                            let mut chunk_width = 0;
+                            while let Some(&c) = chars.peek() {
+                                let c_width = if c == '\t' {
+                                    4
+                                } else if c.is_ascii() {
+                                    1
+                                } else {
+                                    2
+                                };
+                                if chunk_width + c_width > width {
+                                    break;
+                                }
+                                chunk.push(chars.next().unwrap());
+                                chunk_width += c_width;
                             }
-                            chunk.push(chars.next().unwrap());
-                            chunk_width += c_width;
-                        }
-                        if !chunk.is_empty() {
-                            lines.push(chunk);
+                            if !chunk.is_empty() {
+                                lines.push(chunk);
+                            }
                         }
                     }
-                } else {
-                    lines.push(current_line.trim_end().to_string());
-                    current_line = word.to_string();
-                    current_width = word_width;
                 }
             }
 
@@ -181,7 +189,11 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
     // Test identification section
     report.push_str(&top_border());
     report.push_str(&section_header("TEST"));
-    report.push_str(&box_line(test_name, "Name:   "));
+    let name_lines = wrap_text(test_name, CONTENT_WIDTH - 8);
+    for (i, line) in name_lines.iter().enumerate() {
+        let prefix = if i == 0 { "Name:   " } else { "        " };
+        report.push_str(&box_line(line, prefix));
+    }
     report.push_str(&box_line(driver_name, "Driver: "));
     report.push_str(&bottom_border());
     report.push('\n');
