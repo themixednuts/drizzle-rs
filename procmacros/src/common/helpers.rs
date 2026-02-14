@@ -171,6 +171,7 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 ///     profile: Profile,
 /// }
 /// ```
+#[cfg(feature = "sqlite")]
 pub(crate) fn has_json_attribute(field: &Field) -> bool {
     field.attrs.iter().any(|attr| {
         if attr.path().get_ident().is_some_and(|ident| ident == "json") {

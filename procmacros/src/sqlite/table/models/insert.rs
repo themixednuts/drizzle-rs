@@ -88,6 +88,7 @@ pub(crate) fn generate_insert_model(
         }
 
         impl<'a> #insert_model<'a, #empty_pattern_tuple> {
+            #[allow(clippy::too_many_arguments)]
             pub fn new(#(#required_constructor_params),*) -> #insert_model<'a, #required_fields_pattern_literal> {
                 #insert_model {
                     #(#required_constructor_assignments,)*

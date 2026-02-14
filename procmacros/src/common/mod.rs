@@ -14,9 +14,9 @@ mod type_utils;
 
 pub(crate) use context::ModelType;
 pub(crate) use diagnostics::references_required_message;
-pub(crate) use helpers::{
-    extract_struct_fields, has_json_attribute, make_uppercase_path, parse_column_reference,
-};
+#[cfg(feature = "sqlite")]
+pub(crate) use helpers::has_json_attribute;
+pub(crate) use helpers::{extract_struct_fields, make_uppercase_path, parse_column_reference};
 pub(crate) use table_pipeline::{
     count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
 };
