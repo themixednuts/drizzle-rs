@@ -14,7 +14,8 @@ impl DriverJsonAccessor for TursoDriver {
     fn json_accessor(idx: usize) -> TokenStream {
         quote! {
             {
-                let text = row.get_value(#idx)?.as_text()
+                let value = row.get_value(#idx)?;
+                let text = value.as_text()
                     .ok_or_else(|| drizzle::error::DrizzleError::ConversionError("Expected text for JSON field".into()))?;
                 serde_json::from_str(text).map_err(|e| drizzle::error::DrizzleError::ConversionError(e.to_string().into()))
             }
