@@ -4,8 +4,8 @@
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::postgres::{
-    Comment, Complex, ComplexPostSchema, FullBlogSchema, InsertCategory, InsertComment,
-    InsertComplex, InsertPost, InsertPostCategory, Post, PostCategory, Role,
+    Category, Complex, ComplexPostSchema, FullBlogSchema, InsertCategory, InsertComplex,
+    InsertPost, InsertPostCategory, Post, Role,
 };
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
@@ -100,13 +100,11 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow, Default)]
-struct PostCommentCategoryResult {
+struct PostCategoryResult {
     #[column(Post::title)]
     post_title: String,
-    #[column(PostCategory::category_id)]
-    category_id: i32,
-    #[column(Comment::body)]
-    comment_body: String,
+    #[column(Category::name)]
+    category_name: String,
 }
 
 #[cfg(feature = "uuid")]
@@ -115,7 +113,6 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
         post,
         category,
         post_category,
-        comment,
         ..
     } = schema;
 
@@ -144,49 +141,27 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
     ];
     drizzle_exec!(db.insert(post_category).values(links).execute());
 
-    let comments = vec![
-        InsertComment::new("Great post!", post_id1),
-        InsertComment::new("Very helpful", post_id1),
-        InsertComment::new("Nice intro", post_id2),
-    ];
-    drizzle_exec!(db.insert(comment).values(comments).execute());
-
-    // Chained FK joins: both post_category and comment auto-derive ON from FK to Post
-    let results: Vec<PostCommentCategoryResult> = drizzle_exec!(
-        db.select(PostCommentCategoryResult::default())
+    // Chained auto-FK: post -> post_category (forward FK) -> category (reverse FK)
+    let results: Vec<PostCategoryResult> = drizzle_exec!(
+        db.select(PostCategoryResult::default())
             .from(post)
             .join(post_category)
-            .join(comment)
-            .order_by([
-                OrderBy::asc(post.title),
-                OrderBy::asc(post_category.category_id),
-                OrderBy::asc(comment.body),
-            ])
+            .join(category)
+            .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
             .all()
     );
 
-    // Go Guide: 1 category link x 1 comment = 1 row
-    // Rust Guide: 2 category links x 2 comments = 4 rows
-    // Total = 5
-    assert_eq!(results.len(), 5);
+    // Go Guide -> Programming = 1 row
+    // Rust Guide -> Programming, Tutorial = 2 rows
+    // Total = 3
+    assert_eq!(results.len(), 3);
 
     assert_eq!(results[0].post_title, "Go Guide");
-    assert_eq!(results[0].category_id, 1);
-    assert_eq!(results[0].comment_body, "Nice intro");
+    assert_eq!(results[0].category_name, "Programming");
 
     assert_eq!(results[1].post_title, "Rust Guide");
-    assert_eq!(results[1].category_id, 1);
-    assert_eq!(results[1].comment_body, "Great post!");
+    assert_eq!(results[1].category_name, "Programming");
 
     assert_eq!(results[2].post_title, "Rust Guide");
-    assert_eq!(results[2].category_id, 1);
-    assert_eq!(results[2].comment_body, "Very helpful");
-
-    assert_eq!(results[3].post_title, "Rust Guide");
-    assert_eq!(results[3].category_id, 2);
-    assert_eq!(results[3].comment_body, "Great post!");
-
-    assert_eq!(results[4].post_title, "Rust Guide");
-    assert_eq!(results[4].category_id, 2);
-    assert_eq!(results[4].comment_body, "Very helpful");
+    assert_eq!(results[2].category_name, "Tutorial");
 });

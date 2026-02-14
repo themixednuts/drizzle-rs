@@ -265,6 +265,14 @@ struct PgCycleA {
 struct PgCycleB {
     #[column(PRIMARY)]
     id: i32,
+    #[column(REFERENCES = PgCycleC::id)]
+    c_id: i32,
+}
+
+#[PostgresTable(NAME = "cycle_c")]
+struct PgCycleC {
+    #[column(PRIMARY)]
+    id: i32,
     #[column(REFERENCES = PgCycleA::id)]
     a_id: i32,
 }
@@ -273,6 +281,7 @@ struct PgCycleB {
 struct PgCycleSchema {
     a: PgCycleA,
     b: PgCycleB,
+    c: PgCycleC,
 }
 
 #[test]

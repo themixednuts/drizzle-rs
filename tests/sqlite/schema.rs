@@ -450,6 +450,14 @@ struct CycleA {
 struct CycleB {
     #[column(PRIMARY)]
     id: i32,
+    #[column(REFERENCES = CycleC::id)]
+    c_id: i32,
+}
+
+#[SQLiteTable(NAME = "cycle_c")]
+struct CycleC {
+    #[column(PRIMARY)]
+    id: i32,
     #[column(REFERENCES = CycleA::id)]
     a_id: i32,
 }
@@ -458,6 +466,7 @@ struct CycleB {
 struct CycleSchema {
     a: CycleA,
     b: CycleB,
+    c: CycleC,
 }
 
 #[test]

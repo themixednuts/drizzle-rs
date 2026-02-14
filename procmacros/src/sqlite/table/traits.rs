@@ -983,6 +983,20 @@ fn generate_relations(ctx: &MacroContext) -> Result<TokenStream> {
                     }
                 }
             });
+
+            // Reverse: allow joining from Target back through this table's FK
+            // Skip self-referential FKs (e.g. Employee.manager_id → Employee.id)
+            // and rely on forward impls only to avoid duplicate trait impls.
+            if struct_ident != target_ident {
+                tokens.extend(quote! {
+                    impl #relation_marker<#struct_ident> for #target_ident {}
+                    impl #joinable_marker<#struct_ident> for #target_ident {
+                        fn fk_columns() -> &'static [(&'static str, &'static str)] {
+                            &[#((#tgt_cols, #src_cols)),*]
+                        }
+                    }
+                });
+            }
         }
     }
 

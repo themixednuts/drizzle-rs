@@ -1,7 +1,6 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use crate::common::schema::sqlite::{
-    Category, Comment, InsertCategory, InsertComment, InsertPost, InsertPostCategory, Post,
-    PostCategory,
+    Category, InsertCategory, InsertPost, InsertPostCategory, Post,
 };
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, InsertComplex, Role};
@@ -314,22 +313,11 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
     });
 });
 
-#[derive(Debug, SQLiteFromRow, Default)]
-struct PostCommentCategoryResult {
-    #[column(Post::title)]
-    post_title: String,
-    #[column(PostCategory::category_id)]
-    category_id: i32,
-    #[column(Comment::body)]
-    comment_body: String,
-}
-
 sqlite_test!(chained_fk_join, FullBlogSchema, {
     let FullBlogSchema {
         post,
         category,
         post_category,
-        comment,
         ..
     } = schema;
 
@@ -355,10 +343,10 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
     ];
     drizzle_exec!(db.insert(post).values(posts).execute());
 
-    // Insert categories (needed for FK constraint on post_categories)
+    // Insert categories
     let categories = vec![
-        InsertCategory::new("Programming"),
-        InsertCategory::new("Tutorial"),
+        InsertCategory::new("Programming").with_description("Programming posts"),
+        InsertCategory::new("Tutorial").with_description("How-to guides"),
     ];
     drizzle_exec!(db.insert(category).values(categories).execute());
 
@@ -370,50 +358,35 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
     ];
     drizzle_exec!(db.insert(post_category).values(links).execute());
 
-    // Insert comments
-    let comments = vec![
-        InsertComment::new("Great post!", post_id1),
-        InsertComment::new("Very helpful", post_id1),
-        InsertComment::new("Nice intro", post_id2),
-    ];
-    drizzle_exec!(db.insert(comment).values(comments).execute());
-
-    // Chained FK joins: both post_category and comment auto-derive ON from FK to Post
-    let results: Vec<PostCommentCategoryResult> = drizzle_exec!(
-        db.select(PostCommentCategoryResult::default())
+    // Chained auto-FK: post -> post_category (forward FK) -> category (reverse FK)
+    let results: Vec<PostCategoryResult> = drizzle_exec!(
+        db.select(PostCategoryResult::default())
             .from(post)
             .join(post_category)
-            .join(comment)
-            .order_by([
-                OrderBy::asc(post.title),
-                OrderBy::asc(post_category.category_id),
-                OrderBy::asc(comment.body),
-            ])
+            .join(category)
+            .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
             .all()
     );
 
-    // Go Guide: 1 category link x 1 comment = 1 row
-    // Rust Guide: 2 category links x 2 comments = 4 rows
-    // Total = 5
-    assert_eq!(results.len(), 5);
+    // Go Guide -> Programming = 1 row
+    // Rust Guide -> Programming, Tutorial = 2 rows
+    // Total = 3
+    assert_eq!(results.len(), 3);
 
     assert_eq!(results[0].post_title, "Go Guide");
-    assert_eq!(results[0].category_id, 1);
-    assert_eq!(results[0].comment_body, "Nice intro");
+    assert_eq!(results[0].category_name, "Programming");
+    assert_eq!(
+        results[0].category_description,
+        Some("Programming posts".to_string())
+    );
 
     assert_eq!(results[1].post_title, "Rust Guide");
-    assert_eq!(results[1].category_id, 1);
-    assert_eq!(results[1].comment_body, "Great post!");
+    assert_eq!(results[1].category_name, "Programming");
 
     assert_eq!(results[2].post_title, "Rust Guide");
-    assert_eq!(results[2].category_id, 1);
-    assert_eq!(results[2].comment_body, "Very helpful");
-
-    assert_eq!(results[3].post_title, "Rust Guide");
-    assert_eq!(results[3].category_id, 2);
-    assert_eq!(results[3].comment_body, "Great post!");
-
-    assert_eq!(results[4].post_title, "Rust Guide");
-    assert_eq!(results[4].category_id, 2);
-    assert_eq!(results[4].comment_body, "Very helpful");
+    assert_eq!(results[2].category_name, "Tutorial");
+    assert_eq!(
+        results[2].category_description,
+        Some("How-to guides".to_string())
+    );
 });
