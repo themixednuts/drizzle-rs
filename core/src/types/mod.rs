@@ -54,24 +54,52 @@ mod private {
 ///
 /// This is the base trait for all SQL type markers. It is sealed to prevent
 /// external implementations, ensuring only the predefined SQL types can be used.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a recognized SQL data type",
+    label = "use a drizzle SQL type marker (Int, Text, Bool, etc.)"
+)]
 pub trait DataType: private::Sealed + Copy + Default + 'static {}
 
 /// Numeric SQL types that support arithmetic operations (+, -, *, /).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a numeric SQL type",
+    label = "arithmetic operations require Int, SmallInt, BigInt, Float, or Double"
+)]
 pub trait Numeric: DataType {}
 
 /// Integer SQL types (SMALLINT, INTEGER, BIGINT).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not an integer SQL type",
+    label = "expected SmallInt, Int, or BigInt"
+)]
 pub trait Integral: Numeric {}
 
 /// Floating-point SQL types (REAL, DOUBLE PRECISION).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a floating-point SQL type",
+    label = "expected Float or Double"
+)]
 pub trait Floating: Numeric {}
 
 /// String/text SQL types (TEXT, VARCHAR, CHAR).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a text SQL type",
+    label = "expected Text or VarChar"
+)]
 pub trait Textual: DataType {}
 
 /// Binary data types (BLOB, BYTEA).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a binary SQL type",
+    label = "expected Bytes (BLOB/BYTEA)"
+)]
 pub trait Binary: DataType {}
 
 /// Temporal SQL types (DATE, TIME, TIMESTAMP).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a temporal SQL type",
+    label = "expected Date, Time, Timestamp, or TimestampTz"
+)]
 pub trait Temporal: DataType {}
 
 // =============================================================================

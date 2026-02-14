@@ -20,6 +20,10 @@ use uuid::Uuid;
 /// The `'a` lifetime ties any borrowed parameter values to the resulting SQL
 /// fragment, allowing zero-copy SQL construction when inputs are already
 /// borrowed.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be converted to SQL",
+    label = "this type does not implement ToSQL for the current dialect"
+)]
 pub trait ToSQL<'a, V: SQLParam> {
     fn to_sql(&self) -> SQL<'a, V>;
 

@@ -35,6 +35,11 @@ use super::{
 /// ```
 ///
 /// This trait is analogous to `PartialEq<Rhs>` but for SQL type compatibility.
+#[diagnostic::on_unimplemented(
+    message = "SQL type `{Self}` is not compatible with `{Rhs}`",
+    label = "these SQL types cannot be compared or coerced",
+    note = "compatible types include: integers with integers/floats, text with text/varchar, and any type with itself"
+)]
 pub trait Compatible<Rhs: DataType = Self>: DataType {}
 
 // =============================================================================

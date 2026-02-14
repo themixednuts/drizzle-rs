@@ -5,6 +5,10 @@ use crate::{
 };
 use core::any::Any;
 
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SQL model (Select, Insert, or Update)",
+    label = "this type cannot be used as a query model"
+)]
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
     /// Columns referenced by this model.
     /// Static models can return a borrowed slice; dynamic models can allocate.
@@ -13,6 +17,10 @@ pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
 }
 
 /// Trait for models that support partial selection of fields
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not support partial field selection",
+    label = "this table's Select model does not implement SQLPartial"
+)]
 pub trait SQLPartial<'a, Value: SQLParam> {
     /// The type representing a partial model where all fields are optional
     /// for selective querying
@@ -23,6 +31,10 @@ pub trait SQLPartial<'a, Value: SQLParam> {
     }
 }
 
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SQL table for this dialect",
+    label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
+)]
 pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone
 {

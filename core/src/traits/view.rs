@@ -6,6 +6,10 @@ use core::any::Any;
 /// Trait for database views.
 ///
 /// A View is essentially a named SQL query that can be queried like a table.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SQL view for this dialect",
+    label = "ensure this type was derived with a drizzle view macro"
+)]
 pub trait SQLView<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     SQLTable<'a, Type, Value>
 {

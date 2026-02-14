@@ -63,233 +63,157 @@ pub struct ForeignKeyK;
 pub struct UniqueK;
 pub struct CheckK;
 
+#[diagnostic::on_unimplemented(
+    message = "table `{Self}` does not have a primary key",
+    label = "add `#[column(primary)]` to a column in this table",
+    note = "tables used in this context must have a primary key defined"
+)]
 pub trait HasPrimaryKey {}
+
+#[diagnostic::on_unimplemented(
+    message = "table `{Self}` does not have a `{Kind}` constraint",
+    label = "this table is missing the required constraint"
+)]
 pub trait HasConstraint<Kind> {}
+
+#[diagnostic::on_unimplemented(
+    message = "foreign key type mismatch: `{Self}` cannot reference column of type `{T}`",
+    label = "change this column's type to `{T}` to match the referenced column",
+    note = "the foreign key column type must exactly match the referenced column type"
+)]
 pub trait TypeEq<T> {}
 impl<T> TypeEq<T> for T {}
 
+#[diagnostic::on_unimplemented(
+    message = "column `{Self}` does not belong to table `{Table}`",
+    label = "this column is not defined on the target table",
+    note = "constraint columns must be defined on the table they reference"
+)]
 pub trait ColumnOf<Table> {}
+
+#[diagnostic::on_unimplemented(
+    message = "column `{Self}` is nullable and cannot be used here",
+    label = "this column must be NOT NULL",
+    note = "primary key columns cannot be nullable"
+)]
 pub trait ColumnNotNull {}
+
 pub trait ColumnValueType {
     type ValueType;
 }
 
+#[diagnostic::on_unimplemented(
+    message = "one or more columns do not belong to table `{Table}`",
+    label = "these columns are not all defined on the same table",
+    note = "all constraint columns must belong to the target table"
+)]
 pub trait ColumnsBelongTo<Table, Cols> {}
 impl<Table> ColumnsBelongTo<Table, ()> for () {}
 
-macro_rules! impl_columns_belong_to {
-    ($(($($C:ident),+)),+ $(,)?) => {
-        $(
-            impl<Table, $($C),+> ColumnsBelongTo<Table, ($($C,)+)> for ()
-            where
-                $($C: ColumnOf<Table>,)+
-            {}
-        )+
+macro_rules! impl_columns_belong_to_cb {
+    ($($C:ident),+) => {
+        impl<Table, $($C),+> ColumnsBelongTo<Table, ($($C,)+)> for ()
+        where $($C: ColumnOf<Table>,)+ {}
     };
 }
+with_tuple_sizes!(impl_columns_belong_to_cb);
 
-impl_columns_belong_to!(
-    (C0),
-    (C0, C1),
-    (C0, C1, C2),
-    (C0, C1, C2, C3),
-    (C0, C1, C2, C3, C4),
-    (C0, C1, C2, C3, C4, C5),
-    (C0, C1, C2, C3, C4, C5, C6),
-    (C0, C1, C2, C3, C4, C5, C6, C7),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13),
-    (
-        C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14
-    ),
-    (
-        C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15
-    )
-);
-
+#[diagnostic::on_unimplemented(
+    message = "constraint requires at least one column",
+    label = "provide one or more columns for this constraint"
+)]
 pub trait NonEmptyColSet<Cols> {}
 
-macro_rules! impl_non_empty_col_set {
-    ($(($($C:ident),+)),+ $(,)?) => {
-        $(
-            impl<$($C),+> NonEmptyColSet<($($C,)+)> for () {}
-        )+
+macro_rules! impl_non_empty_col_set_cb {
+    ($($C:ident),+) => {
+        impl<$($C),+> NonEmptyColSet<($($C,)+)> for () {}
     };
 }
+with_tuple_sizes!(impl_non_empty_col_set_cb);
 
-impl_non_empty_col_set!(
-    (C0),
-    (C0, C1),
-    (C0, C1, C2),
-    (C0, C1, C2, C3),
-    (C0, C1, C2, C3, C4),
-    (C0, C1, C2, C3, C4, C5),
-    (C0, C1, C2, C3, C4, C5, C6),
-    (C0, C1, C2, C3, C4, C5, C6, C7),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13),
-    (
-        C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14
-    ),
-    (
-        C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15
-    )
-);
-
+#[diagnostic::on_unimplemented(
+    message = "constraint columns contain duplicates",
+    label = "each column must appear only once in a constraint"
+)]
 pub trait NoDuplicateColSet<Cols> {}
 impl NoDuplicateColSet<()> for () {}
 
+#[diagnostic::on_unimplemented(
+    message = "primary key columns must all be NOT NULL",
+    label = "one or more primary key columns are nullable — remove `Option<>` from them",
+    note = "wrap the column type directly (e.g., `pub id: i64`) instead of `Option<i64>`"
+)]
 pub trait PkNotNull<Cols> {}
 impl PkNotNull<()> for () {}
 
-macro_rules! impl_pk_not_null {
-    ($(($($C:ident),+)),+ $(,)?) => {
-        $(
-            impl<$($C),+> PkNotNull<($($C,)+)> for ()
-            where
-                $($C: ColumnNotNull,)+
-            {}
-        )+
+macro_rules! impl_pk_not_null_cb {
+    ($($C:ident),+) => {
+        impl<$($C),+> PkNotNull<($($C,)+)> for ()
+        where $($C: ColumnNotNull,)+ {}
     };
 }
+with_tuple_sizes!(impl_pk_not_null_cb);
 
-impl_pk_not_null!(
-    (C0),
-    (C0, C1),
-    (C0, C1, C2),
-    (C0, C1, C2, C3),
-    (C0, C1, C2, C3, C4),
-    (C0, C1, C2, C3, C4, C5),
-    (C0, C1, C2, C3, C4, C5, C6),
-    (C0, C1, C2, C3, C4, C5, C6, C7),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12),
-    (C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13),
-    (
-        C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14
-    ),
-    (
-        C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14, C15
-    )
-);
-
+#[diagnostic::on_unimplemented(
+    message = "foreign key column count mismatch between source and target",
+    label = "the number of FK columns must match the number of referenced columns",
+    note = "e.g., a composite FK with 2 source columns must reference exactly 2 target columns"
+)]
 pub trait FkArityMatch<SrcCols, DstCols> {}
 
-macro_rules! impl_fk_arity_match {
-    ($(($($S:ident),+) => ($($D:ident),+)),+ $(,)?) => {
-        $(
-            impl<$($S,)+ $($D,)+> FkArityMatch<($($S,)+), ($($D,)+)> for () {}
-        )+
+macro_rules! impl_fk_arity_match_cb {
+    ($($S:ident),+; $($D:ident),+) => {
+        impl<$($S,)+ $($D,)+> FkArityMatch<($($S,)+), ($($D,)+)> for () {}
     };
 }
+with_dual_tuple_sizes!(impl_fk_arity_match_cb);
 
-impl_fk_arity_match!(
-    (S0) => (D0),
-    (S0, S1) => (D0, D1),
-    (S0, S1, S2) => (D0, D1, D2),
-    (S0, S1, S2, S3) => (D0, D1, D2, D3),
-    (S0, S1, S2, S3, S4) => (D0, D1, D2, D3, D4),
-    (S0, S1, S2, S3, S4, S5) => (D0, D1, D2, D3, D4, D5),
-    (S0, S1, S2, S3, S4, S5, S6) => (D0, D1, D2, D3, D4, D5, D6),
-    (S0, S1, S2, S3, S4, S5, S6, S7) => (D0, D1, D2, D3, D4, D5, D6, D7),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8) => (D0, D1, D2, D3, D4, D5, D6, D7, D8),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S15) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15)
-);
-
+#[diagnostic::on_unimplemented(
+    message = "foreign key column types do not match the referenced columns",
+    label = "each FK column's type must match the corresponding referenced column's type"
+)]
 pub trait FkTypeMatch<SrcCols, DstCols> {}
 impl FkTypeMatch<(), ()> for () {}
 
-macro_rules! impl_fk_type_match {
-    ($(($($S:ident),+) => ($($D:ident),+)),+ $(,)?) => {
-        $(
-            impl<$($S,)+ $($D,)+> FkTypeMatch<($($S,)+), ($($D,)+)> for ()
-            where
-                $(
-                    $S: ColumnValueType,
-                    $D: ColumnValueType,
-                    <$S as ColumnValueType>::ValueType: TypeEq<<$D as ColumnValueType>::ValueType>,
-                )+
-            {}
-        )+
-    };
-}
-
-impl_fk_type_match!(
-    (S0) => (D0),
-    (S0, S1) => (D0, D1),
-    (S0, S1, S2) => (D0, D1, D2),
-    (S0, S1, S2, S3) => (D0, D1, D2, D3),
-    (S0, S1, S2, S3, S4) => (D0, D1, D2, D3, D4),
-    (S0, S1, S2, S3, S4, S5) => (D0, D1, D2, D3, D4, D5),
-    (S0, S1, S2, S3, S4, S5, S6) => (D0, D1, D2, D3, D4, D5, D6),
-    (S0, S1, S2, S3, S4, S5, S6, S7) => (D0, D1, D2, D3, D4, D5, D6, D7),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8) => (D0, D1, D2, D3, D4, D5, D6, D7, D8),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14),
-    (S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, S14, S15) => (D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15)
-);
-
-pub trait ForeignKeysInSchema<S> {}
-impl<S> ForeignKeysInSchema<S> for () {}
-
-macro_rules! impl_foreign_keys_in_schema {
-    ($($fk:ident),+ $(,)?) => {
-        impl<S, $($fk),+> ForeignKeysInSchema<S> for ($($fk,)+)
+macro_rules! impl_fk_type_match_cb {
+    ($($S:ident),+; $($D:ident),+) => {
+        impl<$($S,)+ $($D,)+> FkTypeMatch<($($S,)+), ($($D,)+)> for ()
         where
             $(
-                $fk: SQLForeignKey,
-                S: SchemaHasTable<<$fk as SQLForeignKey>::TargetTable>,
+                $S: ColumnValueType,
+                $D: ColumnValueType,
+                <$S as ColumnValueType>::ValueType: TypeEq<<$D as ColumnValueType>::ValueType>,
             )+
         {}
     };
 }
+with_dual_tuple_sizes!(impl_fk_type_match_cb);
 
-impl_foreign_keys_in_schema!(Fk0);
-impl_foreign_keys_in_schema!(Fk0, Fk1);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9, Fk10);
-impl_foreign_keys_in_schema!(Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9, Fk10, Fk11);
-impl_foreign_keys_in_schema!(
-    Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9, Fk10, Fk11, Fk12
-);
-impl_foreign_keys_in_schema!(
-    Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9, Fk10, Fk11, Fk12, Fk13
-);
-impl_foreign_keys_in_schema!(
-    Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9, Fk10, Fk11, Fk12, Fk13, Fk14
-);
-impl_foreign_keys_in_schema!(
-    Fk0, Fk1, Fk2, Fk3, Fk4, Fk5, Fk6, Fk7, Fk8, Fk9, Fk10, Fk11, Fk12, Fk13, Fk14, Fk15
-);
+#[diagnostic::on_unimplemented(
+    message = "foreign key references a table not present in this schema",
+    label = "add the referenced table to your schema definition",
+    note = "all tables referenced by foreign keys must be included in the schema"
+)]
+pub trait ForeignKeysInSchema<S> {}
+impl<S> ForeignKeysInSchema<S> for () {}
 
+macro_rules! impl_foreign_keys_in_schema_cb {
+    ($($Fk:ident),+) => {
+        impl<S, $($Fk),+> ForeignKeysInSchema<S> for ($($Fk,)+)
+        where
+            $(
+                $Fk: SQLForeignKey,
+                S: SchemaHasTable<<$Fk as SQLForeignKey>::TargetTable>,
+            )+
+        {}
+    };
+}
+with_tuple_sizes!(impl_foreign_keys_in_schema_cb);
+
+#[diagnostic::on_unimplemented(
+    message = "schema contains tables with foreign keys referencing tables not in the schema",
+    label = "ensure all FK target tables are included in this schema"
+)]
 pub trait ValidateTableSetForeignKeys<S> {}
 impl<S> ValidateTableSetForeignKeys<S> for Nil {}
 
@@ -319,12 +243,21 @@ where
 /// Marker trait for valid ON CONFLICT column targets.
 /// Generated for PK columns, unique columns, PK ZSTs, unique constraint ZSTs,
 /// and unique index structs.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid conflict target for table `{Table}`",
+    label = "use a primary key, unique column, or unique index/constraint from this table",
+    note = "ON CONFLICT targets must be primary key columns, unique columns, or unique indexes"
+)]
 pub trait ConflictTarget<Table> {
     fn conflict_columns(&self) -> &'static [&'static str];
 }
 
 /// Marker trait for named constraints usable with ON CONFLICT ON CONSTRAINT (PG-only).
 /// Generated for unique index structs and unique constraint ZSTs that have a name.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a named constraint on table `{Table}`",
+    label = "ON CONSTRAINT requires a named unique index or unique constraint"
+)]
 pub trait NamedConstraint<Table> {
     fn constraint_name(&self) -> &'static str;
 }

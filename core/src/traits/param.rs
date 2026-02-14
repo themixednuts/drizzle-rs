@@ -4,6 +4,10 @@ use crate::dialect::Dialect;
 ///
 /// This trait is used as a bound on the parameter type in SQL fragments.
 /// It ensures type safety when building SQL queries with parameters.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SQL parameter type",
+    label = "use a dialect-specific value type (e.g., SQLiteValue, PostgresValue)"
+)]
 pub trait SQLParam: Clone + core::fmt::Debug {
     /// The SQL dialect for this parameter type
     const DIALECT: Dialect;

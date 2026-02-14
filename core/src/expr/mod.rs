@@ -63,6 +63,10 @@ mod private {
 // =============================================================================
 
 /// Marker trait for nullability state.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid nullability marker",
+    label = "expected `NonNull` or `Null`"
+)]
 pub trait Nullability: private::Sealed + Copy + Default + 'static {}
 
 /// Marker indicating an expression cannot be NULL.
@@ -83,6 +87,10 @@ impl Nullability for Null {}
 // =============================================================================
 
 /// Marker trait for expression aggregation state.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid aggregate marker",
+    label = "expected `Scalar` or `Agg`"
+)]
 pub trait AggregateKind: private::Sealed + Copy + Default + 'static {}
 
 /// Marker indicating a scalar (non-aggregate) expression.
@@ -128,6 +136,11 @@ impl AggregateKind for Agg {}
 /// fn check_expr<'a, V, E: Expr<'a, V>>() {}
 /// check_expr::<_, i32>(); // SQLType=Int, Nullable=NonNull, Aggregate=Scalar
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid SQL expression",
+    label = "expected a column, literal, or expression — does this type implement Expr?",
+    note = "SQL expressions must have an associated SQLType, Nullable, and Aggregate kind"
+)]
 pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> {
     /// The SQL data type this expression evaluates to.
     type SQLType: DataType;
