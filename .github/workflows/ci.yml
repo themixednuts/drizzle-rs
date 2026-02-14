@@ -135,12 +135,61 @@ jobs:
             echo "::notice::Turso tests passed"
           fi
 
-      - name: Upload failure logs
+      - name: Extract failure reports
+        id: extract
         if: steps.test.outputs.has_failures == 'true'
+        run: |
+          python3 -c "
+          import sys
+
+          text = open('test-output/output.txt').read()
+          reports = []
+          in_report = False
+          buffer = []
+          prev_line = ''
+          box_chars = set('╔═╗║╚╝├─┤│')
+
+          for line in text.splitlines(True):
+              if 'TEST FAILURE REPORT' in line:
+                  in_report = True
+                  buffer = []
+                  if any(c in box_chars for c in prev_line):
+                      buffer.append(prev_line)
+                  buffer.append(line)
+              elif in_report:
+                  if line.strip() == '' or any(c in box_chars for c in line):
+                      buffer.append(line)
+                  else:
+                      reports.append(''.join(buffer))
+                      buffer = []
+                      in_report = False
+              prev_line = line
+
+          if buffer:
+              reports.append(''.join(buffer))
+
+          if reports:
+              with open('test-output/failure-reports.txt', 'w') as f:
+                  for i, report in enumerate(reports):
+                      if i > 0:
+                          f.write('\n' + '=' * 80 + '\n\n')
+                      f.write(report)
+              print(f'Extracted {len(reports)} failure report(s)')
+          else:
+              print('No structured failure reports found in output')
+          "
+
+          # Set output based on whether the file was created
+          if [ -f test-output/failure-reports.txt ]; then
+            echo "has_reports=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload failure reports
+        if: steps.extract.outputs.has_reports == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: turso-test-logs
-          path: test-output/output.txt
+          name: turso-failure-reports
+          path: test-output/failure-reports.txt
           retention-days: 7
 
   docs:
