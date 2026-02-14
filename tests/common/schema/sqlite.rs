@@ -144,7 +144,7 @@ pub struct Post {
     pub title: String,
     pub content: Option<String>,
     #[column(REFERENCES = Complex::id)]
-    pub author_id: Option<i32>,
+    pub author_id: Option<i64>,
     pub published: bool,
     pub tags: Option<String>,
     pub created_at: Option<String>,
@@ -158,7 +158,7 @@ pub struct Post {
     pub title: String,
     pub content: Option<String>,
     #[column(REFERENCES = Complex::id)]
-    pub author_id: Option<i32>,
+    pub author_id: Option<i64>,
     pub published: bool,
     pub tags: Option<String>,
     pub created_at: Option<String>,
