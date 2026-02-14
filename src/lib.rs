@@ -250,3 +250,288 @@ pub mod postgres {
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql {}
+
+// =============================================================================
+// Compile-fail tests (verified during `cargo test --doc`)
+// =============================================================================
+
+/// Type safety: abs() rejects non-numeric columns.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::abs;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = abs(user.name);
+/// }
+/// ```
+///
+/// Type safety: avg() rejects non-numeric columns.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::avg;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = avg(user.name);
+/// }
+/// ```
+///
+/// Type safety: sum() rejects non-numeric columns.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::sum;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = sum(user.name);
+/// }
+/// ```
+///
+/// Type safety: Bool is not compatible with Int.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::eq;
+///
+/// #[SQLiteTable]
+/// struct Config {
+///     #[column(primary)]
+///     id: i32,
+///     enabled: bool,
+/// }
+///
+/// fn main() {
+///     let config = Config::default();
+///     let _ = eq(config.enabled, 42);
+/// }
+/// ```
+///
+/// Type safety: Int is not compatible with Text.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::eq;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = eq(user.id, "hello");
+/// }
+/// ```
+///
+/// Type safety: coalesce() rejects incompatible types.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::coalesce;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = coalesce(user.id, "default");
+/// }
+/// ```
+///
+/// Type safety: concat() rejects non-textual columns.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::concat;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = concat(user.id, user.name);
+/// }
+/// ```
+///
+/// Type safety: date() rejects non-temporal columns.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::date;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = date(user.id);
+/// }
+/// ```
+///
+/// Type safety: like() rejects non-textual columns.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::core::expr::like;
+///
+/// #[SQLiteTable]
+/// struct User {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// fn main() {
+///     let user = User::default();
+///     let _ = like(user.id, "%test%");
+/// }
+/// ```
+///
+/// Type safety: FK column type must match referenced column type.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable]
+/// struct Parent {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// #[SQLiteTable]
+/// struct Child {
+///     #[column(primary)]
+///     id: i32,
+///     #[column(references = Parent::id)]
+///     parent_ref: String,
+/// }
+///
+/// fn main() {}
+/// ```
+///
+/// Type safety: FK target table must be in the schema.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable]
+/// struct Parent {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// #[SQLiteTable]
+/// struct Child {
+///     #[column(primary)]
+///     id: i32,
+///     #[column(references = Parent::id)]
+///     parent_id: Option<i32>,
+/// }
+///
+/// #[derive(SQLiteSchema)]
+/// struct BadSchema {
+///     child: Child,
+/// }
+///
+/// fn main() {}
+/// ```
+///
+/// Type safety: HasConstraint requires actual FK on the table.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable]
+/// struct Simple {
+///     #[column(primary)]
+///     id: i32,
+///     value: String,
+/// }
+///
+/// fn requires_fk_constraint<T: HasConstraint<ForeignKeyK>>() {}
+///
+/// fn main() {
+///     requires_fk_constraint::<Simple>();
+/// }
+/// ```
+///
+/// Type safety: Relation requires a FK between the tables.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable]
+/// struct Parent {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// #[SQLiteTable]
+/// struct Simple {
+///     #[column(primary)]
+///     id: i32,
+///     value: String,
+/// }
+///
+/// fn requires_relation<T: Relation<Parent>>() {}
+///
+/// fn main() {
+///     requires_relation::<Simple>();
+/// }
+/// ```
+///
+/// Type safety: Joinable requires a FK relationship.
+/// ```compile_fail,E0277
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable]
+/// struct Parent {
+///     #[column(primary)]
+///     id: i32,
+///     name: String,
+/// }
+///
+/// #[SQLiteTable]
+/// struct Unrelated {
+///     #[column(primary)]
+///     id: i32,
+///     value: String,
+/// }
+///
+/// fn requires_joinable<A: Joinable<B>, B>() {}
+///
+/// fn main() {
+///     requires_joinable::<Unrelated, Parent>();
+/// }
+/// ```
+#[cfg(doctest)]
+struct _CompileFailTests;
