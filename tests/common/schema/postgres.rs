@@ -170,15 +170,40 @@ pub struct Category {
 #[cfg(not(feature = "uuid"))]
 #[PostgresTable]
 pub struct PostCategory {
+    #[column(references = Post::id)]
     pub post_id: i32,
+    #[column(references = Category::id)]
     pub category_id: i32,
 }
 
 #[cfg(feature = "uuid")]
 #[PostgresTable]
 pub struct PostCategory {
+    #[column(references = Post::id)]
     pub post_id: Uuid,
+    #[column(references = Category::id)]
     pub category_id: i32,
+}
+
+// Comments table for chained FK join testing
+#[cfg(not(feature = "uuid"))]
+#[PostgresTable]
+pub struct Comment {
+    #[column(serial, primary)]
+    pub id: i32,
+    pub body: String,
+    #[column(references = Post::id)]
+    pub post_id: i32,
+}
+
+#[cfg(feature = "uuid")]
+#[PostgresTable]
+pub struct Comment {
+    #[column(serial, primary)]
+    pub id: i32,
+    pub body: String,
+    #[column(references = Post::id)]
+    pub post_id: Uuid,
 }
 
 // Table with native PostgreSQL enum
@@ -237,6 +262,10 @@ pub struct CategorySchema {
 
 #[derive(PostgresSchema)]
 pub struct PostCategorySchema {
+    pub role: Role,
+    pub complex: Complex,
+    pub post: Post,
+    pub category: Category,
     pub post_category: PostCategory,
 }
 
@@ -255,6 +284,7 @@ pub struct FullBlogSchema {
     pub post: Post,
     pub category: Category,
     pub post_category: PostCategory,
+    pub comment: Comment,
 }
 
 // Schema with indexes

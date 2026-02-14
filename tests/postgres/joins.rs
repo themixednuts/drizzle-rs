@@ -4,7 +4,8 @@
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::postgres::{
-    Complex, ComplexPostSchema, InsertComplex, InsertPost, Post, Role,
+    Comment, Complex, ComplexPostSchema, FullBlogSchema, InsertCategory, InsertComment,
+    InsertComplex, InsertPost, InsertPostCategory, Post, PostCategory, Role,
 };
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
@@ -95,4 +96,97 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
     filtered_results.iter().for_each(|r| {
         assert_eq!(r.author_name, "alice");
     });
+});
+
+#[cfg(feature = "uuid")]
+#[derive(Debug, PostgresFromRow, Default)]
+struct PostCommentCategoryResult {
+    #[column(Post::title)]
+    post_title: String,
+    #[column(PostCategory::category_id)]
+    category_id: i32,
+    #[column(Comment::body)]
+    comment_body: String,
+}
+
+#[cfg(feature = "uuid")]
+postgres_test!(chained_fk_join, FullBlogSchema, {
+    let FullBlogSchema {
+        post,
+        category,
+        post_category,
+        comment,
+        ..
+    } = schema;
+
+    let [post_id1, post_id2]: [Uuid; 2] = array::from_fn(|_| Uuid::new_v4());
+
+    let posts = vec![
+        InsertPost::new("Rust Guide", true)
+            .with_id(post_id1)
+            .with_content("Learn Rust"),
+        InsertPost::new("Go Guide", true)
+            .with_id(post_id2)
+            .with_content("Learn Go"),
+    ];
+    drizzle_exec!(db.insert(post).values(posts).execute());
+
+    let categories = vec![
+        InsertCategory::new("Programming"),
+        InsertCategory::new("Tutorial"),
+    ];
+    drizzle_exec!(db.insert(category).values(categories).execute());
+
+    let links = vec![
+        InsertPostCategory::new(post_id1, 1),
+        InsertPostCategory::new(post_id1, 2),
+        InsertPostCategory::new(post_id2, 1),
+    ];
+    drizzle_exec!(db.insert(post_category).values(links).execute());
+
+    let comments = vec![
+        InsertComment::new("Great post!", post_id1),
+        InsertComment::new("Very helpful", post_id1),
+        InsertComment::new("Nice intro", post_id2),
+    ];
+    drizzle_exec!(db.insert(comment).values(comments).execute());
+
+    // Chained FK joins: both post_category and comment auto-derive ON from FK to Post
+    let results: Vec<PostCommentCategoryResult> = drizzle_exec!(
+        db.select(PostCommentCategoryResult::default())
+            .from(post)
+            .join(post_category)
+            .join(comment)
+            .order_by([
+                OrderBy::asc(post.title),
+                OrderBy::asc(post_category.category_id),
+                OrderBy::asc(comment.body),
+            ])
+            .all()
+    );
+
+    // Go Guide: 1 category link x 1 comment = 1 row
+    // Rust Guide: 2 category links x 2 comments = 4 rows
+    // Total = 5
+    assert_eq!(results.len(), 5);
+
+    assert_eq!(results[0].post_title, "Go Guide");
+    assert_eq!(results[0].category_id, 1);
+    assert_eq!(results[0].comment_body, "Nice intro");
+
+    assert_eq!(results[1].post_title, "Rust Guide");
+    assert_eq!(results[1].category_id, 1);
+    assert_eq!(results[1].comment_body, "Great post!");
+
+    assert_eq!(results[2].post_title, "Rust Guide");
+    assert_eq!(results[2].category_id, 1);
+    assert_eq!(results[2].comment_body, "Very helpful");
+
+    assert_eq!(results[3].post_title, "Rust Guide");
+    assert_eq!(results[3].category_id, 2);
+    assert_eq!(results[3].comment_body, "Great post!");
+
+    assert_eq!(results[4].post_title, "Rust Guide");
+    assert_eq!(results[4].category_id, 2);
+    assert_eq!(results[4].comment_body, "Very helpful");
 });

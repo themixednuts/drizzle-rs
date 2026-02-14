@@ -175,15 +175,39 @@ pub struct Category {
 #[cfg(not(feature = "uuid"))]
 #[SQLiteTable(NAME = "post_categories")]
 pub struct PostCategory {
+    #[column(REFERENCES = Post::id)]
     pub post_id: i32,
+    #[column(REFERENCES = Category::id)]
     pub category_id: i32,
 }
 
 #[cfg(feature = "uuid")]
 #[SQLiteTable(NAME = "post_categories")]
 pub struct PostCategory {
+    #[column(REFERENCES = Post::id)]
     pub post_id: Uuid,
+    #[column(REFERENCES = Category::id)]
     pub category_id: i32,
+}
+
+#[cfg(not(feature = "uuid"))]
+#[SQLiteTable(NAME = "comments")]
+pub struct Comment {
+    #[column(PRIMARY)]
+    pub id: i32,
+    pub body: String,
+    #[column(REFERENCES = Post::id)]
+    pub post_id: i32,
+}
+
+#[cfg(feature = "uuid")]
+#[SQLiteTable(NAME = "comments")]
+pub struct Comment {
+    #[column(PRIMARY)]
+    pub id: i32,
+    pub body: String,
+    #[column(REFERENCES = Post::id)]
+    pub post_id: Uuid,
 }
 
 #[derive(SQLiteSchema)]
@@ -221,6 +245,9 @@ pub struct CategorySchema {
 
 #[derive(SQLiteSchema)]
 pub struct PostCategorySchema {
+    pub complex: Complex,
+    pub post: Post,
+    pub category: Category,
     pub post_category: PostCategory,
 }
 
@@ -231,4 +258,5 @@ pub struct FullBlogSchema {
     pub post: Post,
     pub category: Category,
     pub post_category: PostCategory,
+    pub comment: Comment,
 }
