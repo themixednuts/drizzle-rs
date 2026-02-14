@@ -113,7 +113,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
         SelectJoinSet,
     > {
         let builder = self.builder.join(arg);
@@ -184,7 +184,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
         SelectJoinSet,
     > {
         let builder = self.builder.join(arg);

@@ -24,6 +24,7 @@ pub use drizzle_core::Join;
 /// - **`(table, condition)`** — explicit ON condition (always available)
 /// - **bare table** — auto-derives ON condition from FK metadata (requires `Joinable` bound)
 pub trait JoinArg<'a, FromTable> {
+    type JoinedTable;
     fn into_join_sql(self, join: Join) -> SQL<'a, PostgresValue<'a>>;
 }
 
@@ -33,6 +34,7 @@ where
     U: PostgresTable<'a> + Joinable<T>,
     T: PostgresTableInfo + Default,
 {
+    type JoinedTable = U;
     fn into_join_sql(self, join: Join) -> SQL<'a, PostgresValue<'a>> {
         use drizzle_core::ToSQL;
         let from = T::default();
@@ -71,6 +73,7 @@ where
     U: PostgresTable<'a>,
     C: ToSQL<'a, PostgresValue<'a>>,
 {
+    type JoinedTable = U;
     fn into_join_sql(self, join: Join) -> SQL<'a, PostgresValue<'a>> {
         let (table, condition) = self;
         join_internal(table, join, condition)

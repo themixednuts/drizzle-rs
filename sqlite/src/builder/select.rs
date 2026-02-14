@@ -139,7 +139,7 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
                 use drizzle_core::Join;
                 SelectBuilder {
                     sql: append_sql(self.sql, arg.into_join_sql($join_expr)),
@@ -414,7 +414,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// );
     /// ```
     #[inline]
-    pub fn join<J: JoinArg<'a, T>>(self, arg: J) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+    pub fn join<J: JoinArg<'a, T>>(
+        self,
+        arg: J,
+    ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
         SelectBuilder {
             sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,
@@ -572,7 +575,10 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     }
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<J: JoinArg<'a, T>>(self, arg: J) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+    pub fn join<J: JoinArg<'a, T>>(
+        self,
+        arg: J,
+    ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
         SelectBuilder {
             sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,

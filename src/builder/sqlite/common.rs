@@ -433,8 +433,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectJoinSet,
+    > {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -491,8 +496,13 @@ impl<'d, 'a, Conn, Schema, T>
     pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-    {
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectJoinSet,
+    > {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,

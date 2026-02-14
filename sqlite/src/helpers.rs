@@ -24,6 +24,7 @@ pub use drizzle_core::Join;
 /// - **`(table, condition)`** — explicit ON condition (always available)
 /// - **bare table** — auto-derives ON condition from FK metadata (requires `Joinable` bound)
 pub trait JoinArg<'a, FromTable> {
+    type JoinedTable;
     fn into_join_sql(self, join: Join) -> SQL<'a, SQLiteValue<'a>>;
 }
 
@@ -33,6 +34,7 @@ where
     U: SQLiteTable<'a> + Joinable<T>,
     T: SQLiteTableInfo + Default,
 {
+    type JoinedTable = U;
     fn into_join_sql(self, join: Join) -> SQL<'a, SQLiteValue<'a>> {
         use drizzle_core::ToSQL;
         let from = T::default();
@@ -71,6 +73,7 @@ where
     U: SQLiteTable<'a>,
     C: ToSQL<'a, SQLiteValue<'a>>,
 {
+    type JoinedTable = U;
     fn into_join_sql(self, join: Join) -> SQL<'a, SQLiteValue<'a>> {
         let (table, condition) = self;
         join_internal(table, join, condition)

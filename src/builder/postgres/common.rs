@@ -299,7 +299,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
         SelectJoinSet,
     > {
         let builder = self.builder.join(arg);
@@ -366,7 +366,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
         SelectJoinSet,
     > {
         let builder = self.builder.join(arg);

@@ -81,8 +81,12 @@ where
     pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-    {
+    ) -> TransactionBuilder<
+        'a,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectJoinSet,
+    > {
         let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
@@ -130,8 +134,12 @@ where
     pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-    {
+    ) -> TransactionBuilder<
+        'a,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectJoinSet,
+    > {
         let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,

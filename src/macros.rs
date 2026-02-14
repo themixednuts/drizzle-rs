@@ -26,7 +26,7 @@ macro_rules! drizzle_builder_join_impl {
                 'd,
                 Conn,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, T>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
                 SelectJoinSet,
             >
             {
@@ -68,7 +68,7 @@ macro_rules! transaction_builder_join_impl {
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, T>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
                 SelectJoinSet,
             >
             {

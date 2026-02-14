@@ -154,7 +154,7 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
                 use drizzle_core::Join;
                 SelectBuilder {
                     sql: self.sql.append(arg.into_join_sql($join_expr)),
@@ -174,7 +174,7 @@ macro_rules! join_using_impl {
             self,
             table: U,
             columns: impl ToSQL<'a, PostgresValue<'a>>,
-        ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+        ) -> SelectBuilder<'a, S, SelectJoinSet, U> {
             SelectBuilder {
                 sql: self.sql.append(helpers::join_using(table, columns)),
                 schema: PhantomData,
@@ -190,7 +190,7 @@ macro_rules! join_using_impl {
                 self,
                 table: U,
                 columns: impl ToSQL<'a, PostgresValue<'a>>,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+            ) -> SelectBuilder<'a, S, SelectJoinSet, U> {
                 SelectBuilder {
                     sql: self.sql.append(helpers::[<$type _join_using>](table, columns)),
                     schema: PhantomData,
@@ -262,7 +262,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     pub fn join<J: crate::helpers::JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+    ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
         use drizzle_core::Join;
         SelectBuilder {
             sql: self.sql.append(arg.into_join_sql(Join::new())),
@@ -379,7 +379,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     pub fn join<J: crate::helpers::JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+    ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
         use drizzle_core::Join;
         SelectBuilder {
             sql: self.sql.append(arg.into_join_sql(Join::new())),
