@@ -226,18 +226,19 @@ postgres_test!(cte_after_join, SimpleSchema, {
     let results: Vec<PgSimpleResult> = {
         let simple_alias = Simple::alias("simple_alias");
         let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+        let join_cond = eq(simple.id, simple_alias.id);
         let joined_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
             .from(simple)
-            .join(simple_alias.clone(), eq(simple.id, simple_alias.id.clone()))
+            .join((simple_alias, join_cond))
             .into_cte("joined_simple");
-        let joined_alias = joined_simple.table.clone();
+        let joined_alias = joined_simple.table;
 
         drizzle_exec!(
             db.with(&joined_simple)
-                .select((joined_alias.id.clone(), joined_alias.name.clone()))
+                .select((joined_alias.id, joined_alias.name))
                 .from(&joined_simple)
-                .order_by([OrderBy::asc(joined_alias.id.clone())])
+                .order_by([OrderBy::asc(joined_alias.id)])
                 .all()
         )
     };

@@ -1,5 +1,4 @@
-use crate::helpers;
-use crate::traits::SQLiteTable;
+use crate::helpers::{self, JoinArg};
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, SQLTable, ToSQL};
 use paste::paste;
@@ -119,31 +118,31 @@ impl SelectSetOpSet {
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
-        join_impl!(natural);
-        join_impl!(natural_left);
-        join_impl!(left);
-        join_impl!(left_outer);
-        join_impl!(natural_left_outer);
-        join_impl!(natural_right);
-        join_impl!(right);
-        join_impl!(right_outer);
-        join_impl!(natural_right_outer);
-        join_impl!(natural_full);
-        join_impl!(full);
-        join_impl!(full_outer);
-        join_impl!(natural_full_outer);
-        join_impl!(inner);
-        join_impl!(cross);
+        join_impl!(natural, Join::new().natural());
+        join_impl!(natural_left, Join::new().natural().left());
+        join_impl!(left, Join::new().left());
+        join_impl!(left_outer, Join::new().left().outer());
+        join_impl!(natural_left_outer, Join::new().natural().left().outer());
+        join_impl!(natural_right, Join::new().natural().right());
+        join_impl!(right, Join::new().right());
+        join_impl!(right_outer, Join::new().right().outer());
+        join_impl!(natural_right_outer, Join::new().natural().right().outer());
+        join_impl!(natural_full, Join::new().natural().full());
+        join_impl!(full, Join::new().full());
+        join_impl!(full_outer, Join::new().full().outer());
+        join_impl!(natural_full_outer, Join::new().natural().full().outer());
+        join_impl!(inner, Join::new().inner());
+        join_impl!(cross, Join::new().cross());
     };
-    ($type:ident) => {
+    ($type:ident, $join_expr:expr) => {
         paste! {
-            pub fn [<$type _join>]<U:  SQLiteTable<'a>>(
+            pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
-                table: U,
-                condition: impl ToSQL<'a, SQLiteValue<'a>>,
+                arg: J,
             ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+                use drizzle_core::Join;
                 SelectBuilder {
-                    sql: append_sql(self.sql, helpers::[<$type _join>](table, condition)),
+                    sql: append_sql(self.sql, arg.into_join_sql($join_expr)),
                     schema: PhantomData,
                     state: PhantomData,
                     table: PhantomData,
@@ -279,7 +278,7 @@ impl AsCteState for SelectOffsetSet {}
 /// let query = builder
 ///     .select((user.name, post.title))
 ///     .from(user)
-///     .join(post, eq(user.id, post.user_id));
+///     .join((post, eq(user.id, post.user_id)));
 /// ```
 ///
 /// ```rust,no_run
@@ -408,20 +407,16 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// let query = builder
     ///     .select((user.name, post.title))
     ///     .from(user)
-    ///     .join(post, eq(user.id, post.user_id));
+    ///     .join((post, eq(user.id, post.user_id)));
     /// assert_eq!(
     ///     query.to_sql().sql(),
     ///     r#"SELECT "users"."name", "posts"."title" FROM "users" JOIN "posts" ON "users"."id" = "posts"."user_id""#
     /// );
     /// ```
     #[inline]
-    pub fn join<U: SQLiteTable<'a>>(
-        self,
-        table: U,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+    pub fn join<J: JoinArg<'a, T>>(self, arg: J) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::join(table, condition)),
+            sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -577,13 +572,9 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     }
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: SQLiteTable<'a>>(
-        self,
-        table: U,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+    pub fn join<J: JoinArg<'a, T>>(self, arg: J) -> SelectBuilder<'a, S, SelectJoinSet, T> {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::join(table, condition)),
+            sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

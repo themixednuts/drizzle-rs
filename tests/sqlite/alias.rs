@@ -103,7 +103,7 @@ sqlite_test!(self_join_with_aliases, ComplexSchema, {
     let stmt = db
         .select((c1.name.alias("name1"), c2.name.alias("name2")))
         .from(c1)
-        .inner_join(c2, eq(c1.email, c2.email))
+        .inner_join((c2, eq(c1.email, c2.email)))
         .r#where(neq(c1.id, c2.id));
     println!("Self-join with aliases SQL: {}", stmt.to_sql());
     let results: Vec<NamePair> = drizzle_exec!(stmt.all());
@@ -151,7 +151,7 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
     let stmt = db
         .select((u.name.alias("user_name"), p.title.alias("post_title")))
         .from(u)
-        .inner_join(p, eq(u.id, p.author_id))
+        .inner_join((p, eq(u.id, p.author_id)))
         .r#where(eq(p.published, true))
         .order_by([OrderBy::asc(u.name)]);
     println!("Multiple table aliases join SQL: {}", stmt.to_sql());

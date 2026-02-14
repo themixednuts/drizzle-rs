@@ -674,7 +674,7 @@ mod rusqlite {
                         let results: Vec<JoinResult> = db
                             .select(JoinResult::default())
                             .from(users)
-                            .inner_join(posts, eq(users.id, posts.author_id))
+                            .inner_join((posts, eq(users.id, posts.author_id)))
                             .all()
                             .unwrap();
                         black_box(results);

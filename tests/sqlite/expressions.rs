@@ -612,7 +612,7 @@ sqlite_test!(test_cte_after_join, SimpleSchema, {
     let joined_simple = db
         .select((simple.id, simple.name))
         .from(simple)
-        .join(simple_alias, eq(simple.id, simple_alias.id))
+        .join((simple_alias, eq(simple.id, simple_alias.id)))
         .into_cte("joined_simple");
 
     let results: Vec<SelectSimple> = drizzle_exec!(

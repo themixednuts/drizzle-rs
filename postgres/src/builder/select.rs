@@ -122,21 +122,21 @@ impl SelectForSet {
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
-        join_impl!(natural);
-        join_impl!(natural_left);
-        join_impl!(left);
-        join_impl!(left_outer);
-        join_impl!(natural_left_outer);
-        join_impl!(natural_right);
-        join_impl!(right);
-        join_impl!(right_outer);
-        join_impl!(natural_right_outer);
-        join_impl!(natural_full);
-        join_impl!(full);
-        join_impl!(full_outer);
-        join_impl!(natural_full_outer);
-        join_impl!(inner);
-        join_impl!(cross);
+        join_impl!(natural, Join::new().natural());
+        join_impl!(natural_left, Join::new().natural().left());
+        join_impl!(left, Join::new().left());
+        join_impl!(left_outer, Join::new().left().outer());
+        join_impl!(natural_left_outer, Join::new().natural().left().outer());
+        join_impl!(natural_right, Join::new().natural().right());
+        join_impl!(right, Join::new().right());
+        join_impl!(right_outer, Join::new().right().outer());
+        join_impl!(natural_right_outer, Join::new().natural().right().outer());
+        join_impl!(natural_full, Join::new().natural().full());
+        join_impl!(full, Join::new().full());
+        join_impl!(full_outer, Join::new().full().outer());
+        join_impl!(natural_full_outer, Join::new().natural().full().outer());
+        join_impl!(inner, Join::new().inner());
+        join_impl!(cross, Join::new().cross());
 
         // USING variants only for non-natural, non-cross joins
         join_using_impl!(left);
@@ -148,16 +148,16 @@ macro_rules! join_impl {
         join_using_impl!(inner);
         join_using_impl!(); // Plain JOIN
     };
-    ($type:ident) => {
+    ($type:ident, $join_expr:expr) => {
         paste! {
             /// JOIN with ON clause
-            pub fn [<$type _join>]<U:  PostgresTable<'a>>(
+            pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
                 self,
-                table: U,
-                condition: impl ToSQL<'a, PostgresValue<'a>>,
+                arg: J,
             ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+                use drizzle_core::Join;
                 SelectBuilder {
-                    sql: self.sql.append(helpers::[<$type _join>](table, condition)),
+                    sql: self.sql.append(arg.into_join_sql($join_expr)),
                     schema: PhantomData,
                     state: PhantomData,
                     table: PhantomData,
@@ -259,13 +259,13 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
 impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: PostgresTable<'a>>(
+    pub fn join<J: crate::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
+        arg: J,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+        use drizzle_core::Join;
         SelectBuilder {
-            sql: self.sql.append(helpers::join(table, condition)),
+            sql: self.sql.append(arg.into_join_sql(Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -376,13 +376,13 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     }
     /// Adds a JOIN clause to the query
     #[inline]
-    pub fn join<U: PostgresTable<'a>>(
+    pub fn join<J: crate::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
+        arg: J,
     ) -> SelectBuilder<'a, S, SelectJoinSet, T> {
+        use drizzle_core::Join;
         SelectBuilder {
-            sql: self.sql.append(helpers::join(table, condition)),
+            sql: self.sql.append(arg.into_join_sql(Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -756,7 +756,7 @@ where
     /// ```ignore
     /// db.select(())
     ///     .from(users)
-    ///     .join(orders, eq(users.id, orders.user_id))
+    ///     .join((orders, eq(users.id, orders.user_id)))
     ///     .for_update_of(users)
     /// // SELECT ... FOR UPDATE OF "users"
     /// ```
@@ -782,7 +782,7 @@ where
     /// ```ignore
     /// db.select(())
     ///     .from(users)
-    ///     .join(orders, eq(users.id, orders.user_id))
+    ///     .join((orders, eq(users.id, orders.user_id)))
     ///     .for_share_of(users)
     /// // SELECT ... FOR SHARE OF "users"
     /// ```

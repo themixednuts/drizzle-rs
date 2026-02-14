@@ -74,7 +74,7 @@ fn main() {
         let row: JoinedResult = db
             .select(JoinedResult::default())
             .from(users)
-            .left_join(posts, eq(users.id, posts.user_id))
+            .left_join((posts, eq(users.id, posts.user_id)))
             .get()
             .expect("select users on posts.user_id");
 

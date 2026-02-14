@@ -1,6 +1,7 @@
-use crate::{traits::PostgresTable, values::PostgresValue};
+use crate::traits::{PostgresTable, PostgresTableInfo};
+use crate::values::PostgresValue;
 use drizzle_core::{
-    Join, SQL, ToSQL, Token, helpers,
+    Joinable, SQL, ToSQL, Token, helpers,
     traits::{SQLColumnInfo, SQLModel},
 };
 
@@ -9,6 +10,72 @@ pub(crate) use helpers::{
     delete, except, except_all, from, group_by, having, intersect, intersect_all, limit, offset,
     order_by, select, select_distinct, set, union, union_all, update, r#where,
 };
+
+// Re-export Join from core
+pub use drizzle_core::Join;
+
+// =============================================================================
+// JoinArg trait — dispatch between bare table (auto-FK) and (table, condition)
+// =============================================================================
+
+/// Trait for arguments accepted by `.join()` and related join methods.
+///
+/// Implemented for:
+/// - **`(table, condition)`** — explicit ON condition (always available)
+/// - **bare table** — auto-derives ON condition from FK metadata (requires `Joinable` bound)
+pub trait JoinArg<'a, FromTable> {
+    fn into_join_sql(self, join: Join) -> SQL<'a, PostgresValue<'a>>;
+}
+
+/// Bare table: derives the ON condition from `Joinable::fk_columns()`.
+impl<'a, U, T> JoinArg<'a, T> for U
+where
+    U: PostgresTable<'a> + Joinable<T>,
+    T: PostgresTableInfo + Default,
+{
+    fn into_join_sql(self, join: Join) -> SQL<'a, PostgresValue<'a>> {
+        use drizzle_core::ToSQL;
+        let from = T::default();
+        let cols = <U as Joinable<T>>::fk_columns();
+        let join_name = self.name();
+        let from_name = from.name();
+
+        let mut condition = SQL::with_capacity_chunks(cols.len() * 7);
+        for (idx, (self_col, target_col)) in cols.iter().enumerate() {
+            if idx > 0 {
+                condition.push_mut(Token::AND);
+            }
+            condition.append_mut(
+                SQL::ident(join_name.to_string())
+                    .push(Token::DOT)
+                    .append(SQL::ident(self_col.to_string())),
+            );
+            condition.push_mut(Token::EQ);
+            condition.append_mut(
+                SQL::ident(from_name.to_string())
+                    .push(Token::DOT)
+                    .append(SQL::ident(target_col.to_string())),
+            );
+        }
+
+        join.to_sql()
+            .append(&self)
+            .push(Token::ON)
+            .append(&condition)
+    }
+}
+
+/// Tuple `(table, condition)`: explicit ON condition.
+impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
+where
+    U: PostgresTable<'a>,
+    C: ToSQL<'a, PostgresValue<'a>>,
+{
+    fn into_join_sql(self, join: Join) -> SQL<'a, PostgresValue<'a>> {
+        let (table, condition) = self;
+        join_internal(table, join, condition)
+    }
+}
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, PostgresValue<'a>> {
@@ -202,21 +269,6 @@ where
     I: ToSQL<'a, PostgresValue<'a>>,
 {
     SQL::from(Token::RETURNING).append(columns.to_sql())
-}
-
-/// Helper function to create an UPSERT (ON CONFLICT) clause - PostgreSQL specific
-#[allow(dead_code)]
-pub(crate) fn on_conflict<'a>(
-    conflict_target: Option<SQL<'a, PostgresValue<'a>>>,
-    action: impl ToSQL<'a, PostgresValue<'a>>,
-) -> SQL<'a, PostgresValue<'a>> {
-    let mut sql = SQL::from_iter([Token::ON, Token::CONFLICT]);
-
-    if let Some(target) = conflict_target {
-        sql = sql.push(Token::LPAREN).append(target).push(Token::RPAREN);
-    }
-
-    sql.append(action.to_sql())
 }
 
 //------------------------------------------------------------------------------

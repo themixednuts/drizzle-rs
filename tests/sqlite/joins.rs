@@ -82,7 +82,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
     let join_results: Vec<AuthorPostResult> = drizzle_exec!(
         db.select(AuthorPostResult::default())
             .from(complex)
-            .inner_join(post, eq(complex.id, post.author_id))
+            .inner_join((post, eq(complex.id, post.author_id)))
             .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
             .all()
     );
@@ -119,7 +119,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
     let alice_posts: Vec<AuthorPostResult> = drizzle_exec!(
         db.select(AuthorPostResult::default())
             .from(complex)
-            .inner_join(post, eq(complex.id, post.author_id))
+            .inner_join((post, eq(complex.id, post.author_id)))
             .r#where(eq(complex.name, "alice"))
             .all()
     );
@@ -127,6 +127,76 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
     assert_eq!(alice_posts.len(), 2);
     alice_posts.iter().for_each(|result| {
         assert_eq!(result.author_name, "alice");
+    });
+});
+
+#[cfg(feature = "uuid")]
+sqlite_test!(auto_fk_join, ComplexPostSchema, {
+    let ComplexPostSchema { complex, post } = schema;
+
+    let [id1, id2, id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
+
+    let authors = vec![
+        InsertComplex::new("alice", true, Role::User)
+            .with_id(id1)
+            .with_email("alice@example.com"),
+        InsertComplex::new("bob", true, Role::User)
+            .with_id(id2)
+            .with_email("bob@example.com"),
+        InsertComplex::new("charlie", true, Role::User)
+            .with_id(id3)
+            .with_email("charlie@example.com"),
+    ];
+
+    drizzle_exec!(db.insert(complex).values(authors).execute());
+
+    let posts = vec![
+        InsertPost::new("Alice's First Post", true)
+            .with_content("Content by Alice")
+            .with_author_id(id1),
+        InsertPost::new("Bob's Adventure", true)
+            .with_content("Travel blog by Bob")
+            .with_author_id(id2),
+        InsertPost::new("Alice's Second Post", true)
+            .with_content("More content by Alice")
+            .with_author_id(id1),
+    ];
+
+    drizzle_exec!(db.insert(post).values(posts).execute());
+
+    // Auto-FK join: .join(post) auto-derives ON complex.id = post.author_id
+    let join_results: Vec<AuthorPostResult> = drizzle_exec!(
+        db.select(AuthorPostResult::default())
+            .from(complex)
+            .join(post)
+            .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
+            .all()
+    );
+
+    // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded
+    assert_eq!(join_results.len(), 3);
+
+    assert_eq!(join_results[0].author_name, "alice");
+    assert_eq!(join_results[0].post_title, "Alice's First Post");
+
+    assert_eq!(join_results[1].author_name, "alice");
+    assert_eq!(join_results[1].post_title, "Alice's Second Post");
+
+    assert_eq!(join_results[2].author_name, "bob");
+    assert_eq!(join_results[2].post_title, "Bob's Adventure");
+
+    // Also test auto-FK with inner_join variant
+    let inner_results: Vec<AuthorPostResult> = drizzle_exec!(
+        db.select(AuthorPostResult::default())
+            .from(complex)
+            .inner_join(post)
+            .r#where(eq(complex.name, "alice"))
+            .all()
+    );
+
+    assert_eq!(inner_results.len(), 2);
+    inner_results.iter().for_each(|r| {
+        assert_eq!(r.author_name, "alice");
     });
 });
 
@@ -191,8 +261,8 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
     let join_smt = db
         .select(PostCategoryResult::default())
         .from(post)
-        .join(post_category, eq(post.id, post_category.post_id))
-        .join(category, eq(post_category.category_id, category.id))
+        .join((post_category, eq(post.id, post_category.post_id)))
+        .join((category, eq(post_category.category_id, category.id)))
         .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)]);
     let sql = join_smt.to_sql().sql();
 
@@ -231,8 +301,8 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
     let published_results: Vec<PostCategoryResult> = drizzle_exec!(
         db.select(PostCategoryResult::default())
             .from(post)
-            .join(post_category, eq(post.id, post_category.post_id))
-            .join(category, eq(post_category.category_id, category.id))
+            .join((post_category, eq(post.id, post_category.post_id)))
+            .join((category, eq(post_category.category_id, category.id)))
             .r#where(eq(post.published, true))
             .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
             .all()

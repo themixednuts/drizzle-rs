@@ -634,7 +634,7 @@ mod postgres_sync {
                         let results: Vec<JoinResult> = db
                             .select(JoinResult::default())
                             .from(users)
-                            .join(posts, eq(users.id, posts.author_id))
+                            .join((posts, eq(users.id, posts.author_id)))
                             .all()
                             .unwrap();
                         black_box(results);

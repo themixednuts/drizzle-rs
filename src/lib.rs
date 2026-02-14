@@ -116,9 +116,12 @@ pub mod core {
     pub use drizzle_core::traits::*;
 
     /// Relation metadata types and traits.
-    pub use drizzle_core::relation::{
-        HasRelations, Relation, RelationType, ReverseRelation, SchemaRelations,
-    };
+    pub use drizzle_core::relation::{Joinable, Relation, SchemaHasTable};
+
+    /// Full relation module exports.
+    pub mod relation {
+        pub use drizzle_core::relation::*;
+    }
 
     /// Prepared statement types.
     pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
@@ -174,9 +177,7 @@ pub mod sqlite {
         pub use crate::core::ToSQL;
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
-        pub use drizzle_core::relation::{
-            HasRelations, Relation, RelationType, ReverseRelation, SchemaRelations,
-        };
+        pub use drizzle_core::relation::{Joinable, Relation, SchemaHasTable};
         pub use drizzle_core::traits::*;
         pub use drizzle_macros::{
             SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
@@ -227,9 +228,7 @@ pub mod postgres {
         pub use crate::core::ToSQL;
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
         pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
-        pub use drizzle_core::relation::{
-            HasRelations, Relation, RelationType, ReverseRelation, SchemaRelations,
-        };
+        pub use drizzle_core::relation::{Joinable, Relation, SchemaHasTable};
         pub use drizzle_core::traits::*;
         pub use drizzle_macros::{
             PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,

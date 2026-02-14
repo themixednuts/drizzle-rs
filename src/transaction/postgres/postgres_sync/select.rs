@@ -105,21 +105,17 @@ where
     }
 
     #[inline]
-    pub fn join<U>(
+    pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        on_condition: impl ToSQL<'a, PostgresValue<'a>>,
+        arg: J,
     ) -> TransactionBuilder<
         'a,
         'conn,
         Schema,
         SelectBuilder<'a, Schema, SelectJoinSet, T>,
         SelectJoinSet,
-    >
-    where
-        U: PostgresTable<'a>,
-    {
-        let builder = self.builder.join(table, on_condition.to_sql());
+    > {
+        let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
             builder,
@@ -178,21 +174,17 @@ where
         }
     }
 
-    pub fn join<U>(
+    pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
+        arg: J,
     ) -> TransactionBuilder<
         'a,
         'conn,
         Schema,
         SelectBuilder<'a, Schema, SelectJoinSet, T>,
         SelectJoinSet,
-    >
-    where
-        U: PostgresTable<'a>,
-    {
-        let builder = self.builder.join(table, condition.to_sql());
+    > {
+        let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
             builder,

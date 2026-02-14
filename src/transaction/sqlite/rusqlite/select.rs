@@ -106,21 +106,17 @@ where
     }
 
     #[inline]
-    pub fn join<U>(
+    pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        on_condition: impl ToSQL<'a, SQLiteValue<'a>>,
+        arg: J,
     ) -> TransactionBuilder<
         'a,
         'conn,
         Schema,
         SelectBuilder<'a, Schema, SelectJoinSet, T>,
         SelectJoinSet,
-    >
-    where
-        U: SQLiteTable<'a>,
-    {
-        let builder = self.builder.join(table, on_condition);
+    > {
+        let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
             builder,
@@ -181,21 +177,17 @@ where
         }
     }
 
-    pub fn join<U>(
+    pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
+        arg: J,
     ) -> TransactionBuilder<
         'a,
         'conn,
         Schema,
         SelectBuilder<'a, Schema, SelectJoinSet, T>,
         SelectJoinSet,
-    >
-    where
-        U: SQLiteTable<'a>,
-    {
-        let builder = self.builder.join(table, condition);
+    > {
+        let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
             builder,

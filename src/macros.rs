@@ -19,10 +19,9 @@ macro_rules! drizzle_builder_join_impl {
     };
     ($type:ident) => {
         paste::paste! {
-            pub fn [<$type _join>]<U>(
+            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
                 self,
-                table: U,
-                on_condition: impl drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>>,
+                arg: J,
             ) -> DrizzleBuilder<
                 'd,
                 Conn,
@@ -30,10 +29,8 @@ macro_rules! drizzle_builder_join_impl {
                 SelectBuilder<'a, Schema, SelectJoinSet, T>,
                 SelectJoinSet,
             >
-            where
-                U:  SQLiteTable<'a>,
             {
-                let builder = self.builder.[<$type _join>](table, on_condition);
+                let builder = self.builder.[<$type _join>](arg);
                 DrizzleBuilder {
                     drizzle: self.drizzle,
                     builder,
@@ -65,20 +62,17 @@ macro_rules! transaction_builder_join_impl {
     };
     ($($lifetimes:lifetime),*, $type:ident) => {
         paste::paste! {
-            pub fn [<$type _join>]<U>(
+            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
                 self,
-                table: U,
-                on_condition: impl drizzle_core::ToSQL<'a, drizzle_sqlite::values::SQLiteValue<'a>>,
+                arg: J,
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,
                 SelectBuilder<'a, Schema, SelectJoinSet, T>,
                 SelectJoinSet,
             >
-            where
-                U:  SQLiteTable<'a>,
             {
-                let builder = self.builder.[<$type _join>](table, on_condition);
+                let builder = self.builder.[<$type _join>](arg);
                 TransactionBuilder {
                     transaction: self.transaction,
                     builder,
