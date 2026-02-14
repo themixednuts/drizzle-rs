@@ -3,7 +3,8 @@
 //! Mirrors the `SQLiteInsertValue` pattern but simplified for UPDATE operations.
 //! All UPDATE fields are optional (Skip = don't include in SET clause).
 
-use drizzle_core::{Placeholder, SQL, SQLParam};
+use drizzle_core::expr::Excluded;
+use drizzle_core::{Placeholder, SQL, SQLColumnInfo, SQLParam};
 
 use super::SQLiteValue;
 use super::insert::ValueWrapper;
@@ -55,6 +56,18 @@ impl<'a, T> From<Placeholder> for SQLiteUpdateValue<'a, SQLiteValue<'a>, T> {
         SQLiteUpdateValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
             std::iter::once(chunk).collect(),
         ))
+    }
+}
+
+// Excluded column reference conversion (for ON CONFLICT DO UPDATE SET)
+impl<'a, C, T> From<Excluded<C>> for SQLiteUpdateValue<'a, SQLiteValue<'a>, T>
+where
+    C: SQLColumnInfo,
+{
+    fn from(excluded: Excluded<C>) -> Self {
+        use drizzle_core::ToSQL;
+        let sql = excluded.to_sql();
+        SQLiteUpdateValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }
 

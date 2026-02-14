@@ -1,7 +1,7 @@
-//! Utility SQL functions (alias, cast, distinct, typeof, concat).
+//! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
 use crate::sql::{SQL, Token};
-use crate::traits::{SQLParam, ToSQL};
+use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{DataType, Textual};
 
 use super::{Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
@@ -182,4 +182,55 @@ where
     T: DataType,
 {
     SQLExpr::new(SQL::raw(sql))
+}
+
+// =============================================================================
+// EXCLUDED (for ON CONFLICT DO UPDATE)
+// =============================================================================
+
+/// Wraps a column to reference its value from the proposed insert row
+/// (the EXCLUDED row in ON CONFLICT DO UPDATE SET).
+#[derive(Clone, Copy, Debug)]
+pub struct Excluded<C> {
+    column: C,
+}
+
+/// Reference a column's value from the proposed insert row (EXCLUDED).
+///
+/// Used in ON CONFLICT DO UPDATE SET to reference the value that would
+/// have been inserted.
+///
+/// # Example
+/// ```ignore
+/// db.insert(simple)
+///     .values([InsertSimple::new("test").with_id(1)])
+///     .on_conflict(simple.id)
+///     .do_update(UpdateSimple::default().with_name(excluded(simple.name)));
+/// // Generates: ... ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"
+/// ```
+pub fn excluded<C>(column: C) -> Excluded<C> {
+    Excluded { column }
+}
+
+impl<'a, V, C> Expr<'a, V> for Excluded<C>
+where
+    V: SQLParam + 'a,
+    C: Expr<'a, V> + SQLColumnInfo,
+{
+    type SQLType = C::SQLType;
+    type Nullable = C::Nullable;
+    type Aggregate = C::Aggregate;
+}
+
+impl<'a, V, C> ToSQL<'a, V> for Excluded<C>
+where
+    V: SQLParam + 'a,
+    C: SQLColumnInfo,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::empty()
+            .push(Token::EXCLUDED)
+            .push(Token::DOT)
+            .append(SQL::ident(self.column.name().to_string()))
+    }
 }

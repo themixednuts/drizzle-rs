@@ -2,13 +2,14 @@ use std::marker::PhantomData;
 
 use crate::drizzle_builder_join_impl;
 
+use drizzle_core::ConflictTarget;
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_sqlite::{
     builder::{
-        self, CTEView, Conflict, DeleteInitial, DeleteWhereSet, InsertInitial, InsertOnConflictSet,
-        InsertReturningSet, InsertValuesSet, QueryBuilder, SelectFromSet, SelectInitial,
-        SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
-        UpdateInitial, UpdateSetClauseSet, UpdateWhereSet,
+        self, CTEView, DeleteInitial, DeleteWhereSet, InsertDoUpdateSet, InsertInitial,
+        InsertOnConflictSet, InsertReturningSet, InsertValuesSet, OnConflictBuilder, QueryBuilder,
+        SelectFromSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
+        SelectOrderSet, SelectWhereSet, UpdateInitial, UpdateSetClauseSet, UpdateWhereSet,
         delete::DeleteBuilder,
         insert::InsertBuilder,
         select::{AsCteState, SelectBuilder},
@@ -25,6 +26,55 @@ pub struct DrizzleBuilder<'a, Conn, Schema, Builder, State> {
     pub(crate) drizzle: &'a Drizzle<Conn, Schema>,
     pub(crate) builder: Builder,
     pub(crate) state: PhantomData<(Schema, State)>,
+}
+
+/// Intermediate builder for typed ON CONFLICT within a Drizzle wrapper.
+pub struct DrizzleOnConflictBuilder<'a, 'b, Conn, Schema, Table> {
+    drizzle: &'a Drizzle<Conn, Schema>,
+    builder: OnConflictBuilder<'b, Schema, Table>,
+}
+
+impl<'a, 'b, Conn, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Conn, Schema, Table> {
+    /// Adds a WHERE clause to the conflict target for partial index matching.
+    pub fn r#where(mut self, condition: impl ToSQL<'b, SQLiteValue<'b>>) -> Self {
+        self.builder = self.builder.r#where(condition);
+        self
+    }
+
+    /// `ON CONFLICT (cols) DO NOTHING`
+    pub fn do_nothing(
+        self,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
+        InsertOnConflictSet,
+    > {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.do_nothing(),
+            state: PhantomData,
+        }
+    }
+
+    /// `ON CONFLICT (cols) DO UPDATE SET ...`
+    pub fn do_update(
+        self,
+        set: impl ToSQL<'b, SQLiteValue<'b>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertDoUpdateSet, Table>,
+        InsertDoUpdateSet,
+    > {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.do_update(set),
+            state: PhantomData,
+        }
+    }
 }
 
 /// Shared SQLite drizzle connection wrapper.
@@ -380,15 +430,12 @@ impl<'d, 'a, Conn, Schema, T>
     }
 
     #[inline]
-    pub fn join<U>(
+    pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        on_condition: impl ToSQL<'a, SQLiteValue<'a>>,
+        arg: J,
     ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-    where
-        U: SQLiteTable<'a>,
     {
-        let builder = self.builder.join(table, on_condition);
+        let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -441,15 +488,12 @@ impl<'d, 'a, Conn, Schema, T>
         }
     }
 
-    pub fn join<U>(
+    pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
+        arg: J,
     ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
-    where
-        U: SQLiteTable<'a>,
     {
-        let builder = self.builder.join(table, condition);
+        let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -605,25 +649,30 @@ impl<'a, 'b, Conn, Schema, Table>
 where
     Table: SQLiteTable<'b>,
 {
-    /// Adds conflict resolution clause
-    pub fn on_conflict<TI>(
+    /// Begins a typed ON CONFLICT clause targeting a specific constraint.
+    pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
-        conflict: Conflict<'b, TI>,
+        target: C,
+    ) -> DrizzleOnConflictBuilder<'a, 'b, Conn, Schema, Table> {
+        DrizzleOnConflictBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.on_conflict(target),
+        }
+    }
+
+    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
+    pub fn on_conflict_do_nothing(
+        self,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
-    >
-    where
-        TI: IntoIterator,
-        TI::Item: ToSQL<'b, SQLiteValue<'b>>,
-    {
-        let builder = self.builder.on_conflict(conflict);
+    > {
         DrizzleBuilder {
             drizzle: self.drizzle,
-            builder,
+            builder: self.builder.on_conflict_do_nothing(),
             state: PhantomData,
         }
     }
@@ -658,6 +707,53 @@ impl<'a, 'b, Conn, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
+    pub fn returning(
+        self,
+        columns: impl ToSQL<'b, SQLiteValue<'b>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertReturningSet,
+    > {
+        let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, Conn, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertDoUpdateSet, Table>,
+        InsertDoUpdateSet,
+    >
+{
+    /// Adds WHERE clause after DO UPDATE SET
+    pub fn r#where(
+        self,
+        condition: impl ToSQL<'b, SQLiteValue<'b>>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
+        InsertOnConflictSet,
+    > {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.r#where(condition),
+            state: PhantomData,
+        }
+    }
+
+    /// Adds RETURNING clause after DO UPDATE SET
     pub fn returning(
         self,
         columns: impl ToSQL<'b, SQLiteValue<'b>>,

@@ -1,6 +1,6 @@
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use drizzle_core::{SQL, ToSQL};
+use drizzle_core::{ConflictTarget, NamedConstraint, SQL, ToSQL, Token};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -27,6 +27,10 @@ pub struct InsertReturningSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertOnConflictSet;
 
+/// Marker for the state after DO UPDATE SET (before optional WHERE).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InsertDoUpdateSet;
+
 // Const constructors for insert marker types
 impl InsertInitial {
     #[inline]
@@ -52,106 +56,10 @@ impl InsertOnConflictSet {
         Self
     }
 }
-
-/// Conflict target specification for PostgreSQL ON CONFLICT clause
-#[derive(Debug, Clone)]
-#[allow(clippy::large_enum_variant)]
-pub enum ConflictTarget<'a> {
-    /// Target specific columns: ON CONFLICT (column1, column2, ...)
-    Columns(SQL<'a, PostgresValue<'a>>),
-    /// Target specific columns with WHERE clause for partial unique indexes
-    /// ON CONFLICT (column1, column2, ...) WHERE condition
-    ColumnsWhere {
-        columns: SQL<'a, PostgresValue<'a>>,
-        where_clause: SQL<'a, PostgresValue<'a>>,
-    },
-    /// Target a specific constraint by name: ON CONFLICT ON CONSTRAINT constraint_name
-    Constraint(String),
-}
-
-/// Conflict resolution strategies for PostgreSQL
-#[derive(Debug, Clone)]
-#[allow(clippy::large_enum_variant)]
-pub enum Conflict<'a> {
-    /// Do nothing on conflict - ON CONFLICT DO NOTHING or ON CONFLICT (target) DO NOTHING
-    DoNothing {
-        /// Optional target specification. If None, matches any conflict
-        target: Option<ConflictTarget<'a>>,
-    },
-    /// Update on conflict - ON CONFLICT (target) DO UPDATE SET ...
-    DoUpdate {
-        /// Required target specification for DO UPDATE
-        target: ConflictTarget<'a>,
-        /// SET clause assignments (can use EXCLUDED.column to reference proposed values)
-        set: SQL<'a, PostgresValue<'a>>,
-        /// Optional WHERE clause for conditional updates
-        /// Applied after SET: DO UPDATE SET ... WHERE condition
-        where_clause: Option<SQL<'a, PostgresValue<'a>>>,
-    },
-}
-
-impl<'a> Default for Conflict<'a> {
-    fn default() -> Self {
-        Self::DoNothing { target: None }
-    }
-}
-
-impl<'a> Conflict<'a> {
-    /// Create a DO NOTHING conflict resolution with specific columns
-    pub fn do_nothing_on_columns<T>(columns: T) -> Self
-    where
-        T: ToSQL<'a, PostgresValue<'a>>,
-    {
-        Conflict::DoNothing {
-            target: Some(ConflictTarget::Columns(columns.to_sql())),
-        }
-    }
-
-    /// Create a DO NOTHING conflict resolution with a constraint name
-    pub fn do_nothing_on_constraint(constraint_name: String) -> Self {
-        Conflict::DoNothing {
-            target: Some(ConflictTarget::Constraint(constraint_name)),
-        }
-    }
-
-    /// Create a DO UPDATE conflict resolution
-    pub fn do_update<S, W>(target: ConflictTarget<'a>, set: S, where_clause: Option<W>) -> Self
-    where
-        S: ToSQL<'a, PostgresValue<'a>>,
-        W: ToSQL<'a, PostgresValue<'a>>,
-    {
-        Conflict::DoUpdate {
-            target,
-            set: set.to_sql(),
-            where_clause: where_clause.map(|w| w.to_sql()),
-        }
-    }
-}
-
-impl<'a> ConflictTarget<'a> {
-    /// Create a column target
-    pub fn columns<T>(columns: T) -> Self
-    where
-        T: ToSQL<'a, PostgresValue<'a>>,
-    {
-        ConflictTarget::Columns(columns.to_sql())
-    }
-
-    /// Create a column target with WHERE clause for partial unique indexes
-    pub fn columns_where<T, W>(columns: T, where_clause: W) -> Self
-    where
-        T: ToSQL<'a, PostgresValue<'a>>,
-        W: ToSQL<'a, PostgresValue<'a>>,
-    {
-        ConflictTarget::ColumnsWhere {
-            columns: columns.to_sql(),
-            where_clause: where_clause.to_sql(),
-        }
-    }
-
-    /// Create a constraint target
-    pub fn constraint(constraint_name: String) -> Self {
-        ConflictTarget::Constraint(constraint_name)
+impl InsertDoUpdateSet {
+    #[inline]
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -159,12 +67,123 @@ impl<'a> ConflictTarget<'a> {
 impl ExecutableState for InsertValuesSet {}
 impl ExecutableState for InsertReturningSet {}
 impl ExecutableState for InsertOnConflictSet {}
+impl ExecutableState for InsertDoUpdateSet {}
+
+//------------------------------------------------------------------------------
+// OnConflictBuilder
+//------------------------------------------------------------------------------
+
+/// Internal: how the conflict target was specified.
+#[derive(Debug, Clone)]
+enum ConflictTargetKind<'a> {
+    /// ON CONFLICT (col1, col2)
+    Columns(Box<SQL<'a, PostgresValue<'a>>>),
+    /// ON CONFLICT ON CONSTRAINT "constraint_name"
+    Constraint(&'static str),
+}
+
+/// Intermediate builder for typed ON CONFLICT clause construction (PostgreSQL).
+///
+/// Created by [`InsertBuilder::on_conflict()`] or
+/// [`InsertBuilder::on_conflict_on_constraint()`].
+/// Call [`do_nothing()`](Self::do_nothing) or [`do_update()`](Self::do_update)
+/// to complete the clause.
+#[derive(Debug, Clone)]
+pub struct OnConflictBuilder<'a, S, T> {
+    sql: SQL<'a, PostgresValue<'a>>,
+    target: ConflictTargetKind<'a>,
+    target_where: Option<SQL<'a, PostgresValue<'a>>>,
+    schema: PhantomData<S>,
+    table: PhantomData<T>,
+}
+
+impl<'a, S, T> OnConflictBuilder<'a, S, T> {
+    /// Adds a WHERE clause to the conflict target for partial index matching.
+    ///
+    /// Generates: `ON CONFLICT (col) WHERE condition DO ...`
+    ///
+    /// Note: WHERE is only meaningful for column-based targets, not for
+    /// `ON CONFLICT ON CONSTRAINT` targets.
+    pub fn r#where(mut self, condition: impl ToSQL<'a, PostgresValue<'a>>) -> Self {
+        self.target_where = Some(condition.to_sql());
+        self
+    }
+
+    /// Splits into (base insert SQL, conflict target SQL prefix).
+    fn into_parts(self) -> (SQL<'a, PostgresValue<'a>>, SQL<'a, PostgresValue<'a>>) {
+        let target = match self.target {
+            ConflictTargetKind::Columns(cols) => {
+                let mut t = SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
+                    .append(*cols)
+                    .push(Token::RPAREN);
+                if let Some(tw) = self.target_where {
+                    t = t.push(Token::WHERE).append(tw);
+                }
+                t
+            }
+            ConflictTargetKind::Constraint(name) => {
+                SQL::from_iter([Token::ON, Token::CONFLICT, Token::ON, Token::CONSTRAINT])
+                    .append(SQL::ident(name))
+            }
+        };
+        (self.sql, target)
+    }
+
+    /// Resolves the conflict by doing nothing (ignoring the conflicting row).
+    ///
+    /// Generates: `ON CONFLICT (col1, col2) DO NOTHING`
+    pub fn do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+        let (sql, target) = self.into_parts();
+        InsertBuilder {
+            sql: sql.append(target.push(Token::DO).push(Token::NOTHING)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Resolves the conflict by updating the existing row.
+    ///
+    /// The `set` parameter accepts any `ToSQL` value, typically an `UpdateModel`
+    /// which generates the SET clause assignments. Use `EXCLUDED.column` to
+    /// reference the proposed insert values.
+    ///
+    /// Generates: `ON CONFLICT (col1, col2) DO UPDATE SET ...`
+    ///
+    /// Chain `.r#where(condition)` to add a conditional update filter.
+    pub fn do_update(
+        self,
+        set: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
+        let (sql, target) = self.into_parts();
+        let conflict = target
+            .push(Token::DO)
+            .push(Token::UPDATE)
+            .push(Token::SET)
+            .append(set.to_sql());
+        InsertBuilder {
+            sql: sql.append(conflict),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
 
 //------------------------------------------------------------------------------
 // InsertBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds an INSERT query specifically for PostgreSQL
+/// Builds an INSERT query specifically for PostgreSQL.
+///
+/// Provides a type-safe, fluent API for constructing INSERT statements
+/// with support for typed conflict resolution, batch inserts, and returning clauses.
+///
+/// ## Type Parameters
+///
+/// - `Schema`: The database schema type, ensuring only valid tables can be referenced
+/// - `State`: The current builder state, enforcing proper query construction order
+/// - `Table`: The table being inserted into
 pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schema, State, Table>;
 
 //------------------------------------------------------------------------------
@@ -196,81 +215,77 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
-    /// Adds conflict resolution clause following PostgreSQL ON CONFLICT syntax
-    pub fn on_conflict(
+    /// Begins a typed ON CONFLICT clause targeting specific columns.
+    ///
+    /// The target must implement `ConflictTarget<T>`, which is auto-generated for
+    /// primary key columns, unique columns, and unique indexes.
+    ///
+    /// Returns an [`OnConflictBuilder`] to specify `do_nothing()` or `do_update()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// // Target a specific column
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict(user.id).do_nothing();
+    ///
+    /// // Target with DO UPDATE using EXCLUDED
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict(user.email).do_update(UpdateUser::default().with_name("updated"));
+    ///
+    /// // Target a unique index
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict(schema.user_email_idx).do_nothing();
+    /// ```
+    pub fn on_conflict<C: ConflictTarget<T>>(self, target: C) -> OnConflictBuilder<'a, S, T> {
+        let columns = target.conflict_columns();
+        let target_sql = SQL::join(columns.iter().map(|c| SQL::ident(*c)), Token::COMMA);
+        OnConflictBuilder {
+            sql: self.sql,
+            target: ConflictTargetKind::Columns(Box::new(target_sql)),
+            target_where: None,
+            schema: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Begins a typed ON CONFLICT ON CONSTRAINT clause (PostgreSQL-only).
+    ///
+    /// The target must implement `NamedConstraint<T>`, which is auto-generated
+    /// for unique indexes.
+    ///
+    /// Returns an [`OnConflictBuilder`] to specify `do_nothing()` or `do_update()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict_on_constraint(schema.user_email_idx).do_nothing();
+    /// ```
+    pub fn on_conflict_on_constraint<C: NamedConstraint<T>>(
         self,
-        conflict: Conflict<'a>,
-    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
-        let conflict_sql = match conflict {
-            Conflict::DoNothing { target } => {
-                let mut sql = SQL::raw("ON CONFLICT");
+        target: C,
+    ) -> OnConflictBuilder<'a, S, T> {
+        OnConflictBuilder {
+            sql: self.sql,
+            target: ConflictTargetKind::Constraint(target.constraint_name()),
+            target_where: None,
+            schema: PhantomData,
+            table: PhantomData,
+        }
+    }
 
-                if let Some(target) = target {
-                    sql = sql.append(Self::build_conflict_target(target));
-                }
-
-                sql.append(SQL::raw(" DO NOTHING"))
-            }
-            Conflict::DoUpdate {
-                target,
-                set,
-                where_clause,
-            } => {
-                let mut sql = SQL::raw("ON CONFLICT")
-                    .append(Self::build_conflict_target(target))
-                    .append(SQL::raw(" DO UPDATE SET "))
-                    .append(set);
-
-                // Add optional WHERE clause for conditional updates
-                if let Some(where_clause) = where_clause {
-                    sql = sql.append(SQL::raw(" WHERE ")).append(where_clause);
-                }
-
-                sql
-            }
-        };
-
+    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
+    ///
+    /// This matches any constraint violation.
+    pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+        let conflict_sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING]);
         InsertBuilder {
             sql: self.sql.append(conflict_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
         }
-    }
-
-    /// Helper method to build the conflict target portion of ON CONFLICT
-    fn build_conflict_target(target: ConflictTarget<'a>) -> SQL<'a, PostgresValue<'a>> {
-        match target {
-            ConflictTarget::Columns(columns) => {
-                SQL::raw(" (").append(columns).append(SQL::raw(")"))
-            }
-            ConflictTarget::ColumnsWhere {
-                columns,
-                where_clause,
-            } => SQL::raw(" (")
-                .append(columns)
-                .append(SQL::raw(") WHERE "))
-                .append(where_clause),
-            ConflictTarget::Constraint(constraint_name) => {
-                SQL::raw(" ON CONSTRAINT ").append(SQL::raw(constraint_name))
-            }
-        }
-    }
-
-    /// Shorthand for ON CONFLICT DO NOTHING (matches any conflict)
-    pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
-        self.on_conflict(Conflict::default())
-    }
-
-    /// Shorthand for ON CONFLICT (columns...) DO NOTHING
-    pub fn on_conflict_do_nothing_on<C>(
-        self,
-        columns: C,
-    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
-    where
-        C: ToSQL<'a, PostgresValue<'a>>,
-    {
-        self.on_conflict(Conflict::do_nothing_on_columns(columns))
     }
 
     /// Adds a RETURNING clause and transitions to ReturningSet state
@@ -310,6 +325,43 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     }
 }
 
+//------------------------------------------------------------------------------
+// Post-DO UPDATE SET Implementation
+//------------------------------------------------------------------------------
+
+impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
+    /// Adds a WHERE clause to the DO UPDATE SET clause.
+    ///
+    /// Generates: `ON CONFLICT (col) DO UPDATE SET ... WHERE condition`
+    pub fn r#where(
+        self,
+        condition: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+        let sql = self.sql.push(Token::WHERE).append(condition.to_sql());
+        InsertBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds a RETURNING clause after DO UPDATE SET
+    #[inline]
+    pub fn returning(
+        self,
+        columns: impl ToSQL<'a, PostgresValue<'a>>,
+    ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
+        let returning_sql = crate::helpers::returning(columns);
+        InsertBuilder {
+            sql: self.sql.append(returning_sql),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,25 +377,5 @@ mod tests {
         };
 
         assert_eq!(builder.to_sql().sql(), "INSERT INTO test");
-    }
-
-    #[test]
-    fn test_conflict_types() {
-        let do_nothing = Conflict::DoNothing { target: None };
-        let do_update = Conflict::DoUpdate {
-            target: ConflictTarget::Columns(SQL::raw("id")),
-            set: SQL::raw("name = EXCLUDED.name"),
-            where_clause: None,
-        };
-
-        match do_nothing {
-            Conflict::DoNothing { .. } => (),
-            _ => panic!("Expected DoNothing"),
-        }
-
-        match do_update {
-            Conflict::DoUpdate { .. } => (),
-            _ => panic!("Expected DoUpdate"),
-        }
     }
 }

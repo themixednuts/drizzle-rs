@@ -5,8 +5,10 @@
 
 use super::PostgresValue;
 use super::insert::ValueWrapper;
+use drizzle_core::expr::Excluded;
 use drizzle_core::{
-    param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam,
+    SQLColumnInfo, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk,
+    traits::SQLParam,
 };
 use std::borrow::Cow;
 
@@ -67,6 +69,18 @@ impl<'a, T> From<Placeholder> for PostgresUpdateValue<'a, PostgresValue<'a>, T> 
         PostgresUpdateValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(
             std::iter::once(chunk).collect(),
         ))
+    }
+}
+
+// Excluded column reference conversion (for ON CONFLICT DO UPDATE SET)
+impl<'a, C, T> From<Excluded<C>> for PostgresUpdateValue<'a, PostgresValue<'a>, T>
+where
+    C: SQLColumnInfo,
+{
+    fn from(excluded: Excluded<C>) -> Self {
+        use drizzle_core::ToSQL;
+        let sql = excluded.to_sql();
+        PostgresUpdateValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(sql))
     }
 }
 

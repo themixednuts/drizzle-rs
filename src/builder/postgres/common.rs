@@ -1,12 +1,13 @@
 use std::marker::PhantomData;
 
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
+use drizzle_core::{ConflictTarget, NamedConstraint};
 use drizzle_postgres::builder::{
-    self, CTEView, Conflict, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertInitial,
-    InsertOnConflictSet, InsertReturningSet, InsertValuesSet, QueryBuilder, SelectForSet,
-    SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
-    SelectOrderSet, SelectWhereSet, UpdateFromSet, UpdateInitial, UpdateReturningSet,
-    UpdateSetClauseSet, UpdateWhereSet,
+    self, CTEView, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertDoUpdateSet,
+    InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet, OnConflictBuilder,
+    QueryBuilder, SelectForSet, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet,
+    SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet, UpdateFromSet, UpdateInitial,
+    UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
     delete::DeleteBuilder,
     insert::InsertBuilder,
     select::{AsCteState, SelectBuilder},
@@ -22,6 +23,58 @@ pub struct DrizzleBuilder<'a, DrizzleRef, Schema, Builder, State> {
     pub(crate) drizzle: DrizzleRef,
     pub(crate) builder: Builder,
     pub(crate) state: PhantomData<(Schema, State, &'a ())>,
+}
+
+/// Intermediate builder for typed ON CONFLICT within a PostgreSQL Drizzle wrapper.
+pub struct DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
+    drizzle: DrizzleRef,
+    builder: OnConflictBuilder<'b, Schema, Table>,
+    _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a, 'b, DrizzleRef, Schema, Table>
+    DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table>
+{
+    /// Adds a WHERE clause to the conflict target for partial index matching.
+    pub fn r#where(mut self, condition: impl ToSQL<'b, PostgresValue<'b>>) -> Self {
+        self.builder = self.builder.r#where(condition);
+        self
+    }
+
+    /// `ON CONFLICT (cols) DO NOTHING`
+    pub fn do_nothing(
+        self,
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
+        InsertOnConflictSet,
+    > {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.do_nothing(),
+            state: PhantomData,
+        }
+    }
+
+    /// `ON CONFLICT (cols) DO UPDATE SET ...`
+    pub fn do_update(
+        self,
+        set: impl ToSQL<'b, PostgresValue<'b>>,
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertDoUpdateSet, Table>,
+        InsertDoUpdateSet,
+    > {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.do_update(set),
+            state: PhantomData,
+        }
+    }
 }
 
 impl<'d, 'a, DrizzleRef, S, T, State> ToSQL<'a, PostgresValue<'a>>
@@ -239,21 +292,17 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 
     #[inline]
-    pub fn join<U>(
+    pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        on_condition: impl ToSQL<'a, PostgresValue<'a>>,
+        arg: J,
     ) -> DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
         SelectBuilder<'a, Schema, SelectJoinSet, T>,
         SelectJoinSet,
-    >
-    where
-        U: PostgresTable<'a>,
-    {
-        let builder = self.builder.join(table, on_condition.to_sql());
+    > {
+        let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -310,21 +359,17 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         }
     }
 
-    pub fn join<U>(
+    pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
         self,
-        table: U,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
+        arg: J,
     ) -> DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
         SelectBuilder<'a, Schema, SelectJoinSet, T>,
         SelectJoinSet,
-    >
-    where
-        U: PostgresTable<'a>,
-    {
-        let builder = self.builder.join(table, condition.to_sql());
+    > {
+        let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -502,10 +547,33 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 where
     Table: PostgresTable<'b>,
 {
-    /// Adds conflict resolution clause
-    pub fn on_conflict(
+    /// Begins a typed ON CONFLICT clause targeting specific columns.
+    pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
-        conflict: Conflict<'b>,
+        target: C,
+    ) -> DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
+        DrizzleOnConflictBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.on_conflict(target),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Begins a typed ON CONFLICT ON CONSTRAINT clause (PostgreSQL-only).
+    pub fn on_conflict_on_constraint<C: NamedConstraint<Table>>(
+        self,
+        target: C,
+    ) -> DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
+        DrizzleOnConflictBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.on_conflict_on_constraint(target),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
+    pub fn on_conflict_do_nothing(
+        self,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
@@ -513,10 +581,9 @@ where
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     > {
-        let builder = self.builder.on_conflict(conflict);
         DrizzleBuilder {
             drizzle: self.drizzle,
-            builder,
+            builder: self.builder.on_conflict_do_nothing(),
             state: PhantomData,
         }
     }
@@ -551,6 +618,53 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
+    pub fn returning(
+        self,
+        columns: impl ToSQL<'b, PostgresValue<'b>>,
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertReturningSet,
+    > {
+        let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, DrizzleRef, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertDoUpdateSet, Table>,
+        InsertDoUpdateSet,
+    >
+{
+    /// Adds WHERE clause after DO UPDATE SET
+    pub fn r#where(
+        self,
+        condition: impl ToSQL<'b, PostgresValue<'b>>,
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
+        InsertOnConflictSet,
+    > {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.r#where(condition),
+            state: PhantomData,
+        }
+    }
+
+    /// Adds RETURNING clause after DO UPDATE SET
     pub fn returning(
         self,
         columns: impl ToSQL<'b, PostgresValue<'b>>,

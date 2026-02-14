@@ -25,7 +25,8 @@ pub use cte::{CTEDefinition, CTEView};
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 pub use insert::{
-    Conflict, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+    InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+    OnConflictBuilder,
 };
 pub use refresh::{
     RefreshConcurrently, RefreshInitial, RefreshMaterializedView, RefreshWithNoData,

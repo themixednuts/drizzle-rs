@@ -1,6 +1,6 @@
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use drizzle_core::{SQL, SQLModel, ToSQL, Token};
+use drizzle_core::{ConflictTarget, SQL, SQLModel, ToSQL, Token};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
@@ -36,6 +36,10 @@ pub struct InsertReturningSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertOnConflictSet;
 
+/// Marker for the state after DO UPDATE SET (before optional WHERE).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InsertDoUpdateSet;
+
 // Const constructors for insert marker types
 impl InsertInitial {
     #[inline]
@@ -61,60 +65,10 @@ impl InsertOnConflictSet {
         Self
     }
 }
-
-/// Conflict resolution strategies
-#[derive(Debug, Clone)]
-pub enum Conflict<
-    'a,
-    T: IntoIterator<Item: ToSQL<'a, SQLiteValue<'a>>> = Vec<SQL<'a, SQLiteValue<'a>>>,
-> {
-    /// Do nothing on conflict - ON CONFLICT DO NOTHING
-    Ignore {
-        /// Optional target columns to specify which constraint triggers the conflict
-        target: Option<T>,
-    },
-    /// Update on conflict - ON CONFLICT DO UPDATE
-    Update {
-        /// Target columns that trigger the conflict
-        target: T,
-        /// SET clause for what to update
-        set: Box<SQL<'a, SQLiteValue<'a>>>,
-        /// Optional WHERE clause for the conflict target (partial indexes)
-        /// This goes after the target: ON CONFLICT (col) WHERE condition
-        target_where: Box<Option<SQL<'a, SQLiteValue<'a>>>>,
-        /// Optional WHERE clause for the update (conditional updates)
-        /// This goes after the SET: DO UPDATE SET col = val WHERE condition
-        set_where: Box<Option<SQL<'a, SQLiteValue<'a>>>>,
-    },
-}
-
-impl<'a> Default for Conflict<'a> {
-    fn default() -> Self {
-        Self::Ignore { target: None }
-    }
-}
-
-impl<'a, T> Conflict<'a, T>
-where
-    T: IntoIterator<Item: ToSQL<'a, SQLiteValue<'a>>>,
-{
-    pub fn update<S, TW, SW>(
-        target: T,
-        set: S,
-        target_where: Option<TW>,
-        set_where: Option<SW>,
-    ) -> Self
-    where
-        S: ToSQL<'a, SQLiteValue<'a>>,
-        TW: ToSQL<'a, SQLiteValue<'a>>,
-        SW: ToSQL<'a, SQLiteValue<'a>>,
-    {
-        Conflict::Update {
-            target,
-            set: Box::new(set.to_sql()),
-            target_where: Box::new(target_where.map(|w| w.to_sql())),
-            set_where: Box::new(set_where.map(|w| w.to_sql())),
-        }
+impl InsertDoUpdateSet {
+    #[inline]
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -122,6 +76,84 @@ where
 impl ExecutableState for InsertValuesSet {}
 impl ExecutableState for InsertReturningSet {}
 impl ExecutableState for InsertOnConflictSet {}
+impl ExecutableState for InsertDoUpdateSet {}
+
+//------------------------------------------------------------------------------
+// OnConflictBuilder
+//------------------------------------------------------------------------------
+
+/// Intermediate builder for typed ON CONFLICT clause construction.
+///
+/// Created by [`InsertBuilder::on_conflict()`]. Call [`do_nothing()`](Self::do_nothing)
+/// or [`do_update()`](Self::do_update) to complete the clause.
+#[derive(Debug, Clone)]
+pub struct OnConflictBuilder<'a, S, T> {
+    sql: SQL<'a, SQLiteValue<'a>>,
+    target_sql: SQL<'a, SQLiteValue<'a>>,
+    target_where: Option<SQL<'a, SQLiteValue<'a>>>,
+    schema: PhantomData<S>,
+    table: PhantomData<T>,
+}
+
+impl<'a, S, T> OnConflictBuilder<'a, S, T> {
+    /// Adds a WHERE clause to the conflict target for partial index matching.
+    ///
+    /// Generates: `ON CONFLICT (col) WHERE condition DO ...`
+    pub fn r#where(mut self, condition: impl ToSQL<'a, SQLiteValue<'a>>) -> Self {
+        self.target_where = Some(condition.to_sql());
+        self
+    }
+
+    /// Splits into (base insert SQL, conflict target SQL prefix).
+    fn into_parts(self) -> (SQL<'a, SQLiteValue<'a>>, SQL<'a, SQLiteValue<'a>>) {
+        let mut target = SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
+            .append(self.target_sql)
+            .push(Token::RPAREN);
+        if let Some(tw) = self.target_where {
+            target = target.push(Token::WHERE).append(tw);
+        }
+        (self.sql, target)
+    }
+
+    /// Resolves the conflict by doing nothing (ignoring the conflicting row).
+    ///
+    /// Generates: `ON CONFLICT (col1, col2) DO NOTHING`
+    pub fn do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+        let (sql, target) = self.into_parts();
+        InsertBuilder {
+            sql: append_sql(sql, target.push(Token::DO).push(Token::NOTHING)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Resolves the conflict by updating the existing row.
+    ///
+    /// The `set` parameter accepts any `ToSQL` value, typically an `UpdateModel`
+    /// which generates the SET clause assignments.
+    ///
+    /// Generates: `ON CONFLICT (col1, col2) DO UPDATE SET ...`
+    ///
+    /// Chain `.r#where(condition)` to add a conditional update filter.
+    pub fn do_update(
+        self,
+        set: impl ToSQL<'a, SQLiteValue<'a>>,
+    ) -> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
+        let (sql, target) = self.into_parts();
+        let conflict = target
+            .push(Token::DO)
+            .push(Token::UPDATE)
+            .push(Token::SET)
+            .append(set.to_sql());
+        InsertBuilder {
+            sql: append_sql(sql, conflict),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
 
 //------------------------------------------------------------------------------
 // InsertBuilder Definition
@@ -129,8 +161,8 @@ impl ExecutableState for InsertOnConflictSet {}
 
 /// Builds an INSERT query specifically for SQLite.
 ///
-/// `InsertBuilder` provides a type-safe, fluent API for constructing INSERT statements
-/// with support for conflict resolution, batch inserts, and returning clauses.
+/// Provides a type-safe, fluent API for constructing INSERT statements
+/// with support for typed conflict resolution, batch inserts, and returning clauses.
 ///
 /// ## Type Parameters
 ///
@@ -142,95 +174,8 @@ impl ExecutableState for InsertOnConflictSet {}
 ///
 /// 1. Start with `QueryBuilder::insert(table)` to specify the target table
 /// 2. Add `values()` to specify what data to insert
-/// 3. Optionally add conflict resolution with `on_conflict()`
+/// 3. Optionally add conflict resolution with `on_conflict(target).do_nothing()` or `.do_update(set)`
 /// 4. Optionally add a `returning()` clause
-///
-/// ## Basic Usage
-///
-/// ```rust
-/// # mod drizzle {
-/// #     pub mod core { pub use drizzle_core::*; }
-/// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod types { pub use drizzle_types::*; }
-/// #     pub mod migrations { pub use drizzle_migrations::*; }
-/// #     pub use drizzle_types::Dialect;
-/// #     pub use drizzle_types as ddl;
-/// #     pub mod sqlite {
-/// #             pub use drizzle_sqlite::{*, attrs::*};
-/// #         pub mod prelude {
-/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// #             pub use drizzle_sqlite::{*, attrs::*};
-/// #             pub use drizzle_core::*;
-/// #         }
-/// #     }
-/// # }
-/// use drizzle::sqlite::prelude::*;
-/// use drizzle::sqlite::builder::QueryBuilder;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct User {
-///     #[column(primary)]
-///     id: i32,
-///     name: String,
-///     email: Option<String>,
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// struct Schema {
-///     user: User,
-/// }
-///
-/// let builder = QueryBuilder::new::<Schema>();
-/// let Schema { user } = Schema::new();
-///
-/// // Basic INSERT
-/// let query = builder
-///     .insert(user)
-///     .values([InsertUser::new("Alice")]);
-/// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
-///
-/// // Batch INSERT
-/// let query = builder
-///     .insert(user)
-///     .values([
-///         InsertUser::new("Alice").with_email("alice@example.com"),
-///         InsertUser::new("Bob").with_email("bob@example.com"),
-///     ]);
-/// ```
-///
-/// ## Conflict Resolution
-///
-/// SQLite supports various conflict resolution strategies:
-///
-/// ```rust,no_run
-/// # mod drizzle {
-/// #     pub mod core { pub use drizzle_core::*; }
-/// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod types { pub use drizzle_types::*; }
-/// #     pub mod migrations { pub use drizzle_migrations::*; }
-/// #     pub use drizzle_types::Dialect;
-/// #     pub use drizzle_types as ddl;
-/// #     pub mod sqlite {
-/// #             pub use drizzle_sqlite::{*, attrs::*};
-/// #         pub mod prelude {
-/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// #             pub use drizzle_sqlite::{*, attrs::*};
-/// #             pub use drizzle_core::*;
-/// #         }
-/// #     }
-/// # }
-/// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::sqlite::builder::{QueryBuilder, insert::Conflict};
-/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
-/// # #[derive(SQLiteSchema)] struct Schema { user: User }
-/// # let builder = QueryBuilder::new::<Schema>();
-/// # let Schema { user } = Schema::new();
-/// // Ignore conflicts (ON CONFLICT DO NOTHING)
-/// let query = builder
-///     .insert(user)
-///     .values([InsertUser::new("Alice")])
-///     .on_conflict(Conflict::default());
-/// ```
 pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schema, State, Table>;
 
 //------------------------------------------------------------------------------
@@ -243,53 +188,8 @@ where
 {
     /// Specifies the values to insert into the table.
     ///
-    /// This method accepts an iterable of insert value objects generated by the
-    /// SQLiteTable macro (e.g., `InsertUser`). You can insert single values or
-    /// multiple values for batch operations.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # mod drizzle {
-    /// #     pub mod core { pub use drizzle_core::*; }
-    /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod types { pub use drizzle_types::*; }
-    /// #     pub mod migrations { pub use drizzle_migrations::*; }
-    /// #     pub use drizzle_types::Dialect;
-    /// #     pub use drizzle_types as ddl;
-    /// #     pub mod sqlite {
-    /// #         pub use drizzle_sqlite::*;
-    /// #         pub mod prelude {
-    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// #             pub use drizzle_sqlite::{*, attrs::*};
-    /// #             pub use drizzle_core::*;
-    /// #         }
-    /// #     }
-    /// # }
-    /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::builder::QueryBuilder;
-    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
-    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
-    /// # let builder = QueryBuilder::new::<Schema>();
-    /// # let Schema { user } = Schema::new();
-    /// // Single insert
-    /// let query = builder
-    ///     .insert(user)
-    ///     .values([InsertUser::new("Alice")]);
-    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
-    ///
-    /// // Batch insert (all values must have the same fields set)
-    /// let query = builder
-    ///     .insert(user)
-    ///     .values([
-    ///         InsertUser::new("Alice").with_email("alice@example.com"),
-    ///         InsertUser::new("Bob").with_email("bob@example.com"),
-    ///     ]);
-    /// assert_eq!(
-    ///     query.to_sql().sql(),
-    ///     r#"INSERT INTO "users" ("name", "email") VALUES (?, ?), (?, ?)"#
-    /// );
-    /// ```
+    /// Accepts an iterable of insert value objects generated by the
+    /// SQLiteTable macro (e.g., `InsertUser`).
     #[inline]
     pub fn values<I, T>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where
@@ -311,103 +211,41 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
-    /// Adds conflict resolution to handle constraint violations.
+    /// Begins a typed ON CONFLICT clause targeting a specific constraint.
     ///
-    /// SQLite supports various conflict resolution strategies when inserting data
-    /// that would violate unique constraints or primary keys. This method allows
-    /// you to specify how to handle such conflicts.
+    /// The target must implement `ConflictTarget<T>`, which is auto-generated for
+    /// primary key columns, unique columns, and unique indexes.
+    ///
+    /// Returns an [`OnConflictBuilder`] to specify `do_nothing()` or `do_update()`.
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// # mod drizzle {
-    /// #     pub mod core { pub use drizzle_core::*; }
-    /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod types { pub use drizzle_types::*; }
-    /// #     pub mod migrations { pub use drizzle_migrations::*; }
-    /// #     pub use drizzle_types::Dialect;
-    /// #     pub use drizzle_types as ddl;
-    /// #     pub mod sqlite {
-    /// #         pub use drizzle_sqlite::*;
-    /// #         pub mod prelude {
-    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// #             pub use drizzle_sqlite::{*, attrs::*};
-    /// #             pub use drizzle_core::*;
-    /// #         }
-    /// #     }
-    /// # }
-    /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::builder::{QueryBuilder, insert::Conflict};
-    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String, email: Option<String> }
-    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
-    /// # let builder = QueryBuilder::new::<Schema>();
-    /// # let Schema { user } = Schema::new();
-    /// // Ignore conflicts (do nothing)
-    /// let query = builder
-    ///     .insert(user)
-    ///     .values([InsertUser::new("Alice")])
-    ///     .on_conflict(Conflict::default());
-    /// assert_eq!(
-    ///     query.to_sql().sql(),
-    ///     r#"INSERT INTO "users" ("name") VALUES (?) ON CONFLICT DO NOTHING"#
-    /// );
+    /// ```rust,no_run
+    /// // Target a specific column (requires PK or unique constraint)
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict(user.id).do_nothing();
+    ///
+    /// // Target with DO UPDATE
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict(user.email).do_update(UpdateUser::default().with_name("updated"));
     /// ```
-    pub fn on_conflict<TI>(
-        self,
-        conflict: Conflict<'a, TI>,
-    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
-    where
-        TI: IntoIterator,
-        TI::Item: ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let conflict_sql = match conflict {
-            Conflict::Ignore { target } => {
-                if let Some(target_iter) = target {
-                    let cols = SQL::join(
-                        target_iter.into_iter().map(|item| item.to_sql()),
-                        Token::COMMA,
-                    );
-                    SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
-                        .append(cols)
-                        .push(Token::RPAREN)
-                        .push(Token::DO)
-                        .push(Token::NOTHING)
-                } else {
-                    SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING])
-                }
-            }
-            Conflict::Update {
-                target,
-                set,
-                target_where,
-                set_where,
-            } => {
-                let target_cols =
-                    SQL::join(target.into_iter().map(|item| item.to_sql()), Token::COMMA);
-                let mut sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
-                    .append(target_cols)
-                    .push(Token::RPAREN);
+    pub fn on_conflict<C: ConflictTarget<T>>(self, target: C) -> OnConflictBuilder<'a, S, T> {
+        let columns = target.conflict_columns();
+        let target_sql = SQL::join(columns.iter().map(|c| SQL::ident(*c)), Token::COMMA);
+        OnConflictBuilder {
+            sql: self.sql,
+            target_sql,
+            target_where: None,
+            schema: PhantomData,
+            table: PhantomData,
+        }
+    }
 
-                // Add target WHERE clause (for partial indexes)
-                if let Some(target_where) = *target_where {
-                    sql = sql.push(Token::WHERE).append(target_where);
-                }
-
-                sql = sql
-                    .push(Token::DO)
-                    .push(Token::UPDATE)
-                    .push(Token::SET)
-                    .append(*set);
-
-                // Add set WHERE clause (for conditional updates)
-                if let Some(set_where) = *set_where {
-                    sql = sql.push(Token::WHERE).append(set_where);
-                }
-
-                sql
-            }
-        };
-
+    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
+    ///
+    /// This matches any constraint violation.
+    pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+        let conflict_sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING]);
         InsertBuilder {
             sql: append_sql(self.sql, conflict_sql),
             schema: PhantomData,
@@ -438,6 +276,43 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     /// Adds a RETURNING clause after ON CONFLICT
+    #[inline]
+    pub fn returning(
+        self,
+        columns: impl ToSQL<'a, SQLiteValue<'a>>,
+    ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
+        let returning_sql = crate::helpers::returning(columns);
+        InsertBuilder {
+            sql: append_sql(self.sql, returning_sql),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Post-DO UPDATE SET Implementation
+//------------------------------------------------------------------------------
+
+impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
+    /// Adds a WHERE clause to the DO UPDATE SET clause.
+    ///
+    /// Generates: `ON CONFLICT (col) DO UPDATE SET ... WHERE condition`
+    pub fn r#where(
+        self,
+        condition: impl ToSQL<'a, SQLiteValue<'a>>,
+    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+        let sql = self.sql.push(Token::WHERE).append(condition.to_sql());
+        InsertBuilder {
+            sql,
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+        }
+    }
+
+    /// Adds a RETURNING clause after DO UPDATE SET
     #[inline]
     pub fn returning(
         self,
