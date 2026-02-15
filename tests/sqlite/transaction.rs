@@ -1118,17 +1118,20 @@ sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
     let result = drizzle_try!(db.transaction(
         SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
-            let alice: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Alice"}])?;
+            let alice: Vec<SelectSimple> =
+                drizzle_try!(prepared.all(tx.inner(), params![{name: "Alice"}]))?;
             assert_eq!(alice.len(), 1);
             assert_eq!(alice[0].name, "Alice");
 
             // Reuse with different params in the same transaction
-            let bob: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Bob"}])?;
+            let bob: Vec<SelectSimple> =
+                drizzle_try!(prepared.all(tx.inner(), params![{name: "Bob"}]))?;
             assert_eq!(bob.len(), 1);
             assert_eq!(bob[0].name, "Bob");
 
             // No match
-            let nobody: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Nobody"}])?;
+            let nobody: Vec<SelectSimple> =
+                drizzle_try!(prepared.all(tx.inner(), params![{name: "Nobody"}]))?;
             assert_eq!(nobody.len(), 0);
 
             Ok(())
@@ -1167,10 +1170,12 @@ sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
 
             // Use prepared statement inside a savepoint
             drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                let both: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Alice"}])?;
+                let both: Vec<SelectSimple> =
+                    drizzle_try!(prepared.all(tx.inner(), params![{name: "Alice"}]))?;
                 assert_eq!(both.len(), 1);
 
-                let bob: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Bob"}])?;
+                let bob: Vec<SelectSimple> =
+                    drizzle_try!(prepared.all(tx.inner(), params![{name: "Bob"}]))?;
                 assert_eq!(bob.len(), 1);
 
                 Ok(())
@@ -1206,7 +1211,7 @@ sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
                 )?;
 
                 // Prepared statement sees both rows inside the savepoint
-                let rows: Vec<SelectSimple> = prepared.all(tx.inner(), [])?;
+                let rows: Vec<SelectSimple> = drizzle_try!(prepared.all(tx.inner(), []))?;
                 assert_eq!(rows.len(), 2);
 
                 Err(DrizzleError::Other("rollback".into()))
@@ -1214,7 +1219,7 @@ sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
             assert!(sp_result.is_err());
 
             // After rollback, prepared statement sees only Alice
-            let rows: Vec<SelectSimple> = prepared.all(tx.inner(), [])?;
+            let rows: Vec<SelectSimple> = drizzle_try!(prepared.all(tx.inner(), []))?;
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].name, "Alice");
 
