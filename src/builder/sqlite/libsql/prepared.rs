@@ -9,13 +9,67 @@ use drizzle_core::{
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 use std::borrow::Cow;
 
-use libsql::{Connection, Row, params_from_iter};
+use libsql::{Connection, Row};
 
 use super::super::prepared_common::sqlite_async_prepared_impl;
 
+/// Trait for types that can execute SQL queries asynchronously.
+///
+/// Both [`libsql::Connection`] and [`libsql::Transaction`] implement this trait,
+/// allowing prepared statements to be used with either.
+pub trait LibsqlExecutor {
+    fn fetch(
+        &self,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> impl std::future::Future<Output = drizzle_core::error::Result<libsql::Rows>>;
+
+    fn exec(
+        &self,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> impl std::future::Future<Output = drizzle_core::error::Result<u64>>;
+}
+
+impl LibsqlExecutor for Connection {
+    async fn fetch(
+        &self,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> drizzle_core::error::Result<libsql::Rows> {
+        Ok(self.query(sql, params).await?)
+    }
+
+    async fn exec(
+        &self,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> drizzle_core::error::Result<u64> {
+        self.execute(sql, params).await.map_err(Into::into)
+    }
+}
+
+impl LibsqlExecutor for libsql::Transaction {
+    async fn fetch(
+        &self,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> drizzle_core::error::Result<libsql::Rows> {
+        Ok(self.query(sql, params).await?)
+    }
+
+    async fn exec(
+        &self,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> drizzle_core::error::Result<u64> {
+        self.execute(sql, params).await.map_err(Into::into)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
 impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
@@ -57,7 +111,7 @@ impl<'a> PreparedStatement<'a> {
 
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
 }
 
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
@@ -66,7 +120,7 @@ impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
     }
 }
 
-sqlite_async_prepared_impl!(Connection, Row, params_from_iter);
+sqlite_async_prepared_impl!(LibsqlExecutor, Row, libsql::Value);
 
 impl<'a> std::fmt::Display for PreparedStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

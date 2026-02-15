@@ -9,14 +9,60 @@ use drizzle_core::{
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 use std::borrow::Cow;
 
-use turso::{Connection, Row, params_from_iter};
+use turso::{Connection, Row};
 
 use super::super::prepared_common::sqlite_async_prepared_impl;
+
+/// Trait for types that can execute SQL queries asynchronously.
+///
+/// Both [`turso::Connection`] and [`turso::transaction::Transaction`] implement
+/// this trait, allowing prepared statements to be used with either.
+pub trait TursoExecutor {
+    fn fetch(
+        &self,
+        sql: &str,
+        params: Vec<turso::Value>,
+    ) -> impl std::future::Future<Output = drizzle_core::error::Result<turso::Rows>>;
+
+    fn exec(
+        &self,
+        sql: &str,
+        params: Vec<turso::Value>,
+    ) -> impl std::future::Future<Output = drizzle_core::error::Result<u64>>;
+}
+
+impl TursoExecutor for Connection {
+    async fn fetch(
+        &self,
+        sql: &str,
+        params: Vec<turso::Value>,
+    ) -> drizzle_core::error::Result<turso::Rows> {
+        Ok(self.query(sql, params).await?)
+    }
+
+    async fn exec(&self, sql: &str, params: Vec<turso::Value>) -> drizzle_core::error::Result<u64> {
+        self.execute(sql, params).await.map_err(Into::into)
+    }
+}
+
+impl TursoExecutor for turso::transaction::Transaction<'_> {
+    async fn fetch(
+        &self,
+        sql: &str,
+        params: Vec<turso::Value>,
+    ) -> drizzle_core::error::Result<turso::Rows> {
+        Ok(self.query(sql, params).await?)
+    }
+
+    async fn exec(&self, sql: &str, params: Vec<turso::Value>) -> drizzle_core::error::Result<u64> {
+        self.execute(sql, params).await.map_err(Into::into)
+    }
+}
 
 /// Turso-specific prepared statement (uses libsql under the hood)
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
 impl<'a> PreparedStatement<'a> {
@@ -41,7 +87,7 @@ impl<'a> PreparedStatement<'a> {
 
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
 }
 
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
@@ -67,7 +113,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
     }
 }
 
-sqlite_async_prepared_impl!(Connection, Row, params_from_iter);
+sqlite_async_prepared_impl!(TursoExecutor, Row, turso::Value);
 
 impl<'a> std::fmt::Display for PreparedStatement<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

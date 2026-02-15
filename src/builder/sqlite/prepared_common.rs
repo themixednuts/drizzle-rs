@@ -1,10 +1,10 @@
 macro_rules! sqlite_async_prepared_impl {
-    ($conn:ty, $row:ty, $params_from_iter:path) => {
+    ($executor:path, $row:ty, $value:ty) => {
         impl<'a> PreparedStatement<'a> {
             /// Runs the prepared statement and returns the number of affected rows
             pub async fn execute(
                 &self,
-                conn: &$conn,
+                conn: &impl $executor,
                 params: impl IntoIterator<
                     Item = drizzle_core::param::ParamBind<
                         'a,
@@ -13,16 +13,15 @@ macro_rules! sqlite_async_prepared_impl {
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, params) = self.inner.bind(params);
+                let params: Vec<$value> = params.map(Into::into).collect();
 
-                conn.execute(sql_str, $params_from_iter(params))
-                    .await
-                    .map_err(Into::into)
+                conn.exec(sql_str, params).await
             }
 
             /// Runs the prepared statement and returns all matching rows
             pub async fn all<T>(
                 &self,
-                conn: &$conn,
+                conn: &impl $executor,
                 params: impl IntoIterator<
                     Item = drizzle_core::param::ParamBind<
                         'a,
@@ -35,8 +34,9 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
+                let params: Vec<$value> = params.map(Into::into).collect();
 
-                let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;
+                let mut rows = conn.fetch(sql_str, params).await?;
 
                 let mut results = Vec::new();
                 while let Some(row) = rows.next().await? {
@@ -50,7 +50,7 @@ macro_rules! sqlite_async_prepared_impl {
             /// Runs the prepared statement and returns a single row
             pub async fn get<T>(
                 &self,
-                conn: &$conn,
+                conn: &impl $executor,
                 params: impl IntoIterator<
                     Item = drizzle_core::param::ParamBind<
                         'a,
@@ -63,7 +63,8 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;
+                let params: Vec<$value> = params.map(Into::into).collect();
+                let mut rows = conn.fetch(sql_str, params).await?;
 
                 if let Some(row) = rows.next().await? {
                     T::try_from(&row).map_err(Into::into)
@@ -77,7 +78,7 @@ macro_rules! sqlite_async_prepared_impl {
             /// Runs the prepared statement and returns the number of affected rows
             pub async fn execute<'a>(
                 &self,
-                conn: &$conn,
+                conn: &impl $executor,
                 params: impl IntoIterator<
                     Item = drizzle_core::param::ParamBind<
                         'a,
@@ -86,16 +87,15 @@ macro_rules! sqlite_async_prepared_impl {
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, params) = self.inner.bind(params);
+                let params: Vec<$value> = params.map(Into::into).collect();
 
-                conn.execute(sql_str, $params_from_iter(params))
-                    .await
-                    .map_err(Into::into)
+                conn.exec(sql_str, params).await
             }
 
             /// Runs the prepared statement and returns all matching rows
             pub async fn all<'a, T>(
                 &self,
-                conn: &$conn,
+                conn: &impl $executor,
                 params: impl IntoIterator<
                     Item = drizzle_core::param::ParamBind<
                         'a,
@@ -108,7 +108,8 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;
+                let params: Vec<$value> = params.map(Into::into).collect();
+                let mut rows = conn.fetch(sql_str, params).await?;
 
                 let mut results = Vec::new();
                 while let Some(row) = rows.next().await? {
@@ -122,7 +123,7 @@ macro_rules! sqlite_async_prepared_impl {
             /// Runs the prepared statement and returns a single row
             pub async fn get<'a, T>(
                 &self,
-                conn: &$conn,
+                conn: &impl $executor,
                 params: impl IntoIterator<
                     Item = drizzle_core::param::ParamBind<
                         'a,
@@ -135,7 +136,8 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let mut rows = conn.query(sql_str, $params_from_iter(params)).await?;
+                let params: Vec<$value> = params.map(Into::into).collect();
+                let mut rows = conn.fetch(sql_str, params).await?;
 
                 if let Some(row) = rows.next().await? {
                     T::try_from(&row).map_err(Into::into)
