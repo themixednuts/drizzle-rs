@@ -18,6 +18,7 @@ pub mod joins;
 pub mod prepare;
 pub mod schema;
 pub mod select;
+pub mod transaction;
 pub mod type_inference;
 pub mod update;
 #[cfg(any(feature = "compact-str", feature = "bytes", feature = "smallvec-types"))]
