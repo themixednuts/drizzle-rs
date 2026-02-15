@@ -763,6 +763,898 @@ mod postgres_sync {
     }
 }
 
+// ============================================================================
+// Tokio-Postgres Setup Functions
+// ============================================================================
+
+#[cfg(feature = "tokio-postgres")]
+async fn setup_tokio_postgres_connection() -> ::tokio_postgres::Client {
+    const USER: User = User::new();
+    let (client, connection) =
+        ::tokio_postgres::connect(&get_database_url(), ::tokio_postgres::NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
+        .await
+        .unwrap();
+    client
+        .batch_execute(&USER.sql().sql().to_string())
+        .await
+        .unwrap();
+    client
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn setup_tokio_postgres_blog_connection() -> ::tokio_postgres::Client {
+    const USER: User = User::new();
+    const POST: Post = Post::new();
+    let (client, connection) =
+        ::tokio_postgres::connect(&get_database_url(), ::tokio_postgres::NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
+        .await
+        .unwrap();
+    client
+        .batch_execute(&USER.sql().sql().to_string())
+        .await
+        .unwrap();
+    client
+        .batch_execute(&POST.sql().sql().to_string())
+        .await
+        .unwrap();
+    client
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn setup_tokio_postgres_drizzle() -> (drizzle::postgres::tokio::Drizzle<Schema>, User) {
+    let (client, connection) =
+        ::tokio_postgres::connect(&get_database_url(), ::tokio_postgres::NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
+        .await
+        .unwrap();
+    let (db, Schema { user }) = drizzle::postgres::tokio::Drizzle::new(client, Schema::new());
+    db.create().await.expect("create tables");
+    (db, user)
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn setup_tokio_postgres_blog_drizzle()
+-> (drizzle::postgres::tokio::Drizzle<BlogSchema>, User, Post) {
+    let (client, connection) =
+        ::tokio_postgres::connect(&get_database_url(), ::tokio_postgres::NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
+        .await
+        .unwrap();
+    let (db, BlogSchema { user, post }) =
+        drizzle::postgres::tokio::Drizzle::new(client, BlogSchema::new());
+    db.create().await.expect("create tables");
+    (db, user, post)
+}
+
+// ============================================================================
+// Tokio-Postgres Benchmarks
+// ============================================================================
+
+#[cfg(feature = "tokio-postgres")]
+#[divan::bench_group]
+mod tokio_postgres {
+    use super::*;
+
+    #[divan::bench_group]
+    mod select {
+        use super::*;
+
+        #[divan::bench]
+        fn raw(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let client = setup_tokio_postgres_connection().await;
+                        for i in 0..100 {
+                            client
+                                .execute(
+                                    "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                    &[&format!("User {}", i), &format!("user{}@example.com", i)],
+                                )
+                                .await
+                                .unwrap();
+                        }
+                        client
+                    })
+                })
+                .bench_values(|client| {
+                    rt.block_on(async {
+                        let rows = client
+                            .query(
+                                r#"SELECT "bench_users"."id", "bench_users"."name", "bench_users"."email" FROM "bench_users""#,
+                                &[],
+                            )
+                            .await
+                            .unwrap();
+
+                        let results: Vec<_> = rows
+                            .iter()
+                            .map(|row| {
+                                (
+                                    row.get::<_, i32>(0),
+                                    row.get::<_, String>(1),
+                                    row.get::<_, String>(2),
+                                )
+                            })
+                            .collect();
+                        black_box(results);
+                    });
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.insert(users)
+                            .values(gen_users!(100))
+                            .execute()
+                            .await
+                            .unwrap();
+                        (db, users)
+                    })
+                })
+                .bench_values(|(db, users)| {
+                    rt.block_on(async {
+                        let results: Vec<SelectUser> =
+                            db.select(()).from(users).all().await.unwrap();
+                        black_box(results);
+                    });
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle_prepared(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.client()
+                            .execute(
+                                "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
+                                &[&99i32],
+                            )
+                            .await
+                            .unwrap();
+                        let prepared = db.select(()).from(users).prepare().into_owned();
+                        (db, prepared)
+                    })
+                })
+                .bench_values(|(db, prepared)| {
+                    rt.block_on(async {
+                        let results: Vec<SelectUser> = prepared.all(db.client(), []).await.unwrap();
+                        black_box(results);
+                    });
+                });
+        }
+    }
+
+    #[divan::bench_group]
+    mod select_where {
+        use super::*;
+
+        #[divan::bench]
+        fn raw(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let client = setup_tokio_postgres_connection().await;
+                        for i in 0..100 {
+                            client
+                                .execute(
+                                    "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                    &[&format!("User {}", i), &format!("user{}@example.com", i)],
+                                )
+                                .await
+                                .unwrap();
+                        }
+                        client
+                    })
+                })
+                .bench_values(|client| {
+                    rt.block_on(async {
+                        let rows = client
+                            .query(
+                                r#"SELECT "bench_users"."id", "bench_users"."name", "bench_users"."email" FROM "bench_users" WHERE "bench_users"."id" = $1"#,
+                                &[&black_box(50i32)],
+                            )
+                            .await
+                            .unwrap();
+
+                        let results: Vec<_> = rows
+                            .iter()
+                            .map(|row| {
+                                (
+                                    row.get::<_, i32>(0),
+                                    row.get::<_, String>(1),
+                                    row.get::<_, String>(2),
+                                )
+                            })
+                            .collect();
+                        black_box(results);
+                    });
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.insert(users)
+                            .values(gen_users!(100))
+                            .execute()
+                            .await
+                            .unwrap();
+                        (db, users)
+                    })
+                })
+                .bench_values(|(db, users)| {
+                    rt.block_on(async {
+                        let results: Vec<SelectUser> = db
+                            .select(())
+                            .from(users)
+                            .r#where(eq(users.id, black_box(50)))
+                            .all()
+                            .await
+                            .unwrap();
+                        black_box(results);
+                    });
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle_prepared(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.client()
+                            .execute(
+                                "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
+                                &[&99i32],
+                            )
+                            .await
+                            .unwrap();
+                        let prepared = db
+                            .select(())
+                            .from(users)
+                            .r#where(eq(users.id, 50))
+                            .prepare()
+                            .into_owned();
+                        (db, prepared)
+                    })
+                })
+                .bench_values(|(db, prepared)| {
+                    rt.block_on(async {
+                        let results: Vec<SelectUser> = prepared.all(db.client(), []).await.unwrap();
+                        black_box(results);
+                    });
+                });
+        }
+    }
+
+    #[divan::bench_group]
+    mod insert {
+        use super::*;
+
+        #[divan::bench]
+        fn raw(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| rt.block_on(async { setup_tokio_postgres_connection().await }))
+                .bench_values(|client| {
+                    rt.block_on(async {
+                        client
+                            .execute(
+                                "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                &[&black_box("user"), &black_box("user@example.com")],
+                            )
+                            .await
+                            .unwrap()
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| rt.block_on(async { setup_tokio_postgres_drizzle().await }))
+                .bench_values(|(db, user)| {
+                    rt.block_on(async {
+                        db.insert(user)
+                            .values([InsertUser::new("user", "user@example.com")])
+                            .execute()
+                            .await
+                            .unwrap()
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle_prepared(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, user) = setup_tokio_postgres_drizzle().await;
+                        let prepared = db
+                            .insert(user)
+                            .values([InsertUser::new("user", "user@example.com")])
+                            .prepare()
+                            .into_owned();
+                        (db, prepared)
+                    })
+                })
+                .bench_values(|(db, prepared)| {
+                    rt.block_on(async {
+                        prepared.execute(db.client(), []).await.unwrap();
+                    })
+                });
+        }
+    }
+
+    #[divan::bench_group]
+    mod update {
+        use super::*;
+
+        #[divan::bench]
+        fn raw(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let client = setup_tokio_postgres_connection().await;
+                        client
+                            .execute(
+                                "INSERT INTO bench_users (name, email) VALUES ('user', 'user@example.com')",
+                                &[],
+                            )
+                            .await
+                            .unwrap();
+                        client
+                    })
+                })
+                .bench_values(|client| {
+                    rt.block_on(async {
+                        client
+                            .execute(
+                                r#"UPDATE "bench_users" SET "name" = $1 WHERE "bench_users"."id" = $2"#,
+                                &[&black_box("updated"), &black_box(1i32)],
+                            )
+                            .await
+                            .unwrap()
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.insert(users)
+                            .values([InsertUser::new("user", "user@example.com")])
+                            .execute()
+                            .await
+                            .unwrap();
+                        (db, users)
+                    })
+                })
+                .bench_values(|(db, users)| {
+                    rt.block_on(async {
+                        db.update(users)
+                            .set(UpdateUser::default().with_name(black_box("updated")))
+                            .r#where(eq(users.id, black_box(1)))
+                            .execute()
+                            .await
+                            .unwrap();
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle_prepared(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.client()
+                            .execute(
+                                "INSERT INTO bench_users (name, email) VALUES ('user', 'user@example.com')",
+                                &[],
+                            )
+                            .await
+                            .unwrap();
+                        let prepared = db
+                            .update(users)
+                            .set(UpdateUser::default().with_name("updated"))
+                            .r#where(eq(users.id, 1))
+                            .prepare()
+                            .into_owned();
+                        (db, prepared)
+                    })
+                })
+                .bench_values(|(db, prepared)| {
+                    rt.block_on(async {
+                        prepared.execute(db.client(), []).await.unwrap();
+                    })
+                });
+        }
+    }
+
+    #[divan::bench_group]
+    mod delete {
+        use super::*;
+
+        #[divan::bench]
+        fn raw(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let client = setup_tokio_postgres_connection().await;
+                        for i in 0..10 {
+                            client
+                                .execute(
+                                    "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                    &[&format!("User {}", i), &format!("user{}@example.com", i)],
+                                )
+                                .await
+                                .unwrap();
+                        }
+                        client
+                    })
+                })
+                .bench_values(|client| {
+                    rt.block_on(async {
+                        client
+                            .execute(
+                                r#"DELETE FROM "bench_users" WHERE "bench_users"."id" = $1"#,
+                                &[&black_box(1i32)],
+                            )
+                            .await
+                            .unwrap()
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.insert(users)
+                            .values(gen_users!(10))
+                            .execute()
+                            .await
+                            .unwrap();
+                        (db, users)
+                    })
+                })
+                .bench_values(|(db, users)| {
+                    rt.block_on(async {
+                        db.delete(users)
+                            .r#where(eq(users.id, black_box(1)))
+                            .execute()
+                            .await
+                            .unwrap();
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle_prepared(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        db.client()
+                            .execute(
+                                "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
+                                &[&9i32],
+                            )
+                            .await
+                            .unwrap();
+                        let prepared = db
+                            .delete(users)
+                            .r#where(eq(users.id, 1))
+                            .prepare()
+                            .into_owned();
+                        (db, prepared)
+                    })
+                })
+                .bench_values(|(db, prepared)| {
+                    rt.block_on(async {
+                        prepared.execute(db.client(), []).await.unwrap();
+                    })
+                });
+        }
+    }
+
+    #[divan::bench_group]
+    mod bulk_insert {
+        use super::*;
+
+        #[divan::bench]
+        fn raw(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let client = setup_tokio_postgres_connection().await;
+
+                        let mut sql = String::from("INSERT INTO bench_users (name, email) VALUES ");
+                        let mut params: Vec<String> = Vec::with_capacity(2000);
+
+                        for i in 0..1000 {
+                            if i > 0 {
+                                sql.push_str(", ");
+                            }
+                            sql.push_str(&format!("(${}, ${})", i * 2 + 1, i * 2 + 2));
+                            params.push(black_box(format!("User {}", i)));
+                            params.push(black_box(format!("user{}@example.com", i)));
+                        }
+
+                        (client, sql, params)
+                    })
+                })
+                .bench_values(|(client, sql, params)| {
+                    rt.block_on(async {
+                        use ::tokio_postgres::types::ToSql;
+                        let param_refs: Vec<&(dyn ToSql + Sync)> =
+                            params.iter().map(|p| p as &(dyn ToSql + Sync)).collect();
+                        client.execute(&sql, &param_refs[..]).await.unwrap();
+                    })
+                });
+        }
+
+        #[divan::bench]
+        fn drizzle(bencher: Bencher) {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            bencher
+                .with_inputs(|| {
+                    rt.block_on(async {
+                        let (db, users) = setup_tokio_postgres_drizzle().await;
+                        let data: Vec<_> = (0..1000)
+                            .map(|i| {
+                                InsertUser::new(
+                                    black_box(format!("User {}", i)),
+                                    black_box(format!("user{}@example.com", i)),
+                                )
+                            })
+                            .collect();
+                        (db, users, data)
+                    })
+                })
+                .bench_values(|(db, users, data)| {
+                    rt.block_on(async {
+                        db.insert(users).values(data).execute().await.unwrap();
+                    })
+                });
+        }
+    }
+
+    #[divan::bench_group]
+    mod complex {
+        use super::*;
+
+        mod join {
+            use super::*;
+
+            #[derive(Debug, PostgresFromRow)]
+            #[allow(dead_code)]
+            struct JoinResult {
+                #[column(User::name)]
+                user_name: String,
+                #[column(Post::title)]
+                post_title: String,
+            }
+
+            impl Default for JoinResult {
+                fn default() -> Self {
+                    Self {
+                        user_name: String::new(),
+                        post_title: String::new(),
+                    }
+                }
+            }
+
+            #[divan::bench]
+            fn raw(bencher: Bencher) {
+                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                bencher
+                    .with_inputs(|| {
+                        rt.block_on(async {
+                            let client = setup_tokio_postgres_blog_connection().await;
+                            for i in 0..10 {
+                                client
+                                    .execute(
+                                        "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                        &[
+                                            &format!("User {}", i),
+                                            &format!("user{}@example.com", i),
+                                        ],
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
+                            for i in 0..100 {
+                                client
+                                    .execute(
+                                        "INSERT INTO bench_posts (title, content, author_id) VALUES ($1, $2, $3)",
+                                        &[
+                                            &format!("Post {}", i),
+                                            &format!("Content {}", i),
+                                            &((i % 10) + 1),
+                                        ],
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
+                            client
+                        })
+                    })
+                    .bench_values(|client| {
+                        rt.block_on(async {
+                            let rows = client
+                                .query(
+                                    r#"SELECT "bench_users"."name", "bench_posts"."title" FROM "bench_users"
+                                       INNER JOIN "bench_posts" ON "bench_users"."id" = "bench_posts"."author_id""#,
+                                    &[],
+                                )
+                                .await
+                                .unwrap();
+
+                            let results: Vec<_> = rows
+                                .iter()
+                                .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+                                .collect();
+                            black_box(results);
+                        });
+                    });
+            }
+
+            #[divan::bench]
+            fn drizzle(bencher: Bencher) {
+                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                bencher
+                    .with_inputs(|| {
+                        rt.block_on(async {
+                            let (db, users, posts) = setup_tokio_postgres_blog_drizzle().await;
+                            db.insert(users)
+                                .values(gen_users!(10))
+                                .execute()
+                                .await
+                                .unwrap();
+                            let post_data: Vec<_> = (0..100)
+                                .map(|i| {
+                                    InsertPost::new(
+                                        format!("Post {}", i),
+                                        format!("Content {}", i),
+                                        (i % 10) + 1,
+                                    )
+                                })
+                                .collect();
+                            db.insert(posts).values(post_data).execute().await.unwrap();
+                            (db, users, posts)
+                        })
+                    })
+                    .bench_values(|(db, users, posts)| {
+                        rt.block_on(async {
+                            let results: Vec<JoinResult> = db
+                                .select(JoinResult::default())
+                                .from(users)
+                                .join((posts, eq(users.id, posts.author_id)))
+                                .all()
+                                .await
+                                .unwrap();
+                            black_box(results);
+                        });
+                    });
+            }
+        }
+
+        mod aggregate {
+            use super::*;
+
+            #[derive(Debug, PostgresFromRow)]
+            #[allow(dead_code)]
+            struct CountResult {
+                count: i64,
+            }
+
+            #[divan::bench]
+            fn raw(bencher: Bencher) {
+                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                bencher
+                    .with_inputs(|| {
+                        rt.block_on(async {
+                            let client = setup_tokio_postgres_connection().await;
+                            for i in 0..100 {
+                                client
+                                    .execute(
+                                        "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                        &[
+                                            &format!("User {}", i),
+                                            &format!("user{}@example.com", i),
+                                        ],
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
+                            client
+                        })
+                    })
+                    .bench_values(|client| {
+                        rt.block_on(async {
+                            let row = client
+                                .query_one(r#"SELECT COUNT(*) FROM "bench_users""#, &[])
+                                .await
+                                .unwrap();
+                            let count: i64 = row.get(0);
+                            black_box(count);
+                        });
+                    });
+            }
+
+            #[divan::bench]
+            fn drizzle(bencher: Bencher) {
+                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                bencher
+                    .with_inputs(|| {
+                        rt.block_on(async {
+                            let (db, users) = setup_tokio_postgres_drizzle().await;
+                            db.insert(users)
+                                .values(gen_users!(100))
+                                .execute()
+                                .await
+                                .unwrap();
+                            (db, users)
+                        })
+                    })
+                    .bench_values(|(db, users)| {
+                        rt.block_on(async {
+                            let results: Vec<CountResult> = db
+                                .select(alias(count(users.id), "count"))
+                                .from(users)
+                                .all()
+                                .await
+                                .unwrap();
+                            black_box(results);
+                        });
+                    });
+            }
+        }
+
+        mod order_limit {
+            use super::*;
+            use drizzle_core::OrderBy;
+
+            #[divan::bench]
+            fn raw(bencher: Bencher) {
+                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                bencher
+                    .with_inputs(|| {
+                        rt.block_on(async {
+                            let client = setup_tokio_postgres_connection().await;
+                            for i in 0..100 {
+                                client
+                                    .execute(
+                                        "INSERT INTO bench_users (name, email) VALUES ($1, $2)",
+                                        &[
+                                            &format!("User {}", i),
+                                            &format!("user{}@example.com", i),
+                                        ],
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
+                            client
+                        })
+                    })
+                    .bench_values(|client| {
+                        rt.block_on(async {
+                            let rows = client
+                                .query(
+                                    r#"SELECT "bench_users"."id", "bench_users"."name", "bench_users"."email" FROM "bench_users"
+                                       ORDER BY "bench_users"."name" ASC LIMIT 10 OFFSET 20"#,
+                                    &[],
+                                )
+                                .await
+                                .unwrap();
+
+                            let results: Vec<_> = rows
+                                .iter()
+                                .map(|row| {
+                                    (
+                                        row.get::<_, i32>(0),
+                                        row.get::<_, String>(1),
+                                        row.get::<_, String>(2),
+                                    )
+                                })
+                                .collect();
+                            black_box(results);
+                        });
+                    });
+            }
+
+            #[divan::bench]
+            fn drizzle(bencher: Bencher) {
+                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+                bencher
+                    .with_inputs(|| {
+                        rt.block_on(async {
+                            let (db, users) = setup_tokio_postgres_drizzle().await;
+                            db.insert(users)
+                                .values(gen_users!(100))
+                                .execute()
+                                .await
+                                .unwrap();
+                            (db, users)
+                        })
+                    })
+                    .bench_values(|(db, users)| {
+                        rt.block_on(async {
+                            let results: Vec<SelectUser> = db
+                                .select(())
+                                .from(users)
+                                .order_by([OrderBy::asc(users.name)])
+                                .limit(10)
+                                .offset(20)
+                                .all()
+                                .await
+                                .unwrap();
+                            black_box(results);
+                        });
+                    });
+            }
+        }
+    }
+}
+
 fn main() {
     #[cfg(feature = "profiling")]
     let captured_frames: std::sync::Arc<

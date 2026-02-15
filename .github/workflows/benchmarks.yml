@@ -67,7 +67,7 @@ jobs:
         with:
           name: benchmark-sqlite-${{ matrix.platform }}
           path: sqlite-${{ matrix.platform }}.md
-          retention-days: 90
+          retention-days: 30
 
       # Cache baseline results on main branch for regression detection
       - name: Save baseline
@@ -116,7 +116,7 @@ jobs:
         with:
           name: benchmark-comparison-sqlite-${{ matrix.platform }}
           path: comparison.md
-          retention-days: 30
+          retention-days: 7
 
   benchmark-postgres:
     name: Benchmark PostgreSQL (linux)
@@ -149,17 +149,30 @@ jobs:
           shared-key: bench-postgres
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Run PostgreSQL benchmarks
+      - name: Run PostgreSQL sync benchmarks
         env:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
         run: |
-          cargo bench --bench postgres --features "postgres-sync" > benchmark_raw.txt 2>&1 || true
-          if grep -q "Timer precision" benchmark_raw.txt; then
-            sed -n '/Timer precision/,$p' benchmark_raw.txt > benchmark_output.txt
+          cargo bench --bench postgres --features "postgres-sync" > sync_raw.txt 2>&1 || true
+          if grep -q "Timer precision" sync_raw.txt; then
+            sed -n '/Timer precision/,$p' sync_raw.txt > sync_output.txt
           else
-            echo "No benchmark results found" > benchmark_output.txt
-            cat benchmark_raw.txt >> benchmark_output.txt
+            echo "No benchmark results found" > sync_output.txt
+            cat sync_raw.txt >> sync_output.txt
+          fi
+
+      - name: Run PostgreSQL async benchmarks
+        env:
+          DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
+        shell: bash
+        run: |
+          cargo bench --bench postgres --features "tokio-postgres" > async_raw.txt 2>&1 || true
+          if grep -q "Timer precision" async_raw.txt; then
+            sed -n '/Timer precision/,$p' async_raw.txt > async_output.txt
+          else
+            echo "No benchmark results found" > async_output.txt
+            cat async_raw.txt >> async_output.txt
           fi
 
       - name: Create report
@@ -172,17 +185,30 @@ jobs:
             echo "**Commit:** ${{ github.sha }}"
             echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
             echo ""
+            echo "## postgres-sync"
+            echo ""
             echo '```'
-            cat benchmark_output.txt
+            cat sync_output.txt
+            echo '```'
+            echo ""
+            echo "## tokio-postgres"
+            echo ""
+            echo '```'
+            cat async_output.txt
             echo '```'
           } > "postgres-linux.md"
+
+          # Combine for baseline comparison
+          cat sync_output.txt > benchmark_output.txt
+          echo "" >> benchmark_output.txt
+          cat async_output.txt >> benchmark_output.txt
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-postgres-linux
           path: postgres-linux.md
-          retention-days: 90
+          retention-days: 30
 
       - name: Save baseline
         if: github.ref == 'refs/heads/main'
@@ -229,4 +255,4 @@ jobs:
         with:
           name: benchmark-comparison-postgres
           path: comparison.md
-          retention-days: 30
+          retention-days: 7
