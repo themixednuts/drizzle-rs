@@ -4,7 +4,9 @@ use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, Up
 use drizzle::core::expr::*;
 use drizzle::error::DrizzleError;
 use drizzle::sqlite::connection::SQLiteTransactionType;
+use drizzle_core::SQL;
 use drizzle_macros::sqlite_test;
+use drizzle_sqlite::params;
 
 sqlite_test!(test_transaction_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
@@ -1091,3 +1093,142 @@ sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
     assert!(names.contains(&"after_inner_rollback".to_string()));
     assert!(!names.contains(&"level_2_rollback".to_string()));
 });
+
+// --- Prepared statement + transaction tests ---
+
+sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    // Insert test data
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
+            .execute()
+    );
+
+    // Create an owned prepared statement OUTSIDE the transaction
+    let prepared = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .prepare()
+        .into_owned();
+
+    // Use it INSIDE the transaction
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
+        drizzle_tx!(tx, {
+            let alice: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Alice"}])?;
+            assert_eq!(alice.len(), 1);
+            assert_eq!(alice[0].name, "Alice");
+
+            // Reuse with different params in the same transaction
+            let bob: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Bob"}])?;
+            assert_eq!(bob.len(), 1);
+            assert_eq!(bob[0].name, "Bob");
+
+            // No match
+            let nobody: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Nobody"}])?;
+            assert_eq!(nobody.len(), 0);
+
+            Ok(())
+        })
+    ));
+
+    assert!(result.is_ok());
+});
+
+sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            .execute()
+    );
+
+    // Prepared statement created outside everything
+    let prepared = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .prepare()
+        .into_owned();
+
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
+        drizzle_tx!(tx, {
+            // Insert inside transaction
+            drizzle_try!(
+                tx.insert(simple)
+                    .values([InsertSimple::new("Bob")])
+                    .execute()
+            )?;
+
+            // Use prepared statement inside a savepoint
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                let both: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Alice"}])?;
+                assert_eq!(both.len(), 1);
+
+                let bob: Vec<SelectSimple> = prepared.all(tx.inner(), params![{name: "Bob"}])?;
+                assert_eq!(bob.len(), 1);
+
+                Ok(())
+            })))?;
+
+            Ok(())
+        })
+    ));
+
+    assert!(result.is_ok());
+});
+
+sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            .execute()
+    );
+
+    let prepared = db.select(()).from(simple).prepare().into_owned();
+
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
+        drizzle_tx!(tx, {
+            // Savepoint that inserts then rolls back
+            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("Ghost")])
+                        .execute()
+                )?;
+
+                // Prepared statement sees both rows inside the savepoint
+                let rows: Vec<SelectSimple> = prepared.all(tx.inner(), [])?;
+                assert_eq!(rows.len(), 2);
+
+                Err(DrizzleError::Other("rollback".into()))
+            })));
+            assert!(sp_result.is_err());
+
+            // After rollback, prepared statement sees only Alice
+            let rows: Vec<SelectSimple> = prepared.all(tx.inner(), [])?;
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].name, "Alice");
+
+            Ok(())
+        })
+    ));
+
+    assert!(result.is_ok());
+});
+
+// Static assertion: OwnedPreparedStatement is Send + Sync
+#[cfg(feature = "rusqlite")]
+#[test]
+fn test_sqlite_owned_prepared_send_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<drizzle_sqlite::builder::prepared::OwnedPreparedStatement>();
+}

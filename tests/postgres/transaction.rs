@@ -278,3 +278,136 @@ postgres_test!(savepoint_nested_two_levels, SimpleSchema, {
     drizzle_assert!(names.contains(&"level1"));
     drizzle_assert!(names.contains(&"level2"));
 });
+
+// --- Prepared statement + transaction tests ---
+
+postgres_test!(prepared_outside_transaction, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    // Insert test data
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
+            .execute()
+    );
+
+    // Create an owned prepared statement OUTSIDE the transaction (baked-in filter)
+    let find_alice = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "Alice"))
+        .prepare()
+        .into_owned();
+
+    let find_bob = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "Bob"))
+        .prepare()
+        .into_owned();
+
+    // Use the prepared statements INSIDE a transaction via tx.all()
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
+        drizzle_tx!(tx, {
+            let alice: Vec<TxSimpleResult> = drizzle_try!(tx.all(&find_alice))?;
+            assert_eq!(alice.len(), 1);
+            assert_eq!(alice[0].name, "Alice");
+
+            let bob: Vec<TxSimpleResult> = drizzle_try!(tx.all(&find_bob))?;
+            assert_eq!(bob.len(), 1);
+            assert_eq!(bob[0].name, "Bob");
+
+            Ok(())
+        })
+    ));
+});
+
+postgres_test!(prepared_in_savepoint, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            .execute()
+    );
+
+    // Prepared statement with baked-in select-all
+    let select_all = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .prepare()
+        .into_owned();
+
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
+        drizzle_tx!(tx, {
+            drizzle_try!(
+                tx.insert(simple)
+                    .values([InsertSimple::new("Bob")])
+                    .execute()
+            )?;
+
+            // Use prepared statement inside a savepoint
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                let rows: Vec<TxSimpleResult> = drizzle_try!(tx.all(&select_all))?;
+                assert_eq!(rows.len(), 2);
+                Ok(())
+            })))?;
+
+            Ok(())
+        })
+    ));
+});
+
+postgres_test!(prepared_survives_savepoint_rollback, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            .execute()
+    );
+
+    let select_all = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .prepare()
+        .into_owned();
+
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
+        drizzle_tx!(tx, {
+            // Savepoint that inserts then rolls back
+            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("Ghost")])
+                        .execute()
+                )?;
+
+                // Prepared statement sees both inside the savepoint
+                let rows: Vec<TxSimpleResult> = drizzle_try!(tx.all(&select_all))?;
+                assert_eq!(rows.len(), 2);
+
+                Err(drizzle::error::DrizzleError::Other("rollback".into()))
+            })));
+            assert!(sp_result.is_err());
+
+            // After rollback, prepared statement sees only Alice
+            let rows: Vec<TxSimpleResult> = drizzle_try!(tx.all(&select_all))?;
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].name, "Alice");
+
+            Ok(())
+        })
+    ));
+});
+
+// Static assertion: OwnedPreparedStatement is Send + Sync
+#[cfg(feature = "tokio-postgres")]
+#[test]
+fn test_pg_owned_prepared_send_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<drizzle_postgres::builder::prepared::OwnedPreparedStatement>();
+}
