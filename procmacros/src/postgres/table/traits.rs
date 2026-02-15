@@ -32,7 +32,7 @@ pub(super) fn generate_table_impls(
     let sql_column_info = core_paths::sql_column_info();
     let no_constraint = core_paths::no_constraint();
 
-    // Generate SQL implementation - always use empty string for const and provide via fn sql()
+    // Generate SQL implementation - always use empty string for const and provide via fn ddl()
     let (sql_const, sql_method) = if ctx.has_foreign_keys {
         // Use runtime SQL generation for tables with foreign keys
         // Call create_table_sql() which includes FK constraints via the DDL definitions

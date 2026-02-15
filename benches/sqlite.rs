@@ -73,7 +73,7 @@ macro_rules! gen_posts {
 fn setup_rusqlite_connection() -> ::rusqlite::Connection {
     const USER: User = User::new();
     let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute(&USER.sql().sql().to_string(), []).unwrap();
+    conn.execute(&USER.ddl().sql().to_string(), []).unwrap();
     conn
 }
 
@@ -82,8 +82,8 @@ fn setup_rusqlite_blog_connection() -> ::rusqlite::Connection {
     const USER: User = User::new();
     const POST: Post = Post::new();
     let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute(&USER.sql().sql().to_string(), []).unwrap();
-    conn.execute(&POST.sql().sql().to_string(), []).unwrap();
+    conn.execute(&USER.ddl().sql().to_string(), []).unwrap();
+    conn.execute(&POST.ddl().sql().to_string(), []).unwrap();
     conn
 }
 
@@ -116,7 +116,7 @@ async fn setup_turso_connection() -> ::turso::Connection {
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    conn.execute(&USER.sql().sql().to_string(), ())
+    conn.execute(&USER.ddl().sql().to_string(), ())
         .await
         .expect("create table");
     conn
@@ -130,7 +130,7 @@ async fn setup_turso_drizzle() -> (drizzle::sqlite::turso::Drizzle<Schema>, User
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
     let (db, Schema { user }) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
-    db.execute(user.sql()).await.expect("create table");
+    db.execute(user.ddl()).await.expect("create table");
     (db, user)
 }
 
@@ -146,7 +146,7 @@ async fn setup_libsql_connection() -> ::libsql::Connection {
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    conn.execute(&USER.sql().sql().to_string(), ())
+    conn.execute(&USER.ddl().sql().to_string(), ())
         .await
         .expect("create table");
     conn
@@ -160,7 +160,7 @@ async fn setup_libsql_drizzle() -> (drizzle::sqlite::libsql::Drizzle<Schema>, Us
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
     let (db, Schema { user }) = drizzle::sqlite::libsql::Drizzle::new(conn, Schema::new());
-    db.execute(user.sql()).await.expect("create table");
+    db.execute(user.ddl()).await.expect("create table");
     (db, user)
 }
 

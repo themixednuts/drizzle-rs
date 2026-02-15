@@ -320,7 +320,7 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             };
             const SQL: &'static str = "";
 
-            fn sql(&self) -> #sql<'a, #postgres_value<'a>> {
+            fn ddl(&self) -> #sql<'a, #postgres_value<'a>> {
                 #sql::raw(Self::create_index_sql())
             }
         }

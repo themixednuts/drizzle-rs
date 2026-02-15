@@ -43,9 +43,9 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     /// Static SQL string for schema creation (e.g., CREATE TABLE ...)
     const SQL: &'static str;
 
-    /// Generate SQL for this schema element.
+    /// Generate DDL SQL for this schema element (e.g., CREATE TABLE ...).
     /// Default implementation wraps the static SQL string.
-    fn sql(&self) -> SQL<'a, V> {
+    fn ddl(&self) -> SQL<'a, V> {
         SQL::raw(Self::SQL)
     }
 }

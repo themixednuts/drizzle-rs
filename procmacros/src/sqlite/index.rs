@@ -244,7 +244,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             };
             const SQL: &'static str = "";
 
-            fn sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+            fn ddl(&self) -> #sql<'a, #sqlite_value<'a>> {
                 #sql::raw(Self::create_index_sql())
             }
         }

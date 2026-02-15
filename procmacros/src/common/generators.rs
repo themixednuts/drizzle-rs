@@ -246,7 +246,7 @@ pub(crate) fn generate_sql_schema<D: Dialect>(
     let fn_method = runtime_sql
         .map(|v| {
             quote! {
-                fn sql(&self) -> #sql<'a, #value_type<'a>> {
+                fn ddl(&self) -> #sql<'a, #value_type<'a>> {
                     #v
                 }
             }
@@ -280,7 +280,7 @@ pub(crate) fn generate_sql_schema_field<D: Dialect>(
             const TYPE: &'a str = #r#type;
             const SQL: &'static str = "";
 
-            fn sql(&self) -> #sql_type<'a, #value_type<'a>> {
+            fn ddl(&self) -> #sql_type<'a, #value_type<'a>> {
                 #sql_type::raw(#sql)
             }
         }

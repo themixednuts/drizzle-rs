@@ -345,11 +345,11 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             match <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
                 #postgres_schema_type::Table(table_info) => {
                     let table_name = #sql_table_info::qualified_name(table_info).into_owned();
-                    let table_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
+                    let table_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::ddl(&self.#field_names).sql();
                     tables.push((table_name, table_sql, table_info));
                 }
                 #postgres_schema_type::Index(index_info) => {
-                    let index_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
+                    let index_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::ddl(&self.#field_names).sql();
                     let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
                     let index_name = #sql_index_info::name(index_info);
                     let index_key = ::std::format!("{}::{}", table_name, index_name);
@@ -369,7 +369,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                 }
                 #postgres_schema_type::View(view_info) => {
                     if !view_info.is_existing() {
-                        let view_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::sql(&self.#field_names).sql();
+                        let view_sql = <_ as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::ddl(&self.#field_names).sql();
                         views.push(view_sql);
                     }
                 }

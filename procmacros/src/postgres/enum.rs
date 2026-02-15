@@ -460,7 +460,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             };
             const SQL: &'static str = "";
 
-            fn sql(&self) -> #sql<'a, #postgres_value<'a>> {
+            fn ddl(&self) -> #sql<'a, #postgres_value<'a>> {
                 #sql::raw(#create_type_sql_literal)
             }
         }

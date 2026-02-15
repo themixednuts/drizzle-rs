@@ -319,7 +319,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 const TYPE: &'a str = #col_type;
                 const SQL: &'static str = "";
 
-                fn sql(&self) -> SQL<'a, PostgresValue<'a>> {
+                fn ddl(&self) -> SQL<'a, PostgresValue<'a>> {
                     SQL::raw(#sql)
                 }
             }

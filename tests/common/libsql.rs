@@ -21,26 +21,26 @@ async fn create_tables(conn: &Connection) {
     use drizzle_core::SQLSchema;
 
     // Simple table
-    conn.execute(Simple::new().sql().sql().as_str(), ())
+    conn.execute(Simple::new().ddl().sql().as_str(), ())
         .await
         .expect("Failed to create simple table");
 
-    conn.execute(Complex::new().sql().sql().as_str(), ())
+    conn.execute(Complex::new().ddl().sql().as_str(), ())
         .await
         .expect("Failed to create complex table");
 
     // Posts table for joins
-    conn.execute(Post::new().sql().sql().as_str(), ())
+    conn.execute(Post::new().ddl().sql().as_str(), ())
         .await
         .expect("Failed to create posts table");
 
     // Categories for many-to-many testing
-    conn.execute(Category::new().sql().sql().as_str(), ())
+    conn.execute(Category::new().ddl().sql().as_str(), ())
         .await
         .expect("Failed to create categories table");
 
     // Junction table
-    conn.execute(PostCategory::new().sql().sql().as_str(), ())
+    conn.execute(PostCategory::new().ddl().sql().as_str(), ())
         .await
         .expect("Failed to create post_categories table");
 }

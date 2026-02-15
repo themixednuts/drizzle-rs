@@ -114,13 +114,13 @@ sqlite_test!(test_schema_derive, AppTestSchema, {
     );
 
     // Test index SQL generation
-    let email_idx_sql = UserEmailIdx.sql().sql();
+    let email_idx_sql = UserEmailIdx.ddl().sql();
     assert_eq!(
         email_idx_sql,
         "CREATE UNIQUE INDEX `user_email_idx` ON `users`(`email`);"
     );
 
-    let name_idx_sql = UserNameIdx.sql().sql();
+    let name_idx_sql = UserNameIdx.ddl().sql();
     assert_eq!(
         name_idx_sql,
         "CREATE INDEX `user_name_idx` ON `users`(`name`);"

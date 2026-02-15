@@ -83,7 +83,7 @@ fn setup_postgres_connection() -> ::postgres::Client {
     client
         .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .unwrap();
-    client.batch_execute(&USER.sql().sql().to_string()).unwrap();
+    client.batch_execute(&USER.ddl().sql().to_string()).unwrap();
     client
 }
 
@@ -96,8 +96,8 @@ fn setup_postgres_blog_connection() -> ::postgres::Client {
     client
         .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .unwrap();
-    client.batch_execute(&USER.sql().sql().to_string()).unwrap();
-    client.batch_execute(&POST.sql().sql().to_string()).unwrap();
+    client.batch_execute(&USER.ddl().sql().to_string()).unwrap();
+    client.batch_execute(&POST.ddl().sql().to_string()).unwrap();
     client
 }
 
@@ -782,7 +782,7 @@ async fn setup_tokio_postgres_connection() -> ::tokio_postgres::Client {
         .await
         .unwrap();
     client
-        .batch_execute(&USER.sql().sql().to_string())
+        .batch_execute(&USER.ddl().sql().to_string())
         .await
         .unwrap();
     client
@@ -804,11 +804,11 @@ async fn setup_tokio_postgres_blog_connection() -> ::tokio_postgres::Client {
         .await
         .unwrap();
     client
-        .batch_execute(&USER.sql().sql().to_string())
+        .batch_execute(&USER.ddl().sql().to_string())
         .await
         .unwrap();
     client
-        .batch_execute(&POST.sql().sql().to_string())
+        .batch_execute(&POST.ddl().sql().to_string())
         .await
         .unwrap();
     client

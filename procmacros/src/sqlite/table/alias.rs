@@ -290,7 +290,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         Some(quote! {
             {
                 static INSTANCE: #table_name = #table_name::new();
-                <#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::sql(&INSTANCE)
+                <#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::ddl(&INSTANCE)
             }
         }),
     );
