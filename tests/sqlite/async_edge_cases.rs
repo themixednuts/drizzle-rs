@@ -220,6 +220,116 @@ mod libsql_edge_cases {
             .unwrap();
         assert_eq!(results.len(), 20);
     }
+
+    #[tokio::test]
+    async fn clone_and_query_from_spawned_task() {
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("initial")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Clone the Drizzle handle and move it into a spawned task
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            db_clone
+                .insert(simple)
+                .values([InsertSimple::new("from_spawn")])
+                .execute()
+                .await
+                .unwrap();
+        });
+
+        handle.await.unwrap();
+
+        // Original db is still usable
+        let results: Vec<SimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"initial"));
+        assert!(names.contains(&"from_spawn"));
+    }
+
+    #[tokio::test]
+    async fn clone_select_from_spawned_task() {
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+
+        for i in 0..5 {
+            db.insert(simple)
+                .values([InsertSimple::new(format!("user_{}", i))])
+                .execute()
+                .await
+                .unwrap();
+        }
+
+        // Clone and select from a spawned task
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            let results: Vec<SimpleResult> = db_clone
+                .select((simple.id, simple.name))
+                .from(simple)
+                .all()
+                .await
+                .unwrap();
+            results.len()
+        });
+
+        let count = handle.await.unwrap();
+        assert_eq!(count, 5);
+
+        // Original handle still works
+        let results: Vec<SimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn transaction_works_with_outstanding_clone() {
+        use drizzle_sqlite::connection::SQLiteTransactionType;
+
+        let (db, SimpleSchema { simple }) = libsql_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("before_tx")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Create a clone — libsql transaction takes &self, so this should work
+        let _clone = db.db.clone();
+
+        let result = db
+            .transaction(SQLiteTransactionType::default(), async |tx| {
+                tx.insert(simple)
+                    .values([InsertSimple::new("in_tx")])
+                    .execute()
+                    .await?;
+                Ok(())
+            })
+            .await;
+
+        assert!(result.is_ok());
+
+        let results: Vec<SimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+    }
 }
 
 // ============================================================================
@@ -374,5 +484,122 @@ mod turso_edge_cases {
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
+    }
+
+    #[tokio::test]
+    async fn clone_and_query_from_spawned_task() {
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("initial")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Clone the Drizzle handle and move it into a spawned task
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            db_clone
+                .insert(simple)
+                .values([InsertSimple::new("from_spawn")])
+                .execute()
+                .await
+                .unwrap();
+        });
+
+        handle.await.unwrap();
+
+        // Original db is still usable
+        let results: Vec<SimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"initial"));
+        assert!(names.contains(&"from_spawn"));
+    }
+
+    #[tokio::test]
+    async fn clone_select_from_spawned_task() {
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+
+        for i in 0..5 {
+            db.insert(simple)
+                .values([InsertSimple::new(format!("user_{}", i))])
+                .execute()
+                .await
+                .unwrap();
+        }
+
+        // Clone and select from a spawned task
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            let results: Vec<SimpleResult> = db_clone
+                .select((simple.id, simple.name))
+                .from(simple)
+                .all()
+                .await
+                .unwrap();
+            results.len()
+        });
+
+        let count = handle.await.unwrap();
+        assert_eq!(count, 5);
+
+        // Original handle still works
+        let results: Vec<SimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn clone_transaction_in_spawned_task() {
+        use drizzle_sqlite::connection::SQLiteTransactionType;
+
+        let (db, SimpleSchema { simple }) = turso_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("before_tx")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Clone, move into spawn, run a transaction there
+        let mut db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            db_clone
+                .transaction(SQLiteTransactionType::default(), async |tx| {
+                    tx.insert(simple)
+                        .values([InsertSimple::new("in_spawn_tx")])
+                        .execute()
+                        .await?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+        });
+
+        handle.await.unwrap();
+
+        // Original db sees the committed data
+        let results: Vec<SimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"before_tx"));
+        assert!(names.contains(&"in_spawn_tx"));
     }
 }

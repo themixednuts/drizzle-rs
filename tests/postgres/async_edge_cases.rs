@@ -169,4 +169,204 @@ mod tokio_postgres_edge_cases {
             .unwrap();
         assert_eq!(results.len(), 20);
     }
+
+    #[tokio::test]
+    async fn clone_and_query_from_spawned_task() {
+        let (db, SimpleSchema { simple }) = tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("initial")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Clone the Drizzle handle and move it into a spawned task
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            db_clone
+                .insert(simple)
+                .values([InsertSimple::new("from_spawn")])
+                .execute()
+                .await
+                .unwrap();
+        });
+
+        handle.await.unwrap();
+
+        // Original db is still usable
+        let results: Vec<PgSimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"initial"));
+        assert!(names.contains(&"from_spawn"));
+    }
+
+    #[tokio::test]
+    async fn clone_select_from_spawned_task() {
+        let (db, SimpleSchema { simple }) = tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        for i in 0..5 {
+            db.insert(simple)
+                .values([InsertSimple::new(format!("user_{}", i))])
+                .execute()
+                .await
+                .unwrap();
+        }
+
+        // Clone and select from a spawned task
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            let results: Vec<PgSimpleResult> = db_clone
+                .select((simple.id, simple.name))
+                .from(simple)
+                .all()
+                .await
+                .unwrap();
+            results.len()
+        });
+
+        let count = handle.await.unwrap();
+        assert_eq!(count, 5);
+
+        // Original handle still works
+        let results: Vec<PgSimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn transaction_fails_with_outstanding_clones() {
+        use drizzle_postgres::common::PostgresTransactionType;
+
+        let (mut db, SimpleSchema { simple }) =
+            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("before_tx")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Create an outstanding clone
+        let _clone = db.db.clone();
+
+        // Transaction should fail because a clone exists
+        let result = db
+            .transaction(PostgresTransactionType::default(), async |tx| {
+                tx.insert(simple)
+                    .values([InsertSimple::new("in_tx")])
+                    .execute()
+                    .await?;
+                Ok(())
+            })
+            .await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("outstanding"),
+            "error should mention outstanding clones: {}",
+            err_msg
+        );
+
+        // Original data should still be intact
+        let results: Vec<PgSimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "before_tx");
+    }
+
+    #[tokio::test]
+    async fn transaction_succeeds_after_clone_dropped() {
+        use drizzle_postgres::common::PostgresTransactionType;
+
+        let (mut db, SimpleSchema { simple }) =
+            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        db.insert(simple)
+            .values([InsertSimple::new("before_tx")])
+            .execute()
+            .await
+            .unwrap();
+
+        // Clone, use in spawn, await completion (clone is dropped)
+        let db_clone = db.db.clone();
+        let handle = tokio::spawn(async move {
+            db_clone
+                .insert(simple)
+                .values([InsertSimple::new("from_spawn")])
+                .execute()
+                .await
+                .unwrap();
+        });
+        handle.await.unwrap();
+
+        // Now transaction should succeed — clone was dropped
+        let result = db
+            .transaction(PostgresTransactionType::default(), async |tx| {
+                tx.insert(simple)
+                    .values([InsertSimple::new("in_tx")])
+                    .execute()
+                    .await?;
+                Ok(())
+            })
+            .await;
+
+        assert!(result.is_ok());
+
+        let results: Vec<PgSimpleResult> = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .all()
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn mut_client_returns_none_when_shared() {
+        let (mut db, SimpleSchema { simple: _ }) =
+            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        let _clone = db.db.clone();
+
+        // mut_client should return None while clone exists
+        assert!(db.mut_client().is_none());
+    }
+
+    #[tokio::test]
+    async fn mut_client_returns_some_when_unique() {
+        let (mut db, SimpleSchema { simple: _ }) =
+            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        // No clones — mut_client should return Some
+        assert!(db.mut_client().is_some());
+    }
+
+    #[tokio::test]
+    async fn mut_client_available_after_clone_dropped() {
+        let (mut db, SimpleSchema { simple: _ }) =
+            tokio_postgres_setup::setup_db::<SimpleSchema>().await;
+
+        {
+            let _clone = db.db.clone();
+            assert!(db.mut_client().is_none());
+        }
+        // Clone dropped — mut_client should work again
+        assert!(db.mut_client().is_some());
+    }
 }
