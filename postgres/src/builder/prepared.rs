@@ -68,7 +68,7 @@ use crate::values::{OwnedPostgresValue, PostgresValue};
 /// store the prepared statement long-term or use it immediately.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, PostgresValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, PostgresValue<'a>>,
 }
 
 impl<'a> PreparedStatement<'a> {
@@ -161,7 +161,7 @@ impl<'a> PreparedStatement<'a> {
 /// - `OwnedPreparedStatement` → `PreparedStatement` (via `From` trait)
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<crate::values::OwnedPostgresValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<crate::values::OwnedPostgresValue>,
 }
 
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {

@@ -17,7 +17,7 @@ use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
 /// This is a wrapper around an owned prepared statement that can be used with the tokio-postgres driver.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, PostgresValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, PostgresValue<'a>>,
 }
 
 impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
@@ -77,7 +77,7 @@ impl<'a> PreparedStatement<'a> {
 /// caching, or passing across thread boundaries.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<OwnedPostgresValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<OwnedPostgresValue>,
 }
 
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {

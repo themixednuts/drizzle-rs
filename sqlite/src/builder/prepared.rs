@@ -69,7 +69,7 @@ use crate::values::{OwnedSQLiteValue, SQLiteValue};
 /// store the prepared statement long-term or use it immediately.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
 impl<'a> PreparedStatement<'a> {
@@ -160,7 +160,7 @@ impl<'a> PreparedStatement<'a> {
 /// - `OwnedPreparedStatement` → `PreparedStatement` (via `From` trait)
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<crate::values::OwnedSQLiteValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<crate::values::OwnedSQLiteValue>,
 }
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
     fn from(value: PreparedStatement<'a>) -> Self {

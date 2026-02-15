@@ -12,7 +12,7 @@ use rusqlite::{Connection, Row, params_from_iter};
 
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
 impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
@@ -176,7 +176,7 @@ impl<'a> PreparedStatement<'a> {
 
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
 }
 
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {

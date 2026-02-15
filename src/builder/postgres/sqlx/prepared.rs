@@ -12,7 +12,7 @@ use std::borrow::Cow;
 /// A prepared statement for PostgreSQL queries using sqlx
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
-    pub inner: CorePreparedStatement<'a, PostgresValue<'a>>,
+    pub(crate) inner: CorePreparedStatement<'a, PostgresValue<'a>>,
 }
 
 impl<'a> PreparedStatement<'a> {
@@ -37,7 +37,7 @@ impl<'a> PreparedStatement<'a> {
 
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
-    pub inner: CoreOwnedPreparedStatement<OwnedPostgresValue>,
+    pub(crate) inner: CoreOwnedPreparedStatement<OwnedPostgresValue>,
 }
 
 impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
