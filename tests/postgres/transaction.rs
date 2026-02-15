@@ -27,7 +27,8 @@ postgres_test!(transaction_commit, SimpleSchema, {
     );
 
     // Insert inside a transaction that commits
-    drizzle_exec!(db.transaction(PostgresTransactionType::default(), |tx| {
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
         drizzle_tx!(tx, {
             drizzle_try!(
                 tx.insert(simple)
@@ -36,7 +37,7 @@ postgres_test!(transaction_commit, SimpleSchema, {
             )?;
             Ok(())
         })
-    }));
+    ));
 
     // Both rows should be visible
     let results: Vec<TxSimpleResult> =
@@ -55,17 +56,17 @@ postgres_test!(transaction_rollback, SimpleSchema, {
     );
 
     // Transaction that returns an error should rollback
-    let result: Result<(), drizzle::error::DrizzleError> =
-        drizzle_try!(db.transaction(PostgresTransactionType::default(), |tx| {
-            drizzle_tx!(tx, {
-                drizzle_try!(
-                    tx.insert(simple)
-                        .values([InsertSimple::new("Bob")])
-                        .execute()
-                )?;
-                Err(drizzle::error::DrizzleError::Other("rollback".into()))
-            })
-        }));
+    let result: Result<(), drizzle::error::DrizzleError> = drizzle_try!(db.transaction(
+        PostgresTransactionType::default(),
+        drizzle_tx!(tx, {
+            drizzle_try!(
+                tx.insert(simple)
+                    .values([InsertSimple::new("Bob")])
+                    .execute()
+            )?;
+            Err(drizzle::error::DrizzleError::Other("rollback".into()))
+        })
+    ));
     let _ = result; // Ignore the Err — we expect rollback
 
     // Only the first row should be visible (transaction was rolled back)
@@ -86,7 +87,8 @@ postgres_test!(transaction_update_and_select, SimpleSchema, {
     );
 
     // Update inside a transaction
-    drizzle_exec!(db.transaction(PostgresTransactionType::default(), |tx| {
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
         drizzle_tx!(tx, {
             drizzle_try!(
                 tx.update(simple)
@@ -106,7 +108,7 @@ postgres_test!(transaction_update_and_select, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     // Verify persisted after commit
     let results: Vec<TxSimpleResult> =
@@ -131,12 +133,13 @@ postgres_test!(transaction_delete, SimpleSchema, {
     );
 
     // Delete inside a transaction
-    drizzle_exec!(db.transaction(PostgresTransactionType::default(), |tx| {
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
         drizzle_tx!(tx, {
             drizzle_try!(tx.delete(simple).r#where(eq(simple.name, "Bob")).execute())?;
             Ok(())
         })
-    }));
+    ));
 
     let results: Vec<TxSimpleResult> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
@@ -150,7 +153,8 @@ postgres_test!(transaction_delete, SimpleSchema, {
 postgres_test!(savepoint_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.transaction(PostgresTransactionType::default(), |tx| {
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
         drizzle_tx!(tx, {
             // Insert in outer transaction
             drizzle_try!(
@@ -160,20 +164,18 @@ postgres_test!(savepoint_commit, SimpleSchema, {
             )?;
 
             // Savepoint that commits
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("inner")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("inner")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             Ok(())
         })
-    }));
+    ));
 
     // Both records should exist
     let results: Vec<TxSimpleResult> =
@@ -187,7 +189,8 @@ postgres_test!(savepoint_commit, SimpleSchema, {
 postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.transaction(PostgresTransactionType::default(), |tx| {
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
         drizzle_tx!(tx, {
             // Insert in outer transaction
             drizzle_try!(
@@ -197,16 +200,14 @@ postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
             )?;
 
             // Savepoint that rolls back
-            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("inner_rollback")])
-                            .execute()
-                    )?;
-                    Err(drizzle::error::DrizzleError::Other("rollback inner".into()))
-                })
-            }));
+            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("inner_rollback")])
+                        .execute()
+                )?;
+                Err(drizzle::error::DrizzleError::Other("rollback inner".into()))
+            })));
 
             // Savepoint error should not abort the outer transaction
             assert!(sp_result.is_err());
@@ -220,7 +221,7 @@ postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     // Only outer + after_sp should exist, inner_rollback should be gone
     let results: Vec<TxSimpleResult> =
@@ -235,7 +236,8 @@ postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
 postgres_test!(savepoint_nested_two_levels, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.transaction(PostgresTransactionType::default(), |tx| {
+    drizzle_exec!(db.transaction(
+        PostgresTransactionType::default(),
         drizzle_tx!(tx, {
             drizzle_try!(
                 tx.insert(simple)
@@ -244,33 +246,29 @@ postgres_test!(savepoint_nested_two_levels, SimpleSchema, {
             )?;
 
             // First savepoint
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("level1")])
+                        .execute()
+                )?;
+
+                // Nested savepoint
+                drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
                     drizzle_try!(
                         tx.insert(simple)
-                            .values([InsertSimple::new("level1")])
+                            .values([InsertSimple::new("level2")])
                             .execute()
                     )?;
-
-                    // Nested savepoint
-                    drizzle_try!(tx.savepoint(|tx| {
-                        drizzle_tx!(tx, {
-                            drizzle_try!(
-                                tx.insert(simple)
-                                    .values([InsertSimple::new("level2")])
-                                    .execute()
-                            )?;
-                            Ok(())
-                        })
-                    }))?;
-
                     Ok(())
-                })
-            }))?;
+                })))?;
+
+                Ok(())
+            })))?;
 
             Ok(())
         })
-    }));
+    ));
 
     let results: Vec<TxSimpleResult> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());

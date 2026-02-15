@@ -9,7 +9,8 @@ use drizzle_macros::sqlite_test;
 sqlite_test!(test_transaction_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // Insert first record
             drizzle_try!(
@@ -26,7 +27,7 @@ sqlite_test!(test_transaction_commit, SimpleSchema, {
             )?;
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -49,7 +50,7 @@ sqlite_test!(test_transaction_rollback, SimpleSchema, {
 
     let result: Result<(), DrizzleError> = drizzle_try!(db.transaction(
         SQLiteTransactionType::Immediate,
-        |tx| drizzle_tx!(tx, {
+        drizzle_tx!(tx, {
             // Insert a record
             drizzle_try!(
                 tx.insert(simple)
@@ -81,15 +82,18 @@ sqlite_test!(test_transaction_types, SimpleSchema, {
         SQLiteTransactionType::Immediate,
         SQLiteTransactionType::Exclusive,
     ] {
-        let result = drizzle_try!(db.transaction(tx_type, |tx| drizzle_tx!(tx, {
-            let user_name = format!("user_{:?}", tx_type);
-            drizzle_try!(
-                tx.insert(simple)
-                    .values([InsertSimple::new(user_name.as_str())])
-                    .execute()
-            )?;
-            Ok(())
-        })));
+        let result = drizzle_try!(db.transaction(
+            tx_type,
+            drizzle_tx!(tx, {
+                let user_name = format!("user_{:?}", tx_type);
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new(user_name.as_str())])
+                        .execute()
+                )?;
+                Ok(())
+            })
+        ));
 
         assert!(result.is_ok(), "Transaction failed for type {:?}", tx_type);
     }
@@ -113,8 +117,9 @@ sqlite_test!(test_transaction_query_builders, SimpleSchema, {
             .execute()
     );
 
-    let result = drizzle_try!(
-        db.transaction(SQLiteTransactionType::Deferred, |tx| drizzle_tx!(tx, {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
+        drizzle_tx!(tx, {
             // Test SELECT
             let users: Vec<SelectSimple> = drizzle_try!(
                 tx.select(())
@@ -147,8 +152,8 @@ sqlite_test!(test_transaction_query_builders, SimpleSchema, {
             )?;
 
             Ok(())
-        }))
-    );
+        })
+    ));
 
     assert!(result.is_ok());
 
@@ -174,8 +179,9 @@ sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
             .execute()
     );
 
-    let result = drizzle_try!(
-        db.transaction(SQLiteTransactionType::Deferred, |tx| drizzle_tx!(tx, {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
+        drizzle_tx!(tx, {
             // Insert valid record
             drizzle_try!(
                 tx.insert(simple)
@@ -191,8 +197,8 @@ sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
             )?;
 
             Ok(())
-        }))
-    );
+        })
+    ));
 
     assert!(result.is_err());
 
@@ -215,7 +221,7 @@ sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
     // Attempt transaction that will panic
     let result: Result<Result<(), DrizzleError>, _> = drizzle_catch_unwind!(db.transaction(
         SQLiteTransactionType::Deferred,
-        |tx| drizzle_tx!(tx, {
+        drizzle_tx!(tx, {
             // Insert a record
             drizzle_try!(
                 tx.insert(simple)
@@ -239,8 +245,9 @@ sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
 sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(
-        db.transaction(SQLiteTransactionType::Immediate, |tx| drizzle_tx!(tx, {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Immediate,
+        drizzle_tx!(tx, {
             // Insert users
             drizzle_try!(
                 tx.insert(simple)
@@ -277,8 +284,8 @@ sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
 
             // If we got this far, everything should commit
             Ok(())
-        }))
-    );
+        })
+    ));
 
     assert!(result.is_ok());
 
@@ -302,7 +309,7 @@ sqlite_test!(
         // Test transaction where a query fails in the middle
         let result = drizzle_try!(db.transaction(
             SQLiteTransactionType::Deferred,
-            |tx| drizzle_tx!(tx, {
+            drizzle_tx!(tx, {
                 // Insert first record (should succeed)
                 drizzle_try!(
                     tx.insert(simple)
@@ -350,7 +357,7 @@ sqlite_test!(test_large_transaction_rollback, SimpleSchema, {
     // Test rollback of transaction with many operations
     let result: Result<(), DrizzleError> = drizzle_try!(db.transaction(
         SQLiteTransactionType::Exclusive,
-        |tx| drizzle_tx!(tx, {
+        drizzle_tx!(tx, {
             // Insert many records
             for i in 0..100 {
                 let user_name = format!("user_{}", i);
@@ -384,7 +391,8 @@ sqlite_test!(test_large_transaction_rollback, SimpleSchema, {
 sqlite_test!(test_savepoint_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // Insert in outer transaction
             drizzle_try!(
@@ -394,20 +402,18 @@ sqlite_test!(test_savepoint_commit, SimpleSchema, {
             )?;
 
             // Savepoint that commits
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("inner")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("inner")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -422,7 +428,8 @@ sqlite_test!(test_savepoint_commit, SimpleSchema, {
 sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // Insert in outer transaction
             drizzle_try!(
@@ -432,16 +439,14 @@ sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
             )?;
 
             // Savepoint that rolls back
-            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("inner_rollback")])
-                            .execute()
-                    )?;
-                    Err(DrizzleError::Other("rollback inner".to_string().into()))
-                })
-            }));
+            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("inner_rollback")])
+                        .execute()
+                )?;
+                Err(DrizzleError::Other("rollback inner".to_string().into()))
+            })));
 
             // Savepoint error should not abort the outer transaction
             assert!(sp_result.is_err());
@@ -455,7 +460,7 @@ sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -473,7 +478,7 @@ sqlite_test!(test_savepoint_outer_rollback, SimpleSchema, {
 
     let result: Result<(), DrizzleError> = drizzle_try!(db.transaction(
         SQLiteTransactionType::Deferred,
-        |tx| drizzle_tx!(tx, {
+        drizzle_tx!(tx, {
             // Insert in outer transaction
             drizzle_try!(
                 tx.insert(simple)
@@ -482,16 +487,14 @@ sqlite_test!(test_savepoint_outer_rollback, SimpleSchema, {
             )?;
 
             // Savepoint that commits
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("inner")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("inner")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             // Rollback the entire outer transaction
             Err(DrizzleError::Other("rollback outer".to_string().into()))
@@ -508,7 +511,8 @@ sqlite_test!(test_savepoint_outer_rollback, SimpleSchema, {
 sqlite_test!(test_nested_savepoints, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             drizzle_try!(
                 tx.insert(simple)
@@ -517,33 +521,29 @@ sqlite_test!(test_nested_savepoints, SimpleSchema, {
             )?;
 
             // First level savepoint
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("level_1")])
+                        .execute()
+                )?;
+
+                // Second level savepoint (nested within first)
+                drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
                     drizzle_try!(
                         tx.insert(simple)
-                            .values([InsertSimple::new("level_1")])
+                            .values([InsertSimple::new("level_2")])
                             .execute()
                     )?;
-
-                    // Second level savepoint (nested within first)
-                    drizzle_try!(tx.savepoint(|tx| {
-                        drizzle_tx!(tx, {
-                            drizzle_try!(
-                                tx.insert(simple)
-                                    .values([InsertSimple::new("level_2")])
-                                    .execute()
-                            )?;
-                            Ok(())
-                        })
-                    }))?;
-
                     Ok(())
-                })
-            }))?;
+                })))?;
+
+                Ok(())
+            })))?;
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -733,7 +733,8 @@ mod test_deep_savepoint_partial_rollback_rusqlite {
 sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // Insert before any savepoints
             drizzle_try!(
@@ -743,40 +744,34 @@ sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
             )?;
 
             // First savepoint — commits
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp1")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp1")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             // Second savepoint — commits
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp2")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp2")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             // Third savepoint — commits
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp3")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp3")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             // Insert after all savepoints
             drizzle_try!(
@@ -787,7 +782,7 @@ sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -804,73 +799,64 @@ sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
 sqlite_test!(test_sequential_savepoints_mixed_outcomes, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // sp1: commits successfully
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp1_committed")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp1_committed")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             // sp2: rolls back
-            let sp2_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp2_rolled_back")])
-                            .execute()
-                    )?;
-                    Err(DrizzleError::Other("sp2 fail".to_string().into()))
-                })
-            }));
+            let sp2_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp2_rolled_back")])
+                        .execute()
+                )?;
+                Err(DrizzleError::Other("sp2 fail".to_string().into()))
+            })));
             assert!(sp2_result.is_err());
 
             // sp3: commits successfully — the transaction recovered from sp2 failure
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp3_committed")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp3_committed")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             // sp4: rolls back
-            let sp4_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp4_rolled_back")])
-                            .execute()
-                    )?;
-                    Err(DrizzleError::Other("sp4 fail".to_string().into()))
-                })
-            }));
+            let sp4_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp4_rolled_back")])
+                        .execute()
+                )?;
+                Err(DrizzleError::Other("sp4 fail".to_string().into()))
+            })));
             assert!(sp4_result.is_err());
 
             // sp5: commits — can still recover after multiple failures
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("sp5_committed")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })
-            }))?;
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("sp5_committed")])
+                        .execute()
+                )?;
+                Ok(())
+            })))?;
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -892,7 +878,8 @@ sqlite_test!(test_sequential_savepoints_mixed_outcomes, SimpleSchema, {
 sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // Insert outside any savepoint
             drizzle_try!(
@@ -902,25 +889,23 @@ sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
             )?;
 
             // Inside a savepoint, verify we can see the outer data
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
-                    assert_eq!(rows.len(), 1, "savepoint should see outer data");
-                    assert_eq!(rows[0].name, "outer_data");
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
+                assert_eq!(rows.len(), 1, "savepoint should see outer data");
+                assert_eq!(rows[0].name, "outer_data");
 
-                    // Insert inside the savepoint
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("inner_data")])
-                            .execute()
-                    )?;
+                // Insert inside the savepoint
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("inner_data")])
+                        .execute()
+                )?;
 
-                    // Verify we can see both
-                    let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
-                    assert_eq!(rows.len(), 2, "should see both outer and inner");
-                    Ok(())
-                })
-            }))?;
+                // Verify we can see both
+                let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
+                assert_eq!(rows.len(), 2, "should see both outer and inner");
+                Ok(())
+            })))?;
 
             // After savepoint commits, verify outer can see savepoint data
             let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
@@ -932,7 +917,7 @@ sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 });
@@ -940,7 +925,8 @@ sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
 sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             drizzle_try!(
                 tx.insert(simple)
@@ -949,21 +935,19 @@ sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
             )?;
 
             // Savepoint that inserts then rolls back
-            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("ghost_data")])
-                            .execute()
-                    )?;
+            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("ghost_data")])
+                        .execute()
+                )?;
 
-                    // Verify data is visible inside the savepoint before rollback
-                    let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
-                    assert_eq!(rows.len(), 2, "should see both before rollback");
+                // Verify data is visible inside the savepoint before rollback
+                let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
+                assert_eq!(rows.len(), 2, "should see both before rollback");
 
-                    Err(DrizzleError::Other("rollback".to_string().into()))
-                })
-            }));
+                Err(DrizzleError::Other("rollback".to_string().into()))
+            })));
             assert!(sp_result.is_err());
 
             // After rollback, ghost_data should be gone
@@ -977,7 +961,7 @@ sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 });
@@ -985,7 +969,8 @@ sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
 sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             // Set up initial data
             drizzle_try!(
@@ -999,32 +984,30 @@ sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
             )?;
 
             // Savepoint: update + delete, then rollback
-            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
-                    // Update alice → alicia
-                    drizzle_try!(
-                        tx.update(simple)
-                            .set(UpdateSimple::default().with_name("alicia"))
-                            .r#where(eq(simple.name, "alice"))
-                            .execute()
-                    )?;
+            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                // Update alice → alicia
+                drizzle_try!(
+                    tx.update(simple)
+                        .set(UpdateSimple::default().with_name("alicia"))
+                        .r#where(eq(simple.name, "alice"))
+                        .execute()
+                )?;
 
-                    // Delete bob
-                    drizzle_try!(tx.delete(simple).r#where(eq(simple.name, "bob")).execute())?;
+                // Delete bob
+                drizzle_try!(tx.delete(simple).r#where(eq(simple.name, "bob")).execute())?;
 
-                    // Verify the changes took effect inside the savepoint
-                    let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
-                    assert_eq!(rows.len(), 2);
-                    let names: Vec<String> = rows.into_iter().map(|u| u.name).collect();
-                    assert!(names.contains(&"alicia".to_string()));
-                    assert!(names.contains(&"charlie".to_string()));
-                    assert!(!names.contains(&"alice".to_string()));
-                    assert!(!names.contains(&"bob".to_string()));
+                // Verify the changes took effect inside the savepoint
+                let rows: Vec<SelectSimple> = drizzle_try!(tx.select(()).from(simple).all())?;
+                assert_eq!(rows.len(), 2);
+                let names: Vec<String> = rows.into_iter().map(|u| u.name).collect();
+                assert!(names.contains(&"alicia".to_string()));
+                assert!(names.contains(&"charlie".to_string()));
+                assert!(!names.contains(&"alice".to_string()));
+                assert!(!names.contains(&"bob".to_string()));
 
-                    // Now rollback everything
-                    Err(DrizzleError::Other("undo changes".to_string().into()))
-                })
-            }));
+                // Now rollback everything
+                Err(DrizzleError::Other("undo changes".to_string().into()))
+            })));
             assert!(sp_result.is_err());
 
             // After rollback, original data should be restored
@@ -1043,7 +1026,7 @@ sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
@@ -1055,7 +1038,8 @@ sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
 sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let result = drizzle_try!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             drizzle_try!(
                 tx.insert(simple)
@@ -1064,42 +1048,38 @@ sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
             )?;
 
             // First level savepoint
-            drizzle_try!(tx.savepoint(|tx| {
-                drizzle_tx!(tx, {
+            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("level_1")])
+                        .execute()
+                )?;
+
+                // Second level savepoint that rolls back
+                let inner_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
                     drizzle_try!(
                         tx.insert(simple)
-                            .values([InsertSimple::new("level_1")])
+                            .values([InsertSimple::new("level_2_rollback")])
                             .execute()
                     )?;
+                    Err(DrizzleError::Other("rollback level 2".to_string().into()))
+                })));
 
-                    // Second level savepoint that rolls back
-                    let inner_result: Result<(), _> = drizzle_try!(tx.savepoint(|tx| {
-                        drizzle_tx!(tx, {
-                            drizzle_try!(
-                                tx.insert(simple)
-                                    .values([InsertSimple::new("level_2_rollback")])
-                                    .execute()
-                            )?;
-                            Err(DrizzleError::Other("rollback level 2".to_string().into()))
-                        })
-                    }));
+                assert!(inner_result.is_err());
 
-                    assert!(inner_result.is_err());
+                // level_1 should still work after inner rollback
+                drizzle_try!(
+                    tx.insert(simple)
+                        .values([InsertSimple::new("after_inner_rollback")])
+                        .execute()
+                )?;
 
-                    // level_1 should still work after inner rollback
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("after_inner_rollback")])
-                            .execute()
-                    )?;
-
-                    Ok(())
-                })
-            }))?;
+                Ok(())
+            })))?;
 
             Ok(())
         })
-    }));
+    ));
 
     assert!(result.is_ok());
 
