@@ -52,7 +52,6 @@ use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::values::PostgresValue;
 use sqlx::PgPool;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::pin::Pin;
 
 use crate::builder::postgres::common;
@@ -70,7 +69,7 @@ crate::drizzle_prepare_impl!();
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     pool: PgPool,
-    _schema: PhantomData<Schema>,
+    schema: Schema,
 }
 
 impl Drizzle {
@@ -78,11 +77,8 @@ impl Drizzle {
     ///
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
-    pub const fn new<S>(pool: PgPool, schema: S) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle {
-            pool,
-            _schema: PhantomData,
-        };
+    pub const fn new<S: Copy>(pool: PgPool, schema: S) -> (Drizzle<S>, S) {
+        let drizzle = Drizzle { pool, schema };
         (drizzle, schema)
     }
 }
@@ -99,6 +95,12 @@ impl<Schema> Drizzle<Schema> {
     #[inline]
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     postgres_builder_constructors!();

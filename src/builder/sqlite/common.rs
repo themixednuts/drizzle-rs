@@ -81,7 +81,7 @@ impl<'a, 'b, Conn, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Conn, Schema,
 #[derive(Debug)]
 pub struct Drizzle<Conn, Schema = ()> {
     pub(crate) conn: Conn,
-    pub(crate) _schema: PhantomData<Schema>,
+    pub(crate) schema: Schema,
 }
 
 impl<Conn> Drizzle<Conn> {
@@ -89,11 +89,8 @@ impl<Conn> Drizzle<Conn> {
     ///
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
-    pub const fn new<S>(conn: Conn, schema: S) -> (Drizzle<Conn, S>, S) {
-        let drizzle = Drizzle {
-            conn,
-            _schema: PhantomData,
-        };
+    pub const fn new<S: Copy>(conn: Conn, schema: S) -> (Drizzle<Conn, S>, S) {
+        let drizzle = Drizzle { conn, schema };
         (drizzle, schema)
     }
 }
@@ -116,6 +113,12 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     #[inline]
     pub fn mut_conn(&mut self) -> &mut Conn {
         &mut self.conn
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     /// Creates a SELECT query builder.

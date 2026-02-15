@@ -42,7 +42,6 @@ use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, Upd
 use drizzle_postgres::traits::PostgresTable;
 use postgres::fallible_iterator::FallibleIterator;
 use postgres::{Client, IsolationLevel, Row};
-use std::marker::PhantomData;
 
 use drizzle_postgres::builder::{
     self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
@@ -69,7 +68,7 @@ crate::drizzle_prepare_impl!();
 /// and execution methods (`execute`, `all`, `get`, `transaction`).
 pub struct Drizzle<Schema = ()> {
     client: Client,
-    _schema: PhantomData<Schema>,
+    schema: Schema,
 }
 
 /// Lazy decoded row cursor for postgres sync queries.
@@ -80,11 +79,8 @@ impl Drizzle {
     ///
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
-    pub const fn new<S>(client: Client, schema: S) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle {
-            client,
-            _schema: PhantomData,
-        };
+    pub const fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
+        let drizzle = Drizzle { client, schema };
         (drizzle, schema)
     }
 }
@@ -106,6 +102,12 @@ impl<Schema> Drizzle<Schema> {
     #[inline]
     pub fn mut_client(&mut self) -> &mut Client {
         &mut self.client
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     postgres_builder_constructors!(mut);

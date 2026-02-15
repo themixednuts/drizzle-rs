@@ -45,7 +45,6 @@ use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, Upd
 use drizzle_postgres::traits::PostgresTable;
 use smallvec::SmallVec;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use tokio_postgres::{Client, IsolationLevel, Row};
 
@@ -74,7 +73,7 @@ crate::drizzle_prepare_impl!();
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     client: Client,
-    _schema: PhantomData<Schema>,
+    schema: Schema,
 }
 
 /// Lazy decoded row cursor for tokio-postgres queries.
@@ -85,11 +84,8 @@ impl Drizzle {
     ///
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
-    pub const fn new<S>(client: Client, schema: S) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle {
-            client,
-            _schema: PhantomData,
-        };
+    pub const fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
+        let drizzle = Drizzle { client, schema };
         (drizzle, schema)
     }
 }
@@ -112,6 +108,12 @@ impl<Schema> Drizzle<Schema> {
     #[inline]
     pub fn mut_client(&mut self) -> &mut Client {
         &mut self.client
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     postgres_builder_constructors!();

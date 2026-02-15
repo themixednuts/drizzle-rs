@@ -409,7 +409,7 @@ pub mod rusqlite_setup {
     use drizzle::sqlite::rusqlite::Drizzle;
     use rusqlite::Connection;
 
-    pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
+    pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<Drizzle<S>>, S) {
         let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
         let schema = S::default();
         let schema_ddl: Vec<_> = schema
@@ -439,7 +439,8 @@ pub mod libsql_setup {
     use drizzle::sqlite::libsql::Drizzle;
     use libsql::Builder;
 
-    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
+    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
+    -> (TestDb<Drizzle<S>>, S) {
         let db = Builder::new_local(":memory:")
             .build()
             .await
@@ -473,7 +474,8 @@ pub mod turso_setup {
     use drizzle::sqlite::turso::Drizzle;
     use turso::Builder;
 
-    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<Drizzle<S>>, S) {
+    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
+    -> (TestDb<Drizzle<S>>, S) {
         let db = Builder::new_local(":memory:")
             .build()
             .await
@@ -658,7 +660,7 @@ pub mod postgres_sync_setup {
         }
     }
 
-    pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<S>, S) {
+    pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<S>, S) {
         // Ensure PostgreSQL is running (auto-starts via Docker if needed)
         ensure_postgres_running();
 
@@ -900,7 +902,7 @@ pub mod tokio_postgres_setup {
         }
     }
 
-    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl>() -> (TestDb<S>, S) {
+    pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<S>, S) {
         // Ensure PostgreSQL is running (auto-starts via Docker if needed)
         ensure_postgres_running();
 

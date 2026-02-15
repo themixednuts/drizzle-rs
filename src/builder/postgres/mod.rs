@@ -14,7 +14,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -30,7 +30,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -48,7 +48,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -64,7 +64,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -80,7 +80,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -96,7 +96,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -112,7 +112,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
     };
@@ -129,7 +129,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -145,7 +145,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -163,7 +163,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -179,7 +179,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -195,7 +195,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -211,7 +211,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
 
@@ -227,7 +227,7 @@ macro_rules! postgres_builder_constructors {
             DrizzleBuilder {
                 drizzle: self,
                 builder,
-                state: PhantomData,
+                state: ::std::marker::PhantomData,
             }
         }
     };

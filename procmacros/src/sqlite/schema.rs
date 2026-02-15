@@ -103,6 +103,11 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     );
 
     Ok(quote! {
+        impl ::core::marker::Copy for #struct_name {}
+        impl ::core::clone::Clone for #struct_name {
+            fn clone(&self) -> Self { *self }
+        }
+
         impl Default for #struct_name {
             fn default() -> Self {
                 Self {

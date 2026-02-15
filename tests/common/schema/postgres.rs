@@ -21,7 +21,7 @@ pub struct UserConfig {
 }
 
 /// PostgreSQL enum for user roles
-#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+#[derive(PostgresEnum, Default, Copy, Clone, PartialEq, Debug)]
 pub enum Role {
     #[default]
     User,
@@ -30,7 +30,7 @@ pub enum Role {
 }
 
 /// PostgreSQL enum for post status
-#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+#[derive(PostgresEnum, Default, Copy, Clone, PartialEq, Debug)]
 pub enum PostStatus {
     #[default]
     Draft,
@@ -39,7 +39,7 @@ pub enum PostStatus {
 }
 
 /// PostgreSQL enum for priority levels
-#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+#[derive(PostgresEnum, Default, Copy, Clone, PartialEq, Debug)]
 pub enum Priority {
     Low = 1,
     #[default]
