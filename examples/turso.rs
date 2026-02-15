@@ -1,20 +1,15 @@
+#[cfg(feature = "turso")]
 mod schema;
-#[cfg(feature = "turso")]
-use drizzle::sqlite::prelude::*;
-
-#[cfg(feature = "turso")]
-use turso::Builder;
-
-#[cfg(all(feature = "turso", feature = "uuid"))]
-use uuid::Uuid;
-
-#[cfg(feature = "turso")]
-use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
 #[cfg(feature = "turso")]
 #[tokio::main]
 async fn main() {
-    use drizzle::core::expr::eq;
+    use drizzle::sqlite::prelude::*;
+    use turso::Builder;
+    #[cfg(feature = "uuid")]
+    use uuid::Uuid;
+
+    use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
     let db_builder = Builder::new_local(":memory:")
         .build()
@@ -85,9 +80,28 @@ async fn main() {
     assert!(!row.post_id.is_nil());
     #[cfg(not(feature = "uuid"))]
     assert_eq!(row.post_id, 1);
+
+    // Clone the Drizzle handle and move it into a spawned task.
+    // The clone is cheap — the underlying connection is shared via Arc.
+    let db_clone = db.clone();
+    let handle = tokio::spawn(async move {
+        db_clone
+            .insert(users)
+            .values([InsertUsers::new("Bob", 25u64)])
+            .execute()
+            .await
+            .expect("insert user from spawned task");
+    });
+
+    handle.await.expect("spawned task completed");
+
+    let all_users: Vec<SelectUsers> = db.select(()).from(users).all().await.expect("select users");
+
+    assert_eq!(all_users.len(), 2);
+    println!("After spawn: {:?}", all_users);
 }
 
 #[cfg(not(feature = "turso"))]
 fn main() {
-    println!("turso feature not enabled");
+    println!("turso feature not enabled — run with: cargo run --example turso --features turso");
 }
