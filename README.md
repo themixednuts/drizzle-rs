@@ -74,17 +74,6 @@ db.create()?;
 
 ## CRUD
 
-### Insert
-
-```rust
-db.insert(users)
-    .values([
-        InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"),
-        InsertUsers::new("Jordan Lee", 30i64),
-    ])
-    .execute()?;
-```
-
 ### Select
 
 ```rust
@@ -107,6 +96,17 @@ let names: Vec<(String,)> = db
     .all()?;
 ```
 
+### Insert
+
+```rust
+db.insert(users)
+    .values([
+        InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"),
+        InsertUsers::new("Jordan Lee", 30i64),
+    ])
+    .execute()?;
+```
+
 ### Update
 
 ```rust
@@ -127,6 +127,54 @@ db.delete(users)
     .r#where(eq(users.id, 1))
     .execute()?;
 ```
+
+## Transactions
+
+Transactions auto-rollback on error or panic. Return `Ok(value)` to commit, `Err(...)` to rollback.
+
+```rust
+use drizzle::sqlite::connection::SQLiteTransactionType;
+
+db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 28i64)])
+        .execute()?;
+
+    let all: Vec<SelectUsers> = tx.select(()).from(users).all()?;
+
+    Ok(all.len())
+})?;
+```
+
+Savepoints nest inside transactions — a failed savepoint rolls back without aborting the outer transaction:
+
+```rust
+use drizzle::core::error::DrizzleError;
+
+let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    tx.insert(users)
+        .values([InsertUsers::new("Alice", 28i64)])
+        .execute()?;
+
+    // This savepoint fails and rolls back, but the outer transaction continues
+    let _ = tx.savepoint(|stx| {
+        stx.insert(users)
+            .values([InsertUsers::new("Bad Data", -1i64)])
+            .execute()?;
+        Err(DrizzleError::Other("rollback this part".into()))
+    });
+
+    // Alice is still inserted
+    tx.insert(users)
+        .values([InsertUsers::new("Bob", 32i64)])
+        .execute()?;
+
+    let all: Vec<SelectUsers> = tx.select(()).from(users).all()?;
+    Ok(all.len())
+})?;
+```
+
+> PostgreSQL uses `PostgresTransactionType` (e.g. `ReadCommitted`, `Serializable`) instead.
 
 ## Joins
 
