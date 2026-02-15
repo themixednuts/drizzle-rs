@@ -236,21 +236,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.execute");
         let query_sql = query.to_sql();
-        let (sql, params) = query_sql.build();
-        drizzle_core::drizzle_trace_query!(&sql, params.len());
+        let (sql, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.execute");
+            let (sql, params) = query_sql.build();
+            drizzle_core::drizzle_trace_query!(&sql, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.execute.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql, param_refs)
+        };
 
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().expect("Transaction already consumed");
@@ -265,21 +263,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
         C: std::iter::FromIterator<R>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.all");
         let sql = query.to_sql();
-        let (sql_str, params) = sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.all");
+            let (sql_str, params) = sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.all.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().expect("Transaction already consumed");
@@ -290,8 +286,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
-        // Consume rows by value so each row can be dropped right after conversion.
-        // Iterating over &rows keeps the full row vector alive until the end.
         for row in rows {
             decoded.push(R::try_from(&row).map_err(Into::into)?);
         }
@@ -306,21 +300,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, PostgresValue<'a>>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.get");
         let sql = query.to_sql();
-        let (sql_str, params) = sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.get");
+            let (sql_str, params) = sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.get.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().expect("Transaction already consumed");
@@ -419,20 +411,18 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let tx_ref = self.transaction.tx.borrow();
         let tx = tx_ref.as_ref().expect("Transaction already consumed");
@@ -450,20 +440,18 @@ where
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         C: FromIterator<R>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let tx_ref = self.transaction.tx.borrow();
         let tx = tx_ref.as_ref().expect("Transaction already consumed");
@@ -474,8 +462,6 @@ where
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
-        // Consume rows by value so each row can be dropped right after conversion.
-        // Iterating over &rows keeps the full row vector alive until the end.
         for row in rows {
             decoded.push(R::try_from(&row).map_err(Into::into)?);
         }
@@ -489,20 +475,18 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let tx_ref = self.transaction.tx.borrow();
         let tx = tx_ref.as_ref().expect("Transaction already consumed");

@@ -140,23 +140,19 @@ impl<Schema> Drizzle<Schema> {
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute");
         let query = query.to_sql();
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute.build");
-        let (sql, params) = query.build();
-        drizzle_core::drizzle_trace_query!(&sql, params.len());
+        let (sql, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute");
+            let (sql, params) = query.build();
+            drizzle_core::drizzle_trace_query!(&sql, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql, param_refs)
+        };
 
         self.client.execute(&sql, &param_refs[..]).await
     }
@@ -181,23 +177,19 @@ impl<Schema> Drizzle<Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, PostgresValue<'a>>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all");
         let sql = query.to_sql();
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all.build");
-        let (sql_str, params) = sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all");
+            let (sql_str, params) = sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let rows = self.client.query(&sql_str, &param_refs[..]).await?;
 
@@ -211,23 +203,19 @@ impl<Schema> Drizzle<Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, PostgresValue<'a>>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get");
         let sql = query.to_sql();
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get.build");
-        let (sql_str, params) = sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get");
+            let (sql_str, params) = sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let row = self.client.query_one(&sql_str, &param_refs[..]).await?;
 
@@ -364,20 +352,18 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         Ok(self
             .drizzle
@@ -404,20 +390,18 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let rows = self.drizzle.client.query(&sql_str, &param_refs[..]).await?;
 
@@ -430,20 +414,18 @@ where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get.param_refs");
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
                 .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync)),
-        );
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
 
         let row = self
             .drizzle
