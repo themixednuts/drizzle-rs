@@ -1,6 +1,6 @@
 //! Async SQLite driver using [`turso`].
 //!
-//! # Example
+//! # Quick start
 //!
 //! ```no_run
 //! use drizzle::sqlite::turso::Drizzle;
@@ -34,6 +34,89 @@
 //!
 //!     Ok(())
 //! }
+//! ```
+//!
+//! # Transactions
+//!
+//! Return `Ok(value)` to commit, `Err(...)` to rollback.
+//!
+//! ```no_run
+//! # use drizzle::sqlite::turso::Drizzle;
+//! # use drizzle::sqlite::prelude::*;
+//! # use turso::Builder;
+//! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+//! # #[derive(SQLiteSchema)] struct S { user: User }
+//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # let db_builder = Builder::new_local(":memory:").build().await?;
+//! # let conn = db_builder.connect()?;
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! use drizzle::sqlite::connection::SQLiteTransactionType;
+//!
+//! let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+//!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
+//!     Ok(users.len())
+//! }).await?;
+//! # Ok(()) }
+//! ```
+//!
+//! # Savepoints
+//!
+//! Savepoints nest inside transactions — a failed savepoint rolls back
+//! without aborting the outer transaction.
+//!
+//! ```no_run
+//! # use drizzle::sqlite::turso::Drizzle;
+//! # use drizzle::sqlite::prelude::*;
+//! # use drizzle::sqlite::connection::SQLiteTransactionType;
+//! # use turso::Builder;
+//! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+//! # #[derive(SQLiteSchema)] struct S { user: User }
+//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # let db_builder = Builder::new_local(":memory:").build().await?;
+//! # let conn = db_builder.connect()?;
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+//!
+//!     // This savepoint fails — only its changes roll back
+//!     let _: Result<(), _> = tx.savepoint(async |stx| {
+//!         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
+//!         Err(drizzle::error::DrizzleError::Other("oops".into()))
+//!     }).await;
+//!
+//!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
+//!     assert_eq!(users.len(), 1); // only Alice
+//!     Ok(())
+//! }).await?;
+//! # Ok(()) }
+//! ```
+//!
+//! # Cloning for `tokio::spawn`
+//!
+//! `Drizzle` is cheaply cloneable — the underlying connection is shared.
+//! Move a clone into spawned tasks for concurrent queries.
+//!
+//! ```no_run
+//! # use drizzle::sqlite::turso::Drizzle;
+//! # use drizzle::sqlite::prelude::*;
+//! # use turso::Builder;
+//! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+//! # #[derive(SQLiteSchema)] struct S { user: User }
+//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # let db_builder = Builder::new_local(":memory:").build().await?;
+//! # let conn = db_builder.connect()?;
+//! # let (db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! let db_clone = db.clone();
+//! tokio::spawn(async move {
+//!     db_clone
+//!         .insert(user)
+//!         .values([InsertUser::new("Bob")])
+//!         .execute()
+//!         .await
+//!         .expect("insert from task");
+//! }).await.unwrap();
+//! # Ok(()) }
 //! ```
 
 mod prepared;
@@ -154,7 +237,29 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         }
     }
 
-    /// Executes a transaction with the given callback
+    /// Executes a transaction with the given callback.
+    ///
+    /// The transaction is committed when the callback returns `Ok` and
+    /// rolled back on `Err`.
+    ///
+    /// ```no_run
+    /// # use drizzle::sqlite::turso::Drizzle;
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use turso::Builder;
+    /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let db_builder = Builder::new_local(":memory:").build().await?;
+    /// # let conn = db_builder.connect()?;
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
+    ///     Ok(users.len())
+    /// }).await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn transaction<F, R>(
         &mut self,
         tx_type: SQLiteTransactionType,

@@ -86,6 +86,36 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
     /// If it returns `Err`, the savepoint is rolled back.
+    /// The outer transaction is unaffected either way.
+    ///
+    /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// ```no_run
+    /// # use drizzle::sqlite::turso::Drizzle;
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use turso::Builder;
+    /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let db_builder = Builder::new_local(":memory:").build().await?;
+    /// # let conn = db_builder.connect()?;
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+    ///
+    ///     let _: Result<(), _> = tx.savepoint(async |stx| {
+    ///         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
+    ///         Err(drizzle::error::DrizzleError::Other("oops".into()))
+    ///     }).await;
+    ///
+    ///     // Alice is still there
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
+    ///     assert_eq!(users.len(), 1);
+    ///     Ok(())
+    /// }).await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,

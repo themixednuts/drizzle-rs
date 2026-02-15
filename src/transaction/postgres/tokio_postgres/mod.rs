@@ -87,6 +87,35 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
     /// If it returns `Err`, the savepoint is rolled back.
+    /// The outer transaction is unaffected either way.
+    ///
+    /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn.await.unwrap() });
+    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+    ///
+    ///     // This savepoint fails — only its changes roll back
+    ///     let _: Result<(), _> = tx.savepoint(async |stx| {
+    ///         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
+    ///         Err(drizzle::error::DrizzleError::Other("oops".into()))
+    ///     }).await;
+    ///
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
+    ///     assert_eq!(users.len(), 1); // only Alice
+    ///     Ok(())
+    /// }).await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,

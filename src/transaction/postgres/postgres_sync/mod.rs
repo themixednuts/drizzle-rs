@@ -89,6 +89,34 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
     /// If it returns `Err` or panics, the savepoint is rolled back.
+    /// The outer transaction is unaffected either way.
+    ///
+    /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+    ///
+    ///     // This savepoint fails — only its changes roll back
+    ///     let _: Result<(), _> = tx.savepoint(|stx| {
+    ///         stx.insert(user).values([InsertUser::new("Bad")]).execute()?;
+    ///         Err(drizzle::error::DrizzleError::Other("oops".into()))
+    ///     });
+    ///
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+    ///     assert_eq!(users.len(), 1); // only Alice
+    ///     Ok(())
+    /// })?;
+    /// # Ok(()) }
+    /// ```
     pub fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,

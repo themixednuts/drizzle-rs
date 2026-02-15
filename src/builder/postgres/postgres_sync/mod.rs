@@ -1,6 +1,6 @@
 //! Synchronous PostgreSQL driver using [`postgres`].
 //!
-//! # Example
+//! # Quick start
 //!
 //! ```no_run
 //! use drizzle::postgres::prelude::*;
@@ -31,6 +31,86 @@
 //!
 //!     Ok(())
 //! }
+//! ```
+//!
+//! # Transactions
+//!
+//! Return `Ok(value)` to commit, `Err(...)` to rollback. Panics also trigger
+//! a rollback.
+//!
+//! ```no_run
+//! # use drizzle::postgres::prelude::*;
+//! # use drizzle::postgres::sync::Drizzle;
+//! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+//! # #[derive(PostgresSchema)] struct S { user: User }
+//! # fn main() -> drizzle::Result<()> {
+//! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! use drizzle::postgres::common::PostgresTransactionType;
+//!
+//! let count = db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+//!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+//!     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+//!     Ok(users.len())
+//! })?;
+//! # Ok(()) }
+//! ```
+//!
+//! # Savepoints
+//!
+//! Savepoints nest inside transactions — a failed savepoint rolls back
+//! without aborting the outer transaction.
+//!
+//! ```no_run
+//! # use drizzle::postgres::prelude::*;
+//! # use drizzle::postgres::sync::Drizzle;
+//! # use drizzle::postgres::common::PostgresTransactionType;
+//! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+//! # #[derive(PostgresSchema)] struct S { user: User }
+//! # fn main() -> drizzle::Result<()> {
+//! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+//!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+//!
+//!     // This savepoint fails — only its changes roll back
+//!     let _: Result<(), _> = tx.savepoint(|stx| {
+//!         stx.insert(user).values([InsertUser::new("Bad")]).execute()?;
+//!         Err(drizzle::error::DrizzleError::Other("oops".into()))
+//!     });
+//!
+//!     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+//!     assert_eq!(users.len(), 1); // only Alice
+//!     Ok(())
+//! })?;
+//! # Ok(()) }
+//! ```
+//!
+//! # Prepared statements
+//!
+//! Build a query once and execute it many times with different parameters.
+//!
+//! ```no_run
+//! # use drizzle::postgres::prelude::*;
+//! # use drizzle::postgres::sync::Drizzle;
+//! # use drizzle::core::expr::eq;
+//! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+//! # #[derive(PostgresSchema)] struct S { user: User }
+//! # fn main() -> drizzle::Result<()> {
+//! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! use drizzle::postgres::params;
+//!
+//! let find_user = db
+//!     .select(())
+//!     .from(user)
+//!     .r#where(eq(user.name, Placeholder::named("find_name")))
+//!     .prepare()
+//!     .into_owned();
+//!
+//! let alice: Vec<SelectUser> = find_user
+//!     .all(db.mut_client(), params![{find_name: "Alice"}])?;
+//! # Ok(()) }
 //! ```
 
 mod prepared;
@@ -236,7 +316,27 @@ impl<Schema> Drizzle<Schema> {
         R::try_from(&row).map_err(Into::into)
     }
 
-    /// Executes a transaction with the given callback
+    /// Executes a transaction with the given callback.
+    ///
+    /// The transaction is committed when the callback returns `Ok` and
+    /// rolled back on `Err` or panic.
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// let count = db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+    ///     Ok(users.len())
+    /// })?;
+    /// # Ok(()) }
+    /// ```
     pub fn transaction<F, R>(
         &mut self,
         tx_type: PostgresTransactionType,

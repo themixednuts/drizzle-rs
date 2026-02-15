@@ -1,6 +1,6 @@
 //! Synchronous SQLite driver using [`rusqlite`].
 //!
-//! # Example
+//! # Quick start
 //!
 //! ```no_run
 //! use drizzle::sqlite::rusqlite::Drizzle;
@@ -31,6 +31,94 @@
 //!
 //!     Ok(())
 //! }
+//! ```
+//!
+//! # Transactions
+//!
+//! Return `Ok(value)` to commit, `Err(...)` to rollback. Panics also trigger
+//! a rollback.
+//!
+//! ```no_run
+//! # use drizzle::sqlite::rusqlite::Drizzle;
+//! # use drizzle::sqlite::prelude::*;
+//! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+//! # #[derive(SQLiteSchema)] struct S { user: User }
+//! # fn main() -> drizzle::Result<()> {
+//! # let conn = ::rusqlite::Connection::open_in_memory()?;
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # db.create()?;
+//! use drizzle::sqlite::connection::SQLiteTransactionType;
+//!
+//! let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+//!     tx.insert(user)
+//!         .values([InsertUser::new("Alice")])
+//!         .execute()?;
+//!
+//!     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+//!     Ok(users.len())
+//! })?;
+//! # Ok(()) }
+//! ```
+//!
+//! # Savepoints
+//!
+//! Savepoints nest inside transactions — a failed savepoint rolls back
+//! without aborting the outer transaction.
+//!
+//! ```no_run
+//! # use drizzle::sqlite::rusqlite::Drizzle;
+//! # use drizzle::sqlite::prelude::*;
+//! # use drizzle::sqlite::connection::SQLiteTransactionType;
+//! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+//! # #[derive(SQLiteSchema)] struct S { user: User }
+//! # fn main() -> drizzle::Result<()> {
+//! # let conn = ::rusqlite::Connection::open_in_memory()?;
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # db.create()?;
+//! db.transaction(SQLiteTransactionType::Deferred, |tx| {
+//!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+//!
+//!     // This savepoint fails and rolls back, but Alice is still inserted
+//!     let _: Result<(), _> = tx.savepoint(|stx| {
+//!         stx.insert(user).values([InsertUser::new("Bad")]).execute()?;
+//!         Err(drizzle::error::DrizzleError::Other("rollback this".into()))
+//!     });
+//!
+//!     tx.insert(user).values([InsertUser::new("Bob")]).execute()?;
+//!     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+//!     assert_eq!(users.len(), 2); // Alice + Bob, not Bad
+//!     Ok(())
+//! })?;
+//! # Ok(()) }
+//! ```
+//!
+//! # Prepared statements
+//!
+//! Build a query once and execute it many times with different parameters.
+//! Use [`Placeholder::named`] for values that change between executions.
+//!
+//! ```no_run
+//! # use drizzle::sqlite::rusqlite::Drizzle;
+//! # use drizzle::sqlite::prelude::*;
+//! # use drizzle::core::expr::eq;
+//! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+//! # #[derive(SQLiteSchema)] struct S { user: User }
+//! # fn main() -> drizzle::Result<()> {
+//! # let conn = ::rusqlite::Connection::open_in_memory()?;
+//! # let (db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # db.create()?;
+//! use drizzle::sqlite::params;
+//!
+//! let find_user = db
+//!     .select(())
+//!     .from(user)
+//!     .r#where(eq(user.name, Placeholder::named("find_name")))
+//!     .prepare();
+//!
+//! // Execute with different bound values each time
+//! let alice: Vec<SelectUser> = find_user.all(db.conn(), params![{find_name: "Alice"}])?;
+//! let bob: Vec<SelectUser> = find_user.all(db.conn(), params![{find_name: "Bob"}])?;
+//! # Ok(()) }
 //! ```
 
 mod prepared;
@@ -139,7 +227,30 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         })?
     }
 
-    /// Executes a transaction with the given callback
+    /// Executes a transaction with the given callback.
+    ///
+    /// Returns the value produced by the callback on success. The transaction
+    /// is committed when the callback returns `Ok` and rolled back on `Err`
+    /// or panic.
+    ///
+    /// ```no_run
+    /// # use drizzle::sqlite::rusqlite::Drizzle;
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct S { user: User }
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let conn = ::rusqlite::Connection::open_in_memory()?;
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # db.create()?;
+    /// let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
+    ///     Ok(users.len())
+    /// })?;
+    /// assert_eq!(count, 1);
+    /// # Ok(()) }
+    /// ```
     pub fn transaction<F, R>(
         &mut self,
         tx_type: SQLiteTransactionType,

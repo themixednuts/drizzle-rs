@@ -93,6 +93,28 @@ impl<Schema> Transaction<Schema> {
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
     /// If it returns `Err`, the savepoint is rolled back.
+    /// The outer transaction is unaffected either way.
+    ///
+    /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// ```ignore
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::libsql::Drizzle;
+    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
+    ///
+    ///     let _ = tx.savepoint(async |stx| {
+    ///         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
+    ///         Err(drizzle::error::DrizzleError::Other("oops".into()))
+    ///     }).await;
+    ///
+    ///     // Alice is still there
+    ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
+    ///     assert_eq!(users.len(), 1);
+    ///     Ok(())
+    /// }).await?;
+    /// ```
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
