@@ -84,6 +84,16 @@ pub struct Drizzle<Conn, Schema = ()> {
     pub(crate) schema: Schema,
 }
 
+impl<Conn: Clone, S: Clone> Clone for Drizzle<Conn, S> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Drizzle {
+            conn: self.conn.clone(),
+            schema: self.schema.clone(),
+        }
+    }
+}
+
 impl<Conn> Drizzle<Conn> {
     /// Creates a new `Drizzle` instance.
     ///

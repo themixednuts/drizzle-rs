@@ -38,6 +38,8 @@
 
 mod prepared;
 
+use std::sync::Arc;
+
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
@@ -68,10 +70,23 @@ crate::drizzle_prepare_impl!();
 ///
 /// Provides query building methods (`select`, `insert`, `update`, `delete`)
 /// and execution methods (`execute`, `all`, `get`, `transaction`).
+///
+/// The client is stored behind an [`Arc`], making `Drizzle` cheaply cloneable
+/// for sharing across tasks (e.g. with [`tokio::spawn`]).
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
-    client: Client,
+    client: Arc<Client>,
     schema: Schema,
+}
+
+impl<S: Clone> Clone for Drizzle<S> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Drizzle {
+            client: self.client.clone(),
+            schema: self.schema.clone(),
+        }
+    }
 }
 
 /// Lazy decoded row cursor for tokio-postgres queries.
@@ -82,8 +97,11 @@ impl Drizzle {
     ///
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
-    pub const fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle { client, schema };
+    pub fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
+        let drizzle = Drizzle {
+            client: Arc::new(client),
+            schema,
+        };
         (drizzle, schema)
     }
 }
@@ -102,10 +120,12 @@ impl<Schema> Drizzle<Schema> {
         &self.client
     }
 
-    /// Gets a mutable reference to the underlying client
+    /// Gets a mutable reference to the underlying client.
+    ///
+    /// Returns `None` if there are outstanding clones of this `Drizzle` instance.
     #[inline]
-    pub fn mut_client(&mut self) -> &mut Client {
-        &mut self.client
+    pub fn mut_client(&mut self) -> Option<&mut Client> {
+        Arc::get_mut(&mut self.client)
     }
 
     /// Gets a reference to the schema.
@@ -214,7 +234,12 @@ impl<Schema> Drizzle<Schema> {
         R::try_from(&row).map_err(Into::into)
     }
 
-    /// Executes a transaction with the given callback
+    /// Executes a transaction with the given callback.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are outstanding clones of this `Drizzle` instance,
+    /// since exclusive access to the underlying client is required for transactions.
     pub async fn transaction<F, R>(
         &mut self,
         tx_type: PostgresTransactionType,
@@ -224,7 +249,10 @@ impl<Schema> Drizzle<Schema> {
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let builder = self.client.build_transaction();
+        let client = Arc::get_mut(&mut self.client).ok_or_else(|| {
+            DrizzleError::Other("cannot start transaction: outstanding Drizzle clones exist".into())
+        })?;
+        let builder = client.build_transaction();
         let builder = if tx_type != PostgresTransactionType::default() {
             let isolation = match tx_type {
                 PostgresTransactionType::ReadUncommitted => IsolationLevel::ReadUncommitted,
@@ -277,6 +305,11 @@ impl<Schema> Drizzle<Schema> {
     /// Apply pending migrations from a MigrationSet.
     ///
     /// Creates the drizzle schema if needed and runs pending migrations in a transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are outstanding clones of this `Drizzle` instance,
+    /// since exclusive access to the underlying client is required for the migration transaction.
     pub async fn migrate(
         &mut self,
         migrations: &drizzle_migrations::MigrationSet,
@@ -300,7 +333,10 @@ impl<Schema> Drizzle<Schema> {
             return Ok(());
         }
 
-        let tx = self.client.transaction().await?;
+        let client = Arc::get_mut(&mut self.client).ok_or_else(|| {
+            DrizzleError::Other("cannot run migrations: outstanding Drizzle clones exist".into())
+        })?;
+        let tx = client.transaction().await?;
 
         for migration in &pending {
             for stmt in migration.statements() {
