@@ -3,9 +3,7 @@ use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
 use std::cell::RefCell;
-use std::future::Future;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 

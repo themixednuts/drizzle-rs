@@ -161,11 +161,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
-        F: for<'t> FnOnce(
-            &'t Transaction<Schema>,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
-        >,
+        F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
         let transaction = Transaction::new(tx, tx_type);

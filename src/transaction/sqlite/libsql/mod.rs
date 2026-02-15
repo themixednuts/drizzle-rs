@@ -10,9 +10,7 @@ use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, Updat
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::traits::SQLiteTable;
 use libsql::Row;
-use std::future::Future;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::builder::sqlite::rows::LibsqlRows as Rows;
@@ -87,11 +85,7 @@ impl<Schema> Transaction<Schema> {
     /// If it returns `Err`, the savepoint is rolled back.
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
-        F: for<'t> FnOnce(
-            &'t Self,
-        ) -> Pin<
-            Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
-        >,
+        F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         let depth = self.savepoint_depth.load(Ordering::Relaxed);
         let sp_name = format!("drizzle_sp_{}", depth);

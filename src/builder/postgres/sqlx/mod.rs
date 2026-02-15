@@ -51,8 +51,6 @@ use drizzle_postgres::builder::{
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::values::PostgresValue;
 use sqlx::PgPool;
-use std::future::Future;
-use std::pin::Pin;
 
 use crate::builder::postgres::common;
 
@@ -185,10 +183,7 @@ impl<Schema> Drizzle<Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
-        F: for<'t> FnOnce(
-            &'t Transaction<Schema>,
-        )
-            -> Pin<Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>>,
+        F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         let mut tx = self
             .pool

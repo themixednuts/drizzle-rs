@@ -175,7 +175,7 @@ fn generate_rusqlite_test(
                 #[allow(unused_macros)]
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
-                        $body
+                        |$tx| $body
                     };
                 }
                 #[allow(unused_macros)]
@@ -325,7 +325,7 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                 #[allow(unused_macros)]
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
-                        Box::pin(async move $body)
+                        async |$tx| $body
                     };
                 }
                 #[allow(unused_macros)]
@@ -529,7 +529,7 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                 #[allow(unused_macros)]
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
-                        Box::pin(async move $body)
+                        async |$tx| $body
                     };
                 }
                 #[allow(unused_macros)]
@@ -636,7 +636,7 @@ fn generate_postgres_sync_test(
                 #[allow(unused_macros)]
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
-                        $body
+                        |$tx| $body
                     };
                 }
                 #[allow(unused_macros)]
@@ -745,7 +745,7 @@ fn generate_tokio_postgres_test(
                 #[allow(unused_macros)]
                 macro_rules! drizzle_tx {
                     ($tx:ident, $body:block) => {
-                        Box::pin(async move $body)
+                        async |$tx| $body
                     };
                 }
                 #[allow(unused_macros)]

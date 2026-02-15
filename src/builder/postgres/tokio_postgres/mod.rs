@@ -44,8 +44,6 @@ use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
 use smallvec::SmallVec;
-use std::future::Future;
-use std::pin::Pin;
 use tokio_postgres::{Client, IsolationLevel, Row};
 
 use drizzle_postgres::builder::{

@@ -42,8 +42,6 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use libsql::{Connection, Row};
-use std::future::Future;
-use std::pin::Pin;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -146,10 +144,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
-        F: for<'t> FnOnce(
-            &'t Transaction<Schema>,
-        )
-            -> Pin<Box<dyn Future<Output = Result<R, DrizzleError>> + Send + 't>>,
+        F: AsyncFnOnce(&Transaction<Schema>) -> Result<R, DrizzleError>,
     {
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
         let transaction = Transaction::new(tx, tx_type);
