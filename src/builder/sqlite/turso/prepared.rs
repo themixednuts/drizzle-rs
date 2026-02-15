@@ -91,3 +91,9 @@ impl<'a> ToSQL<'a, OwnedSQLiteValue> for OwnedPreparedStatement {
         self.inner.to_sql()
     }
 }
+
+impl<'a> ToSQL<'a, SQLiteValue<'a>> for OwnedPreparedStatement {
+    fn to_sql(&self) -> drizzle_core::sql::SQL<'a, SQLiteValue<'a>> {
+        self.inner.to_sql().map_params(SQLiteValue::from)
+    }
+}

@@ -123,3 +123,9 @@ impl<'a> ToSQL<'a, OwnedPostgresValue> for OwnedPreparedStatement {
         self.inner.to_sql()
     }
 }
+
+impl<'a> ToSQL<'a, PostgresValue<'a>> for OwnedPreparedStatement {
+    fn to_sql(&self) -> drizzle_core::sql::SQL<'a, PostgresValue<'a>> {
+        self.inner.to_sql().map_params(PostgresValue::from)
+    }
+}

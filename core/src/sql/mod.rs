@@ -330,6 +330,31 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== output methods ====================
 
+    /// Maps parameter values from type `V` to type `U` using the provided function.
+    ///
+    /// Only `Param` chunks are affected; all other chunks pass through unchanged.
+    /// This is useful for converting between owned and borrowed value types
+    /// (e.g. `OwnedPostgresValue` → `PostgresValue<'a>`).
+    pub fn map_params<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'a, U> {
+        let chunks = self
+            .chunks
+            .into_iter()
+            .map(|chunk| match chunk {
+                SQLChunk::Token(t) => SQLChunk::Token(t),
+                SQLChunk::Ident(s) => SQLChunk::Ident(s),
+                SQLChunk::Raw(s) => SQLChunk::Raw(s),
+                SQLChunk::Number(n) => SQLChunk::Number(n),
+                SQLChunk::Param(param) => SQLChunk::Param(Param::new(
+                    param.placeholder,
+                    param.value.map(|cow| Cow::Owned(f(cow.into_owned()))),
+                )),
+                SQLChunk::Table(t) => SQLChunk::Table(t),
+                SQLChunk::Column(c) => SQLChunk::Column(c),
+            })
+            .collect();
+        SQL { chunks }
+    }
+
     /// Converts to owned version (consuming self to avoid clone)
     pub fn into_owned(self) -> OwnedSQL<V> {
         OwnedSQL::from(self)
