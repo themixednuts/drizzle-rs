@@ -198,7 +198,7 @@ impl<Schema> Drizzle<Schema> {
                 .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         }
 
-        let transaction = Transaction::new(tx, tx_type);
+        let transaction = Transaction::new(tx, tx_type, self.schema);
 
         match f(&transaction).await {
             Ok(value) => {

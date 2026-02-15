@@ -38,7 +38,7 @@ pub struct Transaction<Schema = ()> {
     tx: libsql::Transaction,
     tx_type: SQLiteTransactionType,
     savepoint_depth: AtomicU32,
-    _schema: PhantomData<Schema>,
+    schema: Schema,
 }
 
 impl<Schema> std::fmt::Debug for Transaction<Schema> {
@@ -51,13 +51,23 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
 
 impl<Schema> Transaction<Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(tx: libsql::Transaction, tx_type: SQLiteTransactionType) -> Self {
+    pub(crate) fn new(
+        tx: libsql::Transaction,
+        tx_type: SQLiteTransactionType,
+        schema: Schema,
+    ) -> Self {
         Self {
             tx,
             tx_type,
             savepoint_depth: AtomicU32::new(0),
-            _schema: PhantomData,
+            schema,
         }
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     /// Gets a reference to the underlying transaction

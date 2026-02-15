@@ -144,10 +144,11 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
+        Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> Result<R, DrizzleError>,
     {
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
-        let transaction = Transaction::new(tx, tx_type);
+        let transaction = Transaction::new(tx, tx_type, self.schema);
 
         let result = f(&transaction).await;
         match result {

@@ -36,7 +36,7 @@ pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<PgTransaction<'conn>>>,
     tx_type: PostgresTransactionType,
     savepoint_depth: AtomicU32,
-    _schema: PhantomData<Schema>,
+    schema: Schema,
 }
 
 impl<'conn, Schema> std::fmt::Debug for Transaction<'conn, Schema> {
@@ -50,13 +50,23 @@ impl<'conn, Schema> std::fmt::Debug for Transaction<'conn, Schema> {
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(tx: PgTransaction<'conn>, tx_type: PostgresTransactionType) -> Self {
+    pub(crate) fn new(
+        tx: PgTransaction<'conn>,
+        tx_type: PostgresTransactionType,
+        schema: Schema,
+    ) -> Self {
         Self {
             tx: RefCell::new(Some(tx)),
             tx_type,
             savepoint_depth: AtomicU32::new(0),
-            _schema: PhantomData,
+            schema,
         }
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     /// Gets the transaction type

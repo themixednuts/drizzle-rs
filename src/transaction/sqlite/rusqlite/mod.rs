@@ -39,18 +39,28 @@ pub struct Transaction<'conn, Schema = ()> {
     tx: rusqlite::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
     savepoint_depth: AtomicU32,
-    _schema: PhantomData<Schema>,
+    schema: Schema,
 }
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(tx: rusqlite::Transaction<'conn>, tx_type: SQLiteTransactionType) -> Self {
+    pub(crate) fn new(
+        tx: rusqlite::Transaction<'conn>,
+        tx_type: SQLiteTransactionType,
+        schema: Schema,
+    ) -> Self {
         Self {
             tx,
             tx_type,
             savepoint_depth: AtomicU32::new(0),
-            _schema: PhantomData,
+            schema,
         }
+    }
+
+    /// Gets a reference to the schema.
+    #[inline]
+    pub fn schema(&self) -> &Schema {
+        &self.schema
     }
 
     /// Gets a reference to the underlying transaction

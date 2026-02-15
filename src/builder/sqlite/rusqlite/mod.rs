@@ -146,12 +146,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
+        Schema: Copy,
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         drizzle_core::drizzle_trace_tx!("begin", "sqlite.rusqlite");
         let tx = self.conn.transaction_with_behavior(tx_type.into())?;
 
-        let transaction = Transaction::new(tx, tx_type);
+        let transaction = Transaction::new(tx, tx_type, self.schema);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
 

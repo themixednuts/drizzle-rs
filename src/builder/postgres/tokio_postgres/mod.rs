@@ -221,6 +221,7 @@ impl<Schema> Drizzle<Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
+        Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         let builder = self.client.build_transaction();
@@ -238,7 +239,7 @@ impl<Schema> Drizzle<Schema> {
         drizzle_core::drizzle_trace_tx!("begin", "postgres.tokio");
         let tx = builder.start().await?;
 
-        let transaction = Transaction::new(tx, tx_type);
+        let transaction = Transaction::new(tx, tx_type, self.schema);
 
         match f(&transaction).await {
             Ok(value) => {
