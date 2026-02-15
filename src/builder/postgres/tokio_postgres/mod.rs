@@ -142,7 +142,7 @@
 //!     .prepare();
 //!
 //! let alice: Vec<SelectUser> = find_user
-//!     .all(db.client(), params![{find_name: "Alice"}])
+//!     .all(db.conn(), params![{find_name: "Alice"}])
 //!     .await?;
 //! # Ok(()) }
 //! ```
@@ -225,17 +225,17 @@ impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Gets a reference to the underlying client
+    /// Gets a reference to the underlying connection.
     #[inline]
-    pub fn client(&self) -> &Client {
+    pub fn conn(&self) -> &Client {
         &self.client
     }
 
-    /// Gets a mutable reference to the underlying client.
+    /// Gets a mutable reference to the underlying connection.
     ///
     /// Returns `None` if there are outstanding clones of this `Drizzle` instance.
     #[inline]
-    pub fn mut_client(&mut self) -> Option<&mut Client> {
+    pub fn conn_mut(&mut self) -> Option<&mut Client> {
         Arc::get_mut(&mut self.client)
     }
 

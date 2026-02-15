@@ -63,9 +63,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         &self.schema
     }
 
-    /// Gets a reference to the underlying connection
+    /// Gets a reference to the underlying transaction
     #[inline]
-    pub fn tx(&self) -> &turso::transaction::Transaction<'conn> {
+    pub fn inner(&self) -> &turso::transaction::Transaction<'conn> {
         &self.tx
     }
 

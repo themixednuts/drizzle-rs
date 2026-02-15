@@ -121,7 +121,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 
     /// Gets a mutable reference to the underlying connection.
     #[inline]
-    pub fn mut_conn(&mut self) -> &mut Conn {
+    pub fn conn_mut(&mut self) -> &mut Conn {
         &mut self.conn
     }
 

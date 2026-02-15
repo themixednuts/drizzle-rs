@@ -89,9 +89,9 @@ impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Gets a reference to the underlying connection pool
+    /// Gets a reference to the underlying connection pool.
     #[inline]
-    pub fn pool(&self) -> &PgPool {
+    pub fn conn(&self) -> &PgPool {
         &self.pool
     }
 
@@ -249,7 +249,7 @@ where
         }
 
         let result = sqlx_query
-            .execute(self.drizzle.pool())
+            .execute(self.drizzle.conn())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
@@ -273,7 +273,7 @@ where
         }
 
         let rows = sqlx_query
-            .fetch_all(self.drizzle.pool())
+            .fetch_all(self.drizzle.conn())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
@@ -301,7 +301,7 @@ where
         }
 
         let row = sqlx_query
-            .fetch_one(self.drizzle.pool())
+            .fetch_one(self.drizzle.conn())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 

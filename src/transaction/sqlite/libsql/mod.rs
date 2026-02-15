@@ -72,7 +72,7 @@ impl<Schema> Transaction<Schema> {
 
     /// Gets a reference to the underlying transaction
     #[inline]
-    pub fn tx(&self) -> &libsql::Transaction {
+    pub fn inner(&self) -> &libsql::Transaction {
         &self.tx
     }
 

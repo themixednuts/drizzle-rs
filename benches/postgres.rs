@@ -115,7 +115,7 @@ fn setup_postgres_drizzle() -> (drizzle::postgres::sync::Drizzle<Schema>, User) 
 
 #[cfg(feature = "postgres-sync")]
 fn seed_users_fast(db: &mut drizzle::postgres::sync::Drizzle<Schema>, count: i32) {
-    db.mut_client()
+    db.conn_mut()
         .execute(
             "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
             &[&(count - 1)],
@@ -125,7 +125,7 @@ fn seed_users_fast(db: &mut drizzle::postgres::sync::Drizzle<Schema>, count: i32
 
 #[cfg(feature = "postgres-sync")]
 fn seed_one_user_fast(db: &mut drizzle::postgres::sync::Drizzle<Schema>) {
-    db.mut_client()
+    db.conn_mut()
         .execute(
             "INSERT INTO bench_users (name, email) VALUES ('user', 'user@example.com')",
             &[],
@@ -220,7 +220,7 @@ mod postgres_sync {
                     (db, prepared)
                 })
                 .bench_values(|(mut db, prepared)| {
-                    let results: Vec<SelectUser> = prepared.all(db.mut_client(), []).unwrap();
+                    let results: Vec<SelectUser> = prepared.all(db.conn_mut(), []).unwrap();
                     black_box(results);
                 });
         }
@@ -301,7 +301,7 @@ mod postgres_sync {
                     (db, prepared)
                 })
                 .bench_values(|(mut db, prepared)| {
-                    let results: Vec<SelectUser> = prepared.all(db.mut_client(), []).unwrap();
+                    let results: Vec<SelectUser> = prepared.all(db.conn_mut(), []).unwrap();
                     black_box(results);
                 });
         }
@@ -350,7 +350,7 @@ mod postgres_sync {
                     (db, prepared)
                 })
                 .bench_values(|(mut db, prepared)| {
-                    prepared.execute(db.mut_client(), []).unwrap();
+                    prepared.execute(db.conn_mut(), []).unwrap();
                 });
         }
     }
@@ -417,7 +417,7 @@ mod postgres_sync {
                     (db, prepared)
                 })
                 .bench_values(|(mut db, prepared)| {
-                    prepared.execute(db.mut_client(), []).unwrap();
+                    prepared.execute(db.conn_mut(), []).unwrap();
                 });
         }
     }
@@ -481,7 +481,7 @@ mod postgres_sync {
                     (db, prepared)
                 })
                 .bench_values(|(mut db, prepared)| {
-                    prepared.execute(db.mut_client(), []).unwrap();
+                    prepared.execute(db.conn_mut(), []).unwrap();
                 });
         }
     }
@@ -940,7 +940,7 @@ mod tokio_postgres {
                 .with_inputs(|| {
                     rt.block_on(async {
                         let (db, users) = setup_tokio_postgres_drizzle().await;
-                        db.client()
+                        db.conn()
                             .execute(
                                 "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
                                 &[&99i32],
@@ -953,7 +953,7 @@ mod tokio_postgres {
                 })
                 .bench_values(|(db, prepared)| {
                     rt.block_on(async {
-                        let results: Vec<SelectUser> = prepared.all(db.client(), []).await.unwrap();
+                        let results: Vec<SelectUser> = prepared.all(db.conn(), []).await.unwrap();
                         black_box(results);
                     });
                 });
@@ -1044,7 +1044,7 @@ mod tokio_postgres {
                 .with_inputs(|| {
                     rt.block_on(async {
                         let (db, users) = setup_tokio_postgres_drizzle().await;
-                        db.client()
+                        db.conn()
                             .execute(
                                 "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
                                 &[&99i32],
@@ -1062,7 +1062,7 @@ mod tokio_postgres {
                 })
                 .bench_values(|(db, prepared)| {
                     rt.block_on(async {
-                        let results: Vec<SelectUser> = prepared.all(db.client(), []).await.unwrap();
+                        let results: Vec<SelectUser> = prepared.all(db.conn(), []).await.unwrap();
                         black_box(results);
                     });
                 });
@@ -1124,7 +1124,7 @@ mod tokio_postgres {
                 })
                 .bench_values(|(db, prepared)| {
                     rt.block_on(async {
-                        prepared.execute(db.client(), []).await.unwrap();
+                        prepared.execute(db.conn(), []).await.unwrap();
                     })
                 });
         }
@@ -1198,7 +1198,7 @@ mod tokio_postgres {
                 .with_inputs(|| {
                     rt.block_on(async {
                         let (db, users) = setup_tokio_postgres_drizzle().await;
-                        db.client()
+                        db.conn()
                             .execute(
                                 "INSERT INTO bench_users (name, email) VALUES ('user', 'user@example.com')",
                                 &[],
@@ -1216,7 +1216,7 @@ mod tokio_postgres {
                 })
                 .bench_values(|(db, prepared)| {
                     rt.block_on(async {
-                        prepared.execute(db.client(), []).await.unwrap();
+                        prepared.execute(db.conn(), []).await.unwrap();
                     })
                 });
         }
@@ -1291,7 +1291,7 @@ mod tokio_postgres {
                 .with_inputs(|| {
                     rt.block_on(async {
                         let (db, users) = setup_tokio_postgres_drizzle().await;
-                        db.client()
+                        db.conn()
                             .execute(
                                 "INSERT INTO bench_users (name, email) SELECT 'User ' || g::text, 'user' || g::text || '@example.com' FROM generate_series(0, $1) AS g",
                                 &[&9i32],
@@ -1308,7 +1308,7 @@ mod tokio_postgres {
                 })
                 .bench_values(|(db, prepared)| {
                     rt.block_on(async {
-                        prepared.execute(db.client(), []).await.unwrap();
+                        prepared.execute(db.conn(), []).await.unwrap();
                     })
                 });
         }

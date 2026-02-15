@@ -689,7 +689,7 @@ fn generate_postgres_sync_test(
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_client {
-                    () => { db.mut_client() };
+                    () => { db.conn_mut() };
                 }
 
 
@@ -800,7 +800,7 @@ fn generate_tokio_postgres_test(
                 }
                 #[allow(unused_macros)]
                 macro_rules! drizzle_client {
-                    () => { db.client() };
+                    () => { db.conn() };
                 }
 
 

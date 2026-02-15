@@ -109,7 +109,7 @@
 //!     .into_owned();
 //!
 //! let alice: Vec<SelectUser> = find_user
-//!     .all(db.mut_client(), params![{find_name: "Alice"}])?;
+//!     .all(db.conn_mut(), params![{find_name: "Alice"}])?;
 //! # Ok(()) }
 //! ```
 
@@ -173,14 +173,15 @@ impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Gets a reference to the underlying client
+    /// Gets a reference to the underlying connection.
     #[inline]
-    pub fn client(&self) -> &Client {
+    pub fn conn(&self) -> &Client {
         &self.client
     }
 
+    /// Gets a mutable reference to the underlying connection.
     #[inline]
-    pub fn mut_client(&mut self) -> &mut Client {
+    pub fn conn_mut(&mut self) -> &mut Client {
         &mut self.client
     }
 

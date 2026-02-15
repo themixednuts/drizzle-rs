@@ -338,35 +338,35 @@ mod tokio_postgres_edge_cases {
     }
 
     #[tokio::test]
-    async fn mut_client_returns_none_when_shared() {
+    async fn conn_mut_returns_none_when_shared() {
         let (mut db, SimpleSchema { simple: _ }) =
             tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
         let _clone = db.db.clone();
 
-        // mut_client should return None while clone exists
-        assert!(db.mut_client().is_none());
+        // conn_mut should return None while clone exists
+        assert!(db.conn_mut().is_none());
     }
 
     #[tokio::test]
-    async fn mut_client_returns_some_when_unique() {
+    async fn conn_mut_returns_some_when_unique() {
         let (mut db, SimpleSchema { simple: _ }) =
             tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
-        // No clones — mut_client should return Some
-        assert!(db.mut_client().is_some());
+        // No clones — conn_mut should return Some
+        assert!(db.conn_mut().is_some());
     }
 
     #[tokio::test]
-    async fn mut_client_available_after_clone_dropped() {
+    async fn conn_mut_available_after_clone_dropped() {
         let (mut db, SimpleSchema { simple: _ }) =
             tokio_postgres_setup::setup_db::<SimpleSchema>().await;
 
         {
             let _clone = db.db.clone();
-            assert!(db.mut_client().is_none());
+            assert!(db.conn_mut().is_none());
         }
-        // Clone dropped — mut_client should work again
-        assert!(db.mut_client().is_some());
+        // Clone dropped — conn_mut should work again
+        assert!(db.conn_mut().is_some());
     }
 }
