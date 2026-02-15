@@ -107,6 +107,13 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
         impl ::core::clone::Clone for #struct_name {
             fn clone(&self) -> Self { *self }
         }
+        impl ::core::fmt::Debug for #struct_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!(#struct_name))
+                    #(.field(stringify!(#all_field_names), &self.#all_field_names))*
+                    .finish()
+            }
+        }
 
         impl Default for #struct_name {
             fn default() -> Self {

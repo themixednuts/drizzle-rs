@@ -216,7 +216,7 @@ pub struct SimpleComplexSchema {
     pub complex: Complex,
 }
 
-#[derive(SQLiteSchema, Debug)]
+#[derive(SQLiteSchema)]
 pub struct SimpleSchema {
     pub simple: Simple,
 }
