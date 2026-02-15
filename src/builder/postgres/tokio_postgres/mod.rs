@@ -223,11 +223,7 @@ impl<Schema> Drizzle<Schema> {
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
-        F: for<'t> FnOnce(
-            &'t Transaction<Schema>,
-        ) -> Pin<
-            Box<dyn Future<Output = drizzle_core::error::Result<R>> + Send + 't>,
-        >,
+        F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
         let builder = self.client.build_transaction();
         let builder = if tx_type != PostgresTransactionType::default() {
