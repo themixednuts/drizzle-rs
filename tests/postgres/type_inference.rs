@@ -85,18 +85,18 @@ mod uuid_tests {
 
         // Insert with auto-generated UUID
         let stmt = db.insert(uuids).values([InsertPgUuidTypes::new()]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Insert with specific UUID
         let specific_id = Uuid::new_v4();
         let stmt = db
             .insert(uuids)
             .values([InsertPgUuidTypes::new().with_id(specific_id)]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Query and verify
         let stmt = db.select(()).from(uuids);
-        let results: Vec<SelectPgUuidTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgUuidTypes> = drizzle_exec!(stmt => all);
         assert_eq!(results.len(), 2);
         assert_eq!(results[1].id, specific_id);
     });
@@ -119,10 +119,10 @@ postgres_test!(basic_types_insert_and_select, PgBasicTypesSchema, {
         "Hello, PostgreSQL!",
         vec![0xDE, 0xAD, 0xBE, 0xEF],
     )]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(basic);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
 
     let row = &results[0];
@@ -149,10 +149,10 @@ postgres_test!(optional_types_with_values, PgOptionalTypesSchema, {
         .with_opt_bool(true)
         .with_opt_text("optional text")
         .with_opt_blob(vec![1, 2, 3])]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(optional);
-    let results: Vec<SelectPgOptionalTypes> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectPgOptionalTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
 
     let row = &results[0];
@@ -171,10 +171,10 @@ postgres_test!(optional_types_with_nulls, PgOptionalTypesSchema, {
 
     // Insert with no optional values (all NULL)
     let stmt = db.insert(optional).values([InsertPgOptionalTypes::new()]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(optional);
-    let results: Vec<SelectPgOptionalTypes> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectPgOptionalTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
 
     let row = &results[0];
@@ -218,10 +218,10 @@ postgres_test!(integer_boundary_values, PgBasicTypesSchema, {
             vec![0xFF; 100],
         ),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(basic).order_by([OrderBy::asc(basic.id)]);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
 
@@ -255,10 +255,10 @@ postgres_test!(text_special_characters, PgBasicTypesSchema, {
         special_text,
         vec![],
     )]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(basic);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results[0].text_val, special_text);
 });
 
@@ -278,10 +278,10 @@ postgres_test!(binary_data_roundtrip, PgBasicTypesSchema, {
         "binary test",
         binary_data.clone(),
     )]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(basic);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results[0].blob_val, binary_data);
 });
 
@@ -323,10 +323,10 @@ mod chrono_tests {
             timestamp,
             timestamptz,
         )]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(chrono);
-        let results: Vec<SelectPgChronoTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgChronoTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].date_val, date);
@@ -363,10 +363,10 @@ mod geo_tests {
         let point = Point::new(40.7128, -74.0060); // NYC coordinates
 
         let stmt = db.insert(geo).values([InsertPgGeoTypes::new(point)]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(geo);
-        let results: Vec<SelectPgGeoTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgGeoTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].point_val, point);
@@ -406,10 +406,10 @@ mod cidr_tests {
         let stmt = db.insert(network).values([InsertPgNetworkTypes::new()
             .with_inet_val(inet)
             .with_cidr_val(cidr)]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(network);
-        let results: Vec<SelectPgNetworkTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgNetworkTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].inet_val, Some(inet));
@@ -454,10 +454,10 @@ mod bitvec_tests {
         let stmt = db
             .insert(bitvec)
             .values([InsertPgBitVecTypes::new(bits.clone())]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(bitvec);
-        let results: Vec<SelectPgBitVecTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgBitVecTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].bits, bits);
@@ -496,10 +496,10 @@ mod arrayvec_tests {
         let stmt = db
             .insert(arrayvec)
             .values([InsertPgArrayVecTypes::new(fixed_string, fixed_blob.clone())]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(arrayvec);
-        let results: Vec<SelectPgArrayVecTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgArrayVecTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].fixed_string, fixed_string);
@@ -578,10 +578,10 @@ mod json_tests {
         let stmt = db
             .insert(json_table)
             .values([InsertPgJsonTypes::new(metadata.clone(), raw_json.clone())]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(json_table);
-        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].metadata, metadata);
@@ -606,10 +606,10 @@ mod json_tests {
         let stmt = db
             .insert(jsonb_table)
             .values([InsertPgJsonbTypes::new(profile.clone(), raw_jsonb.clone())]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(jsonb_table);
-        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].profile, profile);
@@ -637,10 +637,10 @@ mod json_tests {
             raw_json.clone(),
         )
         .with_opt_metadata(opt_metadata.clone())]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(json_table);
-        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].metadata, metadata);
@@ -671,10 +671,10 @@ mod json_tests {
             raw_jsonb.clone(),
         )
         .with_opt_profile(opt_profile.clone())]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         let stmt = db.select(()).from(jsonb_table);
-        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt.all());
+        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].profile, profile);

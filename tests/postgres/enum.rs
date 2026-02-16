@@ -86,14 +86,14 @@ mod execution {
             InsertComplex::new("Regular User", true, Role::User),
             InsertComplex::new("Mod User", true, Role::Moderator),
         ]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Select and verify enum was stored correctly
         let stmt = db
             .select(())
             .from(complex)
             .order_by([OrderBy::asc(complex.name)]);
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].name, "Admin User");
@@ -109,14 +109,14 @@ mod execution {
             InsertComplex::new("Admin 2", true, Role::Admin),
             InsertComplex::new("User 1", true, Role::User),
         ]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Filter by enum value
         let stmt = db
             .select(())
             .from(complex)
             .r#where(eq(complex.role, Role::Admin));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.name.starts_with("Admin")));
@@ -128,21 +128,21 @@ mod execution {
         let stmt = db
             .insert(complex)
             .values([InsertComplex::new("Test User", true, Role::User)]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Update enum value
         let stmt = db
             .update(complex)
             .set(UpdateComplex::default().with_role(Role::Admin))
             .r#where(eq(complex.name, "Test User"));
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Verify update by filtering
         let stmt = db
             .select(())
             .from(complex)
             .r#where(eq(complex.role, Role::Admin));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Test User");
@@ -156,14 +156,14 @@ mod execution {
             InsertComplex::new("Moderator", true, Role::Moderator),
             InsertComplex::new("User", true, Role::User),
         ]);
-        drizzle_exec!(stmt.execute());
+        drizzle_exec!(stmt => execute);
 
         // Filter by multiple enum values
         let stmt = db.select(()).from(complex).r#where(or([
             eq(complex.role, Role::Admin),
             eq(complex.role, Role::Moderator),
         ]));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 2);
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();

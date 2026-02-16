@@ -92,10 +92,10 @@ postgres_test!(schema_simple_works, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("test")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
@@ -113,13 +113,13 @@ postgres_test!(schema_with_view, ViewTestSchema, {
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select((simple_view.id, simple_view.name))
         .from(simple_view)
         .order_by([OrderBy::asc(simple_view.id)]);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alpha");
@@ -167,7 +167,7 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let sv = SimpleView::alias("sv");
     let stmt = db
@@ -180,7 +180,7 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
     assert!(sql.contains("FROM \"simple_view\" AS \"sv\""));
     assert!(sql.contains("\"sv\".\"name\""));
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alpha");
 
@@ -207,10 +207,10 @@ postgres_test!(schema_complex_works, ComplexSchema, {
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("test", true, Role::User)]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
@@ -226,10 +226,10 @@ postgres_test!(schema_with_enum_works, ComplexSchema, {
         InsertComplex::new("Regular User", true, Role::User),
         InsertComplex::new("Mod User", true, Role::Moderator),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
 });
@@ -239,16 +239,16 @@ postgres_test!(schema_multiple_inserts, SimpleSchema, {
 
     // Multiple separate inserts should work
     let stmt = db.insert(simple).values([InsertSimple::new("First")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.insert(simple).values([InsertSimple::new("Second")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.insert(simple).values([InsertSimple::new("Third")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
 });

@@ -59,10 +59,10 @@ postgres_test!(arraystring_insert_and_select, PgArrayStringSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "test description")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "Hello");
@@ -78,10 +78,10 @@ postgres_test!(arrayvec_blob_insert_and_select, PgArrayVecBlobSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(data.clone(), "blob test")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
@@ -95,10 +95,10 @@ postgres_test!(arraystring_empty, PgArrayStringSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "empty name")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "");
@@ -111,10 +111,10 @@ postgres_test!(arrayvec_empty, PgArrayVecBlobSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(data, "empty blob")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert!(results[0].data.is_empty());
@@ -128,10 +128,10 @@ postgres_test!(arraystring_max_capacity, PgArrayStringSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "max capacity")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "1234567890123456");
@@ -149,10 +149,10 @@ postgres_test!(arrayvec_max_capacity, PgArrayVecBlobSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(data.clone(), "max capacity")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.len(), 32);
@@ -170,7 +170,7 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(initial, "to update")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let mut updated = ArrayVec::<u8, 32>::new();
     updated.extend([9, 8, 7, 6, 5]);
@@ -179,10 +179,10 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
         .update(table)
         .set(UpdatePgArrayVecBlobTest::default().with_data(updated.clone()))
         .r#where(eq(table.label, "to update"));
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[9, 8, 7, 6, 5]);
@@ -220,14 +220,14 @@ postgres_test!(array_nullable_test, PgArrayNullableSchema, {
     let stmt = db.insert(table).values([InsertPgArrayNullableTest::new()
         .with_name(name)
         .with_data(data.clone())]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     // Test inserting None values
     let stmt = db.insert(table).values([InsertPgArrayNullableTest::new()]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table).order_by(table.id);
-    let results: Vec<ArrayNullableResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayNullableResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
 
@@ -249,10 +249,10 @@ postgres_test!(arraystring_unicode_boundary, PgArrayStringSchema, {
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "unicode test")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt.all());
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "こんにちは");

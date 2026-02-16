@@ -45,7 +45,7 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
             .with_email("charlie@example.com"),
     ];
 
-    drizzle_exec!(db.insert(complex).values(authors).execute());
+    drizzle_exec!(db.insert(complex).values(authors) => execute);
 
     let posts = vec![
         InsertPost::new("Alice's First Post", true)
@@ -59,14 +59,14 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
             .with_author_id(id1),
     ];
 
-    drizzle_exec!(db.insert(post).values(posts).execute());
+    drizzle_exec!(db.insert(post).values(posts) => execute);
 
     let join_results: Vec<AuthorPostResult> = drizzle_exec!(
         db.select(AuthorPostResult::default())
             .from(complex)
             .join(post)
             .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
-            .all()
+            => all
     );
 
     assert_eq!(join_results.len(), 3);
@@ -89,7 +89,7 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .join(post)
             .r#where(eq(complex.name, "alice"))
-            .all()
+            => all
     );
 
     assert_eq!(filtered_results.len(), 2);
@@ -126,20 +126,20 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
             .with_id(post_id2)
             .with_content("Learn Go"),
     ];
-    drizzle_exec!(db.insert(post).values(posts).execute());
+    drizzle_exec!(db.insert(post).values(posts) => execute);
 
     let categories = vec![
         InsertCategory::new("Programming"),
         InsertCategory::new("Tutorial"),
     ];
-    drizzle_exec!(db.insert(category).values(categories).execute());
+    drizzle_exec!(db.insert(category).values(categories) => execute);
 
     let links = vec![
         InsertPostCategory::new(post_id1, 1),
         InsertPostCategory::new(post_id1, 2),
         InsertPostCategory::new(post_id2, 1),
     ];
-    drizzle_exec!(db.insert(post_category).values(links).execute());
+    drizzle_exec!(db.insert(post_category).values(links) => execute);
 
     // Chained auto-FK: post -> post_category (forward FK) -> category (reverse FK)
     let results: Vec<PostCategoryResult> = drizzle_exec!(
@@ -148,7 +148,7 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
             .join(post_category)
             .join(category)
             .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
-            .all()
+            => all
     );
 
     // Go Guide -> Programming = 1 row

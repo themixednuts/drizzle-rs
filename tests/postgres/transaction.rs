@@ -23,7 +23,7 @@ postgres_test!(transaction_commit, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice")])
-            .execute()
+            => execute
     );
 
     // Insert inside a transaction that commits
@@ -41,7 +41,7 @@ postgres_test!(transaction_commit, SimpleSchema, {
 
     // Both rows should be visible
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(2, results.len());
 });
 
@@ -52,7 +52,7 @@ postgres_test!(transaction_rollback, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice")])
-            .execute()
+            => execute
     );
 
     // Transaction that returns an error should rollback
@@ -71,7 +71,7 @@ postgres_test!(transaction_rollback, SimpleSchema, {
 
     // Only the first row should be visible (transaction was rolled back)
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(1, results.len());
     drizzle_assert_eq!("Alice", results[0].name.as_str());
 });
@@ -83,7 +83,7 @@ postgres_test!(transaction_update_and_select, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice"), InsertSimple::new("Bob"),])
-            .execute()
+            => execute
     );
 
     // Update inside a transaction
@@ -112,7 +112,7 @@ postgres_test!(transaction_update_and_select, SimpleSchema, {
 
     // Verify persisted after commit
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(names.contains(&"Charlie"));
     drizzle_assert!(!names.contains(&"Bob"));
@@ -129,7 +129,7 @@ postgres_test!(transaction_delete, SimpleSchema, {
                 InsertSimple::new("Bob"),
                 InsertSimple::new("Charlie"),
             ])
-            .execute()
+            => execute
     );
 
     // Delete inside a transaction
@@ -142,7 +142,7 @@ postgres_test!(transaction_delete, SimpleSchema, {
     ));
 
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(!names.contains(&"Bob"));
@@ -179,7 +179,7 @@ postgres_test!(savepoint_commit, SimpleSchema, {
 
     // Both records should exist
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(names.contains(&"outer"));
@@ -225,7 +225,7 @@ postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
 
     // Only outer + after_sp should exist, inner_rollback should be gone
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(names.contains(&"outer"));
@@ -271,7 +271,7 @@ postgres_test!(savepoint_nested_two_levels, SimpleSchema, {
     ));
 
     let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(3, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(names.contains(&"level0"));
@@ -288,7 +288,7 @@ postgres_test!(prepared_outside_transaction, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
-            .execute()
+            => execute
     );
 
     // Create an owned prepared statement OUTSIDE the transaction (baked-in filter)
@@ -329,7 +329,7 @@ postgres_test!(prepared_in_savepoint, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice")])
-            .execute()
+            => execute
     );
 
     // Prepared statement with baked-in select-all
@@ -366,7 +366,7 @@ postgres_test!(prepared_survives_savepoint_rollback, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice")])
-            .execute()
+            => execute
     );
 
     let select_all = db

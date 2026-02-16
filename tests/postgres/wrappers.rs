@@ -48,10 +48,10 @@ postgres_test!(compact_string_roundtrip, PgCompactStringSchema, {
         value.clone(),
         "compact note",
     )]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<CompactStringRow> = drizzle_exec!(stmt.all());
+    let rows: Vec<CompactStringRow> = drizzle_exec!(stmt => all);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, value);
@@ -96,10 +96,10 @@ postgres_test!(bytes_roundtrip, PgBytesBlobSchema, {
         mutable_payload.clone(),
         "bytes note",
     )]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<BytesBlobRow> = drizzle_exec!(stmt.all());
+    let rows: Vec<BytesBlobRow> = drizzle_exec!(stmt => all);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_ref(), payload.as_ref());
@@ -142,10 +142,10 @@ postgres_test!(smallvec_roundtrip, PgSmallVecBlobSchema, {
         payload.clone(),
         "smallvec note",
     )]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<SmallVecBlobRow> = drizzle_exec!(stmt.all());
+    let rows: Vec<SmallVecBlobRow> = drizzle_exec!(stmt => all);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_slice(), payload.as_slice());

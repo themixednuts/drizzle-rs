@@ -31,13 +31,13 @@ postgres_test!(condition_eq, SimpleSchema, {
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Alice"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -49,13 +49,13 @@ postgres_test!(condition_neq, SimpleSchema, {
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(neq(simple.name, "Alice"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -70,26 +70,26 @@ postgres_test!(condition_gt_lt, ComplexSchema, {
         InsertComplex::new("Middle", true, Role::User).with_age(40),
         InsertComplex::new("Senior", true, Role::User).with_age(60),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     // Test gt
     let stmt = db.select(()).from(complex).r#where(gt(complex.age, 30));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     // Test lt
     let stmt = db.select(()).from(complex).r#where(lt(complex.age, 50));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     // Test gte
     let stmt = db.select(()).from(complex).r#where(gte(complex.age, 40));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     // Test lte
     let stmt = db.select(()).from(complex).r#where(lte(complex.age, 40));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 });
 
@@ -102,13 +102,13 @@ postgres_test!(condition_in_array, SimpleSchema, {
         InsertSimple::new("Charlie"),
         InsertSimple::new("David"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -124,13 +124,13 @@ postgres_test!(condition_not_in_array, SimpleSchema, {
         InsertSimple::new("Bob"),
         InsertSimple::new("Charlie"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(not_in_array(simple.name, ["Alice"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -146,15 +146,15 @@ postgres_test!(condition_is_null, ComplexSchema, {
     let stmt = db.insert(complex).values([
         InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("No Email", true, Role::User)]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex).r#where(is_null(complex.email));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "No Email");
@@ -168,18 +168,18 @@ postgres_test!(condition_is_not_null, ComplexSchema, {
     let stmt = db.insert(complex).values([
         InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("No Email", true, Role::User)]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select(())
         .from(complex)
         .r#where(is_not_null(complex.email));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
@@ -193,14 +193,14 @@ postgres_test!(condition_like, SimpleSchema, {
         InsertSimple::new("test_two"),
         InsertSimple::new("other"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     // Prefix match
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(like(simple.name, "test%"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     // Contains match
@@ -208,7 +208,7 @@ postgres_test!(condition_like, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(like(simple.name, "%o%"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3); // test_one, test_two, other all contain 'o'
 });
 
@@ -222,13 +222,13 @@ postgres_test!(condition_between, ComplexSchema, {
         InsertComplex::new("Adult", true, Role::User).with_age(45),
         InsertComplex::new("Senior", true, Role::User).with_age(75),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select(())
         .from(complex)
         .r#where(between(complex.age, 20, 50));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -245,13 +245,13 @@ postgres_test!(condition_and, ComplexSchema, {
         InsertComplex::new("Inactive Young", false, Role::User).with_age(25),
         InsertComplex::new("Active Old", true, Role::User).with_age(60),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select(())
         .from(complex)
         .r#where(and([eq(complex.active, true), lt(complex.age, 30)]));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Active Young");
@@ -266,13 +266,13 @@ postgres_test!(condition_or, ComplexSchema, {
         InsertComplex::new("Moderator", true, Role::Moderator),
         InsertComplex::new("User", true, Role::User),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex).r#where(or([
         eq(complex.role, Role::Admin),
         eq(complex.role, Role::Moderator),
     ]));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -290,7 +290,7 @@ postgres_test!(condition_nested_and_or, ComplexSchema, {
         InsertComplex::new("Active User Young", true, Role::User).with_age(20),
         InsertComplex::new("Active User Old", true, Role::User).with_age(50),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     // (Admin OR Moderator) AND active AND age > 25
     let stmt = db.select(()).from(complex).r#where(and([
@@ -301,7 +301,7 @@ postgres_test!(condition_nested_and_or, ComplexSchema, {
         eq(complex.active, true),
         gt(complex.age, 25),
     ]));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Active Admin");
@@ -315,13 +315,13 @@ postgres_test!(condition_not, ComplexSchema, {
         InsertComplex::new("Active", true, Role::User),
         InsertComplex::new("Inactive", false, Role::User),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select(())
         .from(complex)
         .r#where(not(eq(complex.active, true)));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Inactive");

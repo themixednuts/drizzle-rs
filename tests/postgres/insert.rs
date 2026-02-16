@@ -27,10 +27,10 @@ postgres_test!(insert_single_row, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -45,10 +45,10 @@ postgres_test!(insert_multiple_rows, SimpleSchema, {
         InsertSimple::new("Bob"),
         InsertSimple::new("Charlie"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -66,10 +66,10 @@ postgres_test!(insert_with_optional_fields, ComplexSchema, {
         .values([InsertComplex::new("Alice", true, Role::Admin)
             .with_email("alice@example.com")
             .with_age(30)]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -85,10 +85,10 @@ postgres_test!(insert_with_null_fields, ComplexSchema, {
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("Bob", false, Role::User)]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -107,10 +107,10 @@ postgres_test!(insert_special_characters, SimpleSchema, {
         InsertSimple::new("Tab\there"),
         InsertSimple::new("Emoji 🎉"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 5);
     assert!(results.iter().any(|r| r.name == "O'Brien"));
@@ -128,13 +128,13 @@ postgres_test!(insert_with_custom_uuid, ComplexSchema, {
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("CustomID", true, Role::User).with_id(custom_id)]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select(())
         .from(complex)
         .r#where(eq(complex.id, custom_id));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, custom_id);
@@ -152,10 +152,10 @@ postgres_test!(insert_large_batch, SimpleSchema, {
         .collect();
 
     let stmt = db.insert(simple).values(rows);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt.all());
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 100);
 });
