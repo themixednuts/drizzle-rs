@@ -3,12 +3,21 @@
 //! Walks the user through an interactive wizard to define tables, columns,
 //! indexes, and foreign keys, then generates Rust schema code using the
 //! existing codegen pipeline (the same one `drizzle introspect` uses).
+//!
+//! Supports JSON import/export for CI-friendly, reproducible schema generation:
+//! - `drizzle new --json` reads a JSON schema definition from stdin
+//! - `drizzle new --json --from file.json` reads from a file
+//! - `drizzle new --export-json out.json` exports the schema as JSON
+//! - `drizzle new --schema-help` prints the expected JSON shape
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use inquire::validator::Validation;
 use inquire::{Confirm, MultiSelect, Select, Text};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, Dialect};
 use crate::error::CliError;
@@ -19,13 +28,495 @@ use crate::output;
 pub struct NewOptions {
     pub dialect: Option<Dialect>,
     pub schema: Option<String>,
+    pub json: bool,
+    pub from: Option<PathBuf>,
+    pub export_json: Option<PathBuf>,
+    pub schema_help: bool,
 }
 
 pub fn run(config: Option<&Config>, options: NewOptions) -> Result<(), CliError> {
+    // --schema-help: print annotated example and exit
+    if options.schema_help {
+        print_json_schema();
+        return Ok(());
+    }
+
+    // Build the schema definition from either JSON input or interactive prompts
+    let def = if options.json {
+        load_json(options.from.as_deref())?
+    } else {
+        collect_interactively(config, &options)?
+    };
+
+    // Validate the schema definition
+    validate_schema(&def)?;
+
+    // Export JSON if requested
+    if let Some(ref export_path) = options.export_json {
+        export_to_json(&def, export_path)?;
+    }
+
+    // Determine output path (JSON definition's output_path, or CLI override)
+    let output_path = if let Some(ref s) = options.schema {
+        s.clone()
+    } else {
+        def.output_path.clone()
+    };
+
+    // Generate code
+    let code = match def.dialect {
+        Dialect::Sqlite | Dialect::Turso => generate_sqlite(
+            &def.tables,
+            &def.indexes,
+            &def.foreign_keys,
+            &def.schema_name,
+            def.casing,
+        ),
+        Dialect::Postgresql => generate_postgres(
+            &def.tables,
+            &def.indexes,
+            &def.foreign_keys,
+            &def.enums,
+            &def.schema_name,
+            def.casing,
+        ),
+    };
+
+    // Write output
+    let path = PathBuf::from(&output_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| CliError::IoError(format!("Failed to create directory: {e}")))?;
+    }
+    std::fs::write(&path, &code)
+        .map_err(|e| CliError::IoError(format!("Failed to write schema file: {e}")))?;
+
+    // Print summary
+    println!();
+    println!("{}", output::success("Schema generated successfully!"));
+    println!();
+    println!(
+        "  Tables: {}",
+        def.tables
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !def.indexes.is_empty() {
+        println!(
+            "  Indexes: {}",
+            def.indexes
+                .iter()
+                .map(|i| i.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if !def.foreign_keys.is_empty() {
+        println!("  Foreign keys: {}", def.foreign_keys.len());
+    }
+    println!("  Output: {}", output_path);
+    if let Some(ref export_path) = options.export_json {
+        println!("  JSON export: {}", export_path.display());
+    }
+    println!();
+    println!("Next steps:");
+    println!(
+        "  Run {} to generate your first migration",
+        output::heading("drizzle generate")
+    );
+
+    Ok(())
+}
+
+// ── Schema definition (top-level JSON document) ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaDefinition {
+    pub dialect: Dialect,
+    #[serde(default = "default_casing")]
+    pub casing: FieldCasing,
+    #[serde(default = "default_schema_name")]
+    pub schema_name: String,
+    #[serde(default = "default_output_path")]
+    pub output_path: String,
+    #[serde(default)]
+    pub enums: Vec<EnumDef>,
+    pub tables: Vec<TableDef>,
+    #[serde(default)]
+    pub indexes: Vec<IndexDef>,
+    #[serde(default)]
+    pub foreign_keys: Vec<ForeignKeyDef>,
+}
+
+fn default_casing() -> FieldCasing {
+    FieldCasing::Snake
+}
+
+fn default_schema_name() -> String {
+    "AppSchema".to_string()
+}
+
+fn default_output_path() -> String {
+    "src/schema.rs".to_string()
+}
+
+fn default_fk_action() -> String {
+    "No Action".to_string()
+}
+
+// ── Intermediate structs ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EnumDef {
+    pub name: String,
+    pub variants: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TableDef {
+    pub name: String,
+    pub columns: Vec<ColumnDef>,
+    /// SQLite only
+    #[serde(default)]
+    pub strict: bool,
+    /// SQLite only
+    #[serde(default)]
+    pub without_rowid: bool,
+    /// PostgreSQL only
+    #[serde(default = "default_pg_schema")]
+    pub pg_schema: String,
+}
+
+fn default_pg_schema() -> String {
+    "public".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ColumnDef {
+    pub name: String,
+    /// The SQL type string the codegen expects
+    pub sql_type: String,
+    #[serde(default)]
+    pub not_null: bool,
+    #[serde(default)]
+    pub primary_key: bool,
+    #[serde(default)]
+    pub autoincrement: bool,
+    #[serde(default)]
+    pub unique: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+    /// For PG identity columns
+    #[serde(default)]
+    pub identity: bool,
+    /// For PG enum columns: the enum name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enum_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IndexDef {
+    pub name: String,
+    pub table: String,
+    pub columns: Vec<String>,
+    #[serde(default)]
+    pub unique: bool,
+    /// PG schema
+    #[serde(default)]
+    pub pg_schema: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ForeignKeyDef {
+    pub name: String,
+    pub table: String,
+    pub columns: Vec<String>,
+    pub table_to: String,
+    pub columns_to: Vec<String>,
+    #[serde(default = "default_fk_action")]
+    pub on_delete: String,
+    #[serde(default = "default_fk_action")]
+    pub on_update: String,
+    /// PG schema
+    #[serde(default)]
+    pub pg_schema: String,
+    #[serde(default)]
+    pub pg_schema_to: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+pub enum FieldCasing {
+    #[serde(rename = "snake_case")]
+    Snake,
+    #[serde(rename = "camelCase")]
+    Camel,
+}
+
+// ── JSON import/export ──────────────────────────────────────────────────────
+
+fn load_json(from: Option<&std::path::Path>) -> Result<SchemaDefinition, CliError> {
+    let content = match from {
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|e| CliError::IoError(format!("Failed to read {}: {e}", path.display())))?,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| CliError::IoError(format!("Failed to read stdin: {e}")))?;
+            buf
+        }
+    };
+    serde_json::from_str(&content)
+        .map_err(|e| CliError::Other(format!("Invalid JSON schema definition: {e}")))
+}
+
+fn export_to_json(def: &SchemaDefinition, path: &std::path::Path) -> Result<(), CliError> {
+    let json = serde_json::to_string_pretty(def)
+        .map_err(|e| CliError::Other(format!("Failed to serialize schema: {e}")))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| CliError::IoError(format!("Failed to create directory: {e}")))?;
+    }
+    std::fs::write(path, json)
+        .map_err(|e| CliError::IoError(format!("Failed to write JSON: {e}")))?;
+    Ok(())
+}
+
+fn print_json_schema() {
+    let schema = schemars::schema_for!(SchemaDefinition);
+    let json = serde_json::to_string_pretty(&schema).expect("schema serialization cannot fail");
+    println!("{json}");
+    println!();
+    println!(
+        "Valid on_delete/on_update actions: \"No Action\", \"Cascade\", \"Set Null\", \"Set Default\", \"Restrict\""
+    );
+    println!();
+    println!("Tip: Run `drizzle new --export-json schema.json` to export an interactive");
+    println!(
+        "session as valid JSON, then edit and replay with `drizzle new --json --from schema.json`."
+    );
+}
+
+// ── Validation ──────────────────────────────────────────────────────────────
+
+const VALID_FK_ACTIONS: &[&str] = &[
+    "No Action",
+    "Cascade",
+    "Set Null",
+    "Set Default",
+    "Restrict",
+];
+
+fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
+    let err = |msg: String| CliError::Other(msg);
+
+    // Must have at least one table
+    if def.tables.is_empty() {
+        return Err(err("Schema must have at least one table".into()));
+    }
+
+    // Check table names are valid and unique
+    let mut table_names = HashSet::new();
+    for table in &def.tables {
+        if !is_valid_identifier(&table.name) {
+            return Err(err(format!("Invalid table name: '{}'", table.name)));
+        }
+        if !table_names.insert(&table.name) {
+            return Err(err(format!("Duplicate table name: '{}'", table.name)));
+        }
+
+        // Each table must have at least one column
+        if table.columns.is_empty() {
+            return Err(err(format!(
+                "Table '{}' must have at least one column",
+                table.name
+            )));
+        }
+
+        // Check column names are valid and unique within the table
+        let mut col_names = HashSet::new();
+        for col in &table.columns {
+            if !is_valid_identifier(&col.name) {
+                return Err(err(format!(
+                    "Invalid column name '{}' in table '{}'",
+                    col.name, table.name
+                )));
+            }
+            if !col_names.insert(&col.name) {
+                return Err(err(format!(
+                    "Duplicate column name '{}' in table '{}'",
+                    col.name, table.name
+                )));
+            }
+        }
+
+        // Dialect-specific column checks
+        match def.dialect {
+            Dialect::Sqlite | Dialect::Turso => {
+                for col in &table.columns {
+                    if col.identity {
+                        return Err(err(format!(
+                            "Column '{}.{}': 'identity' is only supported for PostgreSQL",
+                            table.name, col.name
+                        )));
+                    }
+                    if col.enum_name.is_some() {
+                        return Err(err(format!(
+                            "Column '{}.{}': 'enum_name' is only supported for PostgreSQL",
+                            table.name, col.name
+                        )));
+                    }
+                }
+            }
+            Dialect::Postgresql => {
+                if table.strict {
+                    return Err(err(format!(
+                        "Table '{}': 'strict' is only supported for SQLite",
+                        table.name
+                    )));
+                }
+                if table.without_rowid {
+                    return Err(err(format!(
+                        "Table '{}': 'without_rowid' is only supported for SQLite",
+                        table.name
+                    )));
+                }
+                for col in &table.columns {
+                    if col.autoincrement {
+                        return Err(err(format!(
+                            "Column '{}.{}': 'autoincrement' is only supported for SQLite (use 'identity' for PostgreSQL)",
+                            table.name, col.name
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    // Validate enums
+    if def.dialect != Dialect::Postgresql && !def.enums.is_empty() {
+        return Err(err("Enums are only supported for PostgreSQL".into()));
+    }
+    let mut enum_names = HashSet::new();
+    for e in &def.enums {
+        if !is_valid_identifier(&e.name) {
+            return Err(err(format!("Invalid enum name: '{}'", e.name)));
+        }
+        if !enum_names.insert(&e.name) {
+            return Err(err(format!("Duplicate enum name: '{}'", e.name)));
+        }
+        if e.variants.is_empty() {
+            return Err(err(format!(
+                "Enum '{}' must have at least one variant",
+                e.name
+            )));
+        }
+    }
+
+    // Validate enum references in columns
+    for table in &def.tables {
+        for col in &table.columns {
+            if let Some(ref en) = col.enum_name {
+                if !enum_names.contains(en) {
+                    return Err(err(format!(
+                        "Column '{}.{}' references unknown enum '{}'",
+                        table.name, col.name, en
+                    )));
+                }
+            }
+        }
+    }
+
+    // Validate indexes reference existing tables and columns
+    for idx in &def.indexes {
+        let table = def.tables.iter().find(|t| t.name == idx.table);
+        let Some(table) = table else {
+            return Err(err(format!(
+                "Index '{}' references unknown table '{}'",
+                idx.name, idx.table
+            )));
+        };
+        for col_name in &idx.columns {
+            if !table.columns.iter().any(|c| &c.name == col_name) {
+                return Err(err(format!(
+                    "Index '{}' references unknown column '{}.{}'",
+                    idx.name, idx.table, col_name
+                )));
+            }
+        }
+    }
+
+    // Validate foreign keys reference existing tables and columns
+    for fk in &def.foreign_keys {
+        // Source table
+        let src = def.tables.iter().find(|t| t.name == fk.table);
+        let Some(src) = src else {
+            return Err(err(format!(
+                "Foreign key '{}' references unknown source table '{}'",
+                fk.name, fk.table
+            )));
+        };
+        for col_name in &fk.columns {
+            if !src.columns.iter().any(|c| &c.name == col_name) {
+                return Err(err(format!(
+                    "Foreign key '{}' references unknown source column '{}.{}'",
+                    fk.name, fk.table, col_name
+                )));
+            }
+        }
+
+        // Target table
+        let tgt = def.tables.iter().find(|t| t.name == fk.table_to);
+        let Some(tgt) = tgt else {
+            return Err(err(format!(
+                "Foreign key '{}' references unknown target table '{}'",
+                fk.name, fk.table_to
+            )));
+        };
+        for col_name in &fk.columns_to {
+            if !tgt.columns.iter().any(|c| &c.name == col_name) {
+                return Err(err(format!(
+                    "Foreign key '{}' references unknown target column '{}.{}'",
+                    fk.name, fk.table_to, col_name
+                )));
+            }
+        }
+
+        // Validate FK actions
+        if !VALID_FK_ACTIONS.contains(&fk.on_delete.as_str()) {
+            return Err(err(format!(
+                "Foreign key '{}': invalid on_delete action '{}'. Valid: {}",
+                fk.name,
+                fk.on_delete,
+                VALID_FK_ACTIONS.join(", ")
+            )));
+        }
+        if !VALID_FK_ACTIONS.contains(&fk.on_update.as_str()) {
+            return Err(err(format!(
+                "Foreign key '{}': invalid on_update action '{}'. Valid: {}",
+                fk.name,
+                fk.on_update,
+                VALID_FK_ACTIONS.join(", ")
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+// ── Interactive collection ──────────────────────────────────────────────────
+
+fn collect_interactively(
+    config: Option<&Config>,
+    options: &NewOptions,
+) -> Result<SchemaDefinition, CliError> {
     // Phase 1: Setup
     let dialect = resolve_dialect(config, options.dialect)?;
     let casing = prompt_casing()?;
-    let output_path = resolve_output_path(config, options.schema)?;
+    let output_path = resolve_output_path(config, options.schema.clone())?;
     let schema_name = prompt_schema_name()?;
 
     // Phase 2: Enums (PostgreSQL only)
@@ -51,119 +542,21 @@ pub fn run(config: Option<&Config>, options: NewOptions) -> Result<(), CliError>
     }
 
     // Phase 6: Foreign Keys
-    let mut fks: Vec<ForeignKeyDef> = Vec::new();
+    let mut foreign_keys: Vec<ForeignKeyDef> = Vec::new();
     if tables.len() > 1 && confirm("Add foreign keys?", false)? {
-        fks = prompt_foreign_keys(&tables, dialect)?;
+        foreign_keys = prompt_foreign_keys(&tables, dialect)?;
     }
 
-    // Phase 7: Generate
-    let code = match dialect {
-        Dialect::Sqlite | Dialect::Turso => {
-            generate_sqlite(&tables, &indexes, &fks, &schema_name, casing)
-        }
-        Dialect::Postgresql => {
-            generate_postgres(&tables, &indexes, &fks, &enums, &schema_name, casing)
-        }
-    };
-
-    // Write output
-    let path = PathBuf::from(&output_path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| CliError::IoError(format!("Failed to create directory: {e}")))?;
-    }
-    std::fs::write(&path, &code)
-        .map_err(|e| CliError::IoError(format!("Failed to write schema file: {e}")))?;
-
-    // Print summary
-    println!();
-    println!("{}", output::success("Schema generated successfully!"));
-    println!();
-    println!(
-        "  Tables: {}",
-        tables
-            .iter()
-            .map(|t| t.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    if !indexes.is_empty() {
-        println!(
-            "  Indexes: {}",
-            indexes
-                .iter()
-                .map(|i| i.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    if !fks.is_empty() {
-        println!("  Foreign keys: {}", fks.len());
-    }
-    println!("  Output: {}", output_path);
-    println!();
-    println!("Next steps:");
-    println!(
-        "  Run {} to generate your first migration",
-        output::heading("drizzle generate")
-    );
-
-    Ok(())
-}
-
-// ── Intermediate structs ────────────────────────────────────────────────────
-
-struct EnumDef {
-    name: String,
-    variants: Vec<String>,
-}
-
-struct TableDef {
-    name: String,
-    columns: Vec<ColumnDef>,
-    /// SQLite only
-    strict: bool,
-    /// SQLite only
-    without_rowid: bool,
-    /// PostgreSQL only
-    pg_schema: String,
-}
-
-struct ColumnDef {
-    name: String,
-    /// The SQL type string the codegen expects
-    sql_type: String,
-    not_null: bool,
-    primary_key: bool,
-    autoincrement: bool,
-    unique: bool,
-    default: Option<String>,
-    /// For PG identity columns
-    identity: bool,
-    /// For PG enum columns: the enum name
-    enum_name: Option<String>,
-}
-
-struct IndexDef {
-    name: String,
-    table: String,
-    columns: Vec<String>,
-    unique: bool,
-    /// PG schema
-    pg_schema: String,
-}
-
-struct ForeignKeyDef {
-    name: String,
-    table: String,
-    columns: Vec<String>,
-    table_to: String,
-    columns_to: Vec<String>,
-    on_delete: String,
-    on_update: String,
-    /// PG schema
-    pg_schema: String,
-    pg_schema_to: String,
+    Ok(SchemaDefinition {
+        dialect,
+        casing,
+        schema_name,
+        output_path,
+        enums,
+        tables,
+        indexes,
+        foreign_keys,
+    })
 }
 
 // ── Phase 1: Setup prompts ──────────────────────────────────────────────────
@@ -433,7 +826,7 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
         .prompt()
         .map_err(|e| CliError::Other(format!("Prompt cancelled: {e}")))?;
 
-    // Map user-friendly Rust type → SQL type string for codegen
+    // Map user-friendly Rust type -> SQL type string for codegen
     if let Some(enum_name) = chosen.strip_prefix("enum:") {
         // For enum columns, the sql_type is the enum name itself
         return Ok((enum_name.to_string(), Some(enum_name.to_string())));
@@ -860,12 +1253,6 @@ fn generate_postgres(
 
 // ── Utility helpers ─────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy)]
-enum FieldCasing {
-    Snake,
-    Camel,
-}
-
 fn confirm(message: &str, default: bool) -> Result<bool, CliError> {
     Confirm::new(message)
         .with_default(default)
@@ -883,4 +1270,240 @@ fn is_valid_identifier(s: &str) -> bool {
         return false;
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_sqlite_def() -> SchemaDefinition {
+        SchemaDefinition {
+            dialect: Dialect::Sqlite,
+            casing: FieldCasing::Snake,
+            schema_name: "TestSchema".into(),
+            output_path: "src/schema.rs".into(),
+            enums: vec![],
+            tables: vec![TableDef {
+                name: "users".into(),
+                columns: vec![ColumnDef {
+                    name: "id".into(),
+                    sql_type: "integer".into(),
+                    not_null: true,
+                    primary_key: true,
+                    autoincrement: false,
+                    unique: false,
+                    default: None,
+                    identity: false,
+                    enum_name: None,
+                }],
+                strict: false,
+                without_rowid: false,
+                pg_schema: String::new(),
+            }],
+            indexes: vec![],
+            foreign_keys: vec![],
+        }
+    }
+
+    #[test]
+    fn validate_minimal_schema() {
+        let def = minimal_sqlite_def();
+        assert!(validate_schema(&def).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty_tables() {
+        let mut def = minimal_sqlite_def();
+        def.tables.clear();
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("at least one table"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_table_names() {
+        let mut def = minimal_sqlite_def();
+        def.tables.push(def.tables[0].clone());
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("Duplicate table name"));
+    }
+
+    #[test]
+    fn validate_rejects_empty_columns() {
+        let mut def = minimal_sqlite_def();
+        def.tables[0].columns.clear();
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("at least one column"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_column_names() {
+        let mut def = minimal_sqlite_def();
+        let dup = def.tables[0].columns[0].clone();
+        def.tables[0].columns.push(dup);
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("Duplicate column name"));
+    }
+
+    #[test]
+    fn validate_rejects_identity_on_sqlite() {
+        let mut def = minimal_sqlite_def();
+        def.tables[0].columns[0].identity = true;
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("identity"));
+        assert!(err.to_string().contains("PostgreSQL"));
+    }
+
+    #[test]
+    fn validate_rejects_autoincrement_on_postgres() {
+        let mut def = minimal_sqlite_def();
+        def.dialect = Dialect::Postgresql;
+        def.tables[0].columns[0].autoincrement = true;
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("autoincrement"));
+        assert!(err.to_string().contains("SQLite"));
+    }
+
+    #[test]
+    fn validate_rejects_strict_on_postgres() {
+        let mut def = minimal_sqlite_def();
+        def.dialect = Dialect::Postgresql;
+        def.tables[0].strict = true;
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("strict"));
+        assert!(err.to_string().contains("SQLite"));
+    }
+
+    #[test]
+    fn validate_rejects_enums_on_sqlite() {
+        let mut def = minimal_sqlite_def();
+        def.enums.push(EnumDef {
+            name: "status".into(),
+            variants: vec!["active".into()],
+        });
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("Enums"));
+        assert!(err.to_string().contains("PostgreSQL"));
+    }
+
+    #[test]
+    fn validate_rejects_unknown_enum_reference() {
+        let mut def = minimal_sqlite_def();
+        def.dialect = Dialect::Postgresql;
+        def.tables[0].columns[0].enum_name = Some("nonexistent".into());
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("unknown enum"));
+    }
+
+    #[test]
+    fn validate_rejects_bad_fk_table_ref() {
+        let mut def = minimal_sqlite_def();
+        def.foreign_keys.push(ForeignKeyDef {
+            name: "test_fk".into(),
+            table: "nonexistent".into(),
+            columns: vec!["id".into()],
+            table_to: "users".into(),
+            columns_to: vec!["id".into()],
+            on_delete: "No Action".into(),
+            on_update: "No Action".into(),
+            pg_schema: String::new(),
+            pg_schema_to: String::new(),
+        });
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("unknown source table"));
+    }
+
+    #[test]
+    fn validate_rejects_bad_fk_action() {
+        let mut def = minimal_sqlite_def();
+        def.tables.push(TableDef {
+            name: "posts".into(),
+            columns: vec![ColumnDef {
+                name: "user_id".into(),
+                sql_type: "integer".into(),
+                not_null: true,
+                primary_key: false,
+                autoincrement: false,
+                unique: false,
+                default: None,
+                identity: false,
+                enum_name: None,
+            }],
+            strict: false,
+            without_rowid: false,
+            pg_schema: String::new(),
+        });
+        def.foreign_keys.push(ForeignKeyDef {
+            name: "posts_user_id_fk".into(),
+            table: "posts".into(),
+            columns: vec!["user_id".into()],
+            table_to: "users".into(),
+            columns_to: vec!["id".into()],
+            on_delete: "INVALID".into(),
+            on_update: "No Action".into(),
+            pg_schema: String::new(),
+            pg_schema_to: String::new(),
+        });
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("invalid on_delete"));
+    }
+
+    #[test]
+    fn validate_rejects_bad_index_column_ref() {
+        let mut def = minimal_sqlite_def();
+        def.indexes.push(IndexDef {
+            name: "test_idx".into(),
+            table: "users".into(),
+            columns: vec!["nonexistent".into()],
+            unique: false,
+            pg_schema: String::new(),
+        });
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("unknown column"));
+    }
+
+    #[test]
+    fn json_round_trip() {
+        let def = minimal_sqlite_def();
+        let json = serde_json::to_string_pretty(&def).unwrap();
+        let parsed: SchemaDefinition = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.dialect, def.dialect);
+        assert_eq!(parsed.tables.len(), 1);
+        assert_eq!(parsed.tables[0].name, "users");
+        assert_eq!(parsed.tables[0].columns[0].name, "id");
+    }
+
+    #[test]
+    fn json_defaults_applied() {
+        let json = r#"{
+            "dialect": "sqlite",
+            "tables": [{
+                "name": "items",
+                "columns": [{"name": "id", "sql_type": "integer"}]
+            }]
+        }"#;
+        let def: SchemaDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(def.schema_name, "AppSchema");
+        assert_eq!(def.output_path, "src/schema.rs");
+        assert!(def.enums.is_empty());
+        assert!(def.indexes.is_empty());
+        assert!(def.foreign_keys.is_empty());
+        assert!(!def.tables[0].columns[0].not_null);
+        assert!(!def.tables[0].columns[0].primary_key);
+    }
+
+    #[test]
+    fn json_fk_action_defaults() {
+        let json = r#"{
+            "name": "test_fk",
+            "table": "a",
+            "columns": ["x"],
+            "table_to": "b",
+            "columns_to": ["y"]
+        }"#;
+        let fk: ForeignKeyDef = serde_json::from_str(json).unwrap();
+        assert_eq!(fk.on_delete, "No Action");
+        assert_eq!(fk.on_update, "No Action");
+    }
 }

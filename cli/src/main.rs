@@ -280,6 +280,22 @@ enum Command {
         /// Override schema output path
         #[arg(long)]
         schema: Option<String>,
+
+        /// Read schema definition from JSON (stdin by default)
+        #[arg(long)]
+        json: bool,
+
+        /// Read JSON from a file instead of stdin (requires --json)
+        #[arg(long, requires = "json", value_name = "PATH")]
+        from: Option<PathBuf>,
+
+        /// Export the schema definition as JSON after building
+        #[arg(long = "export-json", value_name = "PATH")]
+        export_json: Option<PathBuf>,
+
+        /// Print the expected JSON schema shape and exit
+        #[arg(long = "schema-help")]
+        schema_help: bool,
     },
 
     /// Initialize a new drizzle.config.toml configuration file
@@ -345,11 +361,25 @@ fn run(cli: Cli) -> Result<(), CliError> {
     let db_name = cli.db.as_deref();
 
     match cli.command {
-        Command::New { dialect, schema } => {
+        Command::New {
+            dialect,
+            schema,
+            json,
+            from,
+            export_json,
+            schema_help,
+        } => {
             let config = load_config(cli.config.as_deref()).ok();
             drizzle_cli::commands::new::run(
                 config.as_ref(),
-                drizzle_cli::commands::new::NewOptions { dialect, schema },
+                drizzle_cli::commands::new::NewOptions {
+                    dialect,
+                    schema,
+                    json,
+                    from,
+                    export_json,
+                    schema_help,
+                },
             )
         }
         Command::Init { dialect, driver } => run_init(&dialect, driver.as_deref()),

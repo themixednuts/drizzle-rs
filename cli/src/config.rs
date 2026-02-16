@@ -6,6 +6,7 @@
 //! This configuration format is designed to be compatible with drizzle-kit
 //! so TypeScript users can use the same config expectations.
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use std::collections::HashMap;
@@ -342,7 +343,9 @@ impl<'de> Deserialize<'de> for EnvOr {
 // ============================================================================
 
 /// Database dialect
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Dialect {
     #[default]

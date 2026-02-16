@@ -56,6 +56,7 @@ libsql = { version = "0.9" }
 paste = { version = "1.0" }
 rand = { version = "0.9" }
 rusqlite = { version = "0.37", features = ["bundled"] }
+schemars = { version = "1.2" }
 serde = { version = "1.0", features = [
   "derive",
   "alloc",
