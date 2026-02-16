@@ -5,31 +5,41 @@ A type-safe SQL query builder / ORM-ish layer for Rust, inspired by Drizzle ORM.
 > [!WARNING]
 > This project is still evolving. Expect breaking changes.
 
-## Install
+## Getting Started
 
-### Library
-
-Pick a database driver feature (drivers imply the corresponding dialect module):
+### 1. Install
 
 ```toml
 [dependencies]
-drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] } # or: libsql / turso / postgres-sync / tokio-postgres
+drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
+# drivers: rusqlite | libsql | turso | postgres-sync | tokio-postgres
 ```
-
-### CLI
-
-Install the `drizzle` binary:
 
 ```bash
 cargo install drizzle-cli --git https://github.com/themixednuts/drizzle-rs --locked --all-features
 ```
 
-## Define your schema (`schema.rs`)
+### 2. Initialize & configure
 
-Convention: keep all table definitions in a dedicated `schema.rs` module. Each `#[SQLiteTable]` generates `Select*`, `Insert*`, and `Update*` companion types.
+```bash
+drizzle init -d sqlite    # creates drizzle.config.toml
+```
+
+```toml
+# drizzle.config.toml
+dialect = "sqlite"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+url = "./dev.db"
+```
+
+### 3. Define your schema
+
+**New project** — write your schema in `src/schema.rs`. Each `#[SQLiteTable]` generates `Select*`, `Insert*`, and `Update*` companion types.
 
 ```rust
-// schema.rs
 use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
@@ -58,19 +68,32 @@ pub struct Schema {
 }
 ```
 
-> See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
+**Existing database** — pull the schema from a live database instead:
 
-## Connect
+```bash
+drizzle introspect            # generates a schema snapshot from the database
+drizzle introspect --init     # also initializes migration metadata as a baseline
+```
+
+> `drizzle pull` is an alias for `introspect`. Use `--tablesFilter` to include/exclude tables by glob pattern.
+
+### 4. Generate & apply migrations
+
+```bash
+drizzle generate    # diff schema → SQL migration files
+drizzle migrate     # apply pending migrations
+```
+
+### 5. Connect & query
 
 ```rust
 use drizzle::sqlite::rusqlite::Drizzle;
 
 let conn = rusqlite::Connection::open("app.db")?;
 let (db, Schema { users, posts }) = Drizzle::new(conn, Schema::new());
-
-// Create tables (no IF NOT EXISTS — use only on a fresh database)
-db.create()?;
 ```
+
+> See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
 
 ## CRUD
 
@@ -270,14 +293,6 @@ fn main() -> drizzle::Result<()> {
 ```
 
 > For async, use `drizzle::postgres::tokio::Drizzle` with `tokio_postgres::connect`.
-
-## CLI (migrations)
-
-```bash
-drizzle init -d sqlite          # dialects: sqlite, turso, postgresql, mysql, singlestore
-drizzle generate                # generate migrations from schema changes
-drizzle migrate                 # apply pending migrations
-```
 
 ## License
 
