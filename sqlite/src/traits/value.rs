@@ -3,8 +3,8 @@
 //! This module provides the `FromSQLiteValue` trait for converting SQLite values
 //! to Rust types, and row capability traits for unified access across drivers.
 
+use crate::prelude::*;
 use drizzle_core::error::DrizzleError;
-use std::{rc::Rc, sync::Arc};
 
 /// Trait for types that can be converted from SQLite values.
 ///
@@ -44,7 +44,7 @@ pub trait FromSQLiteValue: Sized {
             ::rusqlite::types::ValueRef::Integer(i) => Self::from_sqlite_integer(i),
             ::rusqlite::types::ValueRef::Real(r) => Self::from_sqlite_real(r),
             ::rusqlite::types::ValueRef::Text(text) => {
-                let s = std::str::from_utf8(text).map_err(|e| {
+                let s = core::str::from_utf8(text).map_err(|e| {
                     DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into())
                 })?;
                 Self::from_sqlite_text(s)
@@ -77,7 +77,7 @@ where
         ));
     }
 
-    if value.fract() != 0.0 {
+    if value % 1.0 != 0.0 {
         return Err(DrizzleError::ConversionError(
             format!("cannot convert non-integer REAL {} to {}", value, type_name).into(),
         ));
@@ -543,7 +543,7 @@ impl DrizzleRowByIndex for rusqlite::Row<'_> {
         match value_ref {
             rusqlite::types::ValueRef::Integer(i) => T::from_sqlite_integer(i),
             rusqlite::types::ValueRef::Text(s) => {
-                let s = std::str::from_utf8(s).map_err(|e| {
+                let s = core::str::from_utf8(s).map_err(|e| {
                     DrizzleError::ConversionError(format!("invalid UTF-8: {}", e).into())
                 })?;
                 T::from_sqlite_text(s)

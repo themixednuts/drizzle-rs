@@ -27,6 +27,7 @@ pub(crate) mod prelude {
         collections::HashMap,
         format,
         string::{String, ToString},
+        vec,
         vec::Vec,
     };
 
@@ -36,6 +37,7 @@ pub(crate) mod prelude {
         boxed::Box,
         format,
         string::{String, ToString},
+        vec,
         vec::Vec,
     };
 

@@ -31,10 +31,10 @@ drizzle-types = { workspace = true }
 default = ["std", "col16"]
 
 # Standard library support (enabled by default)
-std = ["compact_str/std", "smallvec/write", "thiserror/std"]
+std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std"]
 
 # Allocator support for no_std environments (compact_str is no_std by default)
-alloc = []
+alloc = ["drizzle-types/alloc"]
 
 # Serialization
 serde = ["dep:serde_json", "dep:serde"]

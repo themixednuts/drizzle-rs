@@ -1,7 +1,7 @@
 use crate::values::PostgresValue;
+use core::fmt::Debug;
+use core::marker::PhantomData;
 use drizzle_core::ToSQL;
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;

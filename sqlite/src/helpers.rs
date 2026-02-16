@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 use crate::traits::{SQLiteTable, SQLiteTableInfo};
 use crate::values::SQLiteValue;
 use drizzle_core::{

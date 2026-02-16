@@ -1,5 +1,5 @@
+use core::any::Any;
 use drizzle_core::{SQLColumn, SQLColumnInfo};
-use std::any::Any;
 
 use crate::traits::PostgresTableInfo;
 use crate::values::PostgresValue;
@@ -62,8 +62,8 @@ impl<T: PostgresColumnInfo> PostgresColumnInfo for &'static T {
     }
 }
 
-impl std::fmt::Debug for dyn PostgresColumnInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for dyn PostgresColumnInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PostgresColumnInfo")
             .field("name", &self.name())
             .field("type", &self.r#type())

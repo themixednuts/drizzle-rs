@@ -16,6 +16,8 @@
 //! assert!(condition.to_sql().sql().contains("@>"));
 //! ```
 
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};

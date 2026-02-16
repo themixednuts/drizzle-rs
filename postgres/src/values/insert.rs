@@ -1,11 +1,11 @@
 //! Insert value types for PostgreSQL
 
 use super::{OwnedPostgresValue, PostgresValue};
+use crate::prelude::*;
+use core::marker::PhantomData;
 use drizzle_core::{
     ToSQL, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam,
 };
-use std::borrow::Cow;
-use std::marker::PhantomData;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -115,7 +115,7 @@ impl<'a, T> From<Placeholder> for PostgresInsertValue<'a, PostgresValue<'a>, T> 
             value: None,
         });
         PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(
-            std::iter::once(chunk).collect(),
+            core::iter::once(chunk).collect(),
         ))
     }
 }

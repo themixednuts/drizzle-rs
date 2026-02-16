@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use crate::prelude::*;
 
 use drizzle_core::{
     OwnedParam, Param,
@@ -199,14 +199,14 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
 
 impl OwnedPreparedStatement {}
 
-impl<'a> std::fmt::Display for PreparedStatement<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for PreparedStatement<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
 
-impl std::fmt::Display for OwnedPreparedStatement {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for OwnedPreparedStatement {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner)
     }
 }

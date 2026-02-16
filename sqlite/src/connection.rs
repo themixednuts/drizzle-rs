@@ -1,7 +1,7 @@
 //! Connection types and transaction handling for SQLite drivers
 
 #[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// Reference to different SQLite driver connection types
 #[derive(Debug)]

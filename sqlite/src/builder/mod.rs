@@ -8,7 +8,7 @@ pub use drizzle_core::{
 
 // Local imports
 use crate::{common::SQLiteSchemaType, traits::SQLiteTable, values::SQLiteValue};
-use std::{fmt::Debug, marker::PhantomData};
+use core::{fmt::Debug, marker::PhantomData};
 
 // Import modules - these provide specific builder types
 pub mod cte;

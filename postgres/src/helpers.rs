@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 use crate::traits::{PostgresTable, PostgresTableInfo};
 use crate::values::PostgresValue;
 use drizzle_core::{
@@ -301,13 +303,15 @@ pub(crate) fn for_key_share<'a>() -> SQL<'a, PostgresValue<'a>> {
 /// Helper function to create a FOR UPDATE OF table clause
 /// Note: Uses UNQUALIFIED table name per drizzle-orm beta-12 fix (#4950)
 pub(crate) fn for_update_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
-    SQL::from_iter([Token::FOR, Token::UPDATE, Token::OF]).append(SQL::ident(table_name.to_owned()))
+    SQL::from_iter([Token::FOR, Token::UPDATE, Token::OF])
+        .append(SQL::ident(String::from(table_name)))
 }
 
 /// Helper function to create a FOR SHARE OF table clause
 /// Note: Uses UNQUALIFIED table name per drizzle-orm beta-12 fix (#4950)
 pub(crate) fn for_share_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
-    SQL::from_iter([Token::FOR, Token::SHARE, Token::OF]).append(SQL::ident(table_name.to_owned()))
+    SQL::from_iter([Token::FOR, Token::SHARE, Token::OF])
+        .append(SQL::ident(String::from(table_name)))
 }
 
 /// Helper function to add NOWAIT to a FOR clause

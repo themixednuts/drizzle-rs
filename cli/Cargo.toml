@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # Core drizzle dependencies
 drizzle-migrations = { workspace = true }
-drizzle-types = { workspace = true, features = ["serde", "uuid", "chrono", "time", "geo-types", "cidr", "bit-vec"] }
+drizzle-types = { workspace = true, features = ["std", "serde", "uuid", "chrono", "time", "geo-types", "cidr", "bit-vec"] }
 drizzle-seed = { workspace = true, optional = true, default-features = false }
 
 # CLI framework

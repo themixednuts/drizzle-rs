@@ -1,9 +1,9 @@
 //! Owned PostgreSQL value types for static lifetime scenarios
 
 use super::PostgresValue;
+use crate::prelude::*;
 use crate::traits::FromPostgresValue;
 use drizzle_core::{SQLParam, error::DrizzleError, sql::SQL};
-use std::{borrow::Cow, rc::Rc, sync::Arc};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -528,8 +528,8 @@ impl OwnedPostgresValue {
     }
 }
 
-impl std::fmt::Display for OwnedPostgresValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for OwnedPostgresValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
             OwnedPostgresValue::Smallint(i) => i.to_string(),
             OwnedPostgresValue::Integer(i) => i.to_string(),

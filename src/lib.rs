@@ -51,6 +51,7 @@
 //!
 //! For expressions and conditions, import from `drizzle::core::expr`.
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg, rustdoc_internals))]
 #![allow(
     unexpected_cfgs,
@@ -64,6 +65,9 @@
     clippy::duplicated_attributes,
     clippy::single_component_path_imports
 )]
+
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+extern crate alloc;
 
 #[macro_use]
 mod builder;
@@ -100,6 +104,7 @@ pub mod ddl {
 }
 
 /// Migration helpers and schema snapshots.
+#[cfg(feature = "std")]
 pub mod migrations {
     pub use drizzle_migrations::*;
 }

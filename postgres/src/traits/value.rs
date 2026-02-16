@@ -6,9 +6,9 @@
 //! This pattern mirrors the SQLite implementation to provide driver-agnostic
 //! row conversions for postgres, tokio-postgres, and potentially other drivers.
 
+use crate::prelude::*;
 use crate::values::{OwnedPostgresValue, PostgresValue};
 use drizzle_core::error::DrizzleError;
-use std::{rc::Rc, sync::Arc};
 
 /// Trait for types that can be converted from PostgreSQL values.
 ///
@@ -218,7 +218,7 @@ where
         ));
     }
 
-    if value.fract() != 0.0 {
+    if value % 1.0 != 0.0 {
         return Err(DrizzleError::ConversionError(
             format!(
                 "cannot convert non-integer float {} to {}",
@@ -2974,7 +2974,7 @@ where
     }
 
     fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
-        let s = std::str::from_utf8(value).map_err(|e| {
+        let s = core::str::from_utf8(value).map_err(|e| {
             DrizzleError::ConversionError(format!("invalid UTF-8 for enum: {}", e).into())
         })?;
         T::try_from_str(s)

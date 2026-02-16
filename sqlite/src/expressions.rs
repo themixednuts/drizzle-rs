@@ -3,6 +3,8 @@
 //! This module provides SQLite dialect functions and JSON expressions.
 //! For standard SQL expressions, use `drizzle_core::expr`.
 
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 

@@ -3,6 +3,7 @@
 //! Mirrors the `SQLiteInsertValue` pattern but simplified for UPDATE operations.
 //! All UPDATE fields are optional (Skip = don't include in SET clause).
 
+use crate::prelude::*;
 use drizzle_core::expr::Excluded;
 use drizzle_core::{Placeholder, SQL, SQLColumnInfo, SQLParam};
 
@@ -54,7 +55,7 @@ impl<'a, T> From<Placeholder> for SQLiteUpdateValue<'a, SQLiteValue<'a>, T> {
             value: None,
         });
         SQLiteUpdateValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
-            std::iter::once(chunk).collect(),
+            core::iter::once(chunk).collect(),
         ))
     }
 }
@@ -74,7 +75,7 @@ where
 // Array conversion for Vec<u8> UpdateValue
 impl<'a, const N: usize> From<[u8; N]> for SQLiteUpdateValue<'a, SQLiteValue<'a>, Vec<u8>> {
     fn from(value: [u8; N]) -> Self {
-        let sqlite_value = SQLiteValue::Blob(std::borrow::Cow::Owned(value.to_vec()));
+        let sqlite_value = SQLiteValue::Blob(crate::prelude::Cow::Owned(value.to_vec()));
         let sql = SQL::param(sqlite_value);
         SQLiteUpdateValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
     }

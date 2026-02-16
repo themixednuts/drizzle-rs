@@ -35,13 +35,13 @@ rust-version = "1.91"
 
 [workspace.dependencies]
 drizzle = { path = "." }
-drizzle-core = { path = "./core", version = "0.1" }
+drizzle-core = { path = "./core", version = "0.1", default-features = false }
 drizzle-macros = { path = "./procmacros", version = "0.1" }
-drizzle-mysql = { path = "./mysql", version = "0.1" }
-drizzle-postgres = { path = "./postgres", version = "0.1" }
-drizzle-sqlite = { path = "./sqlite", version = "0.1" }
+drizzle-mysql = { path = "./mysql", version = "0.1", default-features = false }
+drizzle-postgres = { path = "./postgres", version = "0.1", default-features = false }
+drizzle-sqlite = { path = "./sqlite", version = "0.1", default-features = false }
 drizzle-migrations = { path = "./migrations", version = "0.1" }
-drizzle-types = { path = "./types", version = "0.1" }
+drizzle-types = { path = "./types", version = "0.1", default-features = false }
 drizzle-seed = { path = "./seed", version = "0.1", default-features = false }
 regex = { version = "1.12" }
 anyhow = { version = "1.0" }
@@ -124,10 +124,23 @@ harness = false
 default = ["std"]
 
 # Standard library support (enabled by default)
-std = ["drizzle-core/std"]
+std = [
+  "drizzle-core/std",
+  "drizzle-types/std",
+  "drizzle-sqlite?/std",
+  "drizzle-postgres?/std",
+  "drizzle-mysql?/std",
+  "dep:drizzle-migrations",
+]
 
 # Allocator support for no_std environments
-alloc = ["drizzle-core/alloc"]
+alloc = [
+  "drizzle-core/alloc",
+  "drizzle-types/alloc",
+  "drizzle-sqlite?/alloc",
+  "drizzle-postgres?/alloc",
+  "drizzle-mysql?/alloc",
+]
 
 rusqlite = [
   "sqlite",
@@ -244,7 +257,7 @@ tokio-postgres = [
 [dependencies]
 drizzle-core = { workspace = true }
 drizzle-macros = { workspace = true }
-drizzle-migrations = { workspace = true }
+drizzle-migrations = { workspace = true, optional = true }
 drizzle-types = { workspace = true }
 paste = { workspace = true }
 smallvec = { workspace = true }

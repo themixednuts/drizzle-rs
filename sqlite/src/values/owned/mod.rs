@@ -4,9 +4,9 @@ mod conversions;
 mod drivers;
 
 use super::SQLiteValue;
+use crate::prelude::*;
 use crate::traits::FromSQLiteValue;
 use drizzle_core::{error::DrizzleError, sql::SQL, traits::SQLParam};
-use std::borrow::Cow;
 
 /// Represents a SQLite value (owned version)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -105,8 +105,8 @@ impl OwnedSQLiteValue {
     }
 }
 
-impl std::fmt::Display for OwnedSQLiteValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for OwnedSQLiteValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
             OwnedSQLiteValue::Integer(i) => i.to_string(),
             OwnedSQLiteValue::Real(r) => r.to_string(),

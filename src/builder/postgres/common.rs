@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_core::{ConflictTarget, NamedConstraint};

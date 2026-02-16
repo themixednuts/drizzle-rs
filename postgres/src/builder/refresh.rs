@@ -18,9 +18,9 @@
 //! ```
 
 use crate::values::PostgresValue;
+use core::marker::PhantomData;
 use drizzle_core::traits::{SQLTableInfo, SQLViewInfo};
 use drizzle_core::{SQL, ToSQL, Token};
-use std::marker::PhantomData;
 
 //------------------------------------------------------------------------------
 // Type State Markers

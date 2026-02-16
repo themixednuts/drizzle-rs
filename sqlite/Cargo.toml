@@ -35,12 +35,16 @@ drizzle-migrations = { workspace = true }
 
 
 [features]
-rusqlite = ["dep:rusqlite", "drizzle-core/rusqlite"]
-libsql = ["dep:libsql", "drizzle-core/libsql"]
+default = ["std"]
+std = ["drizzle-core/std", "thiserror/std", "compact_str/std"]
+alloc = ["drizzle-core/alloc"]
+
+rusqlite = ["std", "dep:rusqlite", "drizzle-core/rusqlite"]
+libsql = ["std", "dep:libsql", "drizzle-core/libsql"]
 serde = ["dep:serde_json", "dep:serde", "drizzle-core/serde"]
 uuid = ["dep:uuid", "drizzle-core/uuid"]
 arrayvec = ["dep:arrayvec"]
 smallvec = ["dep:smallvec"]
 bytes = ["dep:bytes"]
-turso = ["dep:turso", "drizzle-core/turso"]
-profiling = ["dep:puffin", "drizzle-core/profiling"]
+turso = ["std", "dep:turso", "drizzle-core/turso"]
+profiling = ["std", "dep:puffin", "drizzle-core/profiling"]

@@ -1,8 +1,10 @@
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
+use core::fmt::Debug;
+use core::marker::PhantomData;
 use drizzle_core::{ConflictTarget, NamedConstraint, SQL, ToSQL, Token};
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;

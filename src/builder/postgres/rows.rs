@@ -1,15 +1,27 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use drizzle_core::error::DrizzleError;
 
 /// Shared lazy decoded row cursor used by postgres drivers.
 pub struct DecodeRows<RowT, R> {
+    #[cfg(feature = "std")]
     rows: std::vec::IntoIter<RowT>,
+    #[cfg(not(feature = "std"))]
+    rows: alloc::vec::IntoIter<RowT>,
     _marker: PhantomData<R>,
 }
 
 impl<RowT, R> DecodeRows<RowT, R> {
+    #[cfg(feature = "std")]
     pub(crate) fn new(rows: Vec<RowT>) -> Self {
+        Self {
+            rows: rows.into_iter(),
+            _marker: PhantomData,
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn new(rows: alloc::vec::Vec<RowT>) -> Self {
         Self {
             rows: rows.into_iter(),
             _marker: PhantomData,

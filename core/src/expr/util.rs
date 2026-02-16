@@ -1,5 +1,6 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
+use crate::prelude::ToString;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{DataType, Textual};

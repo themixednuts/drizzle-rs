@@ -17,7 +17,7 @@ regex = { workspace = true, optional = true }
 tempfile = { workspace = true }
 heck = { workspace = true }
 nom = { workspace = true }
-drizzle-types = { workspace = true, features = ["serde"] }
+drizzle-types = { workspace = true, features = ["serde", "std"] }
 sha2 = { workspace = true }
 
 [dev-dependencies]

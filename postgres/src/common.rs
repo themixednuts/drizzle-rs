@@ -66,8 +66,8 @@ pub enum PostgresTransactionType {
     Serializable,
 }
 
-impl std::fmt::Display for PostgresTransactionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for PostgresTransactionType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let level = match self {
             PostgresTransactionType::ReadUncommitted => "READ UNCOMMITTED",
             PostgresTransactionType::ReadCommitted => "READ COMMITTED",

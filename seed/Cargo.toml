@@ -9,9 +9,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-drizzle-core = { workspace = true }
-drizzle-sqlite = { workspace = true, optional = true }
-drizzle-postgres = { workspace = true, optional = true }
+drizzle-core = { workspace = true, features = ["std"] }
+drizzle-sqlite = { workspace = true, optional = true, features = ["std"] }
+drizzle-postgres = { workspace = true, optional = true, features = ["std"] }
 rand = { workspace = true }
 
 [features]

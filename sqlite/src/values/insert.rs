@@ -2,8 +2,9 @@
 // InsertValue Definition - SQL-based value for inserts
 //------------------------------------------------------------------------------
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
+use crate::prelude::*;
 use drizzle_core::{Placeholder, SQL, SQLParam};
 
 use super::{OwnedSQLiteValue, SQLiteValue};
@@ -91,7 +92,7 @@ impl<'a, T> From<Placeholder> for SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
             value: None,
         });
         SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
-            std::iter::once(chunk).collect(),
+            core::iter::once(chunk).collect(),
         ))
     }
 }
@@ -99,7 +100,7 @@ impl<'a, T> From<Placeholder> for SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
 // Array conversion for Vec<u8> InsertValue - support flexible input types
 impl<'a, const N: usize> From<[u8; N]> for SQLiteInsertValue<'a, SQLiteValue<'a>, Vec<u8>> {
     fn from(value: [u8; N]) -> Self {
-        let sqlite_value = SQLiteValue::Blob(std::borrow::Cow::Owned(value.to_vec()));
+        let sqlite_value = SQLiteValue::Blob(Cow::Owned(value.to_vec()));
         let sql = SQL::param(sqlite_value);
         SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, Vec<u8>>::new(sql))
     }

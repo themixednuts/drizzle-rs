@@ -1,7 +1,7 @@
 use crate::values::PostgresValue;
+use core::marker::PhantomData;
+use core::ops::Deref;
 use drizzle_core::{SQL, ToSQL, Token};
-use std::marker::PhantomData;
-use std::ops::Deref;
 
 /// Trait for types that can provide a CTE definition for WITH clauses.
 pub trait CTEDefinition<'a> {

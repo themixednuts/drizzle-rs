@@ -2,9 +2,11 @@ mod column;
 mod table;
 mod value;
 
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 pub use column::*;
+use core::any::Any;
 use drizzle_core::error::DrizzleError;
-use std::any::Any;
 pub use table::*;
 pub use value::*;
 
@@ -28,8 +30,8 @@ pub trait PostgresEnum: Send + Sync + Any {
         Self: Sized;
 }
 
-impl std::fmt::Debug for &dyn PostgresEnum {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for &dyn PostgresEnum {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PostgresSQLEnum")
             .field("type", &self.enum_type_name())
             .field("variant", &self.variant_name())
@@ -44,8 +46,8 @@ impl PartialEq for &dyn PostgresEnum {
     }
 }
 
-impl std::fmt::Debug for Box<dyn PostgresEnum> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Box<dyn PostgresEnum> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PostgresSQLEnum")
             .field("type", &self.enum_type_name())
             .field("variant", &self.variant_name())

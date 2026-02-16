@@ -1,9 +1,9 @@
 use crate::helpers::{self, JoinArg};
 use crate::values::SQLiteValue;
+use core::fmt::Debug;
+use core::marker::PhantomData;
 use drizzle_core::{SQL, SQLTable, ToSQL};
 use paste::paste;
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;

@@ -1,8 +1,8 @@
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
+use core::fmt::Debug;
+use core::marker::PhantomData;
 use drizzle_core::{ConflictTarget, SQL, SQLModel, ToSQL, Token};
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;

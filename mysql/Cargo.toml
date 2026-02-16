@@ -16,5 +16,9 @@ serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 
 [features]
+default = ["std"]
+std = ["drizzle-core/std"]
+alloc = ["drizzle-core/alloc"]
+
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]

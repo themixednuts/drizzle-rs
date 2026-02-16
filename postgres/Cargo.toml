@@ -34,6 +34,9 @@ drizzle-types = { workspace = true }
 drizzle-migrations = { workspace = true }
 
 [features]
+default = ["std"]
+std = ["drizzle-core/std", "compact_str?/std"]
+alloc = ["drizzle-core/alloc"]
 
 serde = [
     "dep:serde_json",
@@ -69,8 +72,9 @@ bytes = ["dep:bytes"]
 
 # sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/uuid"]
 
-postgres-sync = ["dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
+postgres-sync = ["std", "dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
 tokio-postgres = [
+    "std",
     "dep:tokio-postgres",
     "dep:tokio",
     "dep:bytes",

@@ -3,6 +3,34 @@
 //! This crate provides PostgreSQL-specific types, query builders, and utilities.
 
 #![allow(unexpected_cfgs)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+pub(crate) mod prelude {
+    #[cfg(feature = "std")]
+    pub use std::{
+        borrow::Cow,
+        boxed::Box,
+        format,
+        rc::Rc,
+        string::{String, ToString},
+        sync::Arc,
+        vec::Vec,
+    };
+
+    #[cfg(all(feature = "alloc", not(feature = "std")))]
+    pub use alloc::{
+        borrow::Cow,
+        boxed::Box,
+        format,
+        rc::Rc,
+        string::{String, ToString},
+        sync::Arc,
+        vec::Vec,
+    };
+}
 
 pub mod attrs;
 pub mod builder;

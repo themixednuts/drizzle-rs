@@ -12,9 +12,9 @@ pub use insert::*;
 pub use owned::*;
 pub use update::*;
 
+use crate::prelude::*;
 use crate::traits::FromSQLiteValue;
 use drizzle_core::{dialect::Dialect, error::DrizzleError, sql::SQL, traits::SQLParam};
-use std::borrow::Cow;
 
 //------------------------------------------------------------------------------
 // SQLiteValue Definition
@@ -117,8 +117,8 @@ impl<'a> SQLiteValue<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for SQLiteValue<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for SQLiteValue<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
             SQLiteValue::Integer(i) => i.to_string(),
             SQLiteValue::Real(r) => r.to_string(),

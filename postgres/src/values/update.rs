@@ -5,12 +5,12 @@
 
 use super::PostgresValue;
 use super::insert::ValueWrapper;
+use crate::prelude::*;
 use drizzle_core::expr::Excluded;
 use drizzle_core::{
     SQLColumnInfo, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk,
     traits::SQLParam,
 };
-use std::borrow::Cow;
 
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -67,7 +67,7 @@ impl<'a, T> From<Placeholder> for PostgresUpdateValue<'a, PostgresValue<'a>, T> 
             value: None,
         });
         PostgresUpdateValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(
-            std::iter::once(chunk).collect(),
+            core::iter::once(chunk).collect(),
         ))
     }
 }

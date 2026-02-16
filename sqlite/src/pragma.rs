@@ -43,6 +43,8 @@
 //! assert_eq!(pragma.to_sql().sql(), "PRAGMA integrity_check");
 //! ```
 
+#[cfg(not(feature = "std"))]
+use crate::prelude::*;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 

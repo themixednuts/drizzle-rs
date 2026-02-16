@@ -1,10 +1,21 @@
 /// Shared decoded row cursor used by sqlite backends.
 pub struct Rows<R> {
+    #[cfg(feature = "std")]
     rows: std::vec::IntoIter<R>,
+    #[cfg(not(feature = "std"))]
+    rows: alloc::vec::IntoIter<R>,
 }
 
 impl<R> Rows<R> {
+    #[cfg(feature = "std")]
     pub(crate) fn new(rows: Vec<R>) -> Self {
+        Self {
+            rows: rows.into_iter(),
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn new(rows: alloc::vec::Vec<R>) -> Self {
         Self {
             rows: rows.into_iter(),
         }
@@ -32,7 +43,7 @@ impl<R> ExactSizeIterator for Rows<R> {}
 #[cfg(feature = "libsql")]
 pub struct LibsqlRows<R> {
     rows: libsql::Rows,
-    _marker: std::marker::PhantomData<R>,
+    _marker: core::marker::PhantomData<R>,
 }
 
 #[cfg(feature = "libsql")]
@@ -44,7 +55,7 @@ where
     pub(crate) fn new(rows: libsql::Rows) -> Self {
         Self {
             rows,
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -76,7 +87,7 @@ where
 pub struct TursoRows<R> {
     rows: turso::Rows,
     sql: Option<Box<str>>,
-    _marker: std::marker::PhantomData<R>,
+    _marker: core::marker::PhantomData<R>,
 }
 
 #[cfg(feature = "turso")]
@@ -89,7 +100,7 @@ where
         Self {
             rows,
             sql: None,
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -97,7 +108,7 @@ where
         Self {
             rows,
             sql: Some(sql.into()),
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 

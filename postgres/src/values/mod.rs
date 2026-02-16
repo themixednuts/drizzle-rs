@@ -27,7 +27,7 @@ use geo_types::{LineString, Point, Rect};
 #[cfg(feature = "bit-vec")]
 use bit_vec::BitVec;
 
-use std::borrow::Cow;
+use crate::prelude::*;
 
 use crate::traits::{FromPostgresValue, PostgresEnum};
 
@@ -142,8 +142,8 @@ pub enum PostgresValue<'a> {
     Null,
 }
 
-impl<'a> std::fmt::Display for PostgresValue<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for PostgresValue<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
             PostgresValue::Smallint(i) => i.to_string(),
             PostgresValue::Integer(i) => i.to_string(),

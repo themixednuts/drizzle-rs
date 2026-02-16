@@ -2,11 +2,11 @@ use crate::common::PostgresSchemaType;
 use crate::helpers;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
+use core::fmt::Debug;
+use core::marker::PhantomData;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::SQLTable;
 use paste::paste;
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
