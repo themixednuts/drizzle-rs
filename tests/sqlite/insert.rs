@@ -39,7 +39,7 @@ sqlite_test!(simple_insert, SimpleSchema, {
 
     // Insert Simple record
     let data = InsertSimple::new("test");
-    let result = drizzle_exec!(db.insert(simple).values([data]).execute());
+    let result = drizzle_exec!(db.insert(simple).values([data]) => execute);
 
     assert_eq!(result, 1);
 
@@ -48,7 +48,7 @@ sqlite_test!(simple_insert, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "test"))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -77,7 +77,7 @@ sqlite_test!(complex_insert, ComplexSchema, {
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
-    let result = drizzle_exec!(db.insert(complex).values([data]).execute());
+    let result = drizzle_exec!(db.insert(complex).values([data]) => execute);
 
     assert_eq!(result, 1);
 
@@ -92,7 +92,7 @@ sqlite_test!(complex_insert, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(Complex::name, "complex_user"))
-        .all()
+        => all
     );
 
     assert_eq!(results.len(), 1);
@@ -108,7 +108,7 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
     // Insert initial Simple record
     let initial_data = InsertSimple::new("conflict_test").with_id(1);
 
-    drizzle_exec!(db.insert(simple).values([initial_data]).execute());
+    drizzle_exec!(db.insert(simple).values([initial_data]) => execute);
 
     // Try to insert duplicate - should conflict and be ignored
     let duplicate_data = InsertSimple::new("conflict_test").with_id(1);
@@ -116,7 +116,7 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
         .insert(simple)
         .values([duplicate_data])
         .on_conflict_do_nothing();
-    let result = drizzle_exec!(stmt.execute());
+    let result = drizzle_exec!(stmt => execute);
 
     assert_eq!(result, 0); // No rows affected due to conflict
 
@@ -125,7 +125,7 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "conflict_test"))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -151,7 +151,7 @@ sqlite_test!(feature_gated_insert, ComplexSchema, {
         });
 
     let stmt = db.insert(complex).values([data]);
-    let result = drizzle_exec!(stmt.execute());
+    let result = drizzle_exec!(stmt => execute);
 
     assert_eq!(result, 1);
 
@@ -166,7 +166,7 @@ sqlite_test!(feature_gated_insert, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.name, "feature_test"))
-        .all()
+        => all
     );
 
     assert_eq!(results.len(), 1);
@@ -241,7 +241,7 @@ sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("original").with_id(1)])
-            .execute()
+            => execute
     );
 
     // Insert conflicting row with do_update — should update the name
@@ -250,7 +250,7 @@ sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
             .values([InsertSimple::new("ignored").with_id(1)])
             .on_conflict(simple.id)
             .do_update(UpdateSimple::default().with_name("updated"))
-            .execute()
+            => execute
     );
 
     assert_eq!(result, 1);
@@ -260,7 +260,7 @@ sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -289,7 +289,7 @@ sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("original").with_id(1)])
-            .execute()
+            => execute
     );
 
     // Upsert with excluded — should update name to the proposed insert value
@@ -298,7 +298,7 @@ sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
             .values([InsertSimple::new("from_excluded").with_id(1)])
             .on_conflict(simple.id)
             .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
-            .execute()
+            => execute
     );
 
     assert_eq!(result, 1);
@@ -308,7 +308,7 @@ sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);

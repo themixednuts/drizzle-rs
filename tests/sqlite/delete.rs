@@ -35,26 +35,26 @@ sqlite_test!(simple_delete, SimpleSchema, {
         InsertSimple::new("delete_me"),
     ];
 
-    let insert_result = drizzle_exec!(db.insert(simple).values(test_data).execute());
+    let insert_result = drizzle_exec!(db.insert(simple).values(test_data) => execute);
     assert_eq!(insert_result, 3);
 
     // Verify initial state
     let initial_results: Vec<SimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     assert_eq!(initial_results.len(), 3);
 
     // Delete records with specific condition
     let delete_result = drizzle_exec!(
         db.delete(simple)
             .r#where(eq(simple.name, "delete_me"))
-            .execute()
+            => execute
     );
 
     assert_eq!(delete_result, 2); // Should delete 2 records
 
     // Verify deletion - should only have "keep_me" left
     let remaining_results: Vec<SimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(remaining_results.len(), 1);
     assert_eq!(remaining_results[0].name, "keep_me");
@@ -64,7 +64,7 @@ sqlite_test!(simple_delete, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(Simple::name, "delete_me"))
-            .all()
+            => all
     );
 
     assert_eq!(deleted_results.len(), 0);
@@ -89,14 +89,14 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
             .with_age(35),
     ];
 
-    let insert_result = drizzle_exec!(db.insert(complex).values(test_data).execute());
+    let insert_result = drizzle_exec!(db.insert(complex).values(test_data) => execute);
     assert_eq!(insert_result, 2);
 
     // Verify initial state
     let initial_results: Vec<ComplexResult> = drizzle_exec!(
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
-            .all()
+            => all
     );
     drizzle_assert_eq!(2, initial_results.len());
 
@@ -104,7 +104,7 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
     let delete_result = drizzle_exec!(
         db.delete(complex)
             .r#where(eq(complex.id, test_id_1))
-            .execute()
+            => execute
     );
     drizzle_assert_eq!(1, delete_result);
 
@@ -112,7 +112,7 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
     let remaining_results: Vec<ComplexResult> = drizzle_exec!(
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
-            .all()
+            => all
     );
 
     drizzle_assert_eq!(1, remaining_results.len());
@@ -124,7 +124,7 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(eq(complex.id, test_id_1.to_string()))
-            .all()
+            => all
     );
 
     drizzle_assert_eq!(0, deleted_results.len());

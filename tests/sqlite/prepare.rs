@@ -18,7 +18,7 @@ sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
-            .execute()
+            => execute
     );
 
     // Create a prepared statement with placeholder
@@ -51,7 +51,7 @@ sqlite_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
                 InsertSimple::new("Bob"),
                 InsertSimple::new("Charlie")
             ])
-            .execute()
+            => execute
     );
 
     // Create a prepared statement once
@@ -87,7 +87,7 @@ sqlite_test!(test_prepared_get_single_row, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("UniqueUser")])
-            .execute()
+            => execute
     );
 
     let prepared = db
@@ -118,7 +118,7 @@ sqlite_test!(test_prepared_execute_insert, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(eq(simple.name, "PreparedInsert"))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -135,7 +135,7 @@ sqlite_test!(test_prepared_select_all_no_params, SimpleSchema, {
                 InsertSimple::new("User2"),
                 InsertSimple::new("User3")
             ])
-            .execute()
+            => execute
     );
 
     // Prepared statement without placeholders
@@ -152,7 +152,7 @@ sqlite_test!(test_prepared_owned_conversion, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("OwnedTest")])
-            .execute()
+            => execute
     );
 
     // Create a prepared statement and convert to owned
@@ -178,7 +178,7 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
     let test_data: Vec<_> = (0..1000)
         .map(|i| InsertSimple::new(format!("User{}", i)))
         .collect();
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test regular query performance
     let start = std::time::Instant::now();
@@ -187,7 +187,7 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
             db.select(())
                 .from(simple)
                 .r#where(eq(simple.name, format!("User{}", i)))
-                .all()
+                => all
         );
     }
     let regular_duration = start.elapsed();
@@ -225,7 +225,7 @@ sqlite_test!(test_prepared_insert_multiple_times, SimpleSchema, {
     }
 
     // Verify all inserts worked
-    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
 
     assert_eq!(results.len(), 5);
     for i in 0..5 {

@@ -34,7 +34,7 @@ sqlite_test!(test_transaction_commit, SimpleSchema, {
     assert!(result.is_ok());
 
     // Verify both records were inserted
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "user1");
     assert_eq!(users[1].name, "user2");
@@ -47,7 +47,7 @@ sqlite_test!(test_transaction_rollback, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("initial_user")])
-            .execute()
+            => execute
     );
 
     let result: Result<(), DrizzleError> = drizzle_try!(db.transaction(
@@ -70,7 +70,7 @@ sqlite_test!(test_transaction_rollback, SimpleSchema, {
     assert!(result.is_err());
 
     // Verify only the initial record exists (transaction was rolled back)
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "initial_user");
 });
@@ -101,7 +101,7 @@ sqlite_test!(test_transaction_types, SimpleSchema, {
     }
 
     // Verify all records were inserted
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
 });
 
@@ -116,7 +116,7 @@ sqlite_test!(test_transaction_query_builders, SimpleSchema, {
                 InsertSimple::new("bob"),
                 InsertSimple::new("charlie"),
             ])
-            .execute()
+            => execute
     );
 
     let result = drizzle_try!(db.transaction(
@@ -160,7 +160,7 @@ sqlite_test!(test_transaction_query_builders, SimpleSchema, {
     assert!(result.is_ok());
 
     // Verify final state
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3); // alice, dave, updated_bob
 
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
@@ -178,7 +178,7 @@ sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("initial")])
-            .execute()
+            => execute
     );
 
     let result = drizzle_try!(db.transaction(
@@ -205,7 +205,7 @@ sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
     assert!(result.is_err());
 
     // Verify rollback - only initial record should exist
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "initial");
 });
@@ -217,7 +217,7 @@ sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("before_panic")])
-            .execute()
+            => execute
     );
 
     // Attempt transaction that will panic
@@ -239,7 +239,7 @@ sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
     assert!(result.is_err()); // Panic occurred
 
     // Verify rollback - panic should have triggered rollback
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "before_panic");
 });
@@ -292,7 +292,7 @@ sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
     assert!(result.is_ok());
 
     // Verify final committed state
-    let final_users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let final_users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(final_users.len(), 2);
 
     let names: Vec<String> = final_users.into_iter().map(|u| u.name).collect();
@@ -348,7 +348,7 @@ sqlite_test!(
         assert!(result.is_err());
 
         // Verify complete rollback - no records should exist
-        let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+        let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
         assert_eq!(users.len(), 0);
     }
 );
@@ -386,7 +386,7 @@ sqlite_test!(test_large_transaction_rollback, SimpleSchema, {
     assert!(result.is_err());
 
     // Verify complete rollback - no records should exist
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 0);
 });
 
@@ -420,7 +420,7 @@ sqlite_test!(test_savepoint_commit, SimpleSchema, {
     assert!(result.is_ok());
 
     // Both records should exist
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 2);
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
     assert!(names.contains(&"outer".to_string()));
@@ -467,7 +467,7 @@ sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
     assert!(result.is_ok());
 
     // Only outer + after_sp should exist, inner_rollback should be gone
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 2);
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
     assert!(names.contains(&"outer".to_string()));
@@ -506,7 +506,7 @@ sqlite_test!(test_savepoint_outer_rollback, SimpleSchema, {
     assert!(result.is_err());
 
     // Everything should be rolled back
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 0);
 });
 
@@ -549,7 +549,7 @@ sqlite_test!(test_nested_savepoints, SimpleSchema, {
 
     assert!(result.is_ok());
 
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
     assert!(names.contains(&"level_0".to_string()));
@@ -788,7 +788,7 @@ sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
 
     assert!(result.is_ok());
 
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 5);
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
     assert!(names.contains(&"before_sp".to_string()));
@@ -862,7 +862,7 @@ sqlite_test!(test_sequential_savepoints_mixed_outcomes, SimpleSchema, {
 
     assert!(result.is_ok());
 
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     let names: Vec<String> = users.iter().map(|u| u.name.clone()).collect();
 
     // Committed savepoints should be present
@@ -1033,7 +1033,7 @@ sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
     assert!(result.is_ok());
 
     // Verify final committed state matches
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
 });
 
@@ -1085,7 +1085,7 @@ sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
 
     assert!(result.is_ok());
 
-    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple).all());
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
     assert!(names.contains(&"level_0".to_string()));
@@ -1103,7 +1103,7 @@ sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
-            .execute()
+            => execute
     );
 
     // Create an owned prepared statement OUTSIDE the transaction
@@ -1147,7 +1147,7 @@ sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice")])
-            .execute()
+            => execute
     );
 
     // Prepared statement created outside everything
@@ -1194,7 +1194,7 @@ sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("Alice")])
-            .execute()
+            => execute
     );
 
     let prepared = db.select(()).from(simple).prepare().into_owned();

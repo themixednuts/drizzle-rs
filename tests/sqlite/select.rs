@@ -43,7 +43,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
     ];
 
     let stmt = db.insert(simple).values(test_data);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .select((simple.id, simple.name))
@@ -51,7 +51,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .r#where(eq(simple.name, "beta"));
 
     // Test WHERE condition
-    let where_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
+    let where_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
@@ -62,7 +62,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .order_by([OrderBy::asc(simple.name)])
         .limit(2);
     // Test ORDER BY with LIMIT
-    let ordered_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
+    let ordered_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
@@ -76,7 +76,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .offset(2);
 
     // Test LIMIT with OFFSET
-    let offset_results: Vec<SimpleResult> = drizzle_exec!(stmt.all());
+    let offset_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
@@ -117,14 +117,14 @@ sqlite_test!(complex_select_with_conditions, ComplexSchema, {
     ];
 
     let stmt = db.insert(complex).values(test_data);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     // Test complex WHERE with GT condition
     let gt_results: Vec<ComplexResult> = drizzle_exec!(
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(gt(complex.age, 25))
-            .all()
+            => all
     );
 
     assert_eq!(gt_results.len(), 2);
@@ -137,7 +137,7 @@ sqlite_test!(complex_select_with_conditions, ComplexSchema, {
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(and([gte(complex.age, 25), lt(complex.age, 45)]))
-            .all()
+            => all
     );
 
     assert_eq!(range_results.len(), 1);
@@ -164,14 +164,14 @@ sqlite_test!(feature_gated_select, ComplexSchema, {
             settings: std::collections::HashMap::new(),
         });
 
-    drizzle_exec!(db.insert(complex).values([data]).execute());
+    drizzle_exec!(db.insert(complex).values([data]) => execute);
 
     // Query using UUID field
     let uuid_results: Vec<ComplexResult> = drizzle_exec!(
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(eq(complex.id, test_id))
-            .all()
+            => all
     );
 
     assert_eq!(uuid_results.len(), 1);
@@ -182,7 +182,7 @@ sqlite_test!(feature_gated_select, ComplexSchema, {
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
             .r#where(eq(complex.name, "feature_user"))
-            .all()
+            => all
     );
 
     assert_eq!(metadata_results.len(), 1);

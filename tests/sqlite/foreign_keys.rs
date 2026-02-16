@@ -440,22 +440,22 @@ sqlite_test!(test_cascade_deletes_children, FkCascadeSchema, {
     drizzle_exec!(
         db.insert(fk_parent)
             .values([InsertFkParent::new("Parent1")])
-            .execute()
+            => execute
     );
 
     // Get the auto-generated parent ID
-    let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent).all());
+    let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent) => all);
     let parent_id = parents[0].id;
 
     // Insert child (id is autoincrement, value is required, parent_id is optional)
     drizzle_exec!(
         db.insert(fk_cascade)
             .values([InsertFkCascade::new("Child1").with_parent_id(parent_id)])
-            .execute()
+            => execute
     );
 
     // Verify child exists
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade).all());
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all);
     drizzle_assert_eq!(1, children.len(), "Child should exist after insert");
     drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
@@ -463,11 +463,11 @@ sqlite_test!(test_cascade_deletes_children, FkCascadeSchema, {
     drizzle_exec!(
         db.delete(fk_parent)
             .r#where(eq(fk_parent.id, parent_id))
-            .execute()
+            => execute
     );
 
     // Verify child was deleted by cascade
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade).all());
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all);
     drizzle_assert_eq!(0, children.len(), "Child should be deleted by CASCADE");
 });
 
@@ -481,22 +481,22 @@ sqlite_test!(test_set_null_nullifies_children, FkSetNullSchema, {
     drizzle_exec!(
         db.insert(fk_parent)
             .values([InsertFkParent::new("Parent1")])
-            .execute()
+            => execute
     );
 
     // Get the auto-generated parent ID
-    let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent).all());
+    let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent) => all);
     let parent_id = parents[0].id;
 
     // Insert child referencing the parent
     drizzle_exec!(
         db.insert(fk_set_null)
             .values([InsertFkSetNull::new("Child1").with_parent_id(parent_id)])
-            .execute()
+            => execute
     );
 
     // Verify child exists with parent_id set
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null).all());
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null) => all);
     drizzle_assert_eq!(1, children.len());
     drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
@@ -504,11 +504,11 @@ sqlite_test!(test_set_null_nullifies_children, FkSetNullSchema, {
     drizzle_exec!(
         db.delete(fk_parent)
             .r#where(eq(fk_parent.id, parent_id))
-            .execute()
+            => execute
     );
 
     // Verify child still exists but parent_id is NULL
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null).all());
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null) => all);
     drizzle_assert_eq!(1, children.len(), "Child should still exist");
     drizzle_assert_eq!(
         None::<i32>,
@@ -527,14 +527,14 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
     drizzle_exec!(
         db.insert(fk_parent)
             .values([InsertFkParent::new("DefaultParent").with_id(0)])
-            .execute()
+            => execute
     );
 
     // Insert parent that we'll delete
     drizzle_exec!(
         db.insert(fk_parent)
             .values([InsertFkParent::new("Parent1")])
-            .execute()
+            => execute
     );
 
     // Get the non-default parent's ID
@@ -542,7 +542,7 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
         db.select(())
             .from(fk_parent)
             .r#where(eq(fk_parent.name, "Parent1"))
-            .all()
+            => all
     );
     let parent_id = parents[0].id;
 
@@ -550,11 +550,12 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
     drizzle_exec!(
         db.insert(fk_set_default)
             .values([InsertFkSetDefault::new("Child1").with_parent_id(parent_id)])
-            .execute()
+            => execute
     );
 
     // Verify child has parent_id = parent_id
-    let children: Vec<ChildDefaultResult> = drizzle_exec!(db.select(()).from(fk_set_default).all());
+    let children: Vec<ChildDefaultResult> =
+        drizzle_exec!(db.select(()).from(fk_set_default) => all);
     drizzle_assert_eq!(1, children.len());
     drizzle_assert_eq!(parent_id, children[0].parent_id);
 
@@ -562,11 +563,12 @@ sqlite_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
     drizzle_exec!(
         db.delete(fk_parent)
             .r#where(eq(fk_parent.id, parent_id))
-            .execute()
+            => execute
     );
 
     // Verify child's parent_id is now the default value (0)
-    let children: Vec<ChildDefaultResult> = drizzle_exec!(db.select(()).from(fk_set_default).all());
+    let children: Vec<ChildDefaultResult> =
+        drizzle_exec!(db.select(()).from(fk_set_default) => all);
     drizzle_assert_eq!(1, children.len(), "Child should still exist");
     drizzle_assert_eq!(
         0,
@@ -593,22 +595,23 @@ sqlite_test!(
         drizzle_exec!(
             db.insert(fk_parent)
                 .values([InsertFkParent::new("Parent1")])
-                .execute()
+                => execute
         );
 
         // Get the auto-generated parent ID
-        let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent).all());
+        let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent) => all);
         let parent_id = parents[0].id;
 
         // Insert child referencing the parent
         drizzle_exec!(
             db.insert(fk_update_cascade)
                 .values([InsertFkUpdateCascade::new("Child1").with_parent_id(parent_id)])
-                .execute()
+                => execute
         );
 
         // Verify child has the parent_id
-        let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade).all());
+        let children: Vec<ChildResult> =
+            drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
         drizzle_assert_eq!(1, children.len());
         drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
@@ -617,11 +620,12 @@ sqlite_test!(
             db.update(fk_parent)
                 .set(UpdateFkParent::default().with_id(100))
                 .r#where(eq(fk_parent.id, parent_id))
-                .execute()
+                => execute
         );
 
         // Verify child's parent_id was cascaded to 100
-        let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade).all());
+        let children: Vec<ChildResult> =
+            drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
         drizzle_assert_eq!(1, children.len());
         drizzle_assert_eq!(
             Some(100),
@@ -644,23 +648,23 @@ sqlite_test!(
         drizzle_exec!(
             db.insert(fk_parent)
                 .values([InsertFkParent::new("Parent1")])
-                .execute()
+                => execute
         );
 
         // Get the auto-generated parent ID
-        let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent).all());
+        let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent) => all);
         let parent_id = parents[0].id;
 
         // Insert child referencing the parent
         drizzle_exec!(
             db.insert(fk_update_set_null)
                 .values([InsertFkUpdateSetNull::new("Child1").with_parent_id(parent_id)])
-                .execute()
+                => execute
         );
 
         // Verify child has the parent_id
         let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_set_null).all());
+            drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
         drizzle_assert_eq!(1, children.len());
         drizzle_assert_eq!(Some(parent_id), children[0].parent_id);
 
@@ -669,12 +673,12 @@ sqlite_test!(
             db.update(fk_parent)
                 .set(UpdateFkParent::default().with_id(100))
                 .r#where(eq(fk_parent.id, parent_id))
-                .execute()
+                => execute
         );
 
         // Verify child's parent_id is now NULL
         let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_set_null).all());
+            drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
         drizzle_assert_eq!(1, children.len());
         drizzle_assert_eq!(
             None::<i32>,
@@ -704,11 +708,11 @@ sqlite_test!(
                     InsertFkParent::new("Parent1"),
                     InsertFkParent::new("Parent2"),
                 ])
-                .execute()
+                => execute
         );
 
         // Get the auto-generated parent IDs
-        let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent).all());
+        let parents: Vec<ParentResult> = drizzle_exec!(db.select(()).from(fk_parent) => all);
         let parent1_id = parents.iter().find(|p| p.name == "Parent1").unwrap().id;
         let parent2_id = parents.iter().find(|p| p.name == "Parent2").unwrap().id;
 
@@ -719,7 +723,7 @@ sqlite_test!(
                     InsertFkBothActions::new("Child1").with_parent_id(parent1_id),
                     InsertFkBothActions::new("Child2").with_parent_id(parent2_id),
                 ])
-                .execute()
+                => execute
         );
 
         // Test ON UPDATE SET NULL: Update parent1's id using UpdateModel
@@ -727,7 +731,7 @@ sqlite_test!(
             db.update(fk_parent)
                 .set(UpdateFkParent::default().with_id(100))
                 .r#where(eq(fk_parent.id, parent1_id))
-                .execute()
+                => execute
         );
 
         // Verify child1's parent_id is NULL (ON UPDATE SET NULL)
@@ -735,7 +739,7 @@ sqlite_test!(
             db.select(())
                 .from(fk_both_actions)
                 .r#where(eq(fk_both_actions.value, "Child1"))
-                .all()
+                => all
         );
         drizzle_assert_eq!(
             None::<i32>,
@@ -747,7 +751,7 @@ sqlite_test!(
         drizzle_exec!(
             db.delete(fk_parent)
                 .r#where(eq(fk_parent.id, parent2_id))
-                .execute()
+                => execute
         );
 
         // Verify child2 was deleted (ON DELETE CASCADE)
@@ -755,12 +759,12 @@ sqlite_test!(
             db.select(())
                 .from(fk_both_actions)
                 .r#where(eq(fk_both_actions.value, "Child2"))
-                .all()
+                => all
         );
         drizzle_assert_eq!(0, children.len(), "ON DELETE CASCADE should delete child2");
 
         // Child1 should still exist (parent was updated, not deleted)
-        let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_both_actions).all());
+        let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_both_actions) => all);
         drizzle_assert_eq!(1, children.len(), "Child1 should still exist");
     }
 );
@@ -785,20 +789,20 @@ sqlite_test!(test_foreign_key_impl, ComplexPostSchema, {
     drizzle_exec!(
         db.insert(complex)
             .values([InsertComplex::new("John", false, Role::User).with_id(id)])
-            .execute()
+            => execute
     );
 
     drizzle_exec!(
         db.insert(post)
             .values([InsertPost::new("test", true).with_author_id(id)])
-            .execute()
+            => execute
     );
 
     let row: SelectPost = drizzle_exec!(
         db.select(())
             .from(post)
             .r#where(eq(post.author_id, id))
-            .get()
+            => get
     );
 
     drizzle_assert_eq!(Some(id), row.author_id);

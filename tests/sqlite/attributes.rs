@@ -221,7 +221,7 @@ sqlite_test!(test_all_column_types, AllTypesSchema, {
     // Test insertion with all column types
     let test_data = InsertAllTypes::new("test text", 123, 45.67, [1, 2, 3, 4, 5], true);
 
-    let result = drizzle_exec!(db.insert(all_types).values([test_data]).execute());
+    let result = drizzle_exec!(db.insert(all_types).values([test_data]) => execute);
     assert_eq!(result, 1);
 });
 
@@ -235,8 +235,8 @@ sqlite_test!(
         let data1 = InsertPrimaryKeyVariations::new("first");
         let data2 = InsertPrimaryKeyVariations::new("second");
 
-        drizzle_exec!(db.insert(pk_table).values([data1]).execute());
-        drizzle_exec!(db.insert(pk_table).values([data2]).execute());
+        drizzle_exec!(db.insert(pk_table).values([data1]) => execute);
+        drizzle_exec!(db.insert(pk_table).values([data2]) => execute);
 
         // Verify autoincrement worked using unified approach
         let select_query = db
@@ -260,7 +260,7 @@ sqlite_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
 
     let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
 
-    let result = drizzle_exec!(db.insert(manual_pk).values([data]).execute());
+    let result = drizzle_exec!(db.insert(manual_pk).values([data]) => execute);
     assert_eq!(result, 1);
 
     // Verify the manual primary key using unified query approach
@@ -286,7 +286,7 @@ sqlite_test!(test_unique_constraints, UniqueFieldsSchema, {
     let data1 =
         InsertUniqueFields::new("test@example.com", "testuser").with_display_name("Test User");
 
-    let result1 = drizzle_exec!(db.insert(unique_table).values([data1]).execute());
+    let result1 = drizzle_exec!(db.insert(unique_table).values([data1]) => execute);
     assert_eq!(result1, 1);
 
     // Try to insert duplicate email - should fail
@@ -303,7 +303,7 @@ sqlite_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
     // Insert with minimal data - defaults should be used
     let data = InsertCompileTimeDefaults::new();
 
-    let result = drizzle_exec!(db.insert(defaults_table).values([data]).execute());
+    let result = drizzle_exec!(db.insert(defaults_table).values([data]) => execute);
     assert_eq!(result, 1);
 
     // Verify compile-time defaults were applied
@@ -336,7 +336,7 @@ sqlite_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
     // Insert with minimal data - runtime defaults should be used
     let data = InsertRuntimeDefaults::new("test");
 
-    let result = drizzle_exec!(db.insert(runtime_defaults).values([data]).execute());
+    let result = drizzle_exec!(db.insert(runtime_defaults).values([data]) => execute);
     assert_eq!(result, 1);
 
     // Verify runtime defaults were applied
@@ -365,7 +365,7 @@ sqlite_test!(test_enum_storage_types, EnumFieldsSchema, {
     // Test different enum storage types
     let data = InsertEnumFields::new(Priority::High, TaskStatus::InProgress, "Test task");
 
-    let result = drizzle_exec!(db.insert(enum_table).values([data]).execute());
+    let result = drizzle_exec!(db.insert(enum_table).values([data]) => execute);
     assert_eq!(result, 1);
 
     // Verify enum storage using typeof helper
@@ -403,7 +403,7 @@ sqlite_test!(test_json_storage_types, JsonFieldsSchema, {
 
     let data = InsertJsonFields::new("regular").with_text_json(json_data);
 
-    let result = drizzle_exec!(db.insert(json_table).values([data]).execute());
+    let result = drizzle_exec!(db.insert(json_table).values([data]) => execute);
 
     assert_eq!(result, 1);
 
@@ -429,7 +429,7 @@ sqlite_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
     // Insert without specifying UUID - default_fn should generate one
     let data = InsertUuidFields::new("uuid test");
 
-    let result = drizzle_exec!(db.insert(uuid_table).values([data]).execute());
+    let result = drizzle_exec!(db.insert(uuid_table).values([data]) => execute);
 
     assert_eq!(result, 1);
 
@@ -472,7 +472,7 @@ sqlite_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
     // Test 1: Insert with all required fields, no optional fields
     let minimal_data = InsertNullableTest::new("required", 123, true);
 
-    let result = drizzle_exec!(db.insert(nullable_table).values([minimal_data]).execute());
+    let result = drizzle_exec!(db.insert(nullable_table).values([minimal_data]) => execute);
 
     assert_eq!(result, 1);
 
@@ -484,7 +484,7 @@ sqlite_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
         .with_optional_blob([9, 8, 7])
         .with_optional_bool(true);
 
-    let result = drizzle_exec!(db.insert(nullable_table).values([full_data]).execute());
+    let result = drizzle_exec!(db.insert(nullable_table).values([full_data]) => execute);
 
     assert_eq!(result, 1);
 

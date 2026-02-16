@@ -108,7 +108,7 @@ sqlite_test!(test_enum_database_roundtrip, Schema, {
             user_account.status,
         ))
         .from(user_account)
-        .all()
+        => all
     );
 
     assert_eq!(results.len(), 3);
@@ -138,7 +138,7 @@ sqlite_test!(test_enum_database_roundtrip, Schema, {
         ))
         .from(user_account)
         .r#where(eq(UserAccount::role, UserRole::Admin))
-        .all()
+        => all
     );
 
     assert_eq!(admin_users.len(), 1);
@@ -154,7 +154,7 @@ sqlite_test!(test_enum_database_roundtrip, Schema, {
         ))
         .from(user_account)
         .r#where(eq(UserAccount::status, AccountStatus::Suspended))
-        .all()
+        => all
     );
 
     assert_eq!(suspended_users.len(), 1);

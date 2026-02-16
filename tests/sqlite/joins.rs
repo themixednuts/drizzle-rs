@@ -61,7 +61,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .with_email("charlie@example.com"),
     ];
 
-    let author_result = drizzle_exec!(db.insert(complex).values(authors).execute());
+    let author_result = drizzle_exec!(db.insert(complex).values(authors) => execute);
     assert_eq!(author_result, 3);
 
     let posts = vec![
@@ -76,7 +76,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .with_author_id(id1),
     ];
 
-    let post_result = drizzle_exec!(db.insert(post).values(posts).execute());
+    let post_result = drizzle_exec!(db.insert(post).values(posts) => execute);
     assert_eq!(post_result, 3);
 
     // Test inner join: only authors with posts should appear
@@ -85,7 +85,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .from(complex)
             .inner_join((post, eq(complex.id, post.author_id)))
             .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
-            .all()
+            => all
     );
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded because no posts
@@ -120,7 +120,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .from(complex)
             .inner_join((post, eq(complex.id, post.author_id)))
             .r#where(eq(complex.name, "alice"))
-            .all()
+            => all
     );
 
     assert_eq!(alice_posts.len(), 2);
@@ -147,7 +147,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
             .with_email("charlie@example.com"),
     ];
 
-    drizzle_exec!(db.insert(complex).values(authors).execute());
+    drizzle_exec!(db.insert(complex).values(authors) => execute);
 
     let posts = vec![
         InsertPost::new("Alice's First Post", true)
@@ -161,7 +161,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
             .with_author_id(id1),
     ];
 
-    drizzle_exec!(db.insert(post).values(posts).execute());
+    drizzle_exec!(db.insert(post).values(posts) => execute);
 
     // Auto-FK join: .join(post) auto-derives ON complex.id = post.author_id
     let join_results: Vec<AuthorPostResult> = drizzle_exec!(
@@ -169,7 +169,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .join(post)
             .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
-            .all()
+            => all
     );
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded
@@ -190,7 +190,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .inner_join(post)
             .r#where(eq(complex.name, "alice"))
-            .all()
+            => all
     );
 
     assert_eq!(inner_results.len(), 2);
@@ -233,7 +233,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
             .with_content("Not published yet"),
     ];
 
-    let post_result = drizzle_exec!(db.insert(post).values(posts).execute());
+    let post_result = drizzle_exec!(db.insert(post).values(posts) => execute);
     assert_eq!(post_result, 3);
 
     let categories = vec![
@@ -242,7 +242,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
         InsertCategory::new("Tutorial").with_description("How-to guides"),
     ];
 
-    let category_result = drizzle_exec!(db.insert(category).values(categories).execute());
+    let category_result = drizzle_exec!(db.insert(category).values(categories) => execute);
     assert_eq!(category_result, 3);
 
     // Create many-to-many relationships (post_id1 -> Tech Tutorial, post_id2 -> Life Hacks, post_id3 -> Draft Post)
@@ -253,7 +253,8 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
         InsertPostCategory::new(post_id3, 1), // Draft Post -> Technology
     ];
 
-    let junction_result = drizzle_exec!(db.insert(post_category).values(post_categories).execute());
+    let junction_result =
+        drizzle_exec!(db.insert(post_category).values(post_categories) => execute);
     assert_eq!(junction_result, 4);
 
     // Test many-to-many join: posts with their categories
@@ -264,7 +265,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
         .join((category, eq(post_category.category_id, category.id)))
         .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)]);
 
-    let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt.all());
+    let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt => all);
 
     // Should have 4 results (each post-category relationship)
     assert_eq!(join_results.len(), 4);
@@ -301,7 +302,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
             .join((category, eq(post_category.category_id, category.id)))
             .r#where(eq(post.published, true))
             .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
-            .all()
+            => all
     );
 
     // Should exclude Draft Post (published = false)
@@ -341,14 +342,14 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
             .with_id(post_id2)
             .with_content("Learn Go"),
     ];
-    drizzle_exec!(db.insert(post).values(posts).execute());
+    drizzle_exec!(db.insert(post).values(posts) => execute);
 
     // Insert categories
     let categories = vec![
         InsertCategory::new("Programming").with_description("Programming posts"),
         InsertCategory::new("Tutorial").with_description("How-to guides"),
     ];
-    drizzle_exec!(db.insert(category).values(categories).execute());
+    drizzle_exec!(db.insert(category).values(categories) => execute);
 
     // Insert post-category links (Rust Guide -> cat 1 & 2, Go Guide -> cat 1)
     let links = vec![
@@ -356,7 +357,7 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
         InsertPostCategory::new(post_id1, 2),
         InsertPostCategory::new(post_id2, 1),
     ];
-    drizzle_exec!(db.insert(post_category).values(links).execute());
+    drizzle_exec!(db.insert(post_category).values(links) => execute);
 
     // Chained auto-FK: post -> post_category (forward FK) -> category (reverse FK)
     let results: Vec<PostCategoryResult> = drizzle_exec!(
@@ -365,7 +366,7 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
             .join(post_category)
             .join(category)
             .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
-            .all()
+            => all
     );
 
     // Go Guide -> Programming = 1 row

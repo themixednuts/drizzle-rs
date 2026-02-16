@@ -21,7 +21,7 @@ sqlite_test!(test_one_level_subquery, SimpleSchema, {
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test one level subquery: find records where id is greater than the minimum id
     let min_id_subquery = db.select(min(simple.id)).from(simple);
@@ -29,7 +29,7 @@ sqlite_test!(test_one_level_subquery, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(gt(simple.id, min_id_subquery.to_sql()))
-            .all()
+            => all
     );
 
     drizzle_assert_eq!(2, results.len()); // Should exclude the minimum (id=1)
@@ -78,7 +78,7 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
         InsertSimple::new("epsilon").with_id(50),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data).execute());
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test three level subquery
     // Level 1: Get ids > 20
@@ -90,7 +90,7 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(gt(simple.id, level2))
-            .all()
+            => all
     );
 
     // Average of (30,40,50) = 40, so should return records with id > 40 (just epsilon with id=50)

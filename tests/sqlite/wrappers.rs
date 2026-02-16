@@ -37,13 +37,13 @@ sqlite_test!(compact_string_roundtrip_and_storage, CompactStringSchema, {
 
     let value = CompactString::new("compact hello");
     let row = InsertCompactStringTest::new(value.clone(), "compact note");
-    drizzle_exec!(db.insert(table).values([row]).execute());
+    drizzle_exec!(db.insert(table).values([row]) => execute);
 
     let out: Vec<SelectCompactStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.note))
             .from(table)
             .r#where(eq(table.id, 1))
-            .all()
+            => all
     );
 
     assert_eq!(out.len(), 1);
@@ -56,7 +56,7 @@ sqlite_test!(compact_string_roundtrip_and_storage, CompactStringSchema, {
         db.select(r#typeof(table.name).alias("name_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            .get()
+            => get
     );
 
     assert_eq!(ty.0, "text");
@@ -85,13 +85,13 @@ sqlite_test!(bytes_roundtrip_and_storage, BytesBlobSchema, {
     let payload = Bytes::from_static(b"hello-bytes");
     let mutable_payload = BytesMut::from(&b"hello-bytes-mut"[..]);
     let row = InsertBytesBlobTest::new(payload.clone(), mutable_payload.clone(), "bytes note");
-    drizzle_exec!(db.insert(table).values([row]).execute());
+    drizzle_exec!(db.insert(table).values([row]) => execute);
 
     let out: Vec<SelectBytesBlobTest> = drizzle_exec!(
         db.select((table.id, table.payload, table.mutable_payload, table.note))
             .from(table)
             .r#where(eq(table.id, 1))
-            .all()
+            => all
     );
 
     assert_eq!(out.len(), 1);
@@ -108,7 +108,7 @@ sqlite_test!(bytes_roundtrip_and_storage, BytesBlobSchema, {
         ))
         .from(table)
         .r#where(eq(table.id, 1))
-        .get()
+        => get
     );
 
     assert_eq!(ty.0, "blob");
@@ -137,13 +137,13 @@ sqlite_test!(smallvec_roundtrip_and_storage, SmallVecBlobSchema, {
     let mut payload = SmallVec::<[u8; 16]>::new();
     payload.extend_from_slice(&[1, 2, 3, 4, 5, 6]);
     let row = InsertSmallVecBlobTest::new(payload.clone(), "smallvec note");
-    drizzle_exec!(db.insert(table).values([row]).execute());
+    drizzle_exec!(db.insert(table).values([row]) => execute);
 
     let out: Vec<SelectSmallVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.payload, table.note))
             .from(table)
             .r#where(eq(table.id, 1))
-            .all()
+            => all
     );
 
     assert_eq!(out.len(), 1);
@@ -156,7 +156,7 @@ sqlite_test!(smallvec_roundtrip_and_storage, SmallVecBlobSchema, {
         db.select(r#typeof(table.payload).alias("payload_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            .get()
+            => get
     );
 
     assert_eq!(ty.0, "blob");

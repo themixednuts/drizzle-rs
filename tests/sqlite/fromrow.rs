@@ -73,10 +73,10 @@ sqlite_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
 
     // Insert test data with all data types
     let test_data = InsertTypeTest::new("test_user", 25, 98.5, true, [1, 2, 3, 4, 5]);
-    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
 
     // Test FromRow with all data types
-    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test).get());
+    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test) => get);
 
     let expected = AllDataTypes {
         id: 1,
@@ -100,10 +100,10 @@ sqlite_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
 
     // Insert test data with different integer sizes
     let test_data = InsertIntegerTest::new(9223372036854775806i64, 32000i16, 100i8);
-    drizzle_exec!(db.insert(integer_test).values([test_data]).execute());
+    drizzle_exec!(db.insert(integer_test).values([test_data]) => execute);
 
     // Test FromRow with different integer types
-    let result: IntegerTypes = drizzle_exec!(db.select(()).from(integer_test).get());
+    let result: IntegerTypes = drizzle_exec!(db.select(()).from(integer_test) => get);
 
     let expected = IntegerTypes {
         id: 1,
@@ -124,10 +124,10 @@ sqlite_test!(test_fromrow_with_float_types, FloatSchema, {
 
     // Insert test data with different float types
     let test_data = InsertFloatTest::new(3.141592653589793, 2.718f32);
-    drizzle_exec!(db.insert(float_test).values([test_data]).execute());
+    drizzle_exec!(db.insert(float_test).values([test_data]) => execute);
 
     // Test FromRow with different float types
-    let result: FloatTypes = drizzle_exec!(db.select(()).from(float_test).get());
+    let result: FloatTypes = drizzle_exec!(db.select(()).from(float_test) => get);
 
     let expected = FloatTypes {
         id: 1,
@@ -143,10 +143,10 @@ sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
 
     // Insert test data with edge case values
     let test_data = InsertTypeTest::new("edge_case", 0, 0.0, false, []);
-    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
 
     // Test FromRow with edge case values
-    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test).get());
+    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test) => get);
 
     let expected = AllDataTypes {
         id: 1,
@@ -182,11 +182,11 @@ sqlite_test!(
         let TypeTestSchema { type_test } = schema;
 
         let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
-        drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+        drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
 
         // Test the derived implementation with partial selection
         let result: DerivedPartialSimple =
-            drizzle_exec!(db.select(type_test.name).from(type_test).get());
+            drizzle_exec!(db.select(type_test.name).from(type_test) => get);
         assert_eq!(result.name, "derive_test");
     }
 );
@@ -195,13 +195,13 @@ sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
     let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
-    drizzle_exec!(db.insert(type_test).values([test_data]).execute());
+    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
 
     // Test the column-mapped FromRow implementation
     let result: DerivedSimpleWithColumns = drizzle_exec!(
         db.select(DerivedSimpleWithColumns::default())
             .from(type_test)
-            .get()
+            => get
     );
 
     assert_eq!(result.table_id, 42);
@@ -226,12 +226,12 @@ sqlite_test!(test_fromrow_named_struct_maps_by_name, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
     let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
-    drizzle_exec!(db.insert(type_test).values([row]).execute());
+    drizzle_exec!(db.insert(type_test).values([row]) => execute);
 
     // Intentionally reverse selected column order.
     // Named structs should decode by field name.
     let stmt = db.select((type_test.name, type_test.id)).from(type_test);
-    let result: NamedNameId = drizzle_exec!(stmt.get());
+    let result: NamedNameId = drizzle_exec!(stmt => get);
 
     assert_eq!(result.id, 42);
     assert_eq!(result.name, "order_test");
@@ -241,11 +241,11 @@ sqlite_test!(test_fromrow_tuple_struct_maps_by_index, TypeTestSchema, {
     let TypeTestSchema { type_test } = schema;
 
     let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
-    drizzle_exec!(db.insert(type_test).values([row]).execute());
+    drizzle_exec!(db.insert(type_test).values([row]) => execute);
 
     // Tuple structs decode positionally, following SELECT order.
     let stmt = db.select((type_test.name, type_test.id)).from(type_test);
-    let result: TupleNameId = drizzle_exec!(stmt.get());
+    let result: TupleNameId = drizzle_exec!(stmt => get);
 
     assert_eq!(result.0, "order_test");
     assert_eq!(result.1, 42);

@@ -149,7 +149,7 @@ sqlite_test!(test_schema_derive, AppTestSchema, {
 sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     // Test that we can use the schema for queries
     let insert_data = InsertUser::new("test@example.com", "Test User");
-    let result = drizzle_exec!(db.insert(schema.user).values([insert_data]).execute());
+    let result = drizzle_exec!(db.insert(schema.user).values([insert_data]) => execute);
     assert_eq!(result, 1);
 
     // Test that the indexes work (this would fail if indexes weren't created)
@@ -157,7 +157,7 @@ sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
         db.select(())
             .from(schema.user)
             .r#where(eq(schema.user.email, "test@example.com"))
-            .all()
+            => all
     );
 
     assert_eq!(users.len(), 1);
@@ -171,7 +171,7 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
 
     // Test that we can use the destructured components
     let insert_data = InsertUser::new("destructured@example.com", "Destructured User");
-    let result = drizzle_exec!(db.insert(user).values([insert_data]).execute());
+    let result = drizzle_exec!(db.insert(user).values([insert_data]) => execute);
     assert_eq!(result, 1);
 
     // Query using the destructured table
@@ -179,7 +179,7 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
         db.select(())
             .from(user)
             .r#where(eq(user.email, "destructured@example.com"))
-            .all()
+            => all
     );
 
     assert_eq!(users.len(), 1);
@@ -199,14 +199,14 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
         InsertUser::new("a@example.com", "User A"),
         InsertUser::new("b@example.com", "User B"),
     ];
-    let result = drizzle_exec!(db.insert(user).values(insert_data).execute());
+    let result = drizzle_exec!(db.insert(user).values(insert_data) => execute);
     assert_eq!(result, 2);
 
     let results: Vec<SelectUserEmailsView> = drizzle_exec!(
         db.select((user_emails.id, user_emails.email))
             .from(user_emails)
             .order_by(OrderBy::asc(user_emails.id))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 2);
@@ -253,7 +253,7 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
         InsertUser::new("a@example.com", "User A"),
         InsertUser::new("b@example.com", "User B"),
     ];
-    let result = drizzle_exec!(db.insert(user).values(insert_data).execute());
+    let result = drizzle_exec!(db.insert(user).values(insert_data) => execute);
     assert_eq!(result, 2);
 
     let ue = UserEmailsView::alias("ue");
@@ -269,7 +269,7 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
         r#"SELECT "ue"."id", "ue"."email" FROM "user_emails" AS "ue" WHERE "ue"."email" = ? ORDER BY "ue"."id" ASC"#
     );
 
-    let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt.all());
+    let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].email, "a@example.com");
 

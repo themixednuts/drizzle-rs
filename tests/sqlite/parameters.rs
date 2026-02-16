@@ -138,7 +138,7 @@ sqlite_test!(
             db.select((simple.id, simple.name))
                 .from(simple)
                 .r#where(eq(simple.name, "Alice"))
-                .all()
+                => all
         );
 
         assert_eq!(results.len(), 1, "Should have found one result");
@@ -163,14 +163,14 @@ sqlite_test!(
             InsertSimple::new("bob"),
             InsertSimple::new("charlie"),
         ];
-        drizzle_exec!(db.insert(simple).values(test_data).execute());
+        drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
         // Test that normal query builder still works (this uses internal parameter binding)
         let results: Vec<SimpleResult> = drizzle_exec!(
             db.select(simple.name)
                 .from(simple)
                 .r#where(eq(simple.name, "alice"))
-                .all()
+                => all
         );
 
         assert_eq!(results.len(), 1);
@@ -181,14 +181,14 @@ sqlite_test!(
             db.select(simple.name)
                 .from(simple)
                 .r#where(eq(simple.name, "alice"))
-                .all()
+                => all
         );
 
         let bob_results: Vec<SimpleResult> = drizzle_exec!(
             db.select(simple.name)
                 .from(simple)
                 .r#where(eq(simple.name, "bob"))
-                .all()
+                => all
         );
 
         assert_eq!(alice_results.len(), 1);
@@ -256,7 +256,7 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
     drizzle_exec!(
         db.insert(simple)
             .values([InsertSimple::new("original_name")])
-            .execute()
+            => execute
     );
 
     // Create update with placeholders and prepare it
@@ -282,7 +282,7 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated_name"))
-            .all()
+            => all
     );
     assert_eq!(results.len(), 1, "Should find the updated row");
     assert_eq!(results[0].name, "updated_name");
@@ -292,7 +292,7 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original_name"))
-            .all()
+            => all
     );
     assert_eq!(old_results.len(), 0, "Original name should no longer exist");
 });
@@ -319,7 +319,7 @@ sqlite_test!(
             .with_email("alice@old.com".to_string())
             .with_age(25)
             .with_score(90.5);
-        drizzle_exec!(db.insert(complex).values([insert_data]).execute());
+        drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
 
         // Mix concrete value (email) with placeholder (age) in the same update
         let update = UpdateComplex::default()
@@ -341,7 +341,7 @@ sqlite_test!(
             db.select((complex.name, complex.email, complex.age, complex.score))
                 .from(complex)
                 .r#where(eq(complex.name, "alice"))
-                .all()
+                => all
         );
 
         assert_eq!(results.len(), 1);

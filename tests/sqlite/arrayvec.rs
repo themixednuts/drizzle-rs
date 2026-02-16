@@ -62,14 +62,14 @@ sqlite_test!(test_arraystring_text_storage, ArrayStringSchema, {
     let data = InsertArrayStringTest::new(name, "test description");
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     // Query back the data
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
             .r#where(eq(table.description, "test description"))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -83,7 +83,7 @@ sqlite_test!(test_arraystring_text_storage, ArrayStringSchema, {
         db.select(r#typeof(table.name).alias("name_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            .get()
+            => get
     );
 
     assert_eq!(result.0, "text");
@@ -99,14 +99,14 @@ sqlite_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
     let data = InsertArrayVecBlobTest::new(data_vec.clone(), "blob test");
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     // Query back the data
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
             .r#where(eq(table.label, "blob test"))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -120,7 +120,7 @@ sqlite_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
         db.select(r#typeof(table.data).alias("data_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            .get()
+            => get
     );
 
     assert_eq!(result.0, "blob");
@@ -137,14 +137,14 @@ sqlite_test!(test_arraystring_roundtrip, ArrayStringSchema, {
         let desc = format!("test_{}", idx);
         let data = InsertArrayStringTest::new(name, &desc);
 
-        drizzle_exec!(db.insert(table).values([data]).execute());
+        drizzle_exec!(db.insert(table).values([data]) => execute);
     }
 
     // Query all back
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), test_strings.len());
@@ -171,14 +171,14 @@ sqlite_test!(test_arrayvec_roundtrip, ArrayVecBlobSchema, {
         let label = format!("test_{}", idx);
         let data = InsertArrayVecBlobTest::new(data_vec, &label);
 
-        drizzle_exec!(db.insert(table).values([data]).execute());
+        drizzle_exec!(db.insert(table).values([data]) => execute);
     }
 
     // Query all back
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), test_data.len());
@@ -209,7 +209,7 @@ sqlite_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
     );
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     // Query back the data
     let results: Vec<SelectMixedArrayVecTest> = drizzle_exec!(
@@ -221,7 +221,7 @@ sqlite_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
             table.large_data
         ))
         .from(table)
-        .all()
+        => all
     );
 
     assert_eq!(results.len(), 1);
@@ -244,12 +244,12 @@ sqlite_test!(test_arraystring_empty, ArrayStringSchema, {
     let name = ArrayString::<16>::new();
     let data = InsertArrayStringTest::new(name, "empty test");
 
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -263,12 +263,12 @@ sqlite_test!(test_arrayvec_empty, ArrayVecBlobSchema, {
     let data_vec = ArrayVec::<u8, 32>::new();
     let data = InsertArrayVecBlobTest::new(data_vec, "empty blob");
 
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -282,12 +282,12 @@ sqlite_test!(test_arraystring_max_capacity, ArrayStringSchema, {
     let name = ArrayString::<16>::from("1234567890123456").unwrap();
     let data = InsertArrayStringTest::new(name, "max capacity");
 
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -305,12 +305,12 @@ sqlite_test!(test_arrayvec_max_capacity, ArrayVecBlobSchema, {
     }
     let data = InsertArrayVecBlobTest::new(data_vec, "max capacity");
 
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -328,7 +328,7 @@ sqlite_test!(test_arrayvec_update, ArrayVecBlobSchema, {
     initial_data.extend([1, 2, 3].iter().copied());
     let data = InsertArrayVecBlobTest::new(initial_data, "update test");
 
-    drizzle_exec!(db.insert(table).values([data]).execute());
+    drizzle_exec!(db.insert(table).values([data]) => execute);
 
     // Update with new data
     let mut updated_data = ArrayVec::<u8, 32>::new();
@@ -338,14 +338,14 @@ sqlite_test!(test_arrayvec_update, ArrayVecBlobSchema, {
         db.update(table)
             .set(UpdateArrayVecBlobTest::default().with_data(updated_data.clone()))
             .r#where(eq(table.id, 1))
-            .execute()
+            => execute
     );
 
     // Query back
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);

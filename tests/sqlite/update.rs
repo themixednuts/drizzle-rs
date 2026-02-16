@@ -32,7 +32,7 @@ sqlite_test!(simple_update, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     // Insert initial Simple record
     let insert_data = InsertSimple::new("original");
-    let insert_result = drizzle_exec!(db.insert(simple).values([insert_data]).execute());
+    let insert_result = drizzle_exec!(db.insert(simple).values([insert_data]) => execute);
     assert_eq!(insert_result, 1);
 
     // Update the record
@@ -40,7 +40,7 @@ sqlite_test!(simple_update, SimpleSchema, {
         .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(eq(Simple::name, "original"));
-    let update_result = drizzle_exec!(stmt.execute());
+    let update_result = drizzle_exec!(stmt => execute);
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
@@ -48,7 +48,7 @@ sqlite_test!(simple_update, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            .all()
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -59,7 +59,7 @@ sqlite_test!(simple_update, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original"))
-            .all()
+            => all
     );
 
     assert_eq!(old_results.len(), 0);
@@ -83,7 +83,7 @@ sqlite_test!(complex_update, ComplexSchema, {
         .with_age(25)
         .with_description("Original description".to_string());
 
-    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]).execute());
+    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
     assert_eq!(insert_result, 1);
 
     // Update multiple fields
@@ -96,7 +96,7 @@ sqlite_test!(complex_update, ComplexSchema, {
                 .with_description("Updated description".to_string()),
         )
         .r#where(eq(Complex::name, "user"));
-    let update_result = drizzle_exec!(stmt.execute());
+    let update_result = drizzle_exec!(stmt => execute);
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
@@ -110,7 +110,7 @@ sqlite_test!(complex_update, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.name, "user"))
-        .all()
+        => all
     );
 
     assert_eq!(results.len(), 1);
@@ -131,19 +131,19 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
         InsertSimple::new("test_two"),
         InsertSimple::new("other"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(like(Simple::name, "test%"));
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let results: Vec<SimpleResult> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            .all()
+            => all
     );
     assert_eq!(results.len(), 2);
 
@@ -151,7 +151,7 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "other"))
-            .all()
+            => all
     );
     assert_eq!(results.len(), 1);
 });
@@ -171,13 +171,13 @@ sqlite_test!(update_with_complex_where, ComplexSchema, {
             .with_id(uuid::Uuid::new_v4())
             .with_age(70),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .update(complex)
         .set(UpdateComplex::default().with_name("matched"))
         .r#where(and([gte(complex.age, 18), lte(complex.age, 65)]));
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let results: Vec<ComplexResult> = drizzle_exec!(
         db.select((
@@ -189,7 +189,7 @@ sqlite_test!(update_with_complex_where, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.name, "matched"))
-        .all()
+        => all
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "matched");
@@ -204,19 +204,19 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
         InsertSimple::new("Charlie"),
         InsertSimple::new("David"),
     ]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("Updated"))
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let results: Vec<SimpleResult> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "Updated"))
-            .all()
+            => all
     );
     assert_eq!(results.len(), 2);
 
@@ -224,7 +224,7 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(in_array(simple.name, ["Bob", "David"]))
-            .all()
+            => all
     );
     assert_eq!(results.len(), 2);
 });
@@ -233,16 +233,16 @@ sqlite_test!(update_no_matching_rows, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("Updated"))
         .r#where(eq(simple.name, "NonExistent"));
-    drizzle_exec!(stmt.execute());
+    drizzle_exec!(stmt => execute);
 
     let results: Vec<SimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple).all());
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -266,7 +266,7 @@ sqlite_test!(feature_gated_update, ComplexSchema, {
             settings: std::collections::HashMap::new(),
         });
 
-    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]).execute());
+    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
     assert_eq!(insert_result, 1);
 
     // Update feature-gated fields using UUID primary key
@@ -289,7 +289,7 @@ sqlite_test!(feature_gated_update, ComplexSchema, {
                 }),
         )
         .r#where(eq(Complex::id, test_id));
-    let update_result = drizzle_exec!(stmt.execute());
+    let update_result = drizzle_exec!(stmt => execute);
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting with UUID
@@ -303,7 +303,7 @@ sqlite_test!(feature_gated_update, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.id, test_id))
-        .all()
+        => all
     );
 
     assert_eq!(results.len(), 1);
