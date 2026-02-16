@@ -414,6 +414,15 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
 
 /// Convert SQL type to Rust type
 fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
+    // Handle boolean specifically before the category match
+    if sql_type.eq_ignore_ascii_case("boolean") {
+        return if not_null {
+            "bool".to_string()
+        } else {
+            "Option<bool>".to_string()
+        };
+    }
+
     let category = SQLTypeCategory::from_sql_type(sql_type);
 
     let base_type = match category {
@@ -778,5 +787,8 @@ pub struct AppSchema {
         assert_eq!(sql_type_to_rust_type("text", false), "Option<String>");
         assert_eq!(sql_type_to_rust_type("real", true), "f64");
         assert_eq!(sql_type_to_rust_type("blob", true), "Vec<u8>");
+        assert_eq!(sql_type_to_rust_type("boolean", true), "bool");
+        assert_eq!(sql_type_to_rust_type("boolean", false), "Option<bool>");
+        assert_eq!(sql_type_to_rust_type("BOOLEAN", true), "bool");
     }
 }

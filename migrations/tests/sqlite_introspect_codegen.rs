@@ -712,8 +712,8 @@ fn test_specific_type_mappings() {
     );
     assert_eq!(
         table.field("col_boolean").unwrap().ty,
-        "Option<i64>",
-        "BOOLEAN -> Option<i64>"
+        "Option<bool>",
+        "BOOLEAN -> Option<bool>"
     );
     assert_eq!(
         table.field("col_date").unwrap().ty,
