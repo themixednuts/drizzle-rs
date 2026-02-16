@@ -19,7 +19,7 @@ pub const CONFIG_FILE: &str = "drizzle.config.toml";
 // ============================================================================
 
 /// Casing mode for generated code and SQL identifiers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, JsonSchema)]
 pub enum Casing {
     /// camelCase - e.g., "userId", "createdAt"
     #[default]
@@ -61,7 +61,7 @@ impl std::str::FromStr for Casing {
 }
 
 /// Casing mode for introspection (pull command)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, JsonSchema)]
 pub enum IntrospectCasing {
     /// Convert database names to camelCase
     #[default]
@@ -103,7 +103,7 @@ impl std::str::FromStr for IntrospectCasing {
 }
 
 /// Introspection configuration
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct IntrospectConfig {
     /// Casing mode for introspected identifiers
     #[serde(default)]
@@ -118,7 +118,7 @@ pub struct IntrospectConfig {
 ///
 /// Can be either a boolean (true = include all, false = exclude all)
 /// or a detailed configuration with provider/include/exclude lists.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum RolesFilter {
     /// Simple boolean: true = include all user roles, false = exclude all
@@ -216,7 +216,7 @@ fn is_provider_role(provider: &str, role_name: &str) -> bool {
 /// Entities filter configuration
 ///
 /// Controls which database entities are included in push/pull operations.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct EntitiesFilter {
     /// Roles filter (PostgreSQL only)
     #[serde(default)]
@@ -228,7 +228,7 @@ pub struct EntitiesFilter {
 // ============================================================================
 
 /// Known PostgreSQL extensions that can be filtered
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Extension {
     /// PostGIS spatial extension
@@ -290,6 +290,31 @@ impl EnvOr {
                 )),
             },
         }
+    }
+}
+
+impl JsonSchema for EnvOr {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "EnvOr".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        use schemars::json_schema;
+
+        // EnvOr accepts either a plain string or { env: "VAR_NAME" }
+        json_schema!({
+            "oneOf": [
+                generator.subschema_for::<String>(),
+                {
+                    "type": "object",
+                    "properties": {
+                        "env": { "type": "string" }
+                    },
+                    "required": ["env"],
+                    "additionalProperties": false
+                }
+            ]
+        })
     }
 }
 
@@ -411,7 +436,7 @@ impl From<Dialect> for drizzle_types::Dialect {
 // ============================================================================
 
 /// Database driver for Rust database connections
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Driver {
     /// rusqlite - synchronous SQLite driver
@@ -570,7 +595,7 @@ impl PostgresCreds {
 // ============================================================================
 
 /// Schema path(s)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Schema {
     One(String),
@@ -593,7 +618,7 @@ impl Schema {
 }
 
 /// Filter (single or multiple values)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Filter {
     One(String),
@@ -610,14 +635,14 @@ impl Filter {
 }
 
 /// Migration options
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct MigrationsOpts {
     pub table: Option<String>,
     pub schema: Option<String>,
     pub prefix: Option<MigrationPrefix>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum MigrationPrefix {
     Index,
@@ -631,7 +656,7 @@ pub enum MigrationPrefix {
 // Raw credentials (serde parsing helper)
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum RawCreds {
     Url {
@@ -653,7 +678,7 @@ enum RawCreds {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum SslVal {
     Bool(bool),
@@ -676,7 +701,7 @@ impl SslVal {
 /// Configuration for a single database
 ///
 /// This structure matches drizzle-kit's config format for compatibility.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseConfig {
     /// Database dialect (required)
