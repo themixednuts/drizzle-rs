@@ -9,6 +9,8 @@ const CONTENT_WIDTH: usize = BOX_WIDTH - 4; // Account for "│ " prefix and " �
 #[derive(Clone, Debug)]
 pub struct CapturedStatement {
     pub sql: String,
+    pub params: Option<String>,
+    pub source: Option<String>,
     pub error: Option<String>,
 }
 
@@ -237,16 +239,22 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
         report.push('\n');
     }
 
-    // Failed operation section (if provided)
+    // Failed operation section (if provided, skip when redundant with last statement)
     if let Some(op) = failed_operation {
-        report.push_str(&top_border());
-        report.push_str(&section_header("FAILED OPERATION"));
-        let op_lines = wrap_text(op, CONTENT_WIDTH - 2);
-        for line in op_lines {
-            report.push_str(&box_line(&line, "  "));
+        let redundant = statements
+            .last()
+            .and_then(|s| s.source.as_deref())
+            .is_some_and(|src| src == *op);
+        if !redundant {
+            report.push_str(&top_border());
+            report.push_str(&section_header("FAILED OPERATION"));
+            let op_lines = wrap_text(op, CONTENT_WIDTH - 2);
+            for line in op_lines {
+                report.push_str(&box_line(&line, "  "));
+            }
+            report.push_str(&bottom_border());
+            report.push('\n');
         }
-        report.push_str(&bottom_border());
-        report.push('\n');
     }
 
     // Schema DDL section
@@ -281,13 +289,52 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
         for (i, stmt) in statements.iter().enumerate() {
             let status = if stmt.error.is_some() { "✗" } else { "✓" };
             report.push_str(&box_line(&format!("[{}]", i + 1), &format!("{} ", status)));
-            for line in stmt.sql.lines() {
-                let expanded = expand_tabs(line);
-                let wrapped = wrap_text(&expanded, CONTENT_WIDTH - 4);
+
+            if let Some(source) = &stmt.source {
+                // Show Rust source expression
+                for line in source.lines() {
+                    let expanded = expand_tabs(line);
+                    let wrapped = wrap_text(&expanded, CONTENT_WIDTH - 4);
+                    for wrap_line in wrapped {
+                        report.push_str(&box_line(&wrap_line, "    "));
+                    }
+                }
+                // Show generated SQL on next line with arrow
+                let sql_display = format!("→ {}", stmt.sql);
+                for line in sql_display.lines() {
+                    let expanded = expand_tabs(line);
+                    let wrapped = wrap_text(&expanded, CONTENT_WIDTH - 4);
+                    for wrap_line in wrapped {
+                        report.push_str(&box_line(&wrap_line, "    "));
+                    }
+                }
+            } else {
+                // No source — show SQL directly (DDL or old pattern)
+                for line in stmt.sql.lines() {
+                    let expanded = expand_tabs(line);
+                    let wrapped = wrap_text(&expanded, CONTENT_WIDTH - 4);
+                    for wrap_line in wrapped {
+                        report.push_str(&box_line(&wrap_line, "    "));
+                    }
+                }
+            }
+
+            if let Some(params) = &stmt.params {
+                let params_display = format!("Params: {}", params);
+                let wrapped = wrap_text(&params_display, CONTENT_WIDTH - 4);
                 for wrap_line in wrapped {
                     report.push_str(&box_line(&wrap_line, "    "));
                 }
             }
+
+            if let Some(err) = &stmt.error {
+                let err_display = format!("Error: {}", err);
+                let wrapped = wrap_text(&err_display, CONTENT_WIDTH - 4);
+                for wrap_line in wrapped {
+                    report.push_str(&box_line(&wrap_line, "    "));
+                }
+            }
+
             if i < statements.len() - 1 {
                 report.push_str(&empty_box_line());
             }
@@ -332,6 +379,8 @@ pub mod test_db {
                 .iter()
                 .map(|sql| CapturedStatement {
                     sql: sql.clone(),
+                    params: None,
+                    source: None,
                     error: None,
                 })
                 .collect();
@@ -348,6 +397,18 @@ pub mod test_db {
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
             self.statements.borrow_mut().push(CapturedStatement {
                 sql: sql.into(),
+                params: None,
+                source: None,
+                error,
+            });
+        }
+
+        /// Record a SQL statement with source expression and params
+        pub fn record_sql(&self, source: &str, sql: &str, params: &str, error: Option<String>) {
+            self.statements.borrow_mut().push(CapturedStatement {
+                sql: sql.into(),
+                params: Some(params.into()),
+                source: Some(source.into()),
                 error,
             });
         }
@@ -601,6 +662,17 @@ pub mod postgres_sync_setup {
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
             self.statements.borrow_mut().push(CapturedStatement {
                 sql: sql.into(),
+                params: None,
+                source: None,
+                error,
+            });
+        }
+
+        pub fn record_sql(&self, source: &str, sql: &str, params: &str, error: Option<String>) {
+            self.statements.borrow_mut().push(CapturedStatement {
+                sql: sql.into(),
+                params: Some(params.into()),
+                source: Some(source.into()),
                 error,
             });
         }
@@ -690,6 +762,8 @@ pub mod postgres_sync_setup {
             .iter()
             .map(|sql| CapturedStatement {
                 sql: sql.clone(),
+                params: None,
+                source: None,
                 error: None,
             })
             .collect();
@@ -827,6 +901,17 @@ pub mod tokio_postgres_setup {
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
             self.statements.borrow_mut().push(CapturedStatement {
                 sql: sql.into(),
+                params: None,
+                source: None,
+                error,
+            });
+        }
+
+        pub fn record_sql(&self, source: &str, sql: &str, params: &str, error: Option<String>) {
+            self.statements.borrow_mut().push(CapturedStatement {
+                sql: sql.into(),
+                params: Some(params.into()),
+                source: Some(source.into()),
                 error,
             });
         }
@@ -942,6 +1027,8 @@ pub mod tokio_postgres_setup {
             .iter()
             .map(|sql| CapturedStatement {
                 sql: sql.clone(),
+                params: None,
+                source: None,
                 error: None,
             })
             .collect();

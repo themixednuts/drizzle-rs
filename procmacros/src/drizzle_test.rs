@@ -104,19 +104,21 @@ fn generate_rusqlite_test(
                 // Driver-specific macros for rusqlite
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL and params
                     ($builder:expr => all) => {{
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.all() {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -125,14 +127,16 @@ fn generate_rusqlite_test(
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.get() {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -141,14 +145,16 @@ fn generate_rusqlite_test(
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.execute() {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -254,19 +260,21 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                 // Driver-specific macros for libsql
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL and params
                     ($builder:expr => all) => {{
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.all().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -275,14 +283,16 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.get().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -291,14 +301,16 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.execute().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -406,19 +418,21 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                 // Driver-specific macros for turso
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
-                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL and params
                     ($builder:expr => all) => {{
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.all().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -427,14 +441,16 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.get().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -443,14 +459,16 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.execute().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
@@ -475,49 +493,55 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                 macro_rules! drizzle_sql {
                     ($builder:expr, all) => {{
                         use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
-                        let __op = __builder.all().await;
-                        match __op {
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
-                                db.fail_with_op(__test_name, &e, &__sql_str);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
                     }};
                     ($builder:expr, get) => {{
                         use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
-                        let __op = __builder.get().await;
-                        match __op {
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
-                                db.fail_with_op(__test_name, &e, &__sql_str);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
                     }};
                     ($builder:expr, execute) => {{
                         use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
                         let __builder = $builder;
-                        let __sql_str = __builder.to_sql().sql().to_string();
-                        let __op = __builder.execute().await;
-                        match __op {
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.execute().await {
                             Ok(v) => {
-                                db.record(&__sql_str, None);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
                             Err(e) => {
-                                db.record(&__sql_str, Some(format!("{}", e)));
-                                db.fail_with_op(__test_name, &e, &__sql_str);
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
                             }
                         }
                     }};
@@ -614,6 +638,62 @@ fn generate_postgres_sync_test(
                 // Driver-specific macros for postgres-sync
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL and params
+                    ($builder:expr => all) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => execute) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.execute() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Old pattern: drizzle_exec!(operation) - uses stringify
                     ($operation:expr) => {{
                         let __op_str = stringify!($operation);
                         let __op = $operation;
@@ -723,6 +803,62 @@ fn generate_tokio_postgres_test(
                 // Driver-specific macros for tokio-postgres
                 #[allow(unused_macros)]
                 macro_rules! drizzle_exec {
+                    // New pattern: drizzle_exec!(builder => all) - captures actual SQL and params
+                    ($builder:expr => all) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => execute) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.execute().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Old pattern: drizzle_exec!(operation) - uses stringify
                     ($operation:expr) => {{
                         let __op_str = stringify!($operation);
                         let __op = $operation.await;
