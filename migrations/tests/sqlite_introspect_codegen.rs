@@ -255,20 +255,18 @@ fn test_introspect_and_generate_schema() {
 
     // Verify we got the expected tables
     assert_eq!(introspection.tables.len(), 5, "Should have 5 tables");
-    let table_names: Vec<&str> = introspection.tables.iter().map(|t| &*t.name).collect();
-    assert!(table_names.contains(&"users"), "Should have users table");
-    assert!(table_names.contains(&"posts"), "Should have posts table");
-    assert!(
-        table_names.contains(&"categories"),
-        "Should have categories table"
-    );
-    assert!(
-        table_names.contains(&"post_categories"),
-        "Should have post_categories table"
-    );
-    assert!(
-        table_names.contains(&"settings"),
-        "Should have settings table"
+    let mut table_names: Vec<&str> = introspection.tables.iter().map(|t| &*t.name).collect();
+    table_names.sort();
+    assert_eq!(
+        table_names,
+        vec![
+            "categories",
+            "post_categories",
+            "posts",
+            "settings",
+            "users"
+        ],
+        "Should have exactly these 5 tables"
     );
 
     // Verify columns
@@ -326,8 +324,8 @@ fn verify_generated_code(generated: &GeneratedSchema) {
 
     // === Header and imports ===
     assert!(
-        code.contains("use drizzle::sqlite::prelude::*;"),
-        "Should have drizzle imports"
+        code.starts_with("//! Auto-generated SQLite schema from introspection\n//!\n//! Generated from test database\n\nuse drizzle::sqlite::prelude::*;\n"),
+        "Should have expected header with doc comment and drizzle imports"
     );
 
     // === Users table - precise field-level checks ===
@@ -537,13 +535,29 @@ fn verify_generated_code(generated: &GeneratedSchema) {
     );
 
     // === Schema struct ===
-    assert!(
-        code.contains("#[derive(SQLiteSchema)]"),
-        "Should have SQLiteSchema derive"
+    let schema = parsed.schema.as_ref().expect("Should have schema struct");
+    assert_eq!(schema.name, "AppSchema", "Schema name should be AppSchema");
+    assert_eq!(
+        schema.dialect,
+        Dialect::SQLite,
+        "Schema dialect should be SQLite"
     );
-    assert!(
-        code.contains("pub struct AppSchema"),
-        "Should have AppSchema struct"
+    let mut schema_members: Vec<&String> = schema.members.keys().collect();
+    schema_members.sort();
+    assert_eq!(
+        schema_members,
+        vec![
+            "categories",
+            "idx_categories_parent",
+            "idx_posts_author",
+            "idx_posts_created",
+            "idx_users_email",
+            "post_categories",
+            "posts",
+            "settings",
+            "users",
+        ],
+        "Schema should have exactly these members"
     );
 
     // === Verify lowercase attribute style ===
@@ -598,44 +612,118 @@ fn test_specific_type_mappings() {
 
     println!("Type mapping test:\n{}", generated.code);
 
+    let parsed = SchemaParser::parse(&generated.code);
+    let table = parsed
+        .table("TypeTest", Dialect::SQLite)
+        .expect("Should have TypeTest struct");
+
     // INTEGER affinity types should map to i64
-    assert!(
-        generated.code.contains("col_integer: i64"),
-        "INTEGER -> i64"
+    assert_eq!(
+        table.field("col_integer").unwrap().ty,
+        "i64",
+        "INTEGER NOT NULL -> i64"
     );
-    assert!(
-        generated.code.contains("col_int: Option<i64>"),
+    assert_eq!(
+        table.field("col_int").unwrap().ty,
+        "Option<i64>",
         "INT -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_tinyint").unwrap().ty,
+        "Option<i64>",
+        "TINYINT -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_smallint").unwrap().ty,
+        "Option<i64>",
+        "SMALLINT -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_mediumint").unwrap().ty,
+        "Option<i64>",
+        "MEDIUMINT -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_bigint").unwrap().ty,
+        "Option<i64>",
+        "BIGINT -> Option<i64>"
     );
 
     // REAL affinity types should map to f64
-    assert!(
-        generated.code.contains("col_real: Option<f64>"),
+    assert_eq!(
+        table.field("col_real").unwrap().ty,
+        "Option<f64>",
         "REAL -> Option<f64>"
     );
-    assert!(
-        generated.code.contains("col_double: Option<f64>"),
+    assert_eq!(
+        table.field("col_double").unwrap().ty,
+        "Option<f64>",
         "DOUBLE -> Option<f64>"
     );
-    assert!(
-        generated.code.contains("col_float: Option<f64>"),
+    assert_eq!(
+        table.field("col_float").unwrap().ty,
+        "Option<f64>",
         "FLOAT -> Option<f64>"
     );
 
     // TEXT affinity types should map to String
-    assert!(
-        generated.code.contains("col_text: Option<String>"),
+    assert_eq!(
+        table.field("col_text").unwrap().ty,
+        "Option<String>",
         "TEXT -> Option<String>"
     );
-    assert!(
-        generated.code.contains("col_varchar: Option<String>"),
+    assert_eq!(
+        table.field("col_varchar").unwrap().ty,
+        "Option<String>",
         "VARCHAR -> Option<String>"
     );
 
+    // CHAR maps to i64 via INTEGER affinity in SQLite
+    assert_eq!(
+        table.field("col_char").unwrap().ty,
+        "Option<i64>",
+        "CHAR -> Option<i64>"
+    );
+
+    // CLOB maps to String
+    assert_eq!(
+        table.field("col_clob").unwrap().ty,
+        "Option<String>",
+        "CLOB -> Option<String>"
+    );
+
     // BLOB should map to Vec<u8>
-    assert!(
-        generated.code.contains("col_blob: Option<Vec<u8>>"),
+    assert_eq!(
+        table.field("col_blob").unwrap().ty,
+        "Option<Vec<u8>>",
         "BLOB -> Option<Vec<u8>>"
+    );
+
+    // NUMERIC affinity types map to i64
+    assert_eq!(
+        table.field("col_numeric").unwrap().ty,
+        "Option<i64>",
+        "NUMERIC -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_decimal").unwrap().ty,
+        "Option<i64>",
+        "DECIMAL -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_boolean").unwrap().ty,
+        "Option<i64>",
+        "BOOLEAN -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_date").unwrap().ty,
+        "Option<i64>",
+        "DATE -> Option<i64>"
+    );
+    assert_eq!(
+        table.field("col_datetime").unwrap().ty,
+        "Option<i64>",
+        "DATETIME -> Option<i64>"
     );
 }
 
@@ -666,18 +754,59 @@ fn test_default_value_generation() {
 
     println!("Default values test:\n{}", generated.code);
 
-    // Check default values are properly formatted
+    let parsed = SchemaParser::parse(&generated.code);
+    let table = parsed
+        .table("DefaultsTest", Dialect::SQLite)
+        .expect("Should have DefaultsTest struct");
+
+    // Check each field's type and default
+    let id = table.field("id").expect("Should have id field");
+    assert_eq!(id.ty, "i64");
+    assert!(id.has_attr("primary"), "id should have primary");
+
+    let str_default = table
+        .field("str_default")
+        .expect("Should have str_default field");
+    assert_eq!(str_default.ty, "Option<String>");
     assert!(
-        generated.code.contains(r#"default = "hello""#),
-        "String default should be quoted"
+        str_default.has_attr(r#"default = "hello""#),
+        "str_default should have default = \"hello\""
     );
+
+    let int_default = table
+        .field("int_default")
+        .expect("Should have int_default field");
+    assert_eq!(int_default.ty, "Option<i64>");
     assert!(
-        generated.code.contains("default = 42"),
-        "Integer default should be unquoted"
+        int_default.has_attr("default = 42"),
+        "int_default should have default = 42"
     );
+
+    let real_default = table
+        .field("real_default")
+        .expect("Should have real_default field");
+    assert_eq!(real_default.ty, "Option<f64>");
     assert!(
-        generated.code.contains("default = 3.14"),
-        "Real default should be unquoted"
+        real_default.has_attr("default = 3.14"),
+        "real_default should have default = 3.14"
+    );
+
+    let bool_default = table
+        .field("bool_default")
+        .expect("Should have bool_default field");
+    assert_eq!(bool_default.ty, "Option<i64>");
+    assert!(
+        bool_default.has_attr("default = 1"),
+        "bool_default should have default = 1"
+    );
+
+    let empty_default = table
+        .field("empty_default")
+        .expect("Should have empty_default field");
+    assert_eq!(empty_default.ty, "Option<String>");
+    assert!(
+        empty_default.has_attr(r#"default = """#),
+        "empty_default should have empty default"
     );
 }
 
@@ -718,19 +847,77 @@ fn test_foreign_key_actions() {
 
     println!("Foreign key actions test:\n{}", generated.code);
 
-    // Check actions are properly generated
+    let parsed = SchemaParser::parse(&generated.code);
+
+    // Parent table
+    let parent = parsed
+        .table("Parent", Dialect::SQLite)
+        .expect("Should have Parent struct");
+    let parent_id = parent.field("id").expect("Parent should have id");
+    assert_eq!(parent_id.ty, "i64");
+    assert!(parent_id.has_attr("primary"));
+
+    // ChildCascade: ON DELETE CASCADE ON UPDATE CASCADE
+    let child_cascade = parsed
+        .table("ChildCascade", Dialect::SQLite)
+        .expect("Should have ChildCascade struct");
+    let cascade_fk = child_cascade
+        .field("parent_id")
+        .expect("ChildCascade should have parent_id");
+    assert_eq!(cascade_fk.ty, "Option<i64>");
     assert!(
-        generated.code.contains("on_delete = cascade"),
-        "Should have on_delete cascade"
+        cascade_fk.has_attr("references = Parent::id"),
+        "Should reference Parent::id"
     );
     assert!(
-        generated.code.contains("on_update = cascade"),
-        "Should have on_update cascade"
+        cascade_fk.has_attr("on_delete = cascade"),
+        "Should have on_delete = cascade"
     );
-    // set_null action - note the underscore convention
     assert!(
-        generated.code.contains("set_null") || generated.code.contains("set null"),
-        "Should have set_null action"
+        cascade_fk.has_attr("on_update = cascade"),
+        "Should have on_update = cascade"
+    );
+
+    // ChildSetNull: ON DELETE SET NULL ON UPDATE SET NULL
+    let child_set_null = parsed
+        .table("ChildSetNull", Dialect::SQLite)
+        .expect("Should have ChildSetNull struct");
+    let set_null_fk = child_set_null
+        .field("parent_id")
+        .expect("ChildSetNull should have parent_id");
+    assert_eq!(set_null_fk.ty, "Option<i64>");
+    assert!(
+        set_null_fk.has_attr("references = Parent::id"),
+        "Should reference Parent::id"
+    );
+    assert!(
+        set_null_fk.has_attr("on_delete = set_null"),
+        "Should have on_delete = set_null"
+    );
+    assert!(
+        set_null_fk.has_attr("on_update = set_null"),
+        "Should have on_update = set_null"
+    );
+
+    // ChildRestrict: ON DELETE RESTRICT ON UPDATE RESTRICT
+    let child_restrict = parsed
+        .table("ChildRestrict", Dialect::SQLite)
+        .expect("Should have ChildRestrict struct");
+    let restrict_fk = child_restrict
+        .field("parent_id")
+        .expect("ChildRestrict should have parent_id");
+    assert_eq!(restrict_fk.ty, "Option<i64>");
+    assert!(
+        restrict_fk.has_attr("references = Parent::id"),
+        "Should reference Parent::id"
+    );
+    assert!(
+        restrict_fk.has_attr("on_delete = restrict"),
+        "Should have on_delete = restrict"
+    );
+    assert!(
+        restrict_fk.has_attr("on_update = restrict"),
+        "Should have on_update = restrict"
     );
 }
 
@@ -822,25 +1009,42 @@ fn test_index_generation() {
 
     println!("Index generation test:\n{}", generated.code);
 
-    // Check index structs are generated
-    assert!(
-        generated.code.contains("#[SQLiteIndex]"),
-        "Should have regular index attribute"
-    );
-    assert!(
-        generated.code.contains("#[SQLiteIndex(unique)]"),
-        "Should have unique index attribute"
+    let parsed = SchemaParser::parse(&generated.code);
+
+    // Regular index on name
+    let idx_name = parsed
+        .index("IdxName", Dialect::SQLite)
+        .expect("Should have IdxName index");
+    assert!(!idx_name.is_unique(), "IdxName should not be unique");
+    assert_eq!(
+        idx_name.columns,
+        vec!["IndexedTable::name"],
+        "IdxName columns"
     );
 
-    // Check composite index has multiple columns
+    // Unique index on email
+    let idx_email = parsed
+        .index("IdxEmail", Dialect::SQLite)
+        .expect("Should have IdxEmail index");
+    assert!(idx_email.is_unique(), "IdxEmail should be unique");
+    assert_eq!(
+        idx_email.columns,
+        vec!["IndexedTable::email"],
+        "IdxEmail columns"
+    );
+
+    // Composite index on name, score
+    let idx_name_score = parsed
+        .index("IdxNameScore", Dialect::SQLite)
+        .expect("Should have IdxNameScore index");
     assert!(
-        generated
-            .code
-            .contains("IndexedTable::name, IndexedTable::score")
-            || generated
-                .code
-                .contains("IndexedTable::name,IndexedTable::score"),
-        "Composite index should reference multiple columns"
+        !idx_name_score.is_unique(),
+        "IdxNameScore should not be unique"
+    );
+    assert_eq!(
+        idx_name_score.columns,
+        vec!["IndexedTable::name", "IndexedTable::score"],
+        "IdxNameScore should reference both columns"
     );
 }
 
@@ -1257,11 +1461,38 @@ fn test_various_index_types() {
 
     println!("Various indexes test:\n{}", generated.code);
 
-    // Check unique and regular indexes are differentiated
-    assert!(
-        generated.code.contains("#[SQLiteIndex]"),
-        "Should have regular indexes"
+    let parsed = SchemaParser::parse(&generated.code);
+
+    // Regular index on col_a
+    let idx_a = parsed
+        .index("IdxA", Dialect::SQLite)
+        .expect("Should have IdxA index");
+    assert!(!idx_a.is_unique(), "IdxA should not be unique");
+    assert_eq!(idx_a.columns, vec!["MultiIndexed::col_a"]);
+
+    // Unique index on col_b
+    let idx_b = parsed
+        .index("IdxB", Dialect::SQLite)
+        .expect("Should have IdxB index");
+    assert!(idx_b.is_unique(), "IdxB should be unique");
+    assert_eq!(idx_b.columns, vec!["MultiIndexed::col_b"]);
+
+    // Multi-column index on col_a, col_b
+    let idx_ab = parsed
+        .index("IdxAb", Dialect::SQLite)
+        .expect("Should have IdxAb index");
+    assert!(!idx_ab.is_unique(), "IdxAb should not be unique");
+    assert_eq!(
+        idx_ab.columns,
+        vec!["MultiIndexed::col_a", "MultiIndexed::col_b"]
     );
+
+    // Partial index on col_c
+    let idx_c = parsed
+        .index("IdxCPositive", Dialect::SQLite)
+        .expect("Should have IdxCPositive index");
+    assert!(!idx_c.is_unique(), "IdxCPositive should not be unique");
+    assert_eq!(idx_c.columns, vec!["MultiIndexed::col_c"]);
 }
 
 #[test]
@@ -1293,33 +1524,30 @@ fn test_view_codegen() {
     println!("View codegen test:\n{}", generated.code);
 
     // Check that views are generated
-    assert_eq!(generated.views.len(), 2, "Should generate 2 views");
-    assert!(generated.views.contains(&"active_users".to_string()));
-    assert!(generated.views.contains(&"user_stats".to_string()));
-
-    // Check view struct generation
-    assert!(
-        generated.code.contains("#[SQLiteView("),
-        "Should have SQLiteView attribute"
-    );
-    assert!(
-        generated.code.contains("pub struct ActiveUsers"),
-        "Should generate ActiveUsers struct"
-    );
-    assert!(
-        generated.code.contains("pub struct UserStats"),
-        "Should generate UserStats struct"
+    let mut views = generated.views.clone();
+    views.sort();
+    assert_eq!(
+        views,
+        vec!["active_users", "user_stats"],
+        "Should generate exactly these 2 views"
     );
 
-    // Check that definition is properly escaped
+    // Verify exact view struct generation
     assert!(
-        generated.code.contains("definition = "),
-        "Should have definition attribute"
+        generated.code.contains(
+            "#[SQLiteView(definition = \"SELECT * FROM users WHERE is_active = 1\")]\npub struct ActiveUsers {"
+        ),
+        "Should have exact ActiveUsers view definition"
     );
-    // Quotes should be escaped
     assert!(
-        generated.code.contains(r#"\"status\""#),
-        "Double quotes should be escaped in definition"
+        generated.code.contains(
+            r#"#[SQLiteView(definition = "SELECT id, name, \"status\" FROM users WHERE name = 'test'")]"#
+        ),
+        "UserStats should have escaped double quotes in definition"
+    );
+    assert!(
+        generated.code.contains("pub struct UserStats {"),
+        "Should have UserStats struct"
     );
 }
 
@@ -1358,18 +1586,18 @@ fn test_view_with_columns_codegen() {
 
     println!("View with columns test:\n{}", generated.code);
 
-    // Check view struct has column fields
-    assert!(
-        generated.code.contains("pub id: i64"),
-        "View should have id field"
+    // Verify exact view struct with columns
+    let expected_view = concat!(
+        "#[SQLiteView(definition = \"SELECT id, username, email FROM users\")]\n",
+        "pub struct UserSummary {\n",
+        "    pub id: i64,\n",
+        "    pub username: String,\n",
+        "    pub email: Option<String>,\n",
+        "}",
     );
     assert!(
-        generated.code.contains("pub username: String"),
-        "View should have username field"
-    );
-    assert!(
-        generated.code.contains("pub email: Option<String>"),
-        "View should have email field (nullable)"
+        generated.code.contains(expected_view),
+        "Should have exact UserSummary view struct with columns"
     );
 }
 
@@ -1396,7 +1624,9 @@ fn test_existing_view_skipped() {
     println!("Existing view test:\n{}", generated.code);
 
     // Only regular view should be generated
-    assert_eq!(generated.views.len(), 1, "Should only generate 1 view");
-    assert!(generated.views.contains(&"regular_view".to_string()));
-    assert!(!generated.views.contains(&"existing_view".to_string()));
+    assert_eq!(
+        generated.views,
+        vec!["regular_view".to_string()],
+        "Should only generate regular_view, not existing_view"
+    );
 }

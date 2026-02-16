@@ -449,12 +449,11 @@ mod tests {
             "Should generate SQL statements"
         );
 
-        // Check the SQL contains SET NOT NULL
-        let sql = migration.sql_statements.join("\n");
-        assert!(
-            sql.contains("SET NOT NULL"),
-            "Should contain SET NOT NULL: {}",
-            sql
+        // Check the SQL contains ALTER COLUMN SET NOT NULL
+        assert_eq!(migration.sql_statements.len(), 1);
+        assert_eq!(
+            migration.sql_statements[0],
+            "ALTER TABLE \"users\" ALTER COLUMN \"email\" SET NOT NULL;"
         );
     }
 
@@ -509,12 +508,11 @@ mod tests {
             "Should generate SQL statements"
         );
 
-        // Check the SQL contains SET DATA TYPE
-        let sql = migration.sql_statements.join("\n");
-        assert!(
-            sql.contains("SET DATA TYPE"),
-            "Should contain SET DATA TYPE: {}",
-            sql
+        // Check the SQL contains ALTER COLUMN SET DATA TYPE with USING cast
+        assert_eq!(migration.sql_statements.len(), 1);
+        assert_eq!(
+            migration.sql_statements[0],
+            "ALTER TABLE \"users\" ALTER COLUMN \"age\" SET DATA TYPE integer USING \"age\"::integer;"
         );
     }
 
@@ -569,12 +567,11 @@ mod tests {
             "Should generate SQL statements"
         );
 
-        // Check the SQL contains SET DEFAULT
-        let sql = migration.sql_statements.join("\n");
-        assert!(
-            sql.contains("SET DEFAULT"),
-            "Should contain SET DEFAULT: {}",
-            sql
+        // Check the SQL contains ALTER COLUMN SET DEFAULT
+        assert_eq!(migration.sql_statements.len(), 1);
+        assert_eq!(
+            migration.sql_statements[0],
+            "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active';"
         );
     }
 }

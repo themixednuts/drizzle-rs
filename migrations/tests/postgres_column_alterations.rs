@@ -31,6 +31,18 @@ fn diff_to_sql(from: &PostgresDDL, to: &PostgresDDL) -> Vec<String> {
     generator.generate(&diffs)
 }
 
+/// Normalize a CREATE TABLE statement by sorting the column definition lines.
+fn normalize_create_table(sql: &str) -> String {
+    let Some(paren_start) = sql.find("(\n\t") else {
+        return sql.to_string();
+    };
+    let header = &sql[..paren_start + 1];
+    let body = &sql[paren_start + 3..sql.len() - 3];
+    let mut lines: Vec<&str> = body.split(",\n\t").collect();
+    lines.sort();
+    format!("{}\n\t{}\n);", header, lines.join(",\n\t"))
+}
+
 /// Helper to create a basic column
 fn column(table: &str, name: &str, sql_type: &str) -> Column {
     Column {
@@ -183,17 +195,16 @@ fn test_add_multiple_columns() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
-    // Column order may vary, so check both statements are present
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("ALTER TABLE \"users\" ADD COLUMN \"name\" text;"),
-        "Expected ADD COLUMN name, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("ALTER TABLE \"users\" ADD COLUMN \"email\" text;"),
-        "Expected ADD COLUMN email, got: {}",
-        combined
+    let mut sorted = sql.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![
+            "ALTER TABLE \"users\" ADD COLUMN \"email\" text;",
+            "ALTER TABLE \"users\" ADD COLUMN \"name\" text;",
+        ],
+        "Unexpected ADD COLUMN statements: {:?}",
+        sql
     );
 }
 
@@ -426,17 +437,20 @@ fn test_create_table_with_generated_column() {
 
     let sql = diff_to_sql(&from, &to);
 
-    // Should be CREATE TABLE with GENERATED ALWAYS AS
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("CREATE TABLE"),
-        "Expected CREATE TABLE, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("GENERATED ALWAYS AS"),
-        "Expected GENERATED ALWAYS AS, got: {}",
-        combined
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    // Column order may vary, so normalize
+    let expected = "CREATE TABLE \"users\" (\n\
+        \t\"id\" integer NOT NULL,\n\
+        \t\"first_name\" text,\n\
+        \t\"last_name\" text,\n\
+        \t\"full_name\" text GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED,\n\
+        \tPRIMARY KEY(\"id\")\n\
+        );";
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(expected),
+        "Unexpected CREATE TABLE with generated column SQL: {}",
+        sql[0]
     );
 }
 
@@ -850,18 +864,17 @@ fn test_multiple_tables_different_changes() {
 
     let sql = diff_to_sql(&from, &to);
 
-    // Table order may vary, so check both statements are present
     assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
-    let combined = sql.join("\n");
-    assert!(
-        combined.contains("ALTER TABLE \"users\" ALTER COLUMN \"email\" SET NOT NULL;"),
-        "Expected SET NOT NULL for users.email, got:\n{}",
-        combined
-    );
-    assert!(
-        combined.contains("ALTER TABLE \"posts\" ADD COLUMN \"content\" text;"),
-        "Expected ADD COLUMN for posts.content, got:\n{}",
-        combined
+    let mut sorted = sql.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![
+            "ALTER TABLE \"posts\" ADD COLUMN \"content\" text;",
+            "ALTER TABLE \"users\" ALTER COLUMN \"email\" SET NOT NULL;",
+        ],
+        "Unexpected multi-table alteration statements: {:?}",
+        sql
     );
 }
 

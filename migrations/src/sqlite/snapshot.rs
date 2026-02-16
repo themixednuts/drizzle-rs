@@ -216,16 +216,18 @@ mod tests {
 
         let json = snapshot.to_json().unwrap();
 
-        // Verify it contains expected fields (pretty print adds spaces)
-        assert!(json.contains("\"version\": \"7\""));
-        assert!(json.contains("\"dialect\": \"sqlite\""));
-        assert!(json.contains("\"entityType\": \"tables\""));
-        assert!(json.contains("\"entityType\": \"columns\""));
-
-        // Verify round-trip
+        // Verify round-trip via structured comparison
         let parsed = SQLiteSnapshot::from_json(&json).unwrap();
-        assert_eq!(parsed.version, snapshot.version);
+        assert_eq!(parsed.version, "7");
+        assert_eq!(parsed.dialect, "sqlite");
         assert_eq!(parsed.ddl.len(), 2);
+
+        // Verify JSON structure via serde_json::Value
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["version"], "7");
+        assert_eq!(value["dialect"], "sqlite");
+        assert_eq!(value["ddl"][0]["entityType"], "tables");
+        assert_eq!(value["ddl"][1]["entityType"], "columns");
     }
 
     #[test]
@@ -235,45 +237,25 @@ mod tests {
             .not_null()
             .autoincrement();
 
-        let json = serde_json::to_string_pretty(&col).unwrap();
+        let value: serde_json::Value = serde_json::to_value(&col).unwrap();
 
         // Verify field names match drizzle-kit exactly:
         // - autoincrement (not autoIncrement)
         // - notNull (camelCase)
         // - type (renamed from sql_type)
-        assert!(
-            json.contains("\"autoincrement\""),
-            "Expected 'autoincrement' field, got: {}",
-            json
-        );
-        assert!(
-            json.contains("\"notNull\""),
-            "Expected 'notNull' field, got: {}",
-            json
-        );
-        assert!(
-            json.contains("\"type\""),
-            "Expected 'type' field, got: {}",
-            json
-        );
-        assert!(
-            json.contains("\"table\""),
-            "Expected 'table' field, got: {}",
-            json
-        );
-        assert!(
-            json.contains("\"name\""),
-            "Expected 'name' field, got: {}",
-            json
-        );
+        assert_eq!(value["autoincrement"], serde_json::json!(true));
+        assert_eq!(value["notNull"], serde_json::json!(true));
+        assert_eq!(value["type"], "integer");
+        assert_eq!(value["table"], "users");
+        assert_eq!(value["name"], "id");
 
         // Verify it doesn't contain snake_case versions
         assert!(
-            !json.contains("\"sql_type\""),
+            value.get("sql_type").is_none(),
             "Should not contain 'sql_type'"
         );
         assert!(
-            !json.contains("\"not_null\""),
+            value.get("not_null").is_none(),
             "Should not contain 'not_null'"
         );
     }

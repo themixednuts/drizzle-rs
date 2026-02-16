@@ -36,16 +36,6 @@ fn diff_sql(from: &SQLiteDDL, to: &SQLiteDDL) -> Vec<String> {
     migration.sql_statements
 }
 
-/// Check if statements include table recreation pattern
-fn has_recreate_pattern(sql: &[String]) -> bool {
-    let combined = sql.join("\n");
-    combined.contains("PRAGMA foreign_keys=OFF")
-        && combined.contains("__new_")
-        && combined.contains("DROP TABLE")
-        && combined.contains("RENAME TO")
-        && combined.contains("PRAGMA foreign_keys=ON")
-}
-
 /// Check if migration has RecreateTable statement
 fn has_recreate_table_statement(from: &SQLiteDDL, to: &SQLiteDDL) -> bool {
     let migration = compute_migration(from, to);
@@ -313,51 +303,26 @@ fn test_alter_column_drop_not_null() {
     let sql = diff_sql(&from, &to);
 
     assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern, got: {:?}",
-        sql
-    );
-    assert!(
         has_recreate_table_statement(&from, &to),
         "Expected RecreateTable statement"
     );
 
-    // Verify the complete sequence
+    // Verify the complete recreation sequence
     assert_eq!(
         sql.len(),
         6,
         "Expected 6 SQL statements for table recreation, got: {:?}",
         sql
     );
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);\n");
     assert_eq!(
-        sql[0], "PRAGMA foreign_keys=OFF;",
-        "Should start with PRAGMA OFF"
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
-    assert!(
-        sql[1].contains("CREATE TABLE `__new_table`"),
-        "Second should be CREATE TABLE __new_table"
-    );
-    assert!(
-        sql[1].contains("`name` TEXT"),
-        "Should have nullable name column"
-    );
-    assert!(!sql[1].contains("NOT NULL"), "Should NOT have NOT NULL");
-    assert!(
-        sql[2].contains("INSERT INTO `__new_table`"),
-        "Third should be INSERT"
-    );
-    assert!(
-        sql[3].contains("DROP TABLE `table`"),
-        "Fourth should be DROP TABLE"
-    );
-    assert!(
-        sql[4].contains("ALTER TABLE `__new_table` RENAME TO `table`"),
-        "Fifth should be RENAME"
-    );
-    assert_eq!(
-        sql[5], "PRAGMA foreign_keys=ON;",
-        "Should end with PRAGMA ON"
-    );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Alter column add NOT NULL (make non-nullable)
@@ -378,22 +343,19 @@ fn test_alter_column_add_not_null() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT NOT NULL\n);\n"
     );
-
-    // Verify NOT NULL is in the recreated table
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_table`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("NOT NULL"),
-        "Expected NOT NULL in recreated table, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Alter column add default
@@ -414,21 +376,19 @@ fn test_alter_column_add_default() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan'\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_table`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("DEFAULT 'dan'"),
-        "Expected DEFAULT 'dan' in recreated table, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Alter column drop default
@@ -449,22 +409,16 @@ fn test_alter_column_drop_default() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);\n");
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_table`"))
-        .unwrap();
-    // The new table should NOT have DEFAULT for the name column
-    assert!(
-        !create_stmt.contains("DEFAULT 'dan'"),
-        "Should NOT have DEFAULT 'dan' in recreated table, got: {}",
-        create_stmt
-    );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Alter column add default and NOT NULL together
@@ -486,21 +440,19 @@ fn test_alter_column_add_default_not_null() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan' NOT NULL\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_table`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("DEFAULT 'dan'") && create_stmt.contains("NOT NULL"),
-        "Expected DEFAULT 'dan' NOT NULL in recreated table, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Alter column drop both default and NOT NULL
@@ -522,11 +474,16 @@ fn test_alter_column_drop_default_not_null() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);\n");
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Alter column type change
@@ -544,21 +501,19 @@ fn test_alter_column_type_change() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern for type change, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_users` (\n\t`age` INTEGER\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_users`"))
-        .unwrap();
-    assert!(
-        create_stmt.to_lowercase().contains("integer"),
-        "Expected INTEGER type in recreated table, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_users`(`age`) SELECT `age` FROM `users`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `users`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_users` RENAME TO `users`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Drop autoincrement requires table recreation
@@ -585,21 +540,22 @@ fn test_drop_autoincrement() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern for dropping autoincrement, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_companies` (\n\t`id` INTEGER NOT NULL\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_companies`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("__new_companies"),
-        "Expected __new_companies, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_companies`(`id`) SELECT `id` FROM `companies`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `companies`;");
+    assert_eq!(
+        sql[4],
+        "ALTER TABLE `__new_companies` RENAME TO `companies`;"
+    );
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -644,21 +600,19 @@ fn test_add_foreign_key() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern for adding FK, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`report_to` INTEGER,\n\tCONSTRAINT `fk_users_report_to_users_id_fk` FOREIGN KEY (`report_to`) REFERENCES `users`(`id`)\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_users`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("FOREIGN KEY") && create_stmt.contains("REFERENCES"),
-        "Expected FOREIGN KEY REFERENCES in recreated table, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_users`(`id`, `report_to`) SELECT `id`, `report_to` FROM `users`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `users`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_users` RENAME TO `users`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -692,21 +646,19 @@ fn test_add_composite_pk() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern for adding PK, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_table` (\n\t`id1` INTEGER,\n\t`id2` INTEGER,\n\tCONSTRAINT `table_pk` PRIMARY KEY(`id1`, `id2`)\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_table`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("PRIMARY KEY"),
-        "Expected PRIMARY KEY in recreated table, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`id1`, `id2`) SELECT `id1`, `id2` FROM `table`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -733,21 +685,19 @@ fn test_add_generated_stored_column() {
 
     let sql = diff_sql(&from, &to);
 
-    assert!(
-        has_recreate_pattern(&sql),
-        "Expected table recreation pattern for STORED generated column, got: {:?}",
-        sql
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`gen_name` TEXT GENERATED ALWAYS AS 123 STORED\n);\n"
     );
-
-    let create_stmt = sql
-        .iter()
-        .find(|s| s.contains("CREATE TABLE `__new_users`"))
-        .unwrap();
-    assert!(
-        create_stmt.contains("GENERATED ALWAYS AS") && create_stmt.contains("STORED"),
-        "Expected GENERATED ALWAYS AS ... STORED, got: {}",
-        create_stmt
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_users`(`id`) SELECT `id` FROM `users`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `users`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_users` RENAME TO `users`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 /// Test: Add generated virtual column (can use ALTER TABLE ADD)
@@ -775,15 +725,9 @@ fn test_add_generated_virtual_column() {
         1,
         "Virtual columns can be added via ALTER TABLE ADD"
     );
-    assert!(
-        sql[0].contains("ALTER TABLE") && sql[0].contains("ADD"),
-        "Expected ALTER TABLE ADD for VIRTUAL column, got: {}",
-        sql[0]
-    );
-    assert!(
-        sql[0].contains("VIRTUAL"),
-        "Expected VIRTUAL keyword, got: {}",
-        sql[0]
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE `users` ADD `gen_name` TEXT GENERATED ALWAYS AS 123 VIRTUAL;"
     );
 }
 
@@ -850,19 +794,54 @@ fn test_alter_column_multiple_tables() {
 
     let sql = diff_sql(&from, &to);
 
-    let combined = sql.join("\n");
+    // Both tables are recreated: 6 statements per table = 12 total
+    assert_eq!(sql.len(), 12, "Expected 12 SQL statements, got: {:?}", sql);
 
-    // Both tables should be recreated
-    assert!(
-        combined.contains("__new_users"),
-        "Expected __new_users recreation, got: {}",
-        combined
+    // Table order between posts/users is non-deterministic; find each group by content
+    let posts_start = sql
+        .iter()
+        .position(|s| s.contains("__new_posts"))
+        .expect("Should contain __new_posts recreation")
+        - 1; // PRAGMA OFF is one before the CREATE TABLE
+    let users_start = sql
+        .iter()
+        .position(|s| s.contains("__new_users"))
+        .expect("Should contain __new_users recreation")
+        - 1;
+
+    // Posts recreation
+    assert_eq!(sql[posts_start], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[posts_start + 1],
+        "CREATE TABLE `__new_posts` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT NOT NULL,\n\t`user_id` INTEGER\n);\n"
     );
-    assert!(
-        combined.contains("__new_posts"),
-        "Expected __new_posts recreation, got: {}",
-        combined
+    assert_eq!(
+        sql[posts_start + 2],
+        "INSERT INTO `__new_posts`(`id`, `name`, `user_id`) SELECT `id`, `name`, `user_id` FROM `posts`;"
     );
+    assert_eq!(sql[posts_start + 3], "DROP TABLE `posts`;");
+    assert_eq!(
+        sql[posts_start + 4],
+        "ALTER TABLE `__new_posts` RENAME TO `posts`;"
+    );
+    assert_eq!(sql[posts_start + 5], "PRAGMA foreign_keys=ON;");
+
+    // Users recreation
+    assert_eq!(sql[users_start], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[users_start + 1],
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT\n);\n"
+    );
+    assert_eq!(
+        sql[users_start + 2],
+        "INSERT INTO `__new_users`(`id`, `name`) SELECT `id`, `name` FROM `users`;"
+    );
+    assert_eq!(sql[users_start + 3], "DROP TABLE `users`;");
+    assert_eq!(
+        sql[users_start + 4],
+        "ALTER TABLE `__new_users` RENAME TO `users`;"
+    );
+    assert_eq!(sql[users_start + 5], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -895,20 +874,19 @@ fn test_recreate_preserves_columns() {
 
     let sql = diff_sql(&from, &to);
 
-    // Find the INSERT statement
-    let insert_stmt = sql
-        .iter()
-        .find(|s| s.contains("INSERT INTO `__new_users`"))
-        .unwrap();
-
-    // Should include column references in the INSERT
-    assert!(
-        insert_stmt.contains("`id`")
-            && insert_stmt.contains("`name`")
-            && insert_stmt.contains("`age`"),
-        "Expected all columns in INSERT, got: {}",
-        insert_stmt
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`name` TEXT NOT NULL,\n\t`age` INTEGER\n);\n"
     );
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_users`(`id`, `name`, `age`) SELECT `id`, `name`, `age` FROM `users`;"
+    );
+    assert_eq!(sql[3], "DROP TABLE `users`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_users` RENAME TO `users`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -947,21 +925,21 @@ fn test_recreate_with_indexes() {
     );
 
     let sql = diff_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    // Table should be recreated
-    assert!(
-        combined.contains("__new_table"),
-        "Expected table recreation, got: {}",
-        combined
+    assert_eq!(sql.len(), 7, "Expected 7 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan' NOT NULL\n);\n"
     );
-
-    // Index should be recreated after table recreation
-    assert!(
-        combined.contains("CREATE INDEX `index_name`"),
-        "Expected CREATE INDEX after recreation, got: {}",
-        combined
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `table`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
+    assert_eq!(sql[6], "CREATE INDEX `index_name` ON `table` (`name`);");
 }
 
 // =============================================================================
@@ -1073,19 +1051,18 @@ fn test_recreate_table_with_nested_references() {
     }
 
     let sql = diff_sql(&from, &to);
-    let combined = sql.join("\n");
 
-    // Users table should be recreated
-    assert!(
-        combined.contains("__new_users"),
-        "Expected users table recreation, got: {}",
-        combined
+    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
+    assert_eq!(
+        sql[1],
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT,\n\t`age` INTEGER\n);\n"
     );
-
-    // Should have PRAGMA wrappers
-    assert!(
-        combined.contains("PRAGMA foreign_keys=OFF"),
-        "Expected PRAGMA foreign_keys=OFF, got: {}",
-        combined
+    assert_eq!(
+        sql[2],
+        "INSERT INTO `__new_users`(`id`, `name`, `age`) SELECT `id`, `name`, `age` FROM `users`;"
     );
+    assert_eq!(sql[3], "DROP TABLE `users`;");
+    assert_eq!(sql[4], "ALTER TABLE `__new_users` RENAME TO `users`;");
+    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
 }

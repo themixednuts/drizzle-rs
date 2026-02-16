@@ -1025,9 +1025,10 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(sql.contains("CREATE TABLE `users`"));
-        assert!(sql.contains("`id` INTEGER NOT NULL"));
-        assert!(sql.contains("`name` TEXT NOT NULL"));
+        assert_eq!(
+            sql,
+            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT NOT NULL\n);\n"
+        );
     }
 
     #[test]
@@ -1048,7 +1049,10 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(sql.contains("`id` INTEGER PRIMARY KEY"));
+        assert_eq!(
+            sql,
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY\n);\n"
+        );
     }
 
     #[test]
@@ -1081,8 +1085,10 @@ mod tests {
         .unique();
 
         let sql = convert_create_index(&CreateIndexStatement { index });
-        assert!(sql.contains("CREATE UNIQUE INDEX"));
-        assert!(sql.contains("`idx_users_email`"));
+        assert_eq!(
+            sql,
+            "CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`);"
+        );
     }
 
     #[test]
@@ -1102,11 +1108,9 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(sql.contains("CREATE TABLE `data`"));
-        assert!(
-            sql.contains(") STRICT;"),
-            "Expected STRICT suffix, got: {}",
-            sql
+        assert_eq!(
+            sql,
+            "CREATE TABLE `data` (\n\t`id` INTEGER NOT NULL,\n\t`value` TEXT NOT NULL\n) STRICT;\n"
         );
     }
 
@@ -1131,10 +1135,9 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(
-            sql.contains("WITHOUT ROWID"),
-            "Expected WITHOUT ROWID, got: {}",
-            sql
+        assert_eq!(
+            sql,
+            "CREATE TABLE `kv` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`value` BLOB\n) WITHOUT ROWID;\n"
         );
     }
 
@@ -1159,10 +1162,9 @@ mod tests {
         };
 
         let sql = convert_create_table(&CreateTableStatement { table });
-        assert!(
-            sql.contains("WITHOUT ROWID STRICT"),
-            "Expected 'WITHOUT ROWID STRICT', got: {}",
-            sql
+        assert_eq!(
+            sql,
+            "CREATE TABLE `cache` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`data` BLOB\n) WITHOUT ROWID STRICT;\n"
         );
     }
 }

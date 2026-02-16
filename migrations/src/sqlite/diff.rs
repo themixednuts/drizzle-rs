@@ -979,19 +979,28 @@ mod tests {
             "Should have RecreateTable statement for column alteration"
         );
 
-        // SQL should contain table recreation pattern
-        let sql = migration.sql_statements.join("\n");
+        // Verify individual SQL statements for table recreation pattern
+        assert_eq!(migration.sql_statements[0], "PRAGMA foreign_keys=OFF;");
         assert!(
-            sql.contains("PRAGMA foreign_keys=OFF"),
-            "Should disable foreign keys"
+            migration.sql_statements[1].starts_with("CREATE TABLE `__new_users`"),
+            "Expected CREATE TABLE `__new_users`, got: {}",
+            migration.sql_statements[1]
         );
-        assert!(sql.contains("__new_users"), "Should create temp table");
-        assert!(sql.contains("DROP TABLE"), "Should drop old table");
-        assert!(sql.contains("RENAME TO"), "Should rename temp table");
         assert!(
-            sql.contains("NOT NULL"),
-            "New table should have NOT NULL column"
+            migration.sql_statements[1].contains("`email` TEXT NOT NULL"),
+            "New table should have NOT NULL on email: {}",
+            migration.sql_statements[1]
         );
+        assert_eq!(
+            migration.sql_statements[2],
+            "INSERT INTO `__new_users`(`id`, `email`) SELECT `id`, `email` FROM `users`;"
+        );
+        assert_eq!(migration.sql_statements[3], "DROP TABLE `users`;");
+        assert_eq!(
+            migration.sql_statements[4],
+            "ALTER TABLE `__new_users` RENAME TO `users`;"
+        );
+        assert_eq!(migration.sql_statements[5], "PRAGMA foreign_keys=ON;");
     }
 
     #[test]

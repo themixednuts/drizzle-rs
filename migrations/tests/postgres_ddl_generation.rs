@@ -26,6 +26,23 @@ fn diff_to_sql(from: &PostgresDDL, to: &PostgresDDL) -> Vec<String> {
     generator.generate(&diffs)
 }
 
+/// Normalize a CREATE TABLE statement by sorting the column definition lines.
+///
+/// Splits the body of a `CREATE TABLE ... (\n\t...\n);` into individual
+/// tab-delimited lines, sorts them, and reassembles. This makes assertions
+/// deterministic regardless of column iteration order.
+fn normalize_create_table(sql: &str) -> String {
+    // Format: CREATE TABLE "name" (\n\t<lines joined by ,\n\t>\n);
+    let Some(paren_start) = sql.find("(\n\t") else {
+        return sql.to_string();
+    };
+    let header = &sql[..paren_start + 1]; // includes '('
+    let body = &sql[paren_start + 3..sql.len() - 3]; // strip "(\n\t" prefix and "\n);" suffix
+    let mut lines: Vec<&str> = body.split(",\n\t").collect();
+    lines.sort();
+    format!("{}\n\t{}\n);", header, lines.join(",\n\t"))
+}
+
 /// Helper to create a basic column
 fn column(table: &str, name: &str, sql_type: &str) -> Column {
     Column {
@@ -149,12 +166,14 @@ fn test_create_table_basic() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
-    assert!(sql_str.contains("\"id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"name\" text NOT NULL"));
-    assert!(sql_str.ends_with(");"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\t\"name\" text NOT NULL\n);"
+        ),
+        "Unexpected CREATE TABLE SQL: {}",
+        sql[0]
+    );
 }
 
 #[test]
@@ -170,13 +189,14 @@ fn test_create_table_with_primary_key() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary, PK rendered without CONSTRAINT prefix
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
-    assert!(sql_str.contains("\"id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"name\" text NOT NULL"));
-    assert!(sql_str.contains("PRIMARY KEY(\"id\")"));
-    assert!(sql_str.ends_with(");"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\t\"name\" text NOT NULL,\n\tPRIMARY KEY(\"id\")\n);"
+        ),
+        "Unexpected CREATE TABLE with PK SQL: {}",
+        sql[0]
+    );
 }
 
 #[test]
@@ -203,14 +223,14 @@ fn test_create_table_composite_pk() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary, but PK column order should be preserved
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE \"order_items\" ("));
-    assert!(sql_str.contains("\"order_id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"product_id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"quantity\" integer NOT NULL"));
-    assert!(sql_str.contains("PRIMARY KEY(\"order_id\", \"product_id\")"));
-    assert!(sql_str.ends_with(");"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE \"order_items\" (\n\t\"order_id\" integer NOT NULL,\n\t\"product_id\" integer NOT NULL,\n\t\"quantity\" integer NOT NULL,\n\tPRIMARY KEY(\"order_id\", \"product_id\")\n);"
+        ),
+        "Unexpected composite PK SQL: {}",
+        sql[0]
+    );
 }
 
 #[test]
@@ -326,14 +346,14 @@ fn test_create_table_with_unique_constraint() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
-    assert!(sql_str.contains("\"id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"email\" text NOT NULL"));
-    assert!(sql_str.contains("PRIMARY KEY(\"id\")"));
-    assert!(sql_str.contains("CONSTRAINT \"users_email_unique\" UNIQUE(\"email\")"));
-    assert!(sql_str.ends_with(");"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\t\"email\" text NOT NULL,\n\tPRIMARY KEY(\"id\"),\n\tCONSTRAINT \"users_email_unique\" UNIQUE(\"email\")\n);"
+        ),
+        "Unexpected CREATE TABLE with unique constraint SQL: {}",
+        sql[0]
+    );
 }
 
 #[test]
@@ -350,12 +370,14 @@ fn test_create_table_with_default() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE \"users\" ("));
-    assert!(sql_str.contains("\"id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"status\" text DEFAULT 'active'"));
-    assert!(sql_str.ends_with(");"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\t\"status\" text DEFAULT 'active'\n);"
+        ),
+        "Unexpected CREATE TABLE with default SQL: {}",
+        sql[0]
+    );
 }
 
 // =============================================================================
@@ -619,77 +641,30 @@ fn test_column_types() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Verify all column types are present in the output
-    let sql_str = &sql[0];
-    assert!(
-        sql_str.starts_with("CREATE TABLE \"all_types\" ("),
-        "Should start with CREATE TABLE"
+    let expected = "CREATE TABLE \"all_types\" (\n\
+        \t\"id\" serial NOT NULL,\n\
+        \t\"small\" smallint NOT NULL,\n\
+        \t\"big\" bigint NOT NULL,\n\
+        \t\"real_val\" real,\n\
+        \t\"double_val\" double precision,\n\
+        \t\"text_val\" text,\n\
+        \t\"varchar_val\" varchar(255),\n\
+        \t\"char_val\" char(10),\n\
+        \t\"bool_val\" boolean,\n\
+        \t\"timestamp_val\" timestamp,\n\
+        \t\"timestamptz_val\" timestamptz,\n\
+        \t\"date_val\" date,\n\
+        \t\"time_val\" time,\n\
+        \t\"json_val\" json,\n\
+        \t\"jsonb_val\" jsonb,\n\
+        \t\"uuid_val\" uuid\n\
+        );";
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(expected),
+        "Unexpected column types SQL: {}",
+        sql[0]
     );
-    assert!(
-        sql_str.contains("\"id\" serial NOT NULL"),
-        "Should have serial column"
-    );
-    assert!(
-        sql_str.contains("\"small\" smallint NOT NULL"),
-        "Should have smallint column"
-    );
-    assert!(
-        sql_str.contains("\"big\" bigint NOT NULL"),
-        "Should have bigint column"
-    );
-    assert!(
-        sql_str.contains("\"real_val\" real"),
-        "Should have real column"
-    );
-    assert!(
-        sql_str.contains("\"double_val\" double precision"),
-        "Should have double precision column"
-    );
-    assert!(
-        sql_str.contains("\"text_val\" text"),
-        "Should have text column"
-    );
-    assert!(
-        sql_str.contains("\"varchar_val\" varchar(255)"),
-        "Should have varchar column"
-    );
-    assert!(
-        sql_str.contains("\"char_val\" char(10)"),
-        "Should have char column"
-    );
-    assert!(
-        sql_str.contains("\"bool_val\" boolean"),
-        "Should have boolean column"
-    );
-    assert!(
-        sql_str.contains("\"timestamp_val\" timestamp"),
-        "Should have timestamp column"
-    );
-    assert!(
-        sql_str.contains("\"timestamptz_val\" timestamptz"),
-        "Should have timestamptz column"
-    );
-    assert!(
-        sql_str.contains("\"date_val\" date"),
-        "Should have date column"
-    );
-    assert!(
-        sql_str.contains("\"time_val\" time"),
-        "Should have time column"
-    );
-    assert!(
-        sql_str.contains("\"json_val\" json"),
-        "Should have json column"
-    );
-    assert!(
-        sql_str.contains("\"jsonb_val\" jsonb"),
-        "Should have jsonb column"
-    );
-    assert!(
-        sql_str.contains("\"uuid_val\" uuid"),
-        "Should have uuid column"
-    );
-    assert!(sql_str.ends_with(");"), "Should end with );");
 }
 
 // =============================================================================
@@ -837,14 +812,19 @@ fn test_self_referencing_fk() {
     let sql = diff_to_sql(&from, &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE \"categories\" ("));
-    assert!(sql_str.contains("\"id\" integer NOT NULL"));
-    assert!(sql_str.contains("\"parent_id\" integer"));
-    assert!(sql_str.contains("PRIMARY KEY(\"id\")"));
-    assert!(sql_str.contains("CONSTRAINT \"categories_parent_fk\" FOREIGN KEY (\"parent_id\") REFERENCES \"categories\"(\"id\")"));
-    assert!(sql_str.ends_with(");"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE \"categories\" (\n\
+            \t\"id\" integer NOT NULL,\n\
+            \t\"parent_id\" integer,\n\
+            \tPRIMARY KEY(\"id\"),\n\
+            \tCONSTRAINT \"categories_parent_fk\" FOREIGN KEY (\"parent_id\") REFERENCES \"categories\"(\"id\")\n\
+            );"
+        ),
+        "Unexpected self-referencing FK SQL: {}",
+        sql[0]
+    );
 }
 
 // =============================================================================
@@ -881,23 +861,15 @@ fn test_add_generated_column_expression() {
     to.pks.push(primary_key("users", vec!["id"]));
 
     let sql = diff_to_sql(&from, &to);
-    let all_sql = sql.join("\n");
 
-    // Should have DROP COLUMN and ADD COLUMN for the recreate
-    assert!(
-        all_sql.contains("DROP COLUMN \"full_name\""),
-        "Expected DROP COLUMN for recreating generated column, got:\n{}",
-        all_sql
-    );
-    assert!(
-        all_sql.contains("ADD COLUMN \"full_name\""),
-        "Expected ADD COLUMN for recreating generated column, got:\n{}",
-        all_sql
-    );
-    assert!(
-        all_sql.contains("GENERATED ALWAYS AS"),
-        "Expected GENERATED ALWAYS AS in the new column definition, got:\n{}",
-        all_sql
+    // DROP + ADD combined into one statement with newlines
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" DROP COLUMN \"full_name\";\n\
+         ALTER TABLE \"users\" ADD COLUMN \"full_name\" text GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;",
+        "Unexpected generated column recreation SQL: {}",
+        sql[0]
     );
 }
 

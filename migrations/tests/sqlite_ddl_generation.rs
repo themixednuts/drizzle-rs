@@ -27,21 +27,27 @@ fn diff_to_sql(from: &SQLiteDDL, to: &SQLiteDDL) -> Vec<String> {
     generator.generate_migration(&diff)
 }
 
-/// Assert that SQL contains all expected column definitions (order-independent)
-fn assert_columns_present(sql: &str, table: &str, columns: &[&str]) {
-    assert!(
-        sql.contains(&format!("CREATE TABLE `{}`", table)),
-        "SQL should contain CREATE TABLE `{}`",
-        table
-    );
-    for col in columns {
-        assert!(
-            sql.contains(col),
-            "SQL should contain column definition: {}\nActual SQL: {}",
-            col,
-            sql
-        );
-    }
+/// Normalize a CREATE TABLE statement by sorting column/constraint lines.
+/// This allows deterministic comparison when column order is non-deterministic.
+fn normalize_create_table(sql: &str) -> String {
+    // Find the body between "(" and ");\n" (or ") STRICT;\n" etc.)
+    let open = match sql.find('(') {
+        Some(i) => i,
+        None => return sql.to_string(),
+    };
+    let close = match sql.rfind(')') {
+        Some(i) => i,
+        None => return sql.to_string(),
+    };
+
+    let prefix = &sql[..=open]; // "CREATE TABLE `name` ("
+    let body = &sql[open + 1..close]; // column lines
+    let suffix = &sql[close..]; // ");\n" or ") STRICT;\n"
+
+    let mut lines: Vec<&str> = body.split(",\n").map(|l| l.trim_matches('\n')).collect();
+    lines.sort();
+
+    format!("{}{}{}", prefix, lines.join(",\n"), suffix)
 }
 
 // =============================================================================
@@ -178,14 +184,12 @@ fn test_create_table_composite_pk() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // Composite PK is rendered with CONSTRAINT name
-    // Column order in table may vary but PK order should be preserved
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE `users` ("));
-    assert!(sql_str.contains("`id1` INTEGER"));
-    assert!(sql_str.contains("`id2` INTEGER"));
-    assert!(sql_str.contains("CONSTRAINT `users_pk` PRIMARY KEY(`id1`, `id2`)"));
-    assert!(sql_str.ends_with(");\n"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE `users` (\n\t`id1` INTEGER,\n\t`id2` INTEGER,\n\tCONSTRAINT `users_pk` PRIMARY KEY(`id1`, `id2`)\n);\n"
+        ),
+    );
 }
 
 /// Test #6: Drop and create table (schema change)
@@ -254,13 +258,12 @@ fn test_create_table_self_referencing_fk() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary
-    let sql_str = &sql[0];
-    assert!(sql_str.starts_with("CREATE TABLE `users` ("));
-    assert!(sql_str.contains("`id` INTEGER AUTOINCREMENT NOT NULL"));
-    assert!(sql_str.contains("`reportee_id` INTEGER"));
-    assert!(sql_str.contains("CONSTRAINT `fk_users_reportee_id_users_id_fk` FOREIGN KEY (`reportee_id`) REFERENCES `users`(`id`)"));
-    assert!(sql_str.ends_with(");\n"));
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER,\n\tCONSTRAINT `fk_users_reportee_id_users_id_fk` FOREIGN KEY (`reportee_id`) REFERENCES `users`(`id`)\n);\n"
+        ),
+    );
 }
 
 /// Test #9: Table with index
@@ -297,18 +300,15 @@ fn test_create_table_with_index() {
     let create_table = sql.iter().find(|s| s.contains("CREATE TABLE")).unwrap();
     let create_index = sql.iter().find(|s| s.contains("CREATE INDEX")).unwrap();
 
-    // Column order may vary, check both possible orderings
-    let expected_v1 = "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER\n);\n";
-    let expected_v2 = "CREATE TABLE `users` (\n\t`reportee_id` INTEGER,\n\t`id` INTEGER AUTOINCREMENT NOT NULL\n);\n";
-    assert!(
-        *create_table == expected_v1 || *create_table == expected_v2,
-        "Unexpected CREATE TABLE SQL: {}",
-        create_table
-    );
-    // CREATE INDEX doesn't have trailing newline
     assert_eq!(
-        *create_index, "CREATE INDEX `reportee_idx` ON `users` (`reportee_id`);",
-        "Unexpected CREATE INDEX SQL"
+        normalize_create_table(create_table),
+        normalize_create_table(
+            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER\n);\n"
+        ),
+    );
+    assert_eq!(
+        *create_index,
+        "CREATE INDEX `reportee_idx` ON `users` (`reportee_id`);",
     );
 }
 
@@ -353,19 +353,12 @@ fn test_column_types() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // Column order may vary, so we check for presence of all column definitions
-    assert_columns_present(
-        &sql[0],
-        "types_test",
-        &[
-            "`int_col` INTEGER",
-            "`text_col` TEXT NOT NULL",
-            "`real_col` REAL DEFAULT 0.0",
-            "`blob_col` BLOB",
-            "`numeric_col` NUMERIC",
-        ],
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE `types_test` (\n\t`int_col` INTEGER,\n\t`text_col` TEXT NOT NULL,\n\t`real_col` REAL DEFAULT 0.0,\n\t`blob_col` BLOB,\n\t`numeric_col` NUMERIC\n);\n"
+        ),
     );
-    assert!(sql[0].ends_with(");\n"));
 }
 
 // =============================================================================
@@ -394,15 +387,12 @@ fn test_unique_column() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // Currently the generator renders primary_key() column as just NOT NULL
-    // (the primary key constraint is added separately or not shown inline)
-    // Column order may vary
-    assert_columns_present(
-        &sql[0],
-        "users",
-        &["`id` INTEGER NOT NULL", "`email` TEXT NOT NULL"],
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT NOT NULL\n);\n"
+        ),
     );
-    assert!(sql[0].ends_with(");\n"));
 }
 
 /// Test unique index
@@ -439,15 +429,15 @@ fn test_unique_index() {
         .find(|s| s.contains("CREATE UNIQUE INDEX"))
         .unwrap();
 
-    // Column order may vary
-    assert_columns_present(
-        create_table,
-        "users",
-        &["`id` INTEGER NOT NULL", "`email` TEXT"],
+    assert_eq!(
+        normalize_create_table(create_table),
+        normalize_create_table(
+            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT\n);\n"
+        ),
     );
     assert_eq!(
-        *create_index, "CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`);",
-        "Unexpected CREATE UNIQUE INDEX SQL"
+        *create_index,
+        "CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`);",
     );
 }
 
@@ -504,15 +494,15 @@ fn test_foreign_key_on_delete_cascade() {
     let posts_sql = sql.iter().find(|s| s.contains("`posts`")).unwrap();
 
     assert_eq!(
-        *users_sql, "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL\n);\n",
-        "Unexpected users table SQL"
+        *users_sql,
+        "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL\n);\n",
     );
-    // Column order may vary, so check for required parts
-    assert!(posts_sql.starts_with("CREATE TABLE `posts` ("));
-    assert!(posts_sql.contains("`id` INTEGER NOT NULL"));
-    assert!(posts_sql.contains("`author_id` INTEGER NOT NULL"));
-    assert!(posts_sql.contains("CONSTRAINT `fk_posts_author` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE"));
-    assert!(posts_sql.ends_with(");\n"));
+    assert_eq!(
+        normalize_create_table(posts_sql),
+        normalize_create_table(
+            "CREATE TABLE `posts` (\n\t`id` INTEGER NOT NULL,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `fk_posts_author` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE\n);\n"
+        ),
+    );
 }
 
 // =============================================================================
@@ -704,11 +694,7 @@ fn test_circular_fk_dependencies() {
         sql
     );
 
-    // PRAGMA statements don't have trailing newlines
-    assert_eq!(
-        sql[0], "PRAGMA foreign_keys=OFF;",
-        "Expected PRAGMA foreign_keys=OFF first"
-    );
+    assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
 
     // The two CREATE TABLE statements (order may vary between table_a and table_b)
     let create_a = sql
@@ -720,47 +706,18 @@ fn test_circular_fk_dependencies() {
         .find(|s| s.contains("CREATE TABLE `table_b`"))
         .unwrap();
 
-    // Column order may vary, so check for required parts
-    assert!(
-        create_a.starts_with("CREATE TABLE `table_a` ("),
-        "table_a should start with CREATE TABLE, got: {}",
-        create_a
-    );
-    assert!(
-        create_a.contains("`id` INTEGER NOT NULL"),
-        "table_a should contain id column"
-    );
-    assert!(
-        create_a.contains("`b_id` INTEGER"),
-        "table_a should contain b_id column"
-    );
-    assert!(
-        create_a.contains("CONSTRAINT `fk_a_to_b` FOREIGN KEY (`b_id`) REFERENCES `table_b`(`id`)"),
-        "table_a should contain FK constraint"
-    );
-    assert!(create_a.ends_with(");\n"), "table_a should end with );");
-
-    assert!(
-        create_b.starts_with("CREATE TABLE `table_b` ("),
-        "table_b should start with CREATE TABLE, got: {}",
-        create_b
-    );
-    assert!(
-        create_b.contains("`id` INTEGER NOT NULL"),
-        "table_b should contain id column"
-    );
-    assert!(
-        create_b.contains("`a_id` INTEGER"),
-        "table_b should contain a_id column"
-    );
-    assert!(
-        create_b.contains("CONSTRAINT `fk_b_to_a` FOREIGN KEY (`a_id`) REFERENCES `table_a`(`id`)"),
-        "table_b should contain FK constraint"
-    );
-    assert!(create_b.ends_with(");\n"), "table_b should end with );");
-
     assert_eq!(
-        sql[3], "PRAGMA foreign_keys=ON;",
-        "Expected PRAGMA foreign_keys=ON last"
+        normalize_create_table(create_a),
+        normalize_create_table(
+            "CREATE TABLE `table_a` (\n\t`id` INTEGER NOT NULL,\n\t`b_id` INTEGER,\n\tCONSTRAINT `fk_a_to_b` FOREIGN KEY (`b_id`) REFERENCES `table_b`(`id`)\n);\n"
+        ),
     );
+    assert_eq!(
+        normalize_create_table(create_b),
+        normalize_create_table(
+            "CREATE TABLE `table_b` (\n\t`id` INTEGER NOT NULL,\n\t`a_id` INTEGER,\n\tCONSTRAINT `fk_b_to_a` FOREIGN KEY (`a_id`) REFERENCES `table_a`(`id`)\n);\n"
+        ),
+    );
+
+    assert_eq!(sql[3], "PRAGMA foreign_keys=ON;");
 }

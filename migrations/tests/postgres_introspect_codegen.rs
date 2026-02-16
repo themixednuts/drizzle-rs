@@ -223,11 +223,16 @@ fn test_generate_postgres_schema() {
     assert!(
         generated
             .code
-            .contains("use drizzle::postgres::prelude::*;"),
-        "Should have postgres import"
+            .starts_with("//! Auto-generated PostgreSQL schema from introspection\n//!\n\nuse drizzle::postgres::prelude::*;\n"),
+        "Should have expected header with doc comment and postgres imports"
     );
-    assert!(generated.tables.contains(&"users".into()));
-    assert!(generated.tables.contains(&"posts".into()));
+    let mut tables = generated.tables.clone();
+    tables.sort();
+    assert_eq!(
+        tables,
+        vec!["posts", "users"],
+        "Should have exactly posts and users tables"
+    );
 }
 
 #[test]
@@ -381,9 +386,13 @@ fn test_process_tables() {
 
     let tables = process_tables(&raw);
     assert_eq!(tables.len(), 2);
-    assert!(tables.iter().any(|t| t.name == "users"));
-    assert!(tables.iter().any(|t| t.name == "posts"));
-    assert!(tables.iter().all(|t| t.schema != "pg_catalog"));
+    let mut table_names: Vec<&str> = tables.iter().map(|t| &*t.name).collect();
+    table_names.sort();
+    assert_eq!(
+        table_names,
+        vec!["posts", "users"],
+        "Should have exactly posts and users (no pg_catalog)"
+    );
 }
 
 #[test]
@@ -1229,29 +1238,52 @@ fn test_enum_codegen() {
     println!("Generated code with enum:\n{}", generated.code);
 
     // Verify enum was generated
-    assert!(generated.enums.contains(&"order_status".into()));
-
-    // Verify enum definition in generated code
-    assert!(
-        generated
-            .code
-            .contains("#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]")
-    );
-    assert!(generated.code.contains("enum OrderStatus {"));
-    assert!(generated.code.contains("#[default]"));
-    assert!(generated.code.contains("Pending,"));
-    assert!(generated.code.contains("Completed,"));
-
-    // Verify table uses the enum type
-    assert!(generated.code.contains("status: OrderStatus,"));
-    assert!(
-        generated
-            .code
-            .contains("previous_status: Option<OrderStatus>,")
+    assert_eq!(
+        generated.enums,
+        vec!["order_status".to_string()],
+        "Should have exactly one enum: order_status"
     );
 
-    // Verify enum attribute is added for enum columns
-    assert!(generated.code.contains("#[column(enum)]"));
+    // Verify exact enum definition in generated code
+    let expected_enum = concat!(
+        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
+        "enum OrderStatus {\n",
+        "    #[default]\n",
+        "    Pending,\n",
+        "    Processing,\n",
+        "    Completed,\n",
+        "    Cancelled,\n",
+        "}",
+    );
+    assert!(
+        generated.code.contains(expected_enum),
+        "Should have exact enum definition"
+    );
+
+    // Verify table uses the enum type with correct column attributes
+    let parsed = SchemaParser::parse(&generated.code);
+    let orders = parsed
+        .table("Orders", Dialect::PostgreSQL)
+        .expect("Should have Orders table");
+
+    let status = orders.field("status").expect("Should have status field");
+    assert_eq!(
+        status.ty, "OrderStatus",
+        "status should be OrderStatus type"
+    );
+    assert!(status.has_attr("enum"), "status should have enum attribute");
+
+    let prev_status = orders
+        .field("previous_status")
+        .expect("Should have previous_status field");
+    assert_eq!(
+        prev_status.ty, "Option<OrderStatus>",
+        "previous_status should be Option<OrderStatus>"
+    );
+    assert!(
+        prev_status.has_attr("enum"),
+        "previous_status should have enum attribute"
+    );
 }
 
 #[test]
@@ -1340,17 +1372,67 @@ fn test_multiple_enums_codegen() {
     println!("Generated code with multiple enums:\n{}", generated.code);
 
     // Both enums should be generated
-    assert_eq!(generated.enums.len(), 2);
-    assert!(generated.enums.contains(&"priority".into()));
-    assert!(generated.enums.contains(&"task_type".into()));
+    let mut enums = generated.enums.clone();
+    enums.sort();
+    assert_eq!(
+        enums,
+        vec!["priority", "task_type"],
+        "Should have exactly priority and task_type enums"
+    );
 
-    // Verify both enum definitions
-    assert!(generated.code.contains("enum Priority {"));
-    assert!(generated.code.contains("enum TaskType {"));
+    // Verify exact enum definitions
+    let expected_priority = concat!(
+        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
+        "enum Priority {\n",
+        "    #[default]\n",
+        "    Low,\n",
+        "    Medium,\n",
+        "    High,\n",
+        "}",
+    );
+    assert!(
+        generated.code.contains(expected_priority),
+        "Should have exact Priority enum definition"
+    );
+
+    let expected_task_type = concat!(
+        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
+        "enum TaskType {\n",
+        "    #[default]\n",
+        "    Bug,\n",
+        "    Feature,\n",
+        "    Chore,\n",
+        "}",
+    );
+    assert!(
+        generated.code.contains(expected_task_type),
+        "Should have exact TaskType enum definition"
+    );
 
     // Verify table uses both enum types
-    assert!(generated.code.contains("priority: Priority,"));
-    assert!(generated.code.contains("task_type: TaskType,"));
+    let parsed = SchemaParser::parse(&generated.code);
+    let tasks = parsed
+        .table("Tasks", Dialect::PostgreSQL)
+        .expect("Should have Tasks table");
+
+    let priority = tasks.field("priority").expect("Should have priority field");
+    assert_eq!(priority.ty, "Priority", "priority should be Priority type");
+    assert!(
+        priority.has_attr("enum"),
+        "priority should have enum attribute"
+    );
+
+    let task_type = tasks
+        .field("task_type")
+        .expect("Should have task_type field");
+    assert_eq!(
+        task_type.ty, "TaskType",
+        "task_type should be TaskType type"
+    );
+    assert!(
+        task_type.has_attr("enum"),
+        "task_type should have enum attribute"
+    );
 }
 
 #[test]
@@ -1375,23 +1457,22 @@ fn test_enum_with_special_values() {
 
     println!("Generated enum with special values:\n{}", generated.code);
 
-    // Verify enum is properly named
-    assert!(generated.code.contains("enum HttpMethod {"));
-
-    // Verify derives are correct
-    assert!(
-        generated
-            .code
-            .contains("#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]")
+    // Verify exact enum definition with PascalCase variants
+    let expected_enum = concat!(
+        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
+        "enum HttpMethod {\n",
+        "    #[default]\n",
+        "    Get,\n",
+        "    Post,\n",
+        "    Put,\n",
+        "    Delete,\n",
+        "    Patch,\n",
+        "}",
     );
-
-    // Verify first variant has #[default]
-    assert!(generated.code.contains("#[default]"));
-
-    // Verify variant names are converted to PascalCase
-    assert!(generated.code.contains("Get,"));
-    assert!(generated.code.contains("Post,"));
-    assert!(generated.code.contains("Delete,"));
+    assert!(
+        generated.code.contains(expected_enum),
+        "Should have exact HttpMethod enum definition with PascalCase variants"
+    );
 }
 
 // =============================================================================
@@ -1493,24 +1574,39 @@ fn test_materialized_view_codegen() {
 
     println!("Generated code with views:\n{}", generated.code);
 
-    // Verify regular view was generated without materialized flag
-    assert!(generated.views.contains(&"active_users".into()));
-    assert!(generated.code.contains("struct ActiveUsers {"));
-    assert!(
-        generated.code.contains("#[PostgresView(definition ="),
-        "Regular view should have definition attribute"
+    // Verify views list
+    let mut views = generated.views.clone();
+    views.sort();
+    assert_eq!(
+        views,
+        vec!["active_users", "monthly_sales"],
+        "Should have exactly active_users and monthly_sales views"
     );
 
-    // Verify materialized view was generated with materialized flag
-    assert!(generated.views.contains(&"monthly_sales".into()));
-    assert!(generated.code.contains("struct MonthlySales {"));
-    assert!(
-        generated.code.contains("materialized"),
-        "Materialized view should have materialized attribute"
+    // Verify exact regular view struct
+    let expected_active = concat!(
+        "#[PostgresView(definition = \"SELECT * FROM users WHERE active = true\")]\n",
+        "struct ActiveUsers {\n",
+        "    id: i32,\n",
+        "    name: String,\n",
+        "}",
     );
     assert!(
-        generated.code.contains("schema = \"analytics\""),
-        "View should have schema attribute when not public"
+        generated.code.contains(expected_active),
+        "Should have exact ActiveUsers view definition"
+    );
+
+    // Verify exact materialized view struct with schema attribute
+    let expected_monthly = concat!(
+        "#[PostgresView(schema = \"analytics\", materialized, definition = \"SELECT * FROM sales WHERE date > now() - interval '30 days'\")]\n",
+        "struct MonthlySales {\n",
+        "    id: i32,\n",
+        "    amount: String,\n",
+        "}",
+    );
+    assert!(
+        generated.code.contains(expected_monthly),
+        "Should have exact MonthlySales materialized view with schema attribute"
     );
 }
 
@@ -1570,31 +1666,24 @@ fn test_materialized_view_with_options_codegen() {
         generated.code
     );
 
-    // Verify the materialized view was generated
-    assert!(generated.views.contains(&"user_stats".into()));
-    assert!(generated.code.contains("struct UserStats {"));
-
-    // Verify materialized attribute
-    assert!(
-        generated.code.contains("materialized"),
-        "Should have materialized attribute"
+    // Verify views list
+    assert_eq!(
+        generated.views,
+        vec!["user_stats".to_string()],
+        "Should have exactly user_stats view"
     );
 
-    // Verify with_no_data attribute
-    assert!(
-        generated.code.contains("with_no_data"),
-        "Should have with_no_data attribute"
+    // Verify exact materialized view struct with all options
+    let expected_view = concat!(
+        "#[PostgresView(materialized, with_no_data, using = \"heap\", tablespace = \"fast_ssd\", ",
+        "definition = \"SELECT user_id, count(*) as count FROM events GROUP BY user_id\")]\n",
+        "struct UserStats {\n",
+        "    user_id: i32,\n",
+        "    count: i64,\n",
+        "}",
     );
-
-    // Verify using attribute
     assert!(
-        generated.code.contains("using = \"heap\""),
-        "Should have using attribute with 'heap' value"
-    );
-
-    // Verify tablespace attribute
-    assert!(
-        generated.code.contains("tablespace = \"fast_ssd\""),
-        "Should have tablespace attribute"
+        generated.code.contains(expected_view),
+        "Should have exact UserStats materialized view with all options"
     );
 }

@@ -867,9 +867,18 @@ mod tests {
 
         let stmts = split_on_semicolons(sql);
         assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
-        assert!(stmts[0].starts_with("CREATE TABLE users"));
-        assert!(stmts[1].contains("CREATE INDEX users_id_idx"));
-        assert!(stmts[2].contains("CREATE TABLE posts"));
+        assert_eq!(
+            stmts[0],
+            "CREATE TABLE users(id INTEGER, note TEXT DEFAULT 'a;b')"
+        );
+        assert_eq!(
+            stmts[1],
+            "-- comment with ; should not split\nCREATE INDEX users_id_idx ON users(id)"
+        );
+        assert_eq!(
+            stmts[2],
+            "/* block ; comment */\nCREATE TABLE posts(id INTEGER)"
+        );
     }
 
     #[test]
@@ -885,8 +894,11 @@ mod tests {
 
         let stmts = split_on_semicolons(sql);
         assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
-        assert!(stmts[0].starts_with("CREATE FUNCTION f()"));
-        assert!(stmts[1].starts_with("CREATE TABLE t"));
+        assert_eq!(
+            stmts[0],
+            "CREATE FUNCTION f() RETURNS void AS $$\nBEGIN\nRAISE NOTICE 'x;y';\nEND;\n$$ LANGUAGE plpgsql"
+        );
+        assert_eq!(stmts[1], "CREATE TABLE t(id INTEGER)");
     }
 
     #[test]
@@ -902,8 +914,8 @@ mod tests {
 
         let stmts = split_on_semicolons(sql);
         assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
-        assert!(stmts[0].starts_with("DO $body$"));
-        assert!(stmts[1].starts_with("CREATE TABLE tagged"));
+        assert_eq!(stmts[0], "DO $body$\nBEGIN\nPERFORM 1;\nEND;\n$body$");
+        assert_eq!(stmts[1], "CREATE TABLE tagged(id INTEGER)");
     }
 
     #[test]

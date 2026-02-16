@@ -591,13 +591,25 @@ mod tests {
 
         let result = generate_rust_schema(&ddl, &options);
 
-        assert!(result.code.contains("#[SQLiteTable]"));
-        assert!(result.code.contains("pub struct Users"));
-        assert!(result.code.contains("#[column(primary, autoincrement)]"));
-        assert!(result.code.contains("pub id: i64"));
-        assert!(result.code.contains("pub name: String"));
-        assert!(result.code.contains("pub email: Option<String>"));
-        assert_eq!(result.tables.len(), 1);
+        assert_eq!(
+            result.code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable]
+pub struct Users {
+    pub email: Option<String>,
+    #[column(primary, autoincrement)]
+    pub id: i64,
+    pub name: String,
+}
+
+"
+        );
+        assert_eq!(result.tables, vec!["users"]);
     }
 
     #[test]
@@ -617,7 +629,23 @@ mod tests {
         let options = CodegenOptions::default();
         let result = generate_rust_schema(&ddl, &options);
 
-        assert!(result.code.contains("#[column(unique)]"));
+        assert_eq!(
+            result.code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable]
+struct Accounts {
+    #[column(unique)]
+    email: String,
+    id: i64,
+}
+
+"
+        );
     }
 
     #[test]
@@ -641,7 +669,23 @@ mod tests {
         let options = CodegenOptions::default();
         let result = generate_rust_schema(&ddl, &options);
 
-        assert!(result.code.contains("references = Users::id"));
+        assert_eq!(
+            result.code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable]
+struct Posts {
+    #[column(references = Users::id)]
+    author_id: i64,
+    id: i64,
+}
+
+"
+        );
     }
 
     #[test]
@@ -666,8 +710,24 @@ mod tests {
         let options = CodegenOptions::default();
         let result = generate_rust_schema(&ddl, &options);
 
-        assert!(result.code.contains("#[SQLiteIndex(unique)]"));
-        assert!(result.code.contains("struct UsersEmailIdx(Users::email)"));
+        assert_eq!(
+            result.code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable]
+struct Users {
+    email: String,
+}
+
+#[SQLiteIndex(unique)]
+struct UsersEmailIdx(Users::email);
+
+"
+        );
     }
 
     #[test]
@@ -685,10 +745,29 @@ mod tests {
 
         let result = generate_rust_schema(&ddl, &options);
 
-        assert!(result.code.contains("#[derive(SQLiteSchema)]"));
-        assert!(result.code.contains("pub struct AppSchema"));
-        assert!(result.code.contains("pub users: Users"));
-        assert!(result.code.contains("pub posts: Posts"));
+        assert_eq!(
+            result.code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable]
+pub struct Users {
+}
+
+#[SQLiteTable]
+pub struct Posts {
+}
+
+#[derive(SQLiteSchema)]
+pub struct AppSchema {
+    pub users: Users,
+    pub posts: Posts,
+}
+"
+        );
     }
 
     #[test]
