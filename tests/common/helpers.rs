@@ -17,13 +17,10 @@ pub struct CapturedStatement {
 /// Calculate display width accounting for special characters
 fn display_width(s: &str) -> usize {
     s.chars()
-        .map(|c| {
-            match c {
-                '\t' => 4,      // Tabs count as 4 spaces
-                '✓' | '✗' => 1, // These are rendered as single width in most terminals
-                _ if c.is_ascii() => 1,
-                _ => 2, // Assume non-ASCII chars are double-width (conservative)
-            }
+        .map(|c| match c {
+            '✓' | '✗' | '→' => 1,
+            _ if c.is_ascii() => 1,
+            _ => 2,
         })
         .sum()
 }
@@ -74,13 +71,7 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
                             let mut chunk = String::new();
                             let mut chunk_width = 0;
                             while let Some(&c) = chars.peek() {
-                                let c_width = if c == '\t' {
-                                    4
-                                } else if c.is_ascii() {
-                                    1
-                                } else {
-                                    2
-                                };
+                                let c_width = if c.is_ascii() { 1 } else { 2 };
                                 if chunk_width + c_width > width {
                                     break;
                                 }
@@ -172,7 +163,7 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
     let mut report = String::new();
 
     // Header
-    let header = format!("{} TEST FAILURE REPORT", driver_name.to_uppercase());
+    let header = "TEST FAILURE REPORT";
     let header_width = display_width(&header);
     let header_padding = (BOX_WIDTH - 2 - header_width) / 2;
     let header_padding_right = BOX_WIDTH - 2 - header_width - header_padding;
@@ -299,11 +290,27 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
                         report.push_str(&box_line(&wrap_line, "    "));
                     }
                 }
+                // Blank line separating source from SQL/params/error
+                report.push_str(&empty_box_line());
                 // Show generated SQL on next line with arrow
                 let sql_display = format!("→ {}", stmt.sql);
                 for line in sql_display.lines() {
                     let expanded = expand_tabs(line);
                     let wrapped = wrap_text(&expanded, CONTENT_WIDTH - 4);
+                    for wrap_line in wrapped {
+                        report.push_str(&box_line(&wrap_line, "    "));
+                    }
+                }
+                if let Some(params) = &stmt.params {
+                    let params_display = format!("Params: {}", params);
+                    let wrapped = wrap_text(&params_display, CONTENT_WIDTH - 4);
+                    for wrap_line in wrapped {
+                        report.push_str(&box_line(&wrap_line, "    "));
+                    }
+                }
+                if let Some(err) = &stmt.error {
+                    let err_display = format!("Error: {}", err);
+                    let wrapped = wrap_text(&err_display, CONTENT_WIDTH - 4);
                     for wrap_line in wrapped {
                         report.push_str(&box_line(&wrap_line, "    "));
                     }
@@ -317,21 +324,12 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
                         report.push_str(&box_line(&wrap_line, "    "));
                     }
                 }
-            }
-
-            if let Some(params) = &stmt.params {
-                let params_display = format!("Params: {}", params);
-                let wrapped = wrap_text(&params_display, CONTENT_WIDTH - 4);
-                for wrap_line in wrapped {
-                    report.push_str(&box_line(&wrap_line, "    "));
-                }
-            }
-
-            if let Some(err) = &stmt.error {
-                let err_display = format!("Error: {}", err);
-                let wrapped = wrap_text(&err_display, CONTENT_WIDTH - 4);
-                for wrap_line in wrapped {
-                    report.push_str(&box_line(&wrap_line, "    "));
+                if let Some(err) = &stmt.error {
+                    let err_display = format!("Error: {}", err);
+                    let wrapped = wrap_text(&err_display, CONTENT_WIDTH - 4);
+                    for wrap_line in wrapped {
+                        report.push_str(&box_line(&wrap_line, "    "));
+                    }
                 }
             }
 
