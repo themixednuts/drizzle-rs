@@ -22,6 +22,7 @@ drizzle-seed = { workspace = true, optional = true, default-features = false }
 clap = { workspace = true }
 colored = { workspace = true }
 heck = { workspace = true }
+inquire = { workspace = true }
 
 # Configuration
 toml = { workspace = true }

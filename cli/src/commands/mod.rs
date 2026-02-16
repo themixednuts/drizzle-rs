@@ -7,6 +7,7 @@ pub mod export;
 pub mod generate;
 pub mod introspect;
 pub mod migrate;
+pub mod new;
 pub mod overrides;
 pub mod push;
 pub mod status;

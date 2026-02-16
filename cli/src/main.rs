@@ -271,6 +271,17 @@ enum Command {
         schema: Option<Vec<String>>,
     },
 
+    /// Interactively build a new schema file
+    New {
+        /// Override dialect (sqlite, postgresql)
+        #[arg(long, value_parser = parse_dialect)]
+        dialect: Option<Dialect>,
+
+        /// Override schema output path
+        #[arg(long)]
+        schema: Option<String>,
+    },
+
     /// Initialize a new drizzle.config.toml configuration file
     Init {
         /// Database dialect (sqlite, postgresql, turso)
@@ -334,6 +345,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
     let db_name = cli.db.as_deref();
 
     match cli.command {
+        Command::New { dialect, schema } => {
+            let config = load_config(cli.config.as_deref()).ok();
+            drizzle_cli::commands::new::run(
+                config.as_ref(),
+                drizzle_cli::commands::new::NewOptions { dialect, schema },
+            )
+        }
         Command::Init { dialect, driver } => run_init(&dialect, driver.as_deref()),
         Command::Generate {
             name,
