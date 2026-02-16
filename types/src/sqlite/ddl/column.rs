@@ -272,10 +272,7 @@ pub struct Column {
     pub not_null: bool,
 
     /// Is this column AUTOINCREMENT?
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub autoincrement: Option<bool>,
 
     /// Is this column a PRIMARY KEY?
@@ -295,19 +292,12 @@ pub struct Column {
     /// Default value as string
     #[cfg_attr(
         feature = "serde",
-        serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "cow_option_from_string"
-        )
+        serde(default, deserialize_with = "cow_option_from_string")
     )]
     pub default: Option<Cow<'static, str>>,
 
     /// Generated column configuration
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub generated: Option<Generated>,
 
     /// Ordinal position within the table (cid, 0-based).

@@ -334,12 +334,8 @@ mod serde_impl {
             state.serialize_field("tableTo", &*self.table_to)?;
             let cols_to: Vec<&str> = self.columns_to.iter().map(|c| c.as_ref()).collect();
             state.serialize_field("columnsTo", &cols_to)?;
-            if let Some(ref action) = self.on_delete {
-                state.serialize_field("onDelete", &**action)?;
-            }
-            if let Some(ref action) = self.on_update {
-                state.serialize_field("onUpdate", &**action)?;
-            }
+            state.serialize_field("onDelete", &self.on_delete.as_deref())?;
+            state.serialize_field("onUpdate", &self.on_update.as_deref())?;
             state.serialize_field("nameExplicit", &self.name_explicit)?;
             state.end()
         }

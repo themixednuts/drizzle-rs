@@ -528,30 +528,20 @@ pub struct Column {
     /// Default value as string
     #[cfg_attr(
         feature = "serde",
-        serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "cow_option_from_string"
-        )
+        serde(default, deserialize_with = "cow_option_from_string")
     )]
     pub default: Option<Cow<'static, str>>,
 
     /// Generated column configuration
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub generated: Option<Generated>,
 
     /// Identity column configuration
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub identity: Option<Identity>,
 
     /// Array dimensions (for array types)
-    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub dimensions: Option<i32>,
 
     /// Ordinal position within the table (1-based).
