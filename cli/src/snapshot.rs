@@ -793,24 +793,28 @@ pub struct User {
             "Should generate migration SQL for nullable change"
         );
 
-        let combined = migration.sql_statements.join("\n");
+        // Verify individual SQL statements for table recreation pattern
+        assert_eq!(migration.sql_statements[0], "PRAGMA foreign_keys=OFF;");
         assert!(
-            combined.contains("PRAGMA foreign_keys=OFF"),
-            "Should contain PRAGMA foreign_keys=OFF for table recreation"
+            migration.sql_statements[1].starts_with("CREATE TABLE `__new_user`"),
+            "Expected CREATE TABLE `__new_user`, got: {}",
+            migration.sql_statements[1]
         );
         assert!(
-            combined.contains("__new_user"),
-            "Should create temporary table __new_user"
+            migration.sql_statements[1].contains("`email` TEXT NOT NULL"),
+            "New table should have NOT NULL on email: {}",
+            migration.sql_statements[1]
         );
-        assert!(
-            combined.contains("NOT NULL"),
-            "New table should have NOT NULL on email column"
+        assert_eq!(
+            migration.sql_statements[2],
+            "INSERT INTO `__new_user`(`id`, `name`, `email`) SELECT `id`, `name`, `email` FROM `user`;"
         );
-        assert!(combined.contains("DROP TABLE"), "Should drop old table");
-        assert!(
-            combined.contains("RENAME TO"),
-            "Should rename temp table to original"
+        assert_eq!(migration.sql_statements[3], "DROP TABLE `user`;");
+        assert_eq!(
+            migration.sql_statements[4],
+            "ALTER TABLE `__new_user` RENAME TO `user`;"
         );
+        assert_eq!(migration.sql_statements[5], "PRAGMA foreign_keys=ON;");
     }
 
     /// Test that changing a column from String to Option<String> generates table recreation
@@ -864,11 +868,19 @@ pub struct User {
             "Should generate migration SQL for nullable change"
         );
 
-        let combined = migration.sql_statements.join("\n");
+        // Verify individual SQL statements for table recreation pattern
+        assert_eq!(migration.sql_statements[0], "PRAGMA foreign_keys=OFF;");
         assert!(
-            combined.contains("__new_user"),
-            "Should create temporary table for recreation"
+            migration.sql_statements[1].starts_with("CREATE TABLE `__new_user`"),
+            "Expected CREATE TABLE `__new_user`, got: {}",
+            migration.sql_statements[1]
         );
+        assert_eq!(migration.sql_statements[3], "DROP TABLE `user`;");
+        assert_eq!(
+            migration.sql_statements[4],
+            "ALTER TABLE `__new_user` RENAME TO `user`;"
+        );
+        assert_eq!(migration.sql_statements[5], "PRAGMA foreign_keys=ON;");
     }
 
     #[test]

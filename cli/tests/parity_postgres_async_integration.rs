@@ -119,7 +119,7 @@ url = '{url}'
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("app_events")
+            predicates::str::contains("\"app_events\"")
                 .and(predicates::str::contains("public_users").not())
                 .and(predicates::str::contains("CREATE SCHEMA \"app\"")),
         );
@@ -191,14 +191,29 @@ url = '{url}'
         .success();
 
     let schema_rs = fs::read_to_string(out_dir.join("schema.rs")).expect("read schema.rs");
-    assert!(schema_rs.contains("pub userName: String"));
-    assert!(!schema_rs.contains(&format!("pub {table_skip}")));
+    assert!(
+        schema_rs.contains("pub userName: String"),
+        "schema.rs should contain camelCase field userName"
+    );
+    assert!(
+        !schema_rs.contains(&format!("pub {table_skip}")),
+        "schema.rs should not contain filtered-out table {table_skip}"
+    );
 
     let migration_dir = first_migration_dir(&out_dir);
     let migration_sql = fs::read_to_string(migration_dir.join("migration.sql")).expect("read sql");
-    assert!(migration_sql.contains(&table_logs));
-    assert!(!migration_sql.contains(&format!("CREATE TABLE \"{schema}\".\"{table_skip}\"")));
-    assert!(migration_sql.contains("--> statement-breakpoint"));
+    assert!(
+        migration_sql.contains(&format!("\"{table_logs}\"")),
+        "migration SQL should contain quoted table name {table_logs}"
+    );
+    assert!(
+        !migration_sql.contains(&format!("\"{schema}\".\"{table_skip}\"")),
+        "migration SQL should not contain filtered-out table {table_skip}"
+    );
+    assert!(
+        migration_sql.contains("--> statement-breakpoint"),
+        "breakpoints should be enabled"
+    );
 
     pg_exec(&format!(
         r#"

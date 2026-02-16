@@ -1,7 +1,6 @@
 #![cfg(feature = "postgres-sync")]
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use postgres::{Client, NoTls};
 use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,8 +13,8 @@ fn pg_url() -> String {
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/drizzle_test".to_string())
 }
 
-fn pg_client() -> Client {
-    Client::connect(&pg_url(), NoTls).unwrap_or_else(|e| {
+fn pg_client() -> postgres::Client {
+    postgres::Client::connect(&pg_url(), postgres::NoTls).unwrap_or_else(|e| {
         panic!(
             "failed to connect to postgres for integration test: {e}. \
              Start test DB (e.g. `docker compose up -d postgres`) or set DRIZZLE_TEST_DATABASE_URL"
@@ -113,7 +112,7 @@ url = '{url}'
         .success()
         .stdout(
             predicates::str::contains("CREATE SCHEMA \"app\"")
-                .and(predicates::str::contains("app_events"))
+                .and(predicates::str::contains("\"app_events\""))
                 .and(predicates::str::contains("app_temp").not())
                 .and(predicates::str::contains("public_users").not()),
         );
@@ -166,7 +165,7 @@ url = '{url}'
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("public_users")
+            predicates::str::contains("\"public_users\"")
                 .and(predicates::str::contains("app_events").not())
                 .and(predicates::str::contains("CREATE SCHEMA \"app\"").not()),
         );
@@ -232,7 +231,7 @@ url = '{url}'
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("users")
+            predicates::str::contains("\"users\"")
                 .and(predicates::str::contains("spatial_ref_sys").not())
                 .and(predicates::str::contains("topology").not()),
         );
@@ -312,16 +311,38 @@ url = '{url}'
         .success();
 
     let schema_rs = fs::read_to_string(out_dir.join("schema.rs")).expect("read schema.rs");
-    assert!(schema_rs.contains(&format!("pub {table_logs}")));
-    assert!(schema_rs.contains("pub user_name: String"));
-    assert!(!schema_rs.contains(&table_skip));
+    // Dynamic table names prevent exact match, but we can check structural elements
+    assert!(
+        schema_rs.contains(&format!("pub {table_logs}")),
+        "schema.rs should contain pub field for {table_logs}"
+    );
+    assert!(
+        schema_rs.contains("pub user_name: String"),
+        "schema.rs should contain user_name field with preserve casing"
+    );
+    assert!(
+        !schema_rs.contains(&table_skip),
+        "schema.rs should not contain filtered-out table {table_skip}"
+    );
 
     let migration_dir = first_migration_dir(&out_dir);
     let migration_sql = fs::read_to_string(migration_dir.join("migration.sql")).expect("read sql");
-    assert!(migration_sql.contains(&table_logs));
-    assert!(migration_sql.contains(&table_meta));
-    assert!(!migration_sql.contains(&table_skip));
-    assert!(!migration_sql.contains("--> statement-breakpoint"));
+    assert!(
+        migration_sql.contains(&format!("\"{table_logs}\"")),
+        "migration SQL should contain quoted table name {table_logs}"
+    );
+    assert!(
+        migration_sql.contains(&format!("\"{table_meta}\"")),
+        "migration SQL should contain quoted table name {table_meta}"
+    );
+    assert!(
+        !migration_sql.contains(&table_skip),
+        "migration SQL should not contain filtered-out table {table_skip}"
+    );
+    assert!(
+        !migration_sql.contains("--> statement-breakpoint"),
+        "breakpoints should be disabled"
+    );
 
     pg.batch_execute(&format!(
         r#"

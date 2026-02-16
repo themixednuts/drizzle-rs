@@ -56,7 +56,8 @@ url = '{db_url}'
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("Planned SQL")
-                .or(predicates::str::contains("No schema changes")),
+            predicates::str::contains("--- Planned SQL ---")
+                .and(predicates::str::contains("CREATE TABLE `users`"))
+                .and(predicates::str::contains("--- End SQL ---")),
         );
 }

@@ -353,7 +353,10 @@ schema = "src/schema.rs"
 
         let err = resolve_driver(&db, Dialect::Sqlite, Some(Driver::TokioPostgres))
             .expect_err("driver should be rejected");
-        assert!(err.to_string().contains("invalid for"));
+        assert_eq!(
+            err.to_string(),
+            "driver 'tokio-postgres' invalid for sqlite dialect"
+        );
     }
 
     #[test]
@@ -368,9 +371,9 @@ url = "./dev.db"
 
         let err = resolve_credentials(&db, Dialect::Postgresql, &ConnectionOverrides::default())
             .expect_err("dialect switch should require explicit credentials");
-        assert!(
-            err.to_string()
-                .contains("requires matching credential flags")
+        assert_eq!(
+            err.to_string(),
+            "--dialect=postgresql requires matching credential flags (--url/--host/--database/etc)"
         );
     }
 
@@ -389,7 +392,10 @@ dialect = "sqlite"
 
         let err = resolve_credentials(&db, Dialect::Sqlite, &overrides)
             .expect_err("sqlite should reject host-style credentials");
-        assert!(err.to_string().contains("only support --url"));
+        assert_eq!(
+            err.to_string(),
+            "sqlite credentials only support --url for local database path"
+        );
     }
 
     #[test]
@@ -409,7 +415,10 @@ dialect = "postgresql"
 
         let err = resolve_credentials(&db, Dialect::Postgresql, &overrides)
             .expect_err("postgres should reject mixed credentials");
-        assert!(err.to_string().contains("either --url OR --host"));
+        assert_eq!(
+            err.to_string(),
+            "postgresql credentials: use either --url OR --host/--database[/--port/...], not both"
+        );
     }
 
     #[test]
@@ -427,7 +436,10 @@ dialect = "postgresql"
 
         let err = resolve_credentials(&db, Dialect::Postgresql, &overrides)
             .expect_err("postgres host credentials require database");
-        assert!(err.to_string().contains("require --database"));
+        assert_eq!(
+            err.to_string(),
+            "postgresql host credentials require --database"
+        );
     }
 
     #[test]
@@ -511,7 +523,10 @@ dialect = "postgresql"
 
         let err = resolve_credentials(&db, Dialect::Postgresql, &overrides)
             .expect_err("invalid ssl should fail");
-        assert!(err.to_string().contains("invalid --ssl value"));
+        assert_eq!(
+            err.to_string(),
+            "invalid --ssl value 'maybe'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable"
+        );
     }
 
     #[test]

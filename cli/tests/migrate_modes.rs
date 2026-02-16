@@ -1,7 +1,6 @@
 #![cfg(feature = "rusqlite")]
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use std::collections::HashSet;
 use std::fs;
@@ -139,7 +138,7 @@ fn migrate_verify_detects_hash_drift() {
         .args(["migrate", "--verify"])
         .assert()
         .failure()
-        .stderr(contains("hash mismatch").or(contains("hash mismatch".to_uppercase())));
+        .stderr(contains("Migration failed: Migration hash mismatch"));
 }
 
 #[test]
@@ -236,5 +235,5 @@ fn migrate_rejects_conflicting_safe_and_plan_flags() {
         .args(["migrate", "--safe", "--plan"])
         .assert()
         .failure()
-        .stderr(contains("can't be combined"));
+        .stderr(contains("--safe can't be combined with --plan"));
 }

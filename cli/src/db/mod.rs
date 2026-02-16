@@ -4316,11 +4316,17 @@ mod tests {
 
         let err =
             validate_init_metadata(&[], &multiple).expect_err("multiple local migrations rejected");
-        assert!(err.to_string().contains("existing migrations"));
+        assert_eq!(
+            err.to_string(),
+            "--init can't be used with existing migrations"
+        );
 
         let err = validate_init_metadata(&[1_680_271_923_000], &single)
             .expect_err("existing db metadata should be rejected");
-        assert!(err.to_string().contains("already has migrations"));
+        assert_eq!(
+            err.to_string(),
+            "--init can't be used when database already has migrations set"
+        );
     }
 
     #[test]
@@ -4344,7 +4350,10 @@ mod tests {
 
         let err = verify_applied_migrations_consistency(&set, &applied)
             .expect_err("hash mismatch should fail verification");
-        assert!(err.to_string().contains("hash mismatch"));
+        assert_eq!(
+            err.to_string(),
+            "Migration failed: Migration hash mismatch for created_at 1680271923000: database=db_hash, local=local_hash"
+        );
     }
 
     #[test]
@@ -4451,9 +4460,10 @@ pub struct UsersEmailIdx(Users::email);
 
         let (sql, warnings) = generate_push_sql(&prev, &curr, false).expect("push sql generation");
         assert!(warnings.is_empty());
-        assert!(
-            sql.iter().any(|s| s.contains("CREATE INDEX CONCURRENTLY")),
-            "expected concurrent index SQL, got: {sql:?}"
+        assert_eq!(sql.len(), 1);
+        assert_eq!(
+            sql[0],
+            "CREATE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);"
         );
     }
 
@@ -4642,14 +4652,19 @@ pub struct Users {
         ];
 
         let with_breakpoints = format_migration_sql(&sql, true);
-        assert!(with_breakpoints.contains("--> statement-breakpoint"));
+        assert_eq!(
+            with_breakpoints,
+            "CREATE TABLE users(id integer);\n--> statement-breakpoint\nCREATE INDEX users_id_idx ON users(id);"
+        );
 
         let without_breakpoints = format_migration_sql(&sql, false);
-        assert!(!without_breakpoints.contains("--> statement-breakpoint"));
-        assert!(without_breakpoints.contains("\n\n"));
+        assert_eq!(
+            without_breakpoints,
+            "CREATE TABLE users(id integer);\n\nCREATE INDEX users_id_idx ON users(id);"
+        );
 
         let empty = format_migration_sql(&[], false);
-        assert!(empty.contains("No tables to create"));
+        assert_eq!(empty, "-- No tables to create (empty database)\n");
     }
 
     #[test]
@@ -4687,8 +4702,28 @@ pub struct AuditLogs {
             Some(IntrospectCasing::Camel),
         );
 
-        assert!(camel.schema_code.contains("pub userName: String"));
-        assert!(camel.schema_code.contains("pub auditLogs: AuditLogs"));
+        assert_eq!(
+            camel.schema_code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+//! Schema introspected from filtered database objects
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable(name = \"audit_logs\")]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i64,
+    pub userName: String,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub auditLogs: AuditLogs,
+}
+"
+        );
 
         let mut preserve = IntrospectResult {
             schema_code: String::new(),
@@ -4705,8 +4740,28 @@ pub struct AuditLogs {
             Some(IntrospectCasing::Preserve),
         );
 
-        assert!(preserve.schema_code.contains("pub user_name: String"));
-        assert!(preserve.schema_code.contains("pub audit_logs: AuditLogs"));
+        assert_eq!(
+            preserve.schema_code,
+            "\
+//! Auto-generated SQLite schema from introspection
+//!
+//! Schema introspected from filtered database objects
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable(name = \"audit_logs\")]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i64,
+    pub user_name: String,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub audit_logs: AuditLogs,
+}
+"
+        );
     }
 
     #[test]
@@ -4744,8 +4799,28 @@ pub struct AuditLogs {
             Some(IntrospectCasing::Camel),
         );
 
-        assert!(camel.schema_code.contains("pub userName: String"));
-        assert!(camel.schema_code.contains("pub auditLogs: AuditLogs"));
+        assert_eq!(
+            camel.schema_code,
+            "\
+//! Auto-generated PostgreSQL schema from introspection
+//!
+//! Schema introspected from filtered database objects
+
+use drizzle::postgres::prelude::*;
+
+#[PostgresTable]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i32,
+    pub userName: String,
+}
+
+#[derive(PostgresSchema)]
+pub struct Schema {
+    pub auditLogs: AuditLogs,
+}
+"
+        );
 
         let mut preserve = IntrospectResult {
             schema_code: String::new(),
@@ -4762,8 +4837,28 @@ pub struct AuditLogs {
             Some(IntrospectCasing::Preserve),
         );
 
-        assert!(preserve.schema_code.contains("pub user_name: String"));
-        assert!(preserve.schema_code.contains("pub audit_logs: AuditLogs"));
+        assert_eq!(
+            preserve.schema_code,
+            "\
+//! Auto-generated PostgreSQL schema from introspection
+//!
+//! Schema introspected from filtered database objects
+
+use drizzle::postgres::prelude::*;
+
+#[PostgresTable]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i32,
+    pub user_name: String,
+}
+
+#[derive(PostgresSchema)]
+pub struct Schema {
+    pub audit_logs: AuditLogs,
+}
+"
+        );
     }
 
     #[cfg(feature = "postgres-sync")]

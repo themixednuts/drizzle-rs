@@ -9,10 +9,9 @@ fn push_strict_flag_is_rejected() {
         .args(["push", "--strict"])
         .assert()
         .failure()
-        .stderr(
-            predicates::str::contains("--strict")
-                .and(predicates::str::contains("unexpected argument")),
-        );
+        .stderr(predicates::str::contains(
+            "unexpected argument '--strict' found",
+        ));
 }
 
 #[test]
@@ -75,7 +74,7 @@ url = "postgres://postgres:postgres@localhost:5432/drizzle_test"
         ])
         .assert()
         .success()
-        .stdout(predicates::str::contains("Dialect").and(predicates::str::contains("sqlite")));
+        .stdout(predicates::str::contains("Dialect: sqlite"));
 
     cargo_bin_cmd!("drizzle")
         .args([

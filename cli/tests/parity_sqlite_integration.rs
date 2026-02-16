@@ -45,6 +45,37 @@ CREATE TABLE temp_logs (
     .expect("seed db");
 }
 
+/// Split migration SQL into individual CREATE TABLE statements, returning a
+/// sorted vec of `(table_name, sorted_columns)` for order-independent comparison.
+/// Each column is a trimmed line like "`id` INTEGER PRIMARY KEY".
+fn parse_create_tables(sql: &str) -> Vec<(String, Vec<String>)> {
+    let normalized = sql.replace("--> statement-breakpoint\n", "");
+    let mut tables: Vec<(String, Vec<String>)> = normalized
+        .split(";\n")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|stmt| {
+            // Extract table name: CREATE TABLE `name` (
+            let name_start = stmt.find('`').expect("backtick start") + 1;
+            let name_end = stmt[name_start..].find('`').expect("backtick end") + name_start;
+            let table_name = stmt[name_start..name_end].to_string();
+
+            // Extract columns: everything between ( and )
+            let paren_start = stmt.find('(').expect("open paren") + 1;
+            let paren_end = stmt.rfind(')').expect("close paren");
+            let mut cols: Vec<String> = stmt[paren_start..paren_end]
+                .split(",\n")
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect();
+            cols.sort();
+            (table_name, cols)
+        })
+        .collect();
+    tables.sort_by(|a, b| a.0.cmp(&b.0));
+    tables
+}
+
 #[test]
 fn generate_and_export_honor_schema_out_and_breakpoints_overrides() {
     let dir = tempdir().expect("temp dir");
@@ -124,10 +155,31 @@ url = '{db_url}'
 
     let migration_dir = first_migration_dir(&out_dir);
     let migration_sql = fs::read_to_string(migration_dir.join("migration.sql")).expect("read sql");
-    assert!(migration_sql.contains("CREATE TABLE"));
-    assert!(migration_sql.contains("users"));
-    assert!(migration_sql.contains("posts"));
-    assert!(!migration_sql.contains("--> statement-breakpoint"));
+
+    let tables = parse_create_tables(&migration_sql);
+    assert_eq!(
+        tables,
+        vec![
+            (
+                "posts".to_string(),
+                vec![
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                    "`user_id` INTEGER NOT NULL".to_string(),
+                ]
+            ),
+            (
+                "users".to_string(),
+                vec![
+                    "`email` TEXT NOT NULL".to_string(),
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                ]
+            ),
+        ]
+    );
+    assert!(
+        !migration_sql.contains("--> statement-breakpoint"),
+        "breakpoints should be disabled"
+    );
 
     let exported_sql = root.join("export.sql");
     cargo_bin_cmd!("drizzle")
@@ -151,9 +203,26 @@ url = '{db_url}'
         .success();
 
     let exported = fs::read_to_string(&exported_sql).expect("read export");
-    assert!(exported.contains("CREATE TABLE"));
-    assert!(exported.contains("users"));
-    assert!(exported.contains("posts"));
+    let export_tables = parse_create_tables(&exported);
+    assert_eq!(
+        export_tables,
+        vec![
+            (
+                "posts".to_string(),
+                vec![
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                    "`user_id` INTEGER NOT NULL".to_string(),
+                ]
+            ),
+            (
+                "users".to_string(),
+                vec![
+                    "`email` TEXT NOT NULL".to_string(),
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                ]
+            ),
+        ]
+    );
 }
 
 #[test]
@@ -223,8 +292,7 @@ url = "postgres://postgres:postgres@localhost:5432/drizzle_test"
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("CREATE TABLE")
-                .and(predicates::str::contains("users"))
+            predicates::str::contains("CREATE TABLE `users`")
                 .and(predicates::str::contains("users_tmp").not())
                 .and(predicates::str::contains("audit").not()),
         );
@@ -274,16 +342,67 @@ url = '{db_url}'
     let out_dir = root.join("introspected");
     let schema_rs =
         fs::read_to_string(out_dir.join("schema.rs")).expect("read introspected schema");
-    assert!(schema_rs.contains("pub user_name: String"));
-    assert!(schema_rs.contains("pub audit_logs: AuditLogs"));
-    assert!(!schema_rs.contains("temp_logs"));
+    assert_eq!(
+        schema_rs,
+        "\
+//! Auto-generated SQLite schema from introspection
+//!
+//! Schema introspected from filtered database objects
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable(name = \"audit_logs\")]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i64,
+    pub user_name: String,
+}
+
+#[SQLiteTable(name = \"audit_meta\")]
+pub struct AuditMeta {
+    #[column(primary)]
+    pub id: i64,
+    pub detail: Option<String>,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub audit_logs: AuditLogs,
+    pub audit_meta: AuditMeta,
+}
+"
+    );
 
     let migration_dir = first_migration_dir(&out_dir);
     let migration_sql = fs::read_to_string(migration_dir.join("migration.sql")).expect("read sql");
-    assert!(migration_sql.contains("audit_logs"));
-    assert!(migration_sql.contains("audit_meta"));
-    assert!(!migration_sql.contains("temp_logs"));
-    assert!(!migration_sql.contains("--> statement-breakpoint"));
+    let tables = parse_create_tables(&migration_sql);
+    assert_eq!(
+        tables,
+        vec![
+            (
+                "audit_logs".to_string(),
+                vec![
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                    "`user_name` TEXT NOT NULL".to_string(),
+                ]
+            ),
+            (
+                "audit_meta".to_string(),
+                vec![
+                    "`detail` TEXT".to_string(),
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                ]
+            ),
+        ]
+    );
+    assert!(
+        !migration_sql.contains("--> statement-breakpoint"),
+        "breakpoints should be disabled"
+    );
+    assert!(
+        !migration_sql.contains("temp_logs"),
+        "temp_logs should be filtered out"
+    );
 
     cargo_bin_cmd!("drizzle")
         .current_dir(root)
@@ -306,13 +425,68 @@ url = '{db_url}'
     let pulled_dir = root.join("pulled");
     let pulled_schema =
         fs::read_to_string(pulled_dir.join("schema.rs")).expect("read pulled schema");
-    assert!(pulled_schema.contains("pub userName: String"));
-    assert!(pulled_schema.contains("pub auditLogs: AuditLogs"));
+    assert_eq!(
+        pulled_schema,
+        "\
+//! Auto-generated SQLite schema from introspection
+//!
+//! Schema introspected from filtered database objects
+
+use drizzle::sqlite::prelude::*;
+
+#[SQLiteTable(name = \"audit_logs\")]
+pub struct AuditLogs {
+    #[column(primary)]
+    pub id: i64,
+    pub userName: String,
+}
+
+#[SQLiteTable(name = \"audit_meta\")]
+pub struct AuditMeta {
+    #[column(primary)]
+    pub id: i64,
+    pub detail: Option<String>,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub auditLogs: AuditLogs,
+    pub auditMeta: AuditMeta,
+}
+"
+    );
 
     let pulled_migration_dir = first_migration_dir(&pulled_dir);
     let pulled_sql =
         fs::read_to_string(pulled_migration_dir.join("migration.sql")).expect("read pulled sql");
-    assert!(pulled_sql.contains("--> statement-breakpoint"));
+    assert!(
+        pulled_sql.contains("--> statement-breakpoint"),
+        "breakpoints should be enabled"
+    );
+    let pulled_tables = parse_create_tables(&pulled_sql);
+    assert_eq!(
+        pulled_tables,
+        vec![
+            (
+                "audit_logs".to_string(),
+                vec![
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                    "`user_name` TEXT NOT NULL".to_string(),
+                ]
+            ),
+            (
+                "audit_meta".to_string(),
+                vec![
+                    "`detail` TEXT".to_string(),
+                    "`id` INTEGER PRIMARY KEY".to_string(),
+                ]
+            ),
+        ]
+    );
+    assert!(
+        !pulled_sql.contains("temp_logs"),
+        "temp_logs should be filtered out"
+    );
 }
 
 #[test]
@@ -369,8 +543,10 @@ url = '{db_url}'
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("Ignoring --schemaFilters")
-                .and(predicates::str::contains("Ignoring --extensionsFilters")),
+            predicates::str::contains("Ignoring --schemaFilters: only supported for postgresql")
+                .and(predicates::str::contains(
+                    "Ignoring --extensionsFilters: only supported for postgresql",
+                )),
         );
 
     cargo_bin_cmd!("drizzle")
@@ -387,7 +563,9 @@ url = '{db_url}'
         .assert()
         .success()
         .stdout(
-            predicates::str::contains("Ignoring --schemaFilters")
-                .and(predicates::str::contains("Ignoring --extensionsFilters")),
+            predicates::str::contains("Ignoring --schemaFilters: only supported for postgresql")
+                .and(predicates::str::contains(
+                    "Ignoring --extensionsFilters: only supported for postgresql",
+                )),
         );
 }

@@ -1545,7 +1545,10 @@ mod tests {
             Path::new("test.toml"),
         )
         .expect_err("sqlite should reject schemaFilter");
-        assert!(err.to_string().contains("schemaFilter is only supported"));
+        assert_eq!(
+            err.to_string(),
+            "invalid config: schemaFilter is only supported for dialect = \"postgresql\""
+        );
 
         let err = Config::load_from_str(
             r#"
@@ -1557,9 +1560,9 @@ mod tests {
             Path::new("test.toml"),
         )
         .expect_err("sqlite should reject extensionsFilters");
-        assert!(
-            err.to_string()
-                .contains("extensionsFilters is only supported")
+        assert_eq!(
+            err.to_string(),
+            "invalid config: extensionsFilters is only supported for dialect = \"postgresql\""
         );
     }
 
@@ -1576,9 +1579,9 @@ mod tests {
             Path::new("test.toml"),
         )
         .expect_err("turso should reject entities filter");
-        assert!(
-            err.to_string()
-                .contains("entities filter is only supported")
+        assert_eq!(
+            err.to_string(),
+            "invalid config: entities filter is only supported for dialect = \"postgresql\""
         );
     }
 
@@ -1659,10 +1662,9 @@ mod tests {
         )
         .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("host-based dbCredentials are only supported"),
-            "unexpected error: {msg}"
+        assert_eq!(
+            err.to_string(),
+            "invalid credentials: host-based dbCredentials are only supported for dialect = \"postgresql\""
         );
     }
 
