@@ -373,21 +373,11 @@ pub mod test_db {
 
     impl<D> TestDb<D> {
         pub fn new(db: D, driver_name: impl Into<String>, schema_ddl: Vec<String>) -> Self {
-            let ddl_statements: Vec<CapturedStatement> = schema_ddl
-                .iter()
-                .map(|sql| CapturedStatement {
-                    sql: sql.clone(),
-                    params: None,
-                    source: None,
-                    error: None,
-                })
-                .collect();
-
             Self {
                 db,
                 driver_name: driver_name.into(),
                 schema_ddl,
-                statements: RefCell::new(ddl_statements),
+                statements: RefCell::new(Vec::new()),
             }
         }
 
@@ -756,22 +746,12 @@ pub mod postgres_sync_setup {
             .collect();
         let (mut db, schema) = Drizzle::new(client, schema);
 
-        let ddl_statements: Vec<CapturedStatement> = schema_ddl
-            .iter()
-            .map(|sql| CapturedStatement {
-                sql: sql.clone(),
-                params: None,
-                source: None,
-                error: None,
-            })
-            .collect();
-
         if let Err(e) = db.create() {
             let test_db = TestDb {
                 db,
                 schema_name,
                 schema_ddl,
-                statements: RefCell::new(ddl_statements),
+                statements: RefCell::new(Vec::new()),
             };
             test_db.fail(
                 "schema_creation",
@@ -785,7 +765,7 @@ pub mod postgres_sync_setup {
             db,
             schema_name,
             schema_ddl,
-            statements: RefCell::new(ddl_statements),
+            statements: RefCell::new(Vec::new()),
         };
         (test_db, schema)
     }
@@ -1021,22 +1001,12 @@ pub mod tokio_postgres_setup {
             .collect();
         let (db, schema) = Drizzle::new(client, schema);
 
-        let ddl_statements: Vec<CapturedStatement> = schema_ddl
-            .iter()
-            .map(|sql| CapturedStatement {
-                sql: sql.clone(),
-                params: None,
-                source: None,
-                error: None,
-            })
-            .collect();
-
         if let Err(e) = db.create().await {
             let test_db = TestDb {
                 db,
                 schema_name,
                 schema_ddl,
-                statements: RefCell::new(ddl_statements),
+                statements: RefCell::new(Vec::new()),
             };
             test_db.fail(
                 "schema_creation",
@@ -1050,7 +1020,7 @@ pub mod tokio_postgres_setup {
             db,
             schema_name,
             schema_ddl,
-            statements: RefCell::new(ddl_statements),
+            statements: RefCell::new(Vec::new()),
         };
         (test_db, schema)
     }
