@@ -10,6 +10,14 @@ use crate::config::PostgresCreds;
 use crate::config::{Credentials, Dialect, Extension, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
+#[cfg(any(
+    test,
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
 use drizzle_migrations::MigrationSet;
 use drizzle_migrations::schema::Snapshot;
 
@@ -35,6 +43,14 @@ pub struct MigrationPlan {
     pub pending_statements: usize,
 }
 
+#[cfg(any(
+    test,
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
 #[derive(Debug, Clone)]
 struct AppliedMigrationRecord {
     hash: String,
@@ -108,6 +124,7 @@ pub fn apply_push(
 ///
 /// This is the main entry point that dispatches to the appropriate driver
 /// based on the credentials type.
+#[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn plan_migrations(
     credentials: &Credentials,
     dialect: Dialect,
@@ -115,6 +132,13 @@ pub fn plan_migrations(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<MigrationPlan, CliError> {
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+    ))]
     let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
 
     match credentials {
@@ -193,6 +217,7 @@ pub fn verify_migrations(
     )
 }
 
+#[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn run_migrations(
     credentials: &Credentials,
     dialect: Dialect,
@@ -200,6 +225,13 @@ pub fn run_migrations(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<MigrationResult, CliError> {
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+    ))]
     let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
 
     match credentials {
@@ -263,6 +295,13 @@ pub fn run_migrations(
     }
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
 fn load_migration_set(
     dialect: Dialect,
     migrations_dir: &Path,
@@ -284,6 +323,14 @@ fn load_migration_set(
     Ok(set)
 }
 
+#[cfg(any(
+    test,
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
 fn build_migration_plan(
     set: &MigrationSet,
     applied: Vec<AppliedMigrationRecord>,
@@ -313,6 +360,14 @@ fn build_migration_plan(
     })
 }
 
+#[cfg(any(
+    test,
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
 fn verify_applied_migrations_consistency(
     set: &MigrationSet,
     applied: &[AppliedMigrationRecord],
@@ -1646,6 +1701,7 @@ pub struct IntrospectResult {
 /// Introspect a database and write schema/snapshot files
 ///
 /// This is the main entry point for CLI introspection.
+#[allow(clippy::too_many_arguments)]
 pub fn run_introspection(
     credentials: &Credentials,
     dialect: Dialect,
@@ -1767,6 +1823,7 @@ pub fn run_introspection(
 // Init metadata handling
 // =============================================================================
 
+#[allow(unused_variables)] // params consumed inside feature-gated block
 fn apply_init_metadata(
     credentials: &Credentials,
     dialect: Dialect,
@@ -1774,17 +1831,27 @@ fn apply_init_metadata(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<(), CliError> {
-    use drizzle_migrations::MigrationSet;
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+    ))]
+    let set = {
+        use drizzle_migrations::MigrationSet;
 
-    let mut set = MigrationSet::from_dir(out_dir, dialect.to_base())
-        .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
+        let mut set = MigrationSet::from_dir(out_dir, dialect.to_base())
+            .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
 
-    if !migrations_table.trim().is_empty() {
-        set = set.with_table(migrations_table.to_string());
-    }
-    if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
-        set = set.with_schema(migrations_schema.to_string());
-    }
+        if !migrations_table.trim().is_empty() {
+            set = set.with_table(migrations_table.to_string());
+        }
+        if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
+            set = set.with_schema(migrations_schema.to_string());
+        }
+        set
+    };
 
     match credentials {
         #[cfg(feature = "rusqlite")]

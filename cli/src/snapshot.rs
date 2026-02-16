@@ -474,6 +474,7 @@ fn build_sqlite_foreign_key(
 }
 
 /// Build a PostgreSQL foreign key from a parsed field
+#[allow(clippy::too_many_arguments)]
 fn build_postgres_foreign_key(
     schema_name: &str,
     table_name: &str,
