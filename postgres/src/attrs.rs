@@ -20,7 +20,6 @@
 //! #         pub mod builder { pub use drizzle_postgres::builder::*; }
 //! #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 //! #         pub mod expr { pub use drizzle_postgres::expr::*; }
-//! #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
 //! #         pub struct Row;
 //! #         impl Row {
 //! #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -526,7 +525,6 @@ pub struct TableMarker;
 /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -576,7 +574,6 @@ pub const UNLOGGED: TableMarker = TableMarker;
 /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -625,7 +622,6 @@ pub const TEMPORARY: TableMarker = TableMarker;
 /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -671,7 +667,6 @@ pub const INHERITS: TableMarker = TableMarker;
 /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #         pub mod expressions { pub use drizzle_postgres::expressions::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }

@@ -64,7 +64,7 @@ sqlite_test!(json_storage, Schema, {
     let stmt = db
         .select((
             jsonuser.id,
-            drizzle::sqlite::expressions::json_extract(jsonuser.profile, "age").alias("age"),
+            drizzle::sqlite::expr::json_extract(jsonuser.profile, "age").alias("age"),
         ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));

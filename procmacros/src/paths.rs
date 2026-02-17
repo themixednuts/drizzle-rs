@@ -382,7 +382,7 @@ pub mod sqlite {
     }
 
     pub fn expressions() -> TokenStream {
-        quote!(drizzle::sqlite::expressions)
+        quote!(drizzle::sqlite::expr)
     }
 
     pub fn column_marker() -> TokenStream {

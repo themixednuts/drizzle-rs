@@ -38,7 +38,7 @@ pub mod attrs;
 pub mod builder;
 pub mod common;
 pub mod connection;
-pub mod expressions;
+pub mod expr;
 pub mod helpers;
 pub mod pragma;
 pub mod traits;

@@ -20,7 +20,7 @@ pub fn jsonb<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_eq;
+/// # use drizzle_sqlite::expr::json_eq;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -43,7 +43,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_ne;
+/// # use drizzle_sqlite::expr::json_ne;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -66,7 +66,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_contains;
+/// # use drizzle_sqlite::expr::json_contains;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -90,7 +90,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_exists;
+/// # use drizzle_sqlite::expr::json_exists;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -112,7 +112,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_not_exists;
+/// # use drizzle_sqlite::expr::json_not_exists;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -134,7 +134,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_array_contains;
+/// # use drizzle_sqlite::expr::json_array_contains;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -162,7 +162,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_object_contains_key;
+/// # use drizzle_sqlite::expr::json_object_contains_key;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -194,7 +194,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_text_contains;
+/// # use drizzle_sqlite::expr::json_text_contains;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -222,7 +222,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_gt;
+/// # use drizzle_sqlite::expr::json_gt;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// let column = SQL::<SQLiteValue>::raw("metadata");
@@ -244,7 +244,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_extract;
+/// # use drizzle_sqlite::expr::json_extract;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {
@@ -265,7 +265,7 @@ where
 ///
 /// # Example
 /// ```
-/// # use drizzle_sqlite::expressions::json_extract_text;
+/// # use drizzle_sqlite::expr::json_extract_text;
 /// # use drizzle_core::SQL;
 /// # use drizzle_sqlite::values::SQLiteValue;
 /// # fn main() {

@@ -5,7 +5,7 @@ pub mod attributes;
 pub mod conditions;
 pub mod delete;
 pub mod r#enum;
-pub mod expressions;
+pub mod expr;
 pub mod foreign_keys;
 pub mod fromrow;
 pub mod index;

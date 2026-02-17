@@ -5,7 +5,7 @@ use crate::common::schema::sqlite::{ComplexSchema, InsertComplex, Role, SelectCo
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle::core::expr::*;
 #[cfg(feature = "serde")]
-use drizzle::sqlite::expressions::json_extract;
+use drizzle::sqlite::expr::json_extract;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 
