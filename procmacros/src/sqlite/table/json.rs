@@ -34,7 +34,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     // Get paths for fully-qualified types
     let sql = core_paths::sql();
     let sqlite_value = sqlite_paths::sqlite_value();
-    let expression = sqlite_paths::expressions();
+    let expression = sqlite_paths::expr();
 
     // Track JSON type to SQLite storage type mapping and detect conflicts
     use crate::sqlite::field::SQLiteType;

@@ -381,7 +381,7 @@ pub mod sqlite {
         quote!(drizzle::sqlite::traits::DrizzleRowByIndex)
     }
 
-    pub fn expressions() -> TokenStream {
+    pub fn expr() -> TokenStream {
         quote!(drizzle::sqlite::expr)
     }
 

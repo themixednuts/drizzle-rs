@@ -179,14 +179,17 @@ pub mod sqlite {
 
     /// SQLite prelude for schema declarations.
     pub mod prelude {
+        // Core types and traits
         pub use crate::core::ToSQL;
+        pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
-        pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
-        pub use drizzle_core::relation::{Joinable, Relation, SchemaHasTable};
+        pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
+        // SQLite macros
         pub use drizzle_macros::{
             SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
         };
+        // SQLite types
         pub use drizzle_sqlite::attrs::*;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
         pub use drizzle_sqlite::params;
@@ -228,15 +231,18 @@ pub mod postgres {
 
     /// PostgreSQL prelude for schema declarations.
     pub mod prelude {
+        // Core types and traits
         pub use crate::core::ToSQL;
+        pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
-        pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
-        pub use drizzle_core::relation::{Joinable, Relation, SchemaHasTable};
+        pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
+        // PostgreSQL macros
         pub use drizzle_macros::{
             PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
             PostgresView,
         };
+        // PostgreSQL types
         pub use drizzle_postgres::attrs::*;
         pub use drizzle_postgres::common::PostgresSchemaType;
         pub use drizzle_postgres::params;
