@@ -45,8 +45,48 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
+    // Generate FromDrizzleRow impl for SelectModel only when all fields have leaf impls
+    let has_unsupported_fields = field_infos.iter().any(|info| {
+        matches!(
+            info.type_category(),
+            TypeCategory::Enum
+                | TypeCategory::Json
+                | TypeCategory::ArrayString
+                | TypeCategory::ArrayVec
+        )
+    });
+
+    let from_drizzle_row_impl = if has_unsupported_fields {
+        quote! {}
+    } else {
+        let field_count = field_infos.len();
+        let from_drizzle_row_fields: Vec<_> = field_infos
+            .iter()
+            .enumerate()
+            .map(|(idx, info)| {
+                let name = info.ident;
+                quote! {
+                    #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
+                }
+            })
+            .collect();
+
+        quote! {
+            impl drizzle::core::FromDrizzleRow<::libsql::Row> for #select_model_ident {
+                const COLUMN_COUNT: usize = #field_count;
+
+                fn from_row_at(row: &::libsql::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                    Ok(Self {
+                        #(#from_drizzle_row_fields)*
+                    })
+                }
+            }
+        }
+    };
+
     Ok(quote! {
         #select_model_try_from_impl
+        #from_drizzle_row_impl
     })
 }
 

@@ -180,6 +180,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::Nullable},
         );
 
+        let expr_value_type = core_paths::expr_value_type();
+        let into_select_target = core_paths::into_select_target();
+        let select_cols = core_paths::select_cols();
+
         Ok(quote! {
             #struct_def
             #impl_new
@@ -191,6 +195,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             #to_sql_custom_impl
             #into_sqlite_value_impl
             #expr_impl
+            impl #expr_value_type for #aliased_field_type {
+                type ValueType = <#original_field_type as #expr_value_type>::ValueType;
+            }
+            impl #into_select_target for #aliased_field_type {
+                type Marker = #select_cols<(#aliased_field_type,)>;
+            }
         })
     }).collect::<syn::Result<_>>()?;
 
@@ -342,6 +352,15 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         // ToSQL implementation for aliased table
         #to_sql_impl
+
+        // HasSelectModel for aliased table (delegates to original)
+        impl drizzle::core::HasSelectModel for #aliased_table_name {
+            type SelectModel = <#table_name as drizzle::core::HasSelectModel>::SelectModel;
+            const COLUMN_COUNT: usize = <#table_name as drizzle::core::HasSelectModel>::COLUMN_COUNT;
+        }
+        impl drizzle::core::IntoSelectTarget for #aliased_table_name {
+            type Marker = drizzle::core::SelectStar;
+        }
 
         // Add alias() method to the original table struct
         impl #table_name {

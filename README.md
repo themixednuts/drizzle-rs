@@ -68,6 +68,16 @@ pub struct Schema {
 }
 ```
 
+**Interactive wizard** — build a schema step-by-step with guided prompts:
+
+```bash
+drizzle new                   # interactive schema builder
+drizzle new --json            # read schema definition from stdin as JSON
+drizzle new --json --from schema.json   # read JSON from a file
+drizzle new --export-json schema.json   # export schema as JSON after building
+drizzle new --schema-help     # print the expected JSON shape and exit
+```
+
 **Existing database** — pull the schema from a live database instead:
 
 ```bash

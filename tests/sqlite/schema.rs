@@ -157,7 +157,7 @@ sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
         db.select(())
             .from(schema.user)
             .r#where(eq(schema.user.email, "test@example.com"))
-            => all
+            => all_as
     );
 
     assert_eq!(users.len(), 1);
@@ -179,7 +179,7 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
         db.select(())
             .from(user)
             .r#where(eq(user.email, "destructured@example.com"))
-            => all
+            => all_as
     );
 
     assert_eq!(users.len(), 1);
@@ -206,7 +206,7 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
         db.select((user_emails.id, user_emails.email))
             .from(user_emails)
             .order_by(asc(user_emails.id))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 2);
@@ -269,7 +269,7 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
         r#"SELECT "ue"."id", "ue"."email" FROM "user_emails" AS "ue" WHERE "ue"."email" = ? ORDER BY "ue"."id" ASC"#
     );
 
-    let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].email, "a@example.com");
 
@@ -396,7 +396,7 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     assert_eq!(employee.name(), "employees");
     let emp_deps = employee.dependencies();
     assert_eq!(emp_deps.len(), 2); // Department and Employee (self-reference)
-    // Dependencies should be sorted by name for deterministic order
+                                   // Dependencies should be sorted by name for deterministic order
     assert_eq!(emp_deps[0].name(), "departments");
     assert_eq!(emp_deps[1].name(), "employees");
 

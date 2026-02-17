@@ -64,6 +64,8 @@ where
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -85,6 +87,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -100,6 +104,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -115,6 +121,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -136,6 +144,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -151,6 +161,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -172,6 +184,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -188,6 +202,8 @@ mod tests {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         };
 
         assert_eq!(builder.to_sql().sql(), "UPDATE test");

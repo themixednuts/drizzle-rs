@@ -48,7 +48,7 @@ sqlite_test!(basic_table_alias, SimpleSchema, {
     // Test basic table alias
     let s = Simple::alias("s");
     let stmt = db.select((s.id, s.name)).from(s).r#where(eq(s.name, "bob"));
-    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "bob");
@@ -72,7 +72,7 @@ sqlite_test!(table_alias_with_conditions, SimpleSchema, {
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
         .r#where(and([gt(s_alias.id, 1), neq(s_alias.name, "test3")]));
-    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test2");
@@ -106,7 +106,7 @@ sqlite_test!(self_join_with_aliases, ComplexSchema, {
         .from(c1)
         .inner_join((c2, eq(c1.email, c2.email)))
         .r#where(neq(c1.id, c2.id));
-    let results: Vec<NamePair> = drizzle_exec!(stmt => all);
+    let results: Vec<NamePair> = drizzle_exec!(stmt => all_as);
 
     // Should find the pair of users with same email
     assert_eq!(results.len(), 2); // Both directions of the join
@@ -154,7 +154,7 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
         .inner_join((p, eq(u.id, p.author_id)))
         .r#where(eq(p.published, true))
         .order_by([asc(u.name)]);
-    let results: Vec<JoinResult> = drizzle_exec!(stmt => all);
+    let results: Vec<JoinResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].user_name, "author1");
@@ -176,7 +176,7 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original"))
-            => all
+            => all_as
     );
 
     // Query using table alias
@@ -185,7 +185,7 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
         .r#where(eq(s_alias.name, "aliased"));
-    let alias_results: Vec<SimpleResult> = drizzle_exec!(alias_stmt => all);
+    let alias_results: Vec<SimpleResult> = drizzle_exec!(alias_stmt => all_as);
 
     assert_eq!(original_results.len(), 1);
     assert_eq!(original_results[0].name, "original");

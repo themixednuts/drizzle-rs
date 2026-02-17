@@ -236,7 +236,7 @@ postgres_test!(for_update_execution, SimpleSchema, {
         .r#where(eq(simple.name, "test_lock"))
         .for_update();
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test_lock");

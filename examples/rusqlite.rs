@@ -64,7 +64,7 @@ fn main() {
         .select(JoinedResult::default())
         .from(users)
         .left_join((posts, eq(users.id, posts.user_id)))
-        .get()
+        .get_as()
         .expect("select users on posts.user_id");
 
     assert_eq!(row.id, id);

@@ -29,7 +29,7 @@ sqlite_test!(test_one_level_subquery, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(gt(simple.id, min_id_subquery.to_sql()))
-            => all
+            => all_as
     );
 
     drizzle_assert_eq!(2, results.len()); // Should exclude the minimum (id=1)
@@ -58,7 +58,7 @@ sqlite_test!(test_two_level_subquery, SimpleSchema, {
     let results: Vec<SubqueryResult> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
-            .r#where(gt(simple.id, avg_subquery)) => all
+            .r#where(gt(simple.id, avg_subquery)) => all_as
     );
 
     // Should find records with id > average of (2,3,4) = 3, so only id=4
@@ -90,7 +90,7 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(gt(simple.id, level2))
-            => all
+            => all_as
     );
 
     // Average of (30,40,50) = 40, so should return records with id > 40 (just epsilon with id=50)

@@ -11,6 +11,65 @@ use super::{Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
 // ALIAS
 // =============================================================================
 
+/// An expression aliased with `AS "name"`.
+///
+/// Preserves the original expression's type information (`ExprValueType`,
+/// `Expr`, etc.) so that aliased columns in SELECT tuples still infer
+/// the correct row type.
+#[derive(Clone, Copy, Debug)]
+pub struct AliasedExpr<E> {
+    pub(crate) expr: E,
+    pub(crate) name: &'static str,
+}
+
+impl<'a, V, E> ToSQL<'a, V> for AliasedExpr<E>
+where
+    V: SQLParam + 'a,
+    E: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        self.expr.to_sql().alias(self.name)
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self.expr.into_sql().alias(self.name)
+    }
+}
+
+impl<'a, V, E> Expr<'a, V> for AliasedExpr<E>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+{
+    type SQLType = E::SQLType;
+    type Nullable = E::Nullable;
+    type Aggregate = E::Aggregate;
+}
+
+impl<E: crate::row::ExprValueType> crate::row::ExprValueType for AliasedExpr<E> {
+    type ValueType = E::ValueType;
+}
+
+impl<E> crate::row::IntoSelectTarget for AliasedExpr<E> {
+    type Marker = crate::row::SelectCols<(AliasedExpr<E>,)>;
+}
+
+/// Extension trait providing `.alias()` method syntax on any expression.
+///
+/// This is a blanket impl on all `Sized` types. The `AliasedExpr` it creates
+/// is only useful when the inner type implements `ToSQL`/`Expr`/`ExprValueType`,
+/// so calling `.alias()` on non-SQL types is harmless but useless.
+///
+/// For `SQL<'a, V>` values, the inherent `SQL::alias()` method takes
+/// precedence and returns `SQL<'a, V>` (no type preservation needed for raw SQL).
+pub trait AliasExt: Sized {
+    fn alias(self, name: &'static str) -> AliasedExpr<Self> {
+        AliasedExpr { expr: self, name }
+    }
+}
+
+impl<T: Sized> AliasExt for T {}
+
 /// Create an aliased expression.
 ///
 /// # Example
@@ -21,12 +80,8 @@ use super::{Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
 /// // SELECT users.first_name || users.last_name AS full_name
 /// let full_name = alias(string_concat(users.first_name, users.last_name), "full_name");
 /// ```
-pub fn alias<'a, V, E>(expr: E, name: &'a str) -> SQL<'a, V>
-where
-    V: SQLParam + 'a,
-    E: ToSQL<'a, V>,
-{
-    expr.into_sql().alias(name)
+pub fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
+    AliasedExpr { expr, name }
 }
 
 // =============================================================================

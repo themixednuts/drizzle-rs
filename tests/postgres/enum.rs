@@ -90,7 +90,7 @@ mod execution {
 
         // Select and verify enum was stored correctly
         let stmt = db.select(()).from(complex).order_by([asc(complex.name)]);
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].name, "Admin User");
@@ -113,7 +113,7 @@ mod execution {
             .select(())
             .from(complex)
             .r#where(eq(complex.role, Role::Admin));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.name.starts_with("Admin")));
@@ -139,7 +139,7 @@ mod execution {
             .select(())
             .from(complex)
             .r#where(eq(complex.role, Role::Admin));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Test User");
@@ -160,7 +160,7 @@ mod execution {
             eq(complex.role, Role::Admin),
             eq(complex.role, Role::Moderator),
         ]));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
         assert_eq!(results.len(), 2);
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();

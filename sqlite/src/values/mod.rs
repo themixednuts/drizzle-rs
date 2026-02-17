@@ -133,6 +133,7 @@ impl<'a> core::fmt::Display for SQLiteValue<'a> {
 // Implement core traits required by Drizzle
 impl<'a> SQLParam for SQLiteValue<'a> {
     const DIALECT: Dialect = Dialect::SQLite;
+    type DialectMarker = drizzle_core::dialect::SQLiteDialect;
 }
 
 impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {

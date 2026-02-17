@@ -66,7 +66,7 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .join(post)
             .order_by([asc(complex.name), asc(post.title)])
-            => all
+            => all_as
     );
 
     assert_eq!(join_results.len(), 3);
@@ -89,7 +89,7 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .join(post)
             .r#where(eq(complex.name, "alice"))
-            => all
+            => all_as
     );
 
     assert_eq!(filtered_results.len(), 2);
@@ -148,7 +148,7 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
             .join(post_category)
             .join(category)
             .order_by([asc(post.title), asc(category.name)])
-            => all
+            => all_as
     );
 
     // Go Guide -> Programming = 1 row

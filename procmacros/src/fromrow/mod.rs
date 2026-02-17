@@ -69,6 +69,64 @@ fn generate_driver_try_from(
     }
 }
 
+/// Generate a FromDrizzleRow implementation for a specific driver.
+///
+/// `impl_generics` should be e.g. `<'__drizzle_r>` for rusqlite, or empty for others.
+fn generate_from_drizzle_row_impl(
+    struct_name: &Ident,
+    impl_generics: TokenStream,
+    row_type: TokenStream,
+    error_type: TokenStream,
+    field_count: usize,
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    is_tuple: bool,
+) -> TokenStream {
+    let from_drizzle_row_fields: Vec<_> = fields
+        .iter()
+        .enumerate()
+        .map(|(idx, field)| {
+            if is_tuple {
+                quote! {
+                    drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
+                }
+            } else {
+                let name = field.ident.as_ref().unwrap();
+                quote! {
+                    #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
+                }
+            }
+        })
+        .collect();
+
+    let construct = if is_tuple {
+        quote! { Self(#(#from_drizzle_row_fields)*) }
+    } else {
+        quote! { Self { #(#from_drizzle_row_fields)* } }
+    };
+
+    // Add where bounds so the impl only exists when all field types support FromDrizzleRow
+    let where_bounds: Vec<_> = fields
+        .iter()
+        .map(|field| {
+            let ty = &field.ty;
+            quote! { #ty: drizzle::core::FromDrizzleRow<#row_type> }
+        })
+        .collect();
+
+    quote! {
+        impl #impl_generics drizzle::core::FromDrizzleRow<#row_type> for #struct_name
+        where
+            #(#where_bounds,)*
+        {
+            const COLUMN_COUNT: usize = #field_count;
+
+            fn from_row_at(row: &#row_type, offset: usize) -> ::std::result::Result<Self, #error_type> {
+                ::std::result::Result::Ok(#construct)
+            }
+        }
+    }
+}
+
 /// Generate ToSQL implementation for FromRow structs.
 ///
 /// This allows using the struct as a column selector in queries.
@@ -132,6 +190,8 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
 
+    let field_count = fields.len();
+
     // Rusqlite implementation
     #[cfg(feature = "rusqlite")]
     {
@@ -143,6 +203,15 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             quote!(::rusqlite::Row<'_>),
             quote!(#drizzle_error),
             &field_assignments,
+            is_tuple,
+        ));
+        impl_blocks.push(generate_from_drizzle_row_impl(
+            struct_name,
+            quote!(<'__drizzle_r>),
+            quote!(::rusqlite::Row<'__drizzle_r>),
+            quote!(#drizzle_error),
+            field_count,
+            fields,
             is_tuple,
         ));
     }
@@ -160,6 +229,15 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             &field_assignments,
             is_tuple,
         ));
+        impl_blocks.push(generate_from_drizzle_row_impl(
+            struct_name,
+            quote!(),
+            quote!(::turso::Row),
+            quote!(#drizzle_error),
+            field_count,
+            fields,
+            is_tuple,
+        ));
     }
 
     // Libsql implementation
@@ -175,14 +253,29 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             &field_assignments,
             is_tuple,
         ));
+        impl_blocks.push(generate_from_drizzle_row_impl(
+            struct_name,
+            quote!(),
+            quote!(::libsql::Row),
+            quote!(#drizzle_error),
+            field_count,
+            fields,
+            is_tuple,
+        ));
     }
 
     // Generate ToSQL implementation
     let tosql_impl = generate_tosql_impl(struct_name, fields, is_tuple, sqlite_value);
 
+    let into_select_target = core_paths::into_select_target();
+    let select_expr = quote!(drizzle::core::SelectExpr);
+
     Ok(quote! {
         #(#impl_blocks)*
         #tosql_impl
+        impl #into_select_target for #struct_name {
+            type Marker = #select_expr;
+        }
     })
 }
 
@@ -220,8 +313,14 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
     // Generate ToSQL implementation
     let tosql_impl = generate_tosql_impl(struct_name, fields, is_tuple, postgres_value);
 
-    // Generate the implementations with proper conditional compilation
+    // Generate the TryFrom implementations with proper conditional compilation
     // to avoid duplicate implementations (postgres::Row is tokio_postgres::Row)
+    //
+    // Note: We do NOT generate FromDrizzleRow here because postgres::Row is a concrete
+    // type (no lifetime parameter), so where bounds like `Role: FromDrizzleRow<postgres::Row>`
+    // are provably unsatisfiable and rejected by the compiler when any field type lacks
+    // the impl. The table macro's SelectModel generation handles FromDrizzleRow separately
+    // with field-type inspection to skip unsupported cases.
     Ok(quote! {
         // When tokio-postgres is enabled, use tokio_postgres::Row
         // This covers both "tokio-postgres only" and "both features enabled" cases
@@ -245,5 +344,8 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         }
 
         #tosql_impl
+        impl drizzle::core::IntoSelectTarget for #struct_name {
+            type Marker = drizzle::core::SelectExpr;
+        }
     })
 }

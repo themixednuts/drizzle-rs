@@ -69,7 +69,7 @@ sqlite_test!(json_storage, Schema, {
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let user: UserResult = drizzle_exec!(stmt => get);
+    let user: UserResult = drizzle_exec!(stmt => get_as);
 
     assert_eq!(user.id, id);
     assert_eq!(user.age, 30);
@@ -80,7 +80,7 @@ sqlite_test!(json_storage, Schema, {
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let result: JsonReadResult = drizzle_exec!(stmt => get);
+    let result: JsonReadResult = drizzle_exec!(stmt => get_as);
 
     assert_eq!(result.id, id);
     assert_eq!(result.email, "john@test.com");

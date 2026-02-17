@@ -33,7 +33,7 @@ postgres_test!(query_by_name_column, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Bob"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -64,7 +64,7 @@ postgres_test!(query_by_nullable_column, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(eq(complex.email, "test@example.com"));
-    let results: Vec<Result> = drizzle_exec!(stmt => all);
+    let results: Vec<Result> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
@@ -87,7 +87,7 @@ postgres_test!(query_large_dataset, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "User_025"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "User_025");

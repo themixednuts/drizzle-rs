@@ -14,6 +14,7 @@ pub struct TestValue;
 
 impl SQLParam for TestValue {
     const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::SQLite;
+    type DialectMarker = drizzle_core::dialect::SQLiteDialect;
 }
 
 #[test]

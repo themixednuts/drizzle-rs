@@ -141,6 +141,42 @@ fn generate_rusqlite_test(
                             }
                         }
                     }};
+                    ($builder:expr => all_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all_as() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get_as() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                     ($builder:expr => execute) => {{
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
@@ -336,6 +372,42 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.get().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => all_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all_as().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get_as().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -543,6 +615,42 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.get().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => all_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all_as().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get_as().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -822,6 +930,42 @@ fn generate_postgres_sync_test(
                             }
                         }
                     }};
+                    ($builder:expr => all_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all_as() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get_as() {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                     ($builder:expr => execute) => {{
                         use drizzle::core::ToSQL;
                         let __op_str = stringify!($builder);
@@ -1026,6 +1170,42 @@ fn generate_tokio_postgres_test(
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
                         match __builder.get().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => all_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.all_as().await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($builder:expr => get_as) => {{
+                        use drizzle::core::ToSQL;
+                        let __op_str = stringify!($builder);
+                        let __builder = $builder;
+                        let __sql_obj = __builder.to_sql();
+                        let __sql_str = __sql_obj.sql().to_string();
+                        let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
+                        match __builder.get_as().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v

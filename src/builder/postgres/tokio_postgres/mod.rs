@@ -834,8 +834,8 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
-impl<'a, 'b, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
+impl<'a, 'b, S, Schema, State, Table, Mk, Rw>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {
@@ -861,20 +861,20 @@ where
             .await?)
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
-    pub async fn all<R, C>(self) -> drizzle_core::error::Result<C>
+    /// Runs the query and returns all matching rows, decoded as the given type `R`.
+    pub async fn all_as<R, C>(self) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         C: FromIterator<R>,
     {
-        self.rows::<R>()
+        self.rows_as::<R>()
             .await?
             .collect::<drizzle_core::error::Result<C>>()
     }
 
-    /// Runs the query and returns a lazy row cursor.
-    pub async fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    /// Runs the query and returns a lazy row cursor, decoded as the given type `R`.
+    pub async fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -897,8 +897,8 @@ where
         Ok(Rows::new(rows))
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
-    pub async fn get<R>(self) -> drizzle_core::error::Result<R>
+    /// Runs the query and returns a single row, decoded as the given type `R`.
+    pub async fn get_as<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -923,5 +923,66 @@ where
             .await?;
 
         R::try_from(&row).map_err(Into::into)
+    }
+
+    /// Runs the query and returns all matching rows using the builder's row type.
+    pub async fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::tokio_postgres::Row>,
+    {
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+                .iter()
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
+
+        let rows = self.drizzle.client.query(&sql_str, &param_refs[..]).await?;
+        let mut decoded = Vec::with_capacity(rows.len());
+        for row in &rows {
+            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(row)?);
+        }
+        Ok(decoded)
+    }
+
+    /// Runs the query and returns a lazy row cursor using the builder's row type.
+    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    where
+        Rw: for<'r> TryFrom<&'r Row>,
+        for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        self.rows_as().await
+    }
+
+    /// Runs the query and returns a single row using the builder's row type.
+    pub async fn get(self) -> drizzle_core::error::Result<Rw>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::tokio_postgres::Row>,
+    {
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+                .iter()
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
+
+        let row = self
+            .drizzle
+            .client
+            .query_one(&sql_str, &param_refs[..])
+            .await?;
+        drizzle_core::row::FromDrizzleRow::from_row(&row)
     }
 }

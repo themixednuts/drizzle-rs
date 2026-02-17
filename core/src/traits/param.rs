@@ -11,6 +11,11 @@ use crate::dialect::Dialect;
 pub trait SQLParam: Clone + core::fmt::Debug {
     /// The SQL dialect for this parameter type
     const DIALECT: Dialect;
+
+    /// Type-level dialect marker for compile-time dispatch.
+    ///
+    /// Used by [`crate::row::SQLTypeToRust`] to select dialect-specific type mappings.
+    type DialectMarker;
 }
 
 // Implement SQLParam for common types

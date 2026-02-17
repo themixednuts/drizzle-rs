@@ -51,6 +51,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -66,6 +68,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -87,6 +91,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -103,6 +109,8 @@ mod tests {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         };
 
         assert_eq!(builder.to_sql().sql(), "DELETE FROM test");

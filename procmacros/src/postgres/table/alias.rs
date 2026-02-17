@@ -180,6 +180,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 type Nullable = <#original_field_type as drizzle::core::expr::Expr<'a, PostgresValue<'a>>>::Nullable;
                 type Aggregate = drizzle::core::expr::Scalar;
             }
+            impl drizzle::core::ExprValueType for #aliased_field_type {
+                type ValueType = <#original_field_type as drizzle::core::ExprValueType>::ValueType;
+            }
+            impl drizzle::core::IntoSelectTarget for #aliased_field_type {
+                type Marker = drizzle::core::SelectCols<(#aliased_field_type,)>;
+            }
         }
     }).collect();
 
@@ -327,6 +333,15 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 ORIGINAL_TABLE.to_sql().alias(self.alias)
             }
+        }
+
+        // HasSelectModel for aliased table (delegates to original)
+        impl drizzle::core::HasSelectModel for #aliased_table_name {
+            type SelectModel = <#table_name as drizzle::core::HasSelectModel>::SelectModel;
+            const COLUMN_COUNT: usize = <#table_name as drizzle::core::HasSelectModel>::COLUMN_COUNT;
+        }
+        impl drizzle::core::IntoSelectTarget for #aliased_table_name {
+            type Marker = drizzle::core::SelectStar;
         }
 
         // Add alias() method to the original table struct

@@ -285,7 +285,7 @@ postgres_test!(test_prepared_execute_insert, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "PreparedInsert"))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -358,7 +358,7 @@ postgres_test!(test_prepared_performance_comparison, SimpleSchema, {
             db.select(())
                 .from(simple)
                 .r#where(eq(simple.name, format!("User{}", i)))
-                => all
+                => all_as
         );
     }
     let regular_duration = start.elapsed();
@@ -401,7 +401,7 @@ postgres_test!(test_prepared_insert_multiple_times, SimpleSchema, {
 
     // Verify all inserts worked
     let results: Vec<PgSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all_as);
 
     assert_eq!(results.len(), 5);
     for i in 0..5 {

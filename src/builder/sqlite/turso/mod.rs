@@ -582,8 +582,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 }
 
-impl<'a, 'b, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
+impl<'a, 'b, S, Schema, State, Table, Mk, Rw>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {
@@ -602,18 +602,18 @@ where
             })
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
-    pub async fn all<R, C>(self) -> drizzle_core::error::Result<C>
+    /// Runs the query and returns all matching rows, decoded as `R`.
+    pub async fn all_as<R, C>(self) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r turso::Row>,
         for<'r> <R as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         C: Default + Extend<R>,
     {
-        self.rows::<R>().await?.collect().await
+        self.rows_as::<R>().await?.collect().await
     }
 
-    /// Runs the query and returns a row cursor.
-    pub async fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    /// Runs the query and returns a row cursor, decoded as `R`.
+    pub async fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r turso::Row>,
         for<'r> <R as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -634,8 +634,8 @@ where
         Ok(Rows::with_sql(rows, sql_str))
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
-    pub async fn get<R>(self) -> drizzle_core::error::Result<R>
+    /// Runs the query and returns a single row, decoded as `R`.
+    pub async fn get_as<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r turso::Row>,
         for<'r> <R as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -659,6 +659,71 @@ where
             )
         })? {
             R::try_from(&row).map_err(Into::into)
+        } else {
+            Err(drizzle_core::error::DrizzleError::NotFound)
+        }
+    }
+
+    /// Runs the query and returns all matching rows using the builder's row type.
+    pub async fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::turso::Row>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let mut rows = self
+            .drizzle
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| {
+                drizzle_core::error::DrizzleError::ExecutionError(
+                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                )
+            })?;
+        let mut decoded = Vec::new();
+        while let Some(row) = rows.next().await.map_err(|e| {
+            drizzle_core::error::DrizzleError::ExecutionError(
+                format!("{}\n\nSQL: {}", e, sql_str).into(),
+            )
+        })? {
+            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(&row)?);
+        }
+        Ok(decoded)
+    }
+
+    /// Runs the query and returns a row cursor using the builder's row type.
+    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    where
+        Rw: for<'r> TryFrom<&'r turso::Row>,
+        for<'r> <Rw as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        self.rows_as().await
+    }
+
+    /// Runs the query and returns a single row using the builder's row type.
+    pub async fn get(self) -> drizzle_core::error::Result<Rw>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::turso::Row>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let mut rows = self
+            .drizzle
+            .conn
+            .query(&sql_str, params)
+            .await
+            .map_err(|e| {
+                drizzle_core::error::DrizzleError::ExecutionError(
+                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                )
+            })?;
+        if let Some(row) = rows.next().await.map_err(|e| {
+            drizzle_core::error::DrizzleError::ExecutionError(
+                format!("{}\n\nSQL: {}", e, sql_str).into(),
+            )
+        })? {
+            drizzle_core::row::FromDrizzleRow::from_row(&row)
         } else {
             Err(drizzle_core::error::DrizzleError::NotFound)
         }

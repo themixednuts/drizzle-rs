@@ -13,7 +13,7 @@
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{BigInt, Date, Double, Temporal, Text, Time, Timestamp};
+use crate::types::{BigInt, Date, Double, Temporal, Text, Time, Timestamp, TimestampTz};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
 
@@ -59,9 +59,12 @@ where
     SQLExpr::new(SQL::raw("CURRENT_TIME"))
 }
 
-/// CURRENT_TIMESTAMP - returns the current timestamp.
+/// CURRENT_TIMESTAMP - returns the current timestamp with time zone.
 ///
-/// Works on both SQLite and PostgreSQL.
+/// Works on both SQLite and PostgreSQL. Returns `TimestampTz` because
+/// the SQL standard defines `CURRENT_TIMESTAMP` as `timestamp with time zone`.
+/// On SQLite (without chrono) this maps to `String`; on PostgreSQL it maps
+/// to `DateTime<Utc>` (requires the `chrono` feature).
 ///
 /// # Example
 ///
@@ -71,7 +74,7 @@ where
 /// // SELECT CURRENT_TIMESTAMP
 /// let now = current_timestamp::<SQLiteValue>();
 /// ```
-pub fn current_timestamp<'a, V>() -> SQLExpr<'a, V, Timestamp, super::NonNull, Scalar>
+pub fn current_timestamp<'a, V>() -> SQLExpr<'a, V, TimestampTz, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
 {
@@ -238,7 +241,7 @@ where
 /// // SELECT NOW()
 /// let current = now::<PostgresValue>();
 /// ```
-pub fn now<'a, V>() -> SQLExpr<'a, V, Timestamp, super::NonNull, Scalar>
+pub fn now<'a, V>() -> SQLExpr<'a, V, TimestampTz, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
 {

@@ -6,7 +6,7 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "rusqlite")]
-//! # {
+//! # fn main() -> drizzle::Result<()> {
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::rusqlite::Drizzle;
 //!
@@ -23,7 +23,6 @@
 //!     user: User,
 //! }
 //!
-//! # fn main() -> drizzle::Result<()> {
 //! let conn = rusqlite::Connection::open_in_memory()?;
 //! let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::new());
 //!
@@ -35,7 +34,8 @@
 //! let users: Vec<SelectUser> = db.select(()).from(user).all()?;
 //! # Ok(())
 //! # }
-//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
 //! ```
 //!
 //! ## Database Support
@@ -147,6 +147,12 @@ pub mod core {
 
     #[doc(hidden)]
     pub use drizzle_core::schema::SQLEnumInfo;
+
+    /// Row inference types and traits.
+    pub use drizzle_core::row::{
+        AfterJoin, ExprValueType, FromDrizzleRow, HasSelectModel, IntoSelectTarget, ResolveRow,
+        SQLTypeToRust, SelectCols, SelectExpr, SelectStar, WrapNullable,
+    };
 }
 
 /// SQLite types, macros, and query builder.

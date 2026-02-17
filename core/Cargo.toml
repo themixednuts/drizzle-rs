@@ -13,6 +13,7 @@ rust-version.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 paste = { workspace = true }
@@ -39,6 +40,7 @@ alloc = ["drizzle-types/alloc"]
 # Serialization
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]
+chrono = ["dep:chrono"]
 arrayvec = []
 
 # Database backends

@@ -37,7 +37,7 @@ postgres_test!(condition_eq, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Alice"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -55,7 +55,7 @@ postgres_test!(condition_neq, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(neq(simple.name, "Alice"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -74,22 +74,22 @@ postgres_test!(condition_gt_lt, ComplexSchema, {
 
     // Test gt
     let stmt = db.select(()).from(complex).r#where(gt(complex.age, 30));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 2);
 
     // Test lt
     let stmt = db.select(()).from(complex).r#where(lt(complex.age, 50));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 2);
 
     // Test gte
     let stmt = db.select(()).from(complex).r#where(gte(complex.age, 40));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 2);
 
     // Test lte
     let stmt = db.select(()).from(complex).r#where(lte(complex.age, 40));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 2);
 });
 
@@ -108,7 +108,7 @@ postgres_test!(condition_in_array, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -130,7 +130,7 @@ postgres_test!(condition_not_in_array, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(not_in_array(simple.name, ["Alice"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -154,7 +154,7 @@ postgres_test!(condition_is_null, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex).r#where(is_null(complex.email));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "No Email");
@@ -179,7 +179,7 @@ postgres_test!(condition_is_not_null, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(is_not_null(complex.email));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
@@ -200,7 +200,7 @@ postgres_test!(condition_like, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(like(simple.name, "test%"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 2);
 
     // Contains match
@@ -208,7 +208,7 @@ postgres_test!(condition_like, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(like(simple.name, "%o%"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
     assert_eq!(results.len(), 3); // test_one, test_two, other all contain 'o'
 });
 
@@ -228,7 +228,7 @@ postgres_test!(condition_between, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(between(complex.age, 20, 50));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -251,7 +251,7 @@ postgres_test!(condition_and, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(and([eq(complex.active, true), lt(complex.age, 30)]));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Active Young");
@@ -272,7 +272,7 @@ postgres_test!(condition_or, ComplexSchema, {
         eq(complex.role, Role::Admin),
         eq(complex.role, Role::Moderator),
     ]));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -301,7 +301,7 @@ postgres_test!(condition_nested_and_or, ComplexSchema, {
         eq(complex.active, true),
         gt(complex.age, 25),
     ]));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Active Admin");
@@ -321,7 +321,7 @@ postgres_test!(condition_not, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(not(eq(complex.active, true)));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Inactive");

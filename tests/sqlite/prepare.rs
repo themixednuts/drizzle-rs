@@ -118,7 +118,7 @@ sqlite_test!(test_prepared_execute_insert, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(eq(simple.name, "PreparedInsert"))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -187,7 +187,7 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
             db.select(())
                 .from(simple)
                 .r#where(eq(simple.name, format!("User{}", i)))
-                => all
+                => all_as
         );
     }
     let regular_duration = start.elapsed();
@@ -225,7 +225,7 @@ sqlite_test!(test_prepared_insert_multiple_times, SimpleSchema, {
     }
 
     // Verify all inserts worked
-    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all_as);
 
     assert_eq!(results.len(), 5);
     for i in 0..5 {

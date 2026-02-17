@@ -35,7 +35,7 @@ sqlite_test!(test_basic_comparison_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(eq(simple.name, "Item A"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Item A");
@@ -45,28 +45,28 @@ sqlite_test!(test_basic_comparison_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(neq(simple.name, "Item A"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
     // Test gt condition
     let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(gt(simple.id, 1)) => all);
+        drizzle_exec!(db.select(()).from(simple).r#where(gt(simple.id, 1)) => all_as);
     assert_eq!(result.len(), 2);
 
     // Test gte condition
     let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(gte(simple.id, 2)) => all);
+        drizzle_exec!(db.select(()).from(simple).r#where(gte(simple.id, 2)) => all_as);
     assert_eq!(result.len(), 2);
 
     // Test lt condition
     let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(lt(simple.id, 3)) => all);
+        drizzle_exec!(db.select(()).from(simple).r#where(lt(simple.id, 3)) => all_as);
     assert_eq!(result.len(), 2);
 
     // Test lte condition
     let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(lte(simple.id, 2)) => all);
+        drizzle_exec!(db.select(()).from(simple).r#where(lte(simple.id, 2)) => all_as);
     assert_eq!(result.len(), 2);
 });
 
@@ -86,7 +86,7 @@ sqlite_test!(test_in_array_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(in_array(simple.name, ["Apple", "Cherry"]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -95,7 +95,7 @@ sqlite_test!(test_in_array_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(not_in_array(simple.name, ["Apple"]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -104,7 +104,7 @@ sqlite_test!(test_in_array_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(in_array(simple.name, Vec::<String>::new()))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 0);
 });
@@ -140,7 +140,7 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(is_null(complex.email))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -149,7 +149,7 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(is_not_null(complex.email))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User A");
@@ -159,7 +159,7 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(is_null(complex.age))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -168,7 +168,7 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(is_not_null(complex.age))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User C");
@@ -197,7 +197,7 @@ sqlite_test!(test_between_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(between(complex.age, 22, 28))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User C");
@@ -207,7 +207,7 @@ sqlite_test!(test_between_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(between(complex.score, 80.0, 95.0))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -216,7 +216,7 @@ sqlite_test!(test_between_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(not_between(complex.age, 22, 28))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 });
@@ -238,7 +238,7 @@ sqlite_test!(test_like_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(like(simple.name, "Apple%"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -247,7 +247,7 @@ sqlite_test!(test_like_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(like(simple.name, "%Juice"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -256,7 +256,7 @@ sqlite_test!(test_like_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(like(simple.name, "%a%"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 3);
 
@@ -265,7 +265,7 @@ sqlite_test!(test_like_conditions, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(not_like(simple.name, "Apple%"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 });
@@ -291,7 +291,7 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
                 eq(complex.active, true),
                 eq(complex.role, Role::Admin)
             ]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Active Admin");
@@ -301,7 +301,7 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(or([eq(complex.role, Role::Admin), gt(complex.age, 30)]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -310,7 +310,7 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
         db.select(())
             .from(complex)
             .r#where(not(eq(complex.active, true)))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 
@@ -322,7 +322,7 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
                 or([eq(complex.role, Role::Admin), gt(complex.age, 23)]),
                 eq(complex.active, true)
             ]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
 });
@@ -345,7 +345,7 @@ sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(and([eq(simple.name, "Test")]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Test");
@@ -355,13 +355,13 @@ sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(or([eq(simple.name, "Other")]))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Other");
 
     // Test no condition (get all records)
-    let result: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    let result: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all_as);
     assert_eq!(result.len(), 2); // No condition should return all
 });
 
@@ -379,7 +379,7 @@ sqlite_test!(test_string_operations, SimpleSchema, {
     let result: Vec<ConcatResult> = drizzle_exec!(
         db.select(alias(string_concat(simple.name, " - Suffix"), "concat"))
             .from(simple)
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 2);
     let concats: Vec<String> = result.iter().map(|r| r.concat.clone()).collect();
@@ -387,7 +387,7 @@ sqlite_test!(test_string_operations, SimpleSchema, {
     assert!(concats.contains(&"World - Suffix".to_string()));
 });
 
-#[cfg(all(feature = "sqlite", feature = "serde"))]
+#[cfg(all(feature = "sqlite", feature = "serde", feature = "uuid"))]
 sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
     use crate::common::schema::sqlite::{ComplexSchema, UserMetadata};
 
@@ -419,7 +419,7 @@ sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
         db.select(alias(json_extract(complex.metadata, "theme"), "extract"))
             .from(complex)
             .r#where(is_not_null(complex.metadata))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].extract, "dark");
@@ -437,7 +437,7 @@ sqlite_test!(test_condition_edge_cases, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(neq(simple.name, ""))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
 
@@ -449,7 +449,7 @@ sqlite_test!(test_condition_edge_cases, SimpleSchema, {
         db.select(())
             .from(simple)
             .r#where(like(simple.name, "%quoted%"))
-            => all
+            => all_as
     );
     assert_eq!(result.len(), 1);
 });

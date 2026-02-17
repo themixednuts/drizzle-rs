@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use core::marker::PhantomData;
 
 use crate::drizzle_builder_join_impl;
@@ -140,11 +142,11 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         'a,
         Conn,
         Schema,
-        SelectBuilder<'b, Schema, drizzle_sqlite::builder::select::SelectInitial>,
+        SelectBuilder<'b, Schema, drizzle_sqlite::builder::select::SelectInitial, (), T::Marker>,
         drizzle_sqlite::builder::select::SelectInitial,
     >
     where
-        T: ToSQL<'b, SQLiteValue<'b>>,
+        T: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
     {
         let builder = QueryBuilder::new::<Schema>().select(query);
 
@@ -164,11 +166,11 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         'a,
         Conn,
         Schema,
-        SelectBuilder<'b, Schema, drizzle_sqlite::builder::select::SelectInitial>,
+        SelectBuilder<'b, Schema, drizzle_sqlite::builder::select::SelectInitial, (), T::Marker>,
         drizzle_sqlite::builder::select::SelectInitial,
     >
     where
-        T: ToSQL<'b, SQLiteValue<'b>>,
+        T: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
     {
         let builder = QueryBuilder::new::<Schema>().select_distinct(query);
         DrizzleBuilder {
@@ -301,11 +303,11 @@ impl<'d, 'a, Conn, Schema>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, builder::select::SelectInitial>,
+        SelectBuilder<'a, Schema, builder::select::SelectInitial, (), T::Marker>,
         builder::select::SelectInitial,
     >
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select(query);
         DrizzleBuilder {
@@ -323,11 +325,11 @@ impl<'d, 'a, Conn, Schema>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, builder::select::SelectInitial>,
+        SelectBuilder<'a, Schema, builder::select::SelectInitial, (), T::Marker>,
         builder::select::SelectInitial,
     >
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select_distinct(query);
         DrizzleBuilder {
@@ -360,16 +362,23 @@ impl<'d, 'a, Conn, Schema>
     }
 }
 
-impl<'d, 'a, Conn, Schema>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
+impl<'d, 'a, Conn, Schema, M>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectInitial, (), M>, SelectInitial>
 {
     #[inline]
     pub fn from<T>(
         self,
         table: T,
-    ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
+    ) -> DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>,
+        SelectFromSet,
+    >
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
+        M: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.from(table);
         DrizzleBuilder {
@@ -380,8 +389,14 @@ impl<'d, 'a, Conn, Schema>
     }
 }
 
-impl<'d, 'a, Conn, Schema, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectFromSet, T>, SelectFromSet>
+impl<'d, 'a, Conn, Schema, T, M, R>
+    DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectFromSet, T, M, R>,
+        SelectFromSet,
+    >
 {
     #[inline]
     pub fn r#where(
@@ -391,7 +406,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     > {
         let builder = self.builder.r#where(condition.to_sql());
@@ -410,7 +425,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -428,7 +443,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -450,9 +465,19 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectJoinSet,
+            J::JoinedTable,
+            M,
+            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        >,
         SelectJoinSet,
-    > {
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -464,8 +489,14 @@ impl<'d, 'a, Conn, Schema, T>
     crate::drizzle_builder_join_impl!();
 }
 
-impl<'d, 'a, Conn, Schema, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, T>, SelectJoinSet>
+impl<'d, 'a, Conn, Schema, T, M, R>
+    DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectJoinSet, T, M, R>,
+        SelectJoinSet,
+    >
 {
     pub fn r#where(
         self,
@@ -474,7 +505,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     > {
         let builder = self.builder.r#where(condition.to_sql());
@@ -492,7 +523,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -513,9 +544,19 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectJoinSet,
+            J::JoinedTable,
+            M,
+            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        >,
         SelectJoinSet,
-    > {
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -527,8 +568,14 @@ impl<'d, 'a, Conn, Schema, T>
     crate::drizzle_builder_join_impl!();
 }
 
-impl<'d, 'a, Conn, Schema, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T>, SelectWhereSet>
+impl<'d, 'a, Conn, Schema, T, M, R>
+    DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
+        SelectWhereSet,
+    >
 {
     pub fn limit(
         self,
@@ -537,7 +584,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -555,7 +602,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -570,8 +617,14 @@ impl<'d, 'a, Conn, Schema, T>
     }
 }
 
-impl<'d, 'a, Conn, Schema, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T>, SelectLimitSet>
+impl<'d, 'a, Conn, Schema, T, M, R>
+    DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
+        SelectLimitSet,
+    >
 {
     pub fn offset(
         self,
@@ -580,7 +633,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
         SelectOffsetSet,
     > {
         let builder = self.builder.offset(offset);
@@ -592,8 +645,14 @@ impl<'d, 'a, Conn, Schema, T>
     }
 }
 
-impl<'d, 'a, Conn, Schema, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T>, SelectOrderSet>
+impl<'d, 'a, Conn, Schema, T, M, R>
+    DrizzleBuilder<
+        'd,
+        Conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
+        SelectOrderSet,
+    >
 {
     pub fn limit(
         self,
@@ -602,7 +661,7 @@ impl<'d, 'a, Conn, Schema, T>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -614,8 +673,8 @@ impl<'d, 'a, Conn, Schema, T>
     }
 }
 
-impl<'d, 'a, Conn, Schema, State, T>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T>, State>
+impl<'d, 'a, Conn, Schema, State, T, M, R>
+    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
@@ -628,7 +687,7 @@ where
     ) -> CTEView<
         'a,
         <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, State, T>,
+        SelectBuilder<'a, Schema, State, T, M, R>,
     > {
         self.builder.into_cte(name)
     }

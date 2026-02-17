@@ -41,7 +41,7 @@ mod libsql_edge_cases {
             let results: Vec<SimpleResult> = db
                 .select((simple.id, simple.name))
                 .from(simple)
-                .all()
+                .all_as()
                 .await
                 .unwrap();
             results
@@ -61,7 +61,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -85,7 +85,7 @@ mod libsql_edge_cases {
             results = async {
                 let r: Vec<SimpleResult> = db.select((simple.id, simple.name))
                     .from(simple)
-                    .all()
+                    .all_as()
                     .await
                     .unwrap();
                 r
@@ -101,7 +101,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 10);
@@ -130,7 +130,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -159,7 +159,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -174,7 +174,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -198,7 +198,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
@@ -215,7 +215,7 @@ mod libsql_edge_cases {
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
@@ -248,7 +248,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -276,7 +276,7 @@ mod libsql_edge_cases {
             let results: Vec<SimpleResult> = db_clone
                 .select((simple.id, simple.name))
                 .from(simple)
-                .all()
+                .all_as()
                 .await
                 .unwrap();
             results.len()
@@ -289,7 +289,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 5);
@@ -325,7 +325,7 @@ mod libsql_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -357,7 +357,7 @@ mod turso_edge_cases {
             let results: Vec<SimpleResult> = db
                 .select((simple.id, simple.name))
                 .from(simple)
-                .all()
+                .all_as()
                 .await
                 .unwrap();
             results
@@ -377,7 +377,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -399,7 +399,7 @@ mod turso_edge_cases {
             results = async {
                 let r: Vec<SimpleResult> = db.select((simple.id, simple.name))
                     .from(simple)
-                    .all()
+                    .all_as()
                     .await
                     .unwrap();
                 r
@@ -414,7 +414,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 10);
@@ -441,7 +441,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -464,7 +464,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
@@ -480,7 +480,7 @@ mod turso_edge_cases {
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
@@ -513,7 +513,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -541,7 +541,7 @@ mod turso_edge_cases {
             let results: Vec<SimpleResult> = db_clone
                 .select((simple.id, simple.name))
                 .from(simple)
-                .all()
+                .all_as()
                 .await
                 .unwrap();
             results.len()
@@ -554,7 +554,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 5);
@@ -593,7 +593,7 @@ mod turso_edge_cases {
         let results: Vec<SimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);

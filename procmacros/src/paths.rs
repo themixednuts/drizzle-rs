@@ -327,6 +327,31 @@ pub mod core {
     pub fn non_empty_marker() -> TokenStream {
         quote!(drizzle::core::NonEmpty)
     }
+
+    /// Path to the HasSelectModel trait (row inference).
+    pub fn has_select_model() -> TokenStream {
+        quote!(drizzle::core::HasSelectModel)
+    }
+
+    /// Path to the ExprValueType trait (row inference).
+    pub fn expr_value_type() -> TokenStream {
+        quote!(drizzle::core::ExprValueType)
+    }
+
+    /// Path to the IntoSelectTarget trait (row inference).
+    pub fn into_select_target() -> TokenStream {
+        quote!(drizzle::core::IntoSelectTarget)
+    }
+
+    /// Path to the SelectCols marker (row inference).
+    pub fn select_cols() -> TokenStream {
+        quote!(drizzle::core::SelectCols)
+    }
+
+    /// Path to the SelectStar marker (row inference).
+    pub fn select_star() -> TokenStream {
+        quote!(drizzle::core::SelectStar)
+    }
 }
 
 // =============================================================================

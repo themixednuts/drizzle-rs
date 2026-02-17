@@ -5,6 +5,25 @@ use crate::prelude::*;
 /// Re-export the unified Dialect enum from drizzle-types
 pub use drizzle_types::Dialect;
 
+// =============================================================================
+// Type-level dialect markers
+// =============================================================================
+
+/// Type-level marker for SQLite.
+///
+/// Used by [`crate::row::SQLTypeToRust`] to provide SQLite-specific type mappings.
+/// SQLite stores dates, UUIDs, and JSON as TEXT, so String fallbacks are always available.
+#[derive(Debug, Clone, Copy)]
+pub struct SQLiteDialect;
+
+/// Type-level marker for PostgreSQL.
+///
+/// Used by [`crate::row::SQLTypeToRust`] to provide PostgreSQL-specific type mappings.
+/// PostgreSQL uses native binary formats for dates, UUIDs, and JSON, so the corresponding
+/// feature flags (`chrono`, `uuid`, `serde`) must be enabled.
+#[derive(Debug, Clone, Copy)]
+pub struct PostgresDialect;
+
 /// Extension trait for Dialect-specific placeholder rendering
 pub trait DialectExt {
     /// Renders a placeholder for this dialect with the given 1-based index.

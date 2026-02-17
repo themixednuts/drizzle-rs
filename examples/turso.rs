@@ -69,7 +69,7 @@ async fn main() {
         .select(JoinedResult::default())
         .from(users)
         .left_join(posts)
-        .get()
+        .get_as()
         .await
         .expect("select users on posts.user_id");
 

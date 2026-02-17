@@ -153,9 +153,15 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     pub fn select<'a, 'b, T>(
         &'a self,
         query: T,
-    ) -> TransactionBuilder<'a, 'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+    ) -> TransactionBuilder<
+        'a,
+        'a,
+        Schema,
+        SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+        SelectInitial,
+    >
     where
-        T: ToSQL<'b, SQLiteValue<'b>>,
+        T: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
     {
         use drizzle_sqlite::builder::QueryBuilder;
 
@@ -306,8 +312,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 }
 
 #[cfg(feature = "turso")]
-impl<'a, 'conn, S, Schema, State, Table>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, 'conn, S, Schema, State, Table, Mk, Rw>
+    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {
@@ -319,17 +325,17 @@ where
         Ok(self.transaction.tx.execute(&sql_str, params).await?)
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
-    pub async fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
+    /// Runs the query and returns all matching rows, decoded as `R`.
+    pub async fn all_as<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
-        self.rows::<R>().await?.collect().await
+        self.rows_as::<R>().await?.collect().await
     }
 
-    /// Runs the query and returns a row cursor.
-    pub async fn rows<R>(self) -> drizzle_core::error::Result<Rows<R>>
+    /// Runs the query and returns a row cursor, decoded as `R`.
+    pub async fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -341,8 +347,8 @@ where
         Ok(Rows::new(rows))
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
-    pub async fn get<R>(self) -> drizzle_core::error::Result<R>
+    /// Runs the query and returns a single row, decoded as `R`.
+    pub async fn get_as<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -354,6 +360,45 @@ where
 
         if let Some(row) = rows.next().await? {
             R::try_from(&row).map_err(Into::into)
+        } else {
+            Err(DrizzleError::NotFound)
+        }
+    }
+
+    /// Runs the query and returns all matching rows using the builder's row type.
+    pub async fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::turso::Row>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
+        let mut decoded = Vec::new();
+        while let Some(row) = rows.next().await? {
+            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(&row)?);
+        }
+        Ok(decoded)
+    }
+
+    /// Runs the query and returns a row cursor using the builder's row type.
+    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    where
+        Rw: for<'r> TryFrom<&'r Row>,
+        for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
+    {
+        self.rows_as().await
+    }
+
+    /// Runs the query and returns a single row using the builder's row type.
+    pub async fn get(self) -> drizzle_core::error::Result<Rw>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::turso::Row>,
+    {
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
+        if let Some(row) = rows.next().await? {
+            drizzle_core::row::FromDrizzleRow::from_row(&row)
         } else {
             Err(DrizzleError::NotFound)
         }

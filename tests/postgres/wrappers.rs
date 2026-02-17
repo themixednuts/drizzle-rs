@@ -51,7 +51,7 @@ postgres_test!(compact_string_roundtrip, PgCompactStringSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<CompactStringRow> = drizzle_exec!(stmt => all);
+    let rows: Vec<CompactStringRow> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, value);
@@ -99,7 +99,7 @@ postgres_test!(bytes_roundtrip, PgBytesBlobSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<BytesBlobRow> = drizzle_exec!(stmt => all);
+    let rows: Vec<BytesBlobRow> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_ref(), payload.as_ref());
@@ -145,7 +145,7 @@ postgres_test!(smallvec_roundtrip, PgSmallVecBlobSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<SmallVecBlobRow> = drizzle_exec!(stmt => all);
+    let rows: Vec<SmallVecBlobRow> = drizzle_exec!(stmt => all_as);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_slice(), payload.as_slice());

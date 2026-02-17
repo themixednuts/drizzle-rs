@@ -14,7 +14,7 @@ drizzle-core = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
-chrono = { version = "0.4", optional = true, features = ["serde"] }
+chrono = { workspace = true, optional = true, features = ["serde"] }
 cidr = { version = "0.3", optional = true, features = ["serde"] }
 geo-types = { version = "0.7", optional = true, features = ["serde"] }
 bit-vec = { version = "0.8", optional = true }

@@ -1,15 +1,22 @@
+#![allow(clippy::type_complexity)]
+
 use crate::transaction::postgres::postgres_sync::TransactionBuilder;
 use drizzle_core::ToSQL;
 use drizzle_postgres::builder::{
     SelectFromSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet,
     SelectWhereSet, select::SelectBuilder,
 };
-use drizzle_postgres::traits::PostgresTable;
 use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
-impl<'a, 'conn, Schema>
-    TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
+impl<'a, 'conn, Schema, M>
+    TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectInitial, (), M>,
+        SelectInitial,
+    >
 {
     #[inline]
     pub fn from<T>(
@@ -19,11 +26,12 @@ impl<'a, 'conn, Schema>
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T>,
+        SelectBuilder<'a, Schema, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>,
         SelectFromSet,
     >
     where
         T: ToSQL<'a, PostgresValue<'a>>,
+        M: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.from(table);
         TransactionBuilder {
@@ -34,16 +42,14 @@ impl<'a, 'conn, Schema>
     }
 }
 
-impl<'a, 'conn, Schema, T>
+impl<'a, 'conn, Schema, T, M, R>
     TransactionBuilder<
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T>,
+        SelectBuilder<'a, Schema, SelectFromSet, T, M, R>,
         SelectFromSet,
     >
-where
-    T: PostgresTable<'a>,
 {
     #[inline]
     pub fn r#where(
@@ -53,7 +59,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     > {
         let builder = self.builder.r#where(condition.to_sql());
@@ -72,7 +78,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -90,7 +96,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -112,9 +118,19 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectJoinSet,
+            J::JoinedTable,
+            M,
+            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        >,
         SelectJoinSet,
-    > {
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
@@ -124,16 +140,14 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, T>
+impl<'a, 'conn, Schema, T, M, R>
     TransactionBuilder<
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectBuilder<'a, Schema, SelectJoinSet, T, M, R>,
         SelectJoinSet,
     >
-where
-    T: PostgresTable<'a>,
 {
     pub fn r#where(
         self,
@@ -142,7 +156,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     > {
         let builder = self.builder.r#where(condition.to_sql());
@@ -160,7 +174,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -181,9 +195,19 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectJoinSet,
+            J::JoinedTable,
+            M,
+            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        >,
         SelectJoinSet,
-    > {
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         let builder = self.builder.join(arg);
         TransactionBuilder {
             transaction: self.transaction,
@@ -193,16 +217,14 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, T>
+impl<'a, 'conn, Schema, T, M, R>
     TransactionBuilder<
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     >
-where
-    T: PostgresTable<'a>,
 {
     pub fn limit(
         self,
@@ -211,7 +233,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -229,7 +251,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -244,16 +266,14 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, T>
+impl<'a, 'conn, Schema, T, M, R>
     TransactionBuilder<
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     >
-where
-    T: PostgresTable<'a>,
 {
     pub fn offset(
         self,
@@ -262,7 +282,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
         SelectOffsetSet,
     > {
         let builder = self.builder.offset(offset);
@@ -274,16 +294,14 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, T>
+impl<'a, 'conn, Schema, T, M, R>
     TransactionBuilder<
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
-where
-    T: PostgresTable<'a>,
 {
     pub fn limit(
         self,
@@ -292,7 +310,7 @@ where
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);

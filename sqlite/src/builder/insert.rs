@@ -125,6 +125,8 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -151,6 +153,8 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -202,6 +206,8 @@ where
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -288,6 +294,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -303,6 +311,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -324,6 +334,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -346,6 +358,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -361,6 +375,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }

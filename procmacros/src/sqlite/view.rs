@@ -407,6 +407,14 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         #sql_view_impl
         #sql_view_info_impl
 
+        impl drizzle::core::HasSelectModel for #struct_ident {
+            type SelectModel = #select_model_ident;
+            const COLUMN_COUNT: usize = #columns_len;
+        }
+        impl drizzle::core::IntoSelectTarget for #struct_ident {
+            type Marker = drizzle::core::SelectStar;
+        }
+
     })
 }
 

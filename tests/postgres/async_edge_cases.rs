@@ -36,7 +36,7 @@ mod tokio_postgres_edge_cases {
             let results: Vec<PgSimpleResult> = db
                 .select((simple.id, simple.name))
                 .from(simple)
-                .all()
+                .all_as()
                 .await
                 .unwrap();
             results
@@ -56,7 +56,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -78,7 +78,7 @@ mod tokio_postgres_edge_cases {
             results = async {
                 let r: Vec<PgSimpleResult> = db.select((simple.id, simple.name))
                     .from(simple)
-                    .all()
+                    .all_as()
                     .await
                     .unwrap();
                 r
@@ -94,7 +94,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 10);
@@ -123,7 +123,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -147,7 +147,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
@@ -164,7 +164,7 @@ mod tokio_postgres_edge_cases {
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 20);
@@ -197,7 +197,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -225,7 +225,7 @@ mod tokio_postgres_edge_cases {
             let results: Vec<PgSimpleResult> = db_clone
                 .select((simple.id, simple.name))
                 .from(simple)
-                .all()
+                .all_as()
                 .await
                 .unwrap();
             results.len()
@@ -238,7 +238,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 5);
@@ -283,7 +283,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -331,7 +331,7 @@ mod tokio_postgres_edge_cases {
         let results: Vec<PgSimpleResult> = db
             .select((simple.id, simple.name))
             .from(simple)
-            .all()
+            .all_as()
             .await
             .unwrap();
         assert_eq!(results.len(), 3);

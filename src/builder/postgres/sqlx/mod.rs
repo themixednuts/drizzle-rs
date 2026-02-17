@@ -233,8 +233,8 @@ where
     }
 }
 
-impl<'a, 'b, S, Schema, State, Table>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
+impl<'a, 'b, S, Schema, State, Table, Mk, Rw>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {

@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use core::marker::PhantomData;
 
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
@@ -114,11 +116,11 @@ impl<'d, 'a, DrizzleRef, Schema>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, builder::select::SelectInitial>,
+        SelectBuilder<'a, Schema, builder::select::SelectInitial, (), T::Marker>,
         builder::select::SelectInitial,
     >
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select(query);
         DrizzleBuilder {
@@ -136,11 +138,11 @@ impl<'d, 'a, DrizzleRef, Schema>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, builder::select::SelectInitial>,
+        SelectBuilder<'a, Schema, builder::select::SelectInitial, (), T::Marker>,
         builder::select::SelectInitial,
     >
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select_distinct(query);
         DrizzleBuilder {
@@ -159,12 +161,12 @@ impl<'d, 'a, DrizzleRef, Schema>
         'a,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, builder::select::SelectInitial>,
+        SelectBuilder<'a, Schema, builder::select::SelectInitial, (), Columns::Marker>,
         builder::select::SelectInitial,
     >
     where
         On: ToSQL<'a, PostgresValue<'a>>,
-        Columns: ToSQL<'a, PostgresValue<'a>>,
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select_distinct_on(on, columns);
         DrizzleBuilder {
@@ -197,8 +199,14 @@ impl<'d, 'a, DrizzleRef, Schema>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectInitial>, SelectInitial>
+impl<'d, 'a, DrizzleRef, Schema, M>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectInitial, (), M>,
+        SelectInitial,
+    >
 {
     #[inline]
     pub fn from<T>(
@@ -208,11 +216,12 @@ impl<'d, 'a, DrizzleRef, Schema>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T>,
+        SelectBuilder<'a, Schema, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>,
         SelectFromSet,
     >
     where
         T: ToSQL<'a, PostgresValue<'a>>,
+        M: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.from(table);
         DrizzleBuilder {
@@ -223,12 +232,12 @@ impl<'d, 'a, DrizzleRef, Schema>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T>
+impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T>,
+        SelectBuilder<'a, Schema, SelectFromSet, T, M, R>,
         SelectFromSet,
     >
 {
@@ -240,7 +249,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     > {
         let builder = self.builder.r#where(condition.to_sql());
@@ -259,7 +268,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -277,7 +286,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -299,9 +308,19 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectJoinSet,
+            J::JoinedTable,
+            M,
+            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        >,
         SelectJoinSet,
-    > {
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -311,12 +330,12 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T>
+impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T>,
+        SelectBuilder<'a, Schema, SelectJoinSet, T, M, R>,
         SelectJoinSet,
     >
 {
@@ -327,7 +346,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     > {
         let builder = self.builder.r#where(condition.to_sql());
@@ -345,7 +364,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -366,9 +385,19 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectJoinSet,
+            J::JoinedTable,
+            M,
+            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        >,
         SelectJoinSet,
-    > {
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -378,12 +407,12 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T>
+impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T>,
+        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
     >
 {
@@ -394,7 +423,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -412,7 +441,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
     where
@@ -427,12 +456,12 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T>
+impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     >
 {
@@ -443,7 +472,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T>,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
         SelectOffsetSet,
     > {
         let builder = self.builder.offset(offset);
@@ -455,12 +484,12 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T>
+impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T>,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
         SelectOrderSet,
     >
 {
@@ -471,7 +500,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T>,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
         SelectLimitSet,
     > {
         let builder = self.builder.limit(limit);
@@ -483,8 +512,8 @@ impl<'d, 'a, DrizzleRef, Schema, T>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, State, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T>, State>
+impl<'d, 'a, DrizzleRef, Schema, State, T, M, R>
+    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
@@ -497,7 +526,7 @@ where
     ) -> CTEView<
         'a,
         <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased,
-        SelectBuilder<'a, Schema, State, T>,
+        SelectBuilder<'a, Schema, State, T, M, R>,
     > {
         self.builder.into_cte(name)
     }
@@ -936,8 +965,14 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 /// Macro to implement FOR UPDATE/SHARE methods on DrizzleBuilder for a given state
 macro_rules! impl_for_update_methods {
     ($state:ty) => {
-        impl<'d, 'a, DrizzleRef, Schema, T>
-            DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, $state, T>, $state>
+        impl<'d, 'a, DrizzleRef, Schema, T, M, R>
+            DrizzleBuilder<
+                'd,
+                DrizzleRef,
+                Schema,
+                SelectBuilder<'a, Schema, $state, T, M, R>,
+                $state,
+            >
         {
             /// Adds FOR UPDATE clause to lock selected rows for update.
             pub fn for_update(
@@ -946,7 +981,7 @@ macro_rules! impl_for_update_methods {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
                 SelectForSet,
             > {
                 let builder = self.builder.for_update();
@@ -964,7 +999,7 @@ macro_rules! impl_for_update_methods {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
                 SelectForSet,
             > {
                 let builder = self.builder.for_share();
@@ -982,7 +1017,7 @@ macro_rules! impl_for_update_methods {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
                 SelectForSet,
             > {
                 let builder = self.builder.for_no_key_update();
@@ -1000,7 +1035,7 @@ macro_rules! impl_for_update_methods {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
                 SelectForSet,
             > {
                 let builder = self.builder.for_key_share();
@@ -1019,7 +1054,7 @@ macro_rules! impl_for_update_methods {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
                 SelectForSet,
             > {
                 let builder = self.builder.for_update_of(table);
@@ -1038,7 +1073,7 @@ macro_rules! impl_for_update_methods {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T>,
+                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
                 SelectForSet,
             > {
                 let builder = self.builder.for_share_of(table);
@@ -1062,8 +1097,14 @@ impl_for_update_methods!(SelectJoinSet);
 impl_for_update_methods!(SelectGroupSet);
 
 // Implement NOWAIT and SKIP LOCKED on SelectForSet
-impl<'d, 'a, DrizzleRef, Schema, T>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T>, SelectForSet>
+impl<'d, 'a, DrizzleRef, Schema, T, M, R>
+    DrizzleBuilder<
+        'd,
+        DrizzleRef,
+        Schema,
+        SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
+        SelectForSet,
+    >
 {
     /// Adds NOWAIT option to fail immediately if rows are locked.
     pub fn nowait(
@@ -1072,7 +1113,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectForSet, T>,
+        SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
         SelectForSet,
     > {
         let builder = self.builder.nowait();
@@ -1090,7 +1131,7 @@ impl<'d, 'a, DrizzleRef, Schema, T>
         'd,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectForSet, T>,
+        SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
         SelectForSet,
     > {
         let builder = self.builder.skip_locked();
