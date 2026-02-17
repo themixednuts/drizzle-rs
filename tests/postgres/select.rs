@@ -7,7 +7,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_core::OrderBy;
 #[cfg(feature = "uuid")]
 use drizzle_core::types::Double;
 use drizzle_macros::postgres_test;
@@ -88,7 +87,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.name)])
+        .order_by([asc(simple.name)])
         .limit(2);
 
     let ordered_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
@@ -101,7 +100,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.name)])
+        .order_by([asc(simple.name)])
         .limit(2)
         .offset(2);
 
@@ -168,7 +167,7 @@ postgres_test!(select_with_order_by, SimpleSchema, {
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.name)])
+        .order_by([asc(simple.name)])
         .limit(2);
 
     assert_eq!(
@@ -223,7 +222,7 @@ postgres_test!(select_with_offset, SimpleSchema, {
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.name)])
+        .order_by([asc(simple.name)])
         .limit(2)
         .offset(1);
 
@@ -264,7 +263,7 @@ postgres_test!(cte_after_join, SimpleSchema, {
             db.with(&joined_simple)
                 .select((joined_alias.id, joined_alias.name))
                 .from(&joined_simple)
-                .order_by([OrderBy::asc(joined_alias.id)])
+                .order_by([asc(joined_alias.id)])
                 .all()
         )
     };
@@ -290,7 +289,7 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
         let paged_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
             .from(simple)
-            .order_by([OrderBy::asc(simple.id)])
+            .order_by([asc(simple.id)])
             .limit(2)
             .offset(1)
             .into_cte("paged_simple");
@@ -300,7 +299,7 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
             db.with(&paged_simple)
                 .select((paged_alias.id, paged_alias.name))
                 .from(&paged_simple)
-                .order_by([OrderBy::asc(paged_alias.id)])
+                .order_by([asc(paged_alias.id)])
                 .all()
         )
     };
@@ -319,10 +318,7 @@ postgres_test!(select_with_generated_model, SimpleSchema, {
         .values(vec![InsertSimple::new("sel_a"), InsertSimple::new("sel_b")]);
     drizzle_exec!(stmt => execute);
 
-    let stmt = db
-        .select(())
-        .from(simple)
-        .order_by([OrderBy::asc(simple.id)]);
+    let stmt = db.select(()).from(simple).order_by([asc(simple.id)]);
 
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
@@ -354,7 +350,7 @@ postgres_test!(select_with_multiple_order_by, ComplexSchema, {
     let stmt = db
         .select((complex.id, complex.name, complex.email, complex.age))
         .from(complex)
-        .order_by([OrderBy::desc(complex.age), OrderBy::asc(complex.name)]);
+        .order_by([desc(complex.age), asc(complex.name)]);
 
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3);

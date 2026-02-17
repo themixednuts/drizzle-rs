@@ -84,7 +84,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
         db.select(AuthorPostResult::default())
             .from(complex)
             .inner_join((post, eq(complex.id, post.author_id)))
-            .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
+            .order_by([asc(complex.name), asc(post.title)])
             => all
     );
 
@@ -168,7 +168,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
         db.select(AuthorPostResult::default())
             .from(complex)
             .join(post)
-            .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
+            .order_by([asc(complex.name), asc(post.title)])
             => all
     );
 
@@ -263,7 +263,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
         .from(post)
         .join((post_category, eq(post.id, post_category.post_id)))
         .join((category, eq(post_category.category_id, category.id)))
-        .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)]);
+        .order_by([asc(post.title), asc(category.name)]);
 
     let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt => all);
 
@@ -301,7 +301,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
             .join((post_category, eq(post.id, post_category.post_id)))
             .join((category, eq(post_category.category_id, category.id)))
             .r#where(eq(post.published, true))
-            .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
+            .order_by([asc(post.title), asc(category.name)])
             => all
     );
 
@@ -365,7 +365,7 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
             .from(post)
             .join(post_category)
             .join(category)
-            .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
+            .order_by([asc(post.title), asc(category.name)])
             => all
     );
 

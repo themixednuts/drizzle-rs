@@ -153,7 +153,7 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
         .from(u)
         .inner_join((p, eq(u.id, p.author_id)))
         .r#where(eq(p.published, true))
-        .order_by([OrderBy::asc(u.name)]);
+        .order_by([asc(u.name)]);
     let results: Vec<JoinResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);

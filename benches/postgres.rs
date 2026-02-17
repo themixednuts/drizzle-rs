@@ -696,7 +696,7 @@ mod postgres_sync {
 
         mod order_limit {
             use super::*;
-            use drizzle_core::OrderBy;
+            use drizzle_core::asc;
 
             #[divan::bench]
             fn raw(bencher: Bencher) {
@@ -751,7 +751,7 @@ mod postgres_sync {
                         let results: Vec<SelectUser> = db
                             .select(())
                             .from(users)
-                            .order_by([OrderBy::asc(users.name)])
+                            .order_by([asc(users.name)])
                             .limit(10)
                             .offset(20)
                             .all()
@@ -1571,7 +1571,7 @@ mod tokio_postgres {
 
         mod order_limit {
             use super::*;
-            use drizzle_core::OrderBy;
+            use drizzle_core::asc;
 
             #[divan::bench]
             fn raw(bencher: Bencher) {
@@ -1641,7 +1641,7 @@ mod tokio_postgres {
                             let results: Vec<SelectUser> = db
                                 .select(())
                                 .from(users)
-                                .order_by([OrderBy::asc(users.name)])
+                                .order_by([asc(users.name)])
                                 .limit(10)
                                 .offset(20)
                                 .all()

@@ -9,7 +9,6 @@ use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_core::OrderBy;
 use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
@@ -59,7 +58,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.name)])
+        .order_by([asc(simple.name)])
         .limit(2);
     // Test ORDER BY with LIMIT
     let ordered_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
@@ -71,7 +70,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.name)])
+        .order_by([asc(simple.name)])
         .limit(2)
         .offset(2);
 

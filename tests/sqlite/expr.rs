@@ -626,7 +626,7 @@ sqlite_test!(test_cte_after_join, SimpleSchema, {
         db.with(&joined_simple)
             .select((joined_simple.id, joined_simple.name))
             .from(&joined_simple)
-            .order_by([OrderBy::asc(joined_simple.id)])
+            .order_by([asc(joined_simple.id)])
             => all
     );
 
@@ -649,7 +649,7 @@ sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
     let paged_simple = db
         .select((simple.id, simple.name))
         .from(simple)
-        .order_by([OrderBy::asc(simple.id)])
+        .order_by([asc(simple.id)])
         .limit(2)
         .offset(1)
         .into_cte("paged_simple");
@@ -658,7 +658,7 @@ sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
         db.with(&paged_simple)
             .select((paged_simple.id, paged_simple.name))
             .from(&paged_simple)
-            .order_by([OrderBy::asc(paged_simple.id)])
+            .order_by([asc(paged_simple.id)])
             => all
     );
 

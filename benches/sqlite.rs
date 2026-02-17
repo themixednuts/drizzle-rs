@@ -950,7 +950,7 @@ mod rusqlite {
 
         mod order_limit {
             use super::*;
-            use drizzle_core::OrderBy;
+            use drizzle_core::asc;
 
             #[divan::bench]
             fn raw(bencher: Bencher) {
@@ -1001,7 +1001,7 @@ mod rusqlite {
                         let results: Vec<SelectUser> = db
                             .select(())
                             .from(users)
-                            .order_by([OrderBy::asc(users.name)])
+                            .order_by([asc(users.name)])
                             .limit(10)
                             .offset(20)
                             .all()
@@ -1930,7 +1930,7 @@ mod turso {
 
         mod order_limit {
             use super::*;
-            use drizzle_core::OrderBy;
+            use drizzle_core::asc;
 
             #[divan::bench]
             fn raw(bencher: Bencher) {
@@ -1992,7 +1992,7 @@ mod turso {
                         let results: Vec<SelectUser> = rt.block_on(async {
                             db.select(())
                                 .from(users)
-                                .order_by([OrderBy::asc(users.name)])
+                                .order_by([asc(users.name)])
                                 .limit(10)
                                 .offset(20)
                                 .all()
@@ -2921,7 +2921,7 @@ mod libsql {
 
         mod order_limit {
             use super::*;
-            use drizzle_core::OrderBy;
+            use drizzle_core::asc;
 
             #[divan::bench]
             fn raw(bencher: Bencher) {
@@ -2983,7 +2983,7 @@ mod libsql {
                         let results: Vec<SelectUser> = rt.block_on(async {
                             db.select(())
                                 .from(users)
-                                .order_by([OrderBy::asc(users.name)])
+                                .order_by([asc(users.name)])
                                 .limit(10)
                                 .offset(20)
                                 .all()

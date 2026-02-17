@@ -112,7 +112,9 @@ pub mod migrations {
 /// Core traits, SQL types, and expressions shared across drivers.
 pub mod core {
     /// SQL building blocks.
-    pub use drizzle_core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
+    pub use drizzle_core::{
+        OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token, asc, desc,
+    };
 
     /// Conversion trait for SQL generation.
     pub use drizzle_core::ToSQL;
@@ -182,7 +184,9 @@ pub mod sqlite {
         // Core types and traits
         pub use crate::core::ToSQL;
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
-        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
+        pub use crate::core::{
+            OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token, asc, desc,
+        };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
         // SQLite macros
@@ -234,7 +238,9 @@ pub mod postgres {
         // Core types and traits
         pub use crate::core::ToSQL;
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
-        pub use crate::core::{OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token};
+        pub use crate::core::{
+            OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token, asc, desc,
+        };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
         // PostgreSQL macros

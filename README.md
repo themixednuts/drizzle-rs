@@ -240,7 +240,7 @@ let rows: Vec<UserWithPost> = db
 let rows: Vec<SelectUsers> = db
     .select(())
     .from(users)
-    .order_by([OrderBy::asc(users.name)])
+    .order_by([asc(users.name)])
     .limit(10)
     .offset(20)
     .all()?;

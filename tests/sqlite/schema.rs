@@ -205,7 +205,7 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     let results: Vec<SelectUserEmailsView> = drizzle_exec!(
         db.select((user_emails.id, user_emails.email))
             .from(user_emails)
-            .order_by(OrderBy::asc(user_emails.id))
+            .order_by(asc(user_emails.id))
             => all
     );
 
@@ -261,7 +261,7 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
         .select((ue.id, ue.email))
         .from(ue)
         .r#where(eq(ue.email, "a@example.com"))
-        .order_by([OrderBy::asc(ue.id)]);
+        .order_by([asc(ue.id)]);
 
     let sql = stmt.to_sql().sql();
     assert_eq!(

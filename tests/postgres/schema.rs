@@ -9,7 +9,6 @@ use crate::common::schema::postgres::*;
 use drizzle::core::expr::eq;
 use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
 use drizzle::postgres::prelude::*;
-use drizzle_core::OrderBy;
 use drizzle_macros::postgres_test;
 
 #[allow(dead_code)]
@@ -118,7 +117,7 @@ postgres_test!(schema_with_view, ViewTestSchema, {
     let stmt = db
         .select((simple_view.id, simple_view.name))
         .from(simple_view)
-        .order_by([OrderBy::asc(simple_view.id)]);
+        .order_by([asc(simple_view.id)]);
     let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
@@ -174,7 +173,7 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
         .select((sv.id, sv.name))
         .from(sv)
         .r#where(eq(sv.name, "alpha"))
-        .order_by([OrderBy::asc(sv.id)]);
+        .order_by([asc(sv.id)]);
 
     let sql = stmt.to_sql().sql();
     assert!(sql.contains("FROM \"simple_view\" AS \"sv\""));

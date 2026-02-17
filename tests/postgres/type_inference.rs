@@ -4,7 +4,6 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 #![allow(clippy::approx_constant)]
 
-use drizzle::core::OrderBy;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -220,7 +219,7 @@ postgres_test!(integer_boundary_values, PgBasicTypesSchema, {
     ]);
     drizzle_exec!(stmt => execute);
 
-    let stmt = db.select(()).from(basic).order_by([OrderBy::asc(basic.id)]);
+    let stmt = db.select(()).from(basic).order_by([asc(basic.id)]);
     let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);

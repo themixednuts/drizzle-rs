@@ -89,10 +89,7 @@ mod execution {
         drizzle_exec!(stmt => execute);
 
         // Select and verify enum was stored correctly
-        let stmt = db
-            .select(())
-            .from(complex)
-            .order_by([OrderBy::asc(complex.name)]);
+        let stmt = db.select(()).from(complex).order_by([asc(complex.name)]);
         let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 3);

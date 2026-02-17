@@ -65,7 +65,7 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
         db.select(AuthorPostResult::default())
             .from(complex)
             .join(post)
-            .order_by([OrderBy::asc(complex.name), OrderBy::asc(post.title)])
+            .order_by([asc(complex.name), asc(post.title)])
             => all
     );
 
@@ -147,7 +147,7 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
             .from(post)
             .join(post_category)
             .join(category)
-            .order_by([OrderBy::asc(post.title), OrderBy::asc(category.name)])
+            .order_by([asc(post.title), asc(category.name)])
             => all
     );
 

@@ -71,7 +71,7 @@ pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
 pub use relation::{Joinable, Relation, SchemaHasTable};
-pub use schema::OrderBy;
+pub use schema::{OrderBy, asc, desc};
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
 pub use traits::*;
 

@@ -300,7 +300,6 @@ impl AsCteState for SelectOffsetSet {}
 /// # }
 /// # use drizzle::sqlite::prelude::*;
 /// # use drizzle::sqlite::builder::QueryBuilder;
-/// # use drizzle::core::OrderBy;
 /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
@@ -308,7 +307,7 @@ impl AsCteState for SelectOffsetSet {}
 /// let query = builder
 ///     .select(user.name)
 ///     .from(user)
-///     .order_by(OrderBy::asc(user.name))
+///     .order_by(asc(user.name))
 ///     .limit(10);
 /// ```
 pub type SelectBuilder<'a, Schema, State, Table = ()> =

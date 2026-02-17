@@ -210,7 +210,7 @@ postgres_test!(for_update_from_different_states, SimpleSchema, {
     let stmt = db
         .select(())
         .from(simple)
-        .order_by([drizzle_core::OrderBy::asc(simple.id)])
+        .order_by([drizzle_core::asc(simple.id)])
         .for_update();
     let sql = stmt.to_sql().sql();
     assert!(sql.contains("FOR UPDATE"));
