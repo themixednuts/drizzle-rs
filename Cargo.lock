@@ -1567,6 +1567,7 @@ dependencies = [
 name = "drizzle-core"
 version = "0.1.5"
 dependencies = [
+ "chrono",
  "compact_str",
  "drizzle-types",
  "hashbrown 0.16.1",

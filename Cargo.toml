@@ -75,6 +75,7 @@ toml = { version = "0.9" }
 tokio = { version = "1.48" }
 turso = { version = "0.5.0-pre.12", default-features = false }
 uuid = { version = "1.18", features = ["v4"] }
+chrono = { version = "0.4", default-features = false }
 puffin = { version = "0.19" }
 tracing = { version = "0.1" }
 arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
@@ -193,7 +194,7 @@ uuid = [
 ]
 
 # PostgreSQL feature flags for optional types
-chrono = ["drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-macros/chrono"]
+chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-macros/chrono"]
 cidr = ["drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
 bit-vec = ["drizzle-seed/bit-vec", "drizzle-postgres?/bit-vec", "drizzle-macros/bit-vec"]

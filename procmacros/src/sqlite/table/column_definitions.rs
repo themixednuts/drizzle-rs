@@ -57,6 +57,9 @@ pub(crate) fn generate_column_definitions<'a>(
     let column_of = core_paths::column_of();
     let column_not_null = core_paths::column_not_null();
     let column_value_type = core_paths::column_value_type();
+    let expr_value_type = core_paths::expr_value_type();
+    let into_select_target = core_paths::into_select_target();
+    let select_cols = core_paths::select_cols();
     let sqlite_column = sqlite_paths::sqlite_column();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
@@ -279,6 +282,12 @@ pub(crate) fn generate_column_definitions<'a>(
             #sqlite_column_impl
             #column_membership_impl
             #column_not_null_impl
+            impl #expr_value_type for #zst_ident {
+                type ValueType = #rust_type;
+            }
+            impl #into_select_target for #zst_ident {
+                type Marker = #select_cols<(#zst_ident,)>;
+            }
             #to_sql_impl
             #into_sqlite_value_impl
             #expr_impl

@@ -136,16 +136,22 @@ macro_rules! join_impl {
     };
     ($type:ident, $join_expr:expr) => {
         paste! {
+            #[allow(clippy::type_complexity)]
             pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, M, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>
+            where
+                M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+            {
                 use drizzle_core::Join;
                 SelectBuilder {
                     sql: append_sql(self.sql, arg.into_join_sql($join_expr)),
                     schema: PhantomData,
                     state: PhantomData,
                     table: PhantomData,
+                    marker: PhantomData,
+                    row: PhantomData,
                 }
             }
         }
@@ -310,18 +316,21 @@ impl AsCteState for SelectOffsetSet {}
 ///     .order_by(asc(user.name))
 ///     .limit(10);
 /// ```
-pub type SelectBuilder<'a, Schema, State, Table = ()> =
-    super::QueryBuilder<'a, Schema, State, Table>;
+pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = ()> =
+    super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
 
 //------------------------------------------------------------------------------
 // Initial State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
+impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
     /// Specifies the table or subquery to select FROM.
     ///
     /// This method transitions the builder from the initial state to the FROM state,
     /// enabling subsequent WHERE, JOIN, ORDER BY, and other clauses.
+    ///
+    /// The row type `R` is resolved from the select marker `M` and the table `T`
+    /// via the `ResolveRow` trait.
     ///
     /// # Examples
     ///
@@ -353,9 +362,13 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
     /// ```
     #[inline]
-    pub fn from<T>(self, query: T) -> SelectBuilder<'a, S, SelectFromSet, T>
+    pub fn from<T>(
+        self,
+        query: T,
+    ) -> SelectBuilder<'a, S, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
+        M: drizzle_core::ResolveRow<T>,
     {
         let sql = append_sql(self.sql, helpers::from(query));
         SelectBuilder {
@@ -363,6 +376,8 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -371,7 +386,7 @@ impl<'a, S> SelectBuilder<'a, S, SelectInitial> {
 // Post-FROM State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
     /// Adds an INNER JOIN clause to the query.
     ///
     /// Joins another table to the current query using the specified condition.
@@ -413,15 +428,28 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     /// );
     /// ```
     #[inline]
+    #[allow(clippy::type_complexity)]
     pub fn join<J: JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        J::JoinedTable,
+        M,
+        <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         SelectBuilder {
             sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -476,12 +504,14 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     pub fn r#where(
         self,
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
+    ) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -489,34 +519,40 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     pub fn group_by(
         self,
         expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
+    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::group_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
     /// Limits the number of rows returned
     #[inline]
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
     /// Sets the offset for the query results
     #[inline]
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
+    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -525,7 +561,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -534,6 +570,8 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -542,18 +580,20 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectFromSet, T> {
 // Post-JOIN State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectJoinSet, T, M, R> {
     /// Adds a WHERE condition after a JOIN
     #[inline]
     pub fn r#where(
         self,
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectWhereSet, T> {
+    ) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, crate::helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
     /// Sorts the query results
@@ -561,7 +601,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -570,19 +610,34 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
     /// Adds a JOIN clause to the query
     #[inline]
+    #[allow(clippy::type_complexity)]
     pub fn join<J: JoinArg<'a, T>>(
         self,
         arg: J,
-    ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable> {
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        J::JoinedTable,
+        M,
+        <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+    >
+    where
+        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+    {
         SelectBuilder {
             sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
     join_impl!();
@@ -592,17 +647,19 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectJoinSet, T> {
 // Post-WHERE State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
     /// Adds a GROUP BY clause after a WHERE
     pub fn group_by(
         self,
         expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
+    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::group_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -610,7 +667,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -619,16 +676,20 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
     /// Adds a LIMIT clause after a WHERE
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -637,17 +698,19 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectWhereSet, T> {
 // Post-GROUP BY State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
     /// Adds a HAVING clause after GROUP BY
     pub fn having(
         self,
         condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T> {
+    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::having(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -655,7 +718,7 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -664,6 +727,8 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -672,15 +737,17 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectGroupSet, T> {
 // Post-ORDER BY State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectOrderSet, T, M, R> {
     /// Adds a LIMIT clause after ORDER BY
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
         let sql = helpers::limit(limit);
         SelectBuilder {
             sql: append_sql(self.sql, sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -689,19 +756,21 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectOrderSet, T> {
 // Post-LIMIT State Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectLimitSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
     /// Adds an OFFSET clause after LIMIT
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
+    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
 
-impl<'a, S, State, T> SelectBuilder<'a, S, State, T>
+impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
 where
     State: AsCteState,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
@@ -728,7 +797,7 @@ where
 // Set operation support (UNION / INTERSECT / EXCEPT)
 //------------------------------------------------------------------------------
 
-impl<'a, S, State, T> SelectBuilder<'a, S, State, T>
+impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
 where
     State: ExecutableState,
 {
@@ -736,12 +805,14 @@ where
     pub fn union(
         self,
         other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
             sql: helpers::union(self.sql, other),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -749,12 +820,14 @@ where
     pub fn union_all(
         self,
         other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
             sql: helpers::union_all(self.sql, other),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -762,12 +835,14 @@ where
     pub fn intersect(
         self,
         other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
             sql: helpers::intersect(self.sql, other),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -775,12 +850,14 @@ where
     pub fn intersect_all(
         self,
         other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
             sql: helpers::intersect_all(self.sql, other),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -788,12 +865,14 @@ where
     pub fn except(
         self,
         other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
             sql: helpers::except(self.sql, other),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -801,22 +880,24 @@ where
     pub fn except_all(
         self,
         other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
             sql: helpers::except_all(self.sql, other),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
 
-impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
+impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
     /// Sorts the results of a set operation.
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T>
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
     where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -825,26 +906,32 @@ impl<'a, S, T> SelectBuilder<'a, S, SelectSetOpSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
     /// Limits the results of a set operation.
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T> {
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
     /// Offsets the results of a set operation.
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T> {
+    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }

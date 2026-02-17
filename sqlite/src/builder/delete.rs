@@ -237,6 +237,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -252,6 +254,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -273,6 +277,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }

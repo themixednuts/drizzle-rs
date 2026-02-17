@@ -19,9 +19,11 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
     let mut partial_select_fields = Vec::new();
     let mut select_column_names = Vec::new();
     let mut select_field_names = Vec::new();
+    let mut select_types = Vec::new();
+    let mut tuple_indices = Vec::new();
     let mut partial_convenience_methods = Vec::new();
 
-    for info in *field_infos {
+    for (i, info) in field_infos.iter().enumerate() {
         let name = info.ident;
         let select_type = ctx.get_field_type_for_model(info, ModelType::Select);
         let partial_type = ctx.get_field_type_for_model(info, ModelType::PartialSelect);
@@ -30,6 +32,8 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         select_fields.push(quote! { pub #name: #select_type });
         partial_select_fields.push(quote! { pub #name: #partial_type });
         select_column_names.push(quote! { #column_name });
+        select_types.push(select_type);
+        tuple_indices.push(syn::Index::from(i));
         select_field_names.push(name);
 
         // Generate convenience methods for partial select
@@ -54,6 +58,14 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         // Select Model
         #[derive(Debug, Clone, PartialEq, Default)]
         #struct_vis struct #select_model_ident { #(#select_fields,)* }
+
+        impl From<(#(#select_types,)*)> for #select_model_ident {
+            fn from(tuple: (#(#select_types,)*)) -> Self {
+                Self {
+                    #(#select_field_names: tuple.#tuple_indices,)*
+                }
+            }
+        }
 
         #partial_impl
     })

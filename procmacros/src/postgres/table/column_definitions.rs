@@ -49,6 +49,9 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
     let column_of = core_paths::column_of();
     let column_not_null = core_paths::column_not_null();
     let column_value_type = core_paths::column_value_type();
+    let expr_value_type = core_paths::expr_value_type();
+    let into_select_target = core_paths::into_select_target();
+    let select_cols = core_paths::select_cols();
 
     for field_info in *field_infos {
         let field_pascal_case = field_info.ident.to_string().to_upper_camel_case();
@@ -404,8 +407,13 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             impl #column_value_type for #zst_ident {
                 type ValueType = #value_type;
             }
+            impl #expr_value_type for #zst_ident {
+                type ValueType = #rust_type;
+            }
+            impl #into_select_target for #zst_ident {
+                type Marker = #select_cols<(#zst_ident,)>;
+            }
             #column_not_null_impl
-
 
             impl<'a> ToSQL<'a, PostgresValue<'a>> for #zst_ident {
                 fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {

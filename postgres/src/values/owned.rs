@@ -106,6 +106,7 @@ pub enum OwnedPostgresValue {
 
 impl SQLParam for OwnedPostgresValue {
     const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::PostgreSQL;
+    type DialectMarker = drizzle_core::dialect::PostgresDialect;
 }
 
 impl<'a> From<OwnedPostgresValue> for SQL<'a, OwnedPostgresValue> {

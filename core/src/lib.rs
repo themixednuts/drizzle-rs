@@ -61,16 +61,22 @@ pub mod relation;
 pub mod schema;
 pub mod sql;
 pub mod tracing;
+#[macro_use]
 pub mod traits;
+pub mod row;
 pub mod types;
 
 // Re-export key types and traits
 pub use builder::{BuilderInit, ExecutableState, OrderByClause};
-pub use dialect::{Dialect, DialectExt};
+pub use dialect::{Dialect, DialectExt, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
 pub use relation::{Joinable, Relation, SchemaHasTable};
+pub use row::{
+    AfterJoin, ExprValueType, FromDrizzleRow, HasSelectModel, IntoSelectTarget, ResolveRow,
+    SQLTypeToRust, SelectCols, SelectExpr, SelectStar, WrapNullable,
+};
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
 pub use traits::*;

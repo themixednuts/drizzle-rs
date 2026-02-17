@@ -105,6 +105,17 @@ where
     type Aggregate = Scalar;
 }
 
+impl<Lhs, Rhs, Op> crate::row::ExprValueType for ColumnBinOp<Lhs, Rhs, Op>
+where
+    Lhs: crate::row::ExprValueType,
+{
+    type ValueType = Lhs::ValueType;
+}
+
+impl<Lhs, Rhs, Op> crate::row::IntoSelectTarget for ColumnBinOp<Lhs, Rhs, Op> {
+    type Marker = crate::row::SelectCols<(Self,)>;
+}
+
 /// Negation result for column arithmetic.
 #[derive(Debug, Clone, Copy)]
 pub struct ColumnNeg<T> {
@@ -137,4 +148,12 @@ where
     type SQLType = T::SQLType;
     type Nullable = T::Nullable;
     type Aggregate = Scalar;
+}
+
+impl<T: crate::row::ExprValueType> crate::row::ExprValueType for ColumnNeg<T> {
+    type ValueType = T::ValueType;
+}
+
+impl<T> crate::row::IntoSelectTarget for ColumnNeg<T> {
+    type Marker = crate::row::SelectCols<(Self,)>;
 }

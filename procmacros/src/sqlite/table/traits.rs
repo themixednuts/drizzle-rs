@@ -218,6 +218,10 @@ pub(crate) fn generate_table_impls(
     let relations_impl = generate_relations(ctx)?;
     let capability_impls = generate_constraint_capabilities(ctx);
 
+    let has_select_model = core_paths::has_select_model();
+    let into_select_target = core_paths::into_select_target();
+    let select_star = core_paths::select_star();
+
     Ok(quote! {
         #foreign_key_impls
         #primary_key_impls
@@ -235,6 +239,13 @@ pub(crate) fn generate_table_impls(
         }
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_cons<#struct_ident, #type_set_nil>;
+        }
+        impl #has_select_model for #struct_ident {
+            type SelectModel = #select_model;
+            const COLUMN_COUNT: usize = #columns_len;
+        }
+        impl #into_select_target for #struct_ident {
+            type Marker = #select_star;
         }
         #sqlite_table_info_impl
         #sqlite_table_impl

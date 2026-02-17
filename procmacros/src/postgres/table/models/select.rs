@@ -11,8 +11,11 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     let mut select_fields = Vec::new();
     let mut partial_select_fields = Vec::new();
+    let mut select_field_names = Vec::new();
+    let mut select_types = Vec::new();
+    let mut tuple_indices = Vec::new();
 
-    for field_info in ctx.field_infos {
+    for (i, field_info) in ctx.field_infos.iter().enumerate() {
         let field_name = &field_info.ident;
         let select_type = ctx.get_field_type_for_model(field_info, ModelType::Select);
         let partial_type = ctx.get_field_type_for_model(field_info, ModelType::PartialSelect);
@@ -24,12 +27,24 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         partial_select_fields.push(quote! {
             pub #field_name: #partial_type,
         });
+
+        select_field_names.push(field_name);
+        select_types.push(select_type);
+        tuple_indices.push(syn::Index::from(i));
     }
 
     Ok(quote! {
         #[derive(Debug, Clone, Default)]
         #struct_vis struct #select_ident {
             #(#select_fields)*
+        }
+
+        impl From<(#(#select_types,)*)> for #select_ident {
+            fn from(tuple: (#(#select_types,)*)) -> Self {
+                Self {
+                    #(#select_field_names: tuple.#tuple_indices,)*
+                }
+            }
         }
 
         #[derive(Debug, Clone, Default)]

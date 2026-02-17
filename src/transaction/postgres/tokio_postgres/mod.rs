@@ -156,11 +156,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         'a,
         'conn,
         Schema,
-        SelectBuilder<'b, Schema, SelectInitial>,
+        SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
         SelectInitial,
     >
     where
-        T: ToSQL<'b, PostgresValue<'b>>,
+        T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
     {
         use drizzle_postgres::builder::QueryBuilder;
 
@@ -396,11 +396,11 @@ impl<'a, 'conn, Schema>
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectInitial>,
+        SelectBuilder<'a, Schema, SelectInitial, (), T::Marker>,
         SelectInitial,
     >
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select(query);
         TransactionBuilder {
@@ -433,8 +433,8 @@ impl<'a, 'conn, Schema>
     }
 }
 
-impl<'a, 'conn, S, Schema, State, Table>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table>, State>
+impl<'a, 'conn, S, Schema, State, Table, Mk, Rw>
+    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {
@@ -462,8 +462,8 @@ where
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?)
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
-    pub async fn all<R, C>(self) -> drizzle_core::error::Result<C>
+    /// Runs the query and returns all matching rows, decoded as the given type `R`.
+    pub async fn all_as<R, C>(self) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -498,8 +498,8 @@ where
         Ok(decoded.into_iter().collect())
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
-    pub async fn get<R>(self) -> drizzle_core::error::Result<R>
+    /// Runs the query and returns a single row, decoded as the given type `R`.
+    pub async fn get_as<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -526,6 +526,66 @@ where
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
         R::try_from(&row).map_err(Into::into)
+    }
+
+    /// Runs the query and returns all matching rows using the builder's row type.
+    pub async fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::tokio_postgres::Row>,
+    {
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+                .iter()
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
+
+        let tx_ref = self.transaction.tx.borrow();
+        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let rows = tx
+            .query(&sql_str, &param_refs[..])
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+        let mut decoded = Vec::with_capacity(rows.len());
+        for row in &rows {
+            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(row)?);
+        }
+        Ok(decoded)
+    }
+
+    /// Runs the query and returns a single row using the builder's row type.
+    pub async fn get(self) -> drizzle_core::error::Result<Rw>
+    where
+        Rw: drizzle_core::row::FromDrizzleRow<::tokio_postgres::Row>,
+    {
+        let (sql_str, param_refs) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+
+            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+                .iter()
+                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            (sql_str, param_refs)
+        };
+
+        let tx_ref = self.transaction.tx.borrow();
+        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let row = tx
+            .query_one(&sql_str, &param_refs[..])
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+        drizzle_core::row::FromDrizzleRow::from_row(&row)
     }
 }
 

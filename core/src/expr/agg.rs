@@ -11,7 +11,7 @@
 
 use crate::sql::SQL;
 use crate::traits::SQLParam;
-use crate::types::{Any, BigInt, Double, Numeric};
+use crate::types::{BigInt, Double, Numeric};
 
 use super::{Agg, Expr, NonNull, Null, SQLExpr, Scalar};
 
@@ -338,7 +338,7 @@ where
 /// DISTINCT - marks an expression as DISTINCT.
 ///
 /// Typically used inside aggregate functions.
-pub fn distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, Any, Null, Scalar>
+pub fn distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,

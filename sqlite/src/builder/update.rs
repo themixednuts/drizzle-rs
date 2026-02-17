@@ -244,6 +244,8 @@ where
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -311,6 +313,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -326,6 +330,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -347,6 +353,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }

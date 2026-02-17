@@ -36,10 +36,6 @@ pub trait ToSQL<'a, V: SQLParam> {
     {
         self.to_sql()
     }
-
-    fn alias(&self, alias: &'static str) -> SQL<'a, V> {
-        self.to_sql().alias(alias)
-    }
 }
 
 /// Wrapper for byte slices to avoid list semantics (`Vec<u8>` normally becomes a list).

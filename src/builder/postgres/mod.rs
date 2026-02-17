@@ -6,9 +6,9 @@ macro_rules! postgres_builder_constructors {
         pub fn select<'a, 'b, T>(
             &'a self,
             query: T,
-        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>, SelectInitial>
         where
-            T: ToSQL<'b, PostgresValue<'b>>,
+            T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         {
             let builder = QueryBuilder::new::<Schema>().select(query);
             DrizzleBuilder {
@@ -22,9 +22,9 @@ macro_rules! postgres_builder_constructors {
         pub fn select_distinct<'a, 'b, T>(
             &'a self,
             query: T,
-        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>, SelectInitial>
         where
-            T: ToSQL<'b, PostgresValue<'b>>,
+            T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
             DrizzleBuilder {
@@ -39,10 +39,10 @@ macro_rules! postgres_builder_constructors {
             &'a self,
             on: On,
             columns: Columns,
-        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial, (), Columns::Marker>, SelectInitial>
         where
             On: ToSQL<'b, PostgresValue<'b>>,
-            Columns: ToSQL<'b, PostgresValue<'b>>,
+            Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
             DrizzleBuilder {
@@ -121,9 +121,9 @@ macro_rules! postgres_builder_constructors {
         pub fn select<'a, 'b, T>(
             &'a mut self,
             query: T,
-        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>, SelectInitial>
         where
-            T: ToSQL<'b, PostgresValue<'b>>,
+            T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         {
             let builder = QueryBuilder::new::<Schema>().select(query);
             DrizzleBuilder {
@@ -137,9 +137,9 @@ macro_rules! postgres_builder_constructors {
         pub fn select_distinct<'a, 'b, T>(
             &'a mut self,
             query: T,
-        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>, SelectInitial>
         where
-            T: ToSQL<'b, PostgresValue<'b>>,
+            T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
             DrizzleBuilder {
@@ -154,10 +154,10 @@ macro_rules! postgres_builder_constructors {
             &'a mut self,
             on: On,
             columns: Columns,
-        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial>, SelectInitial>
+        ) -> DrizzleBuilder<'a, Schema, SelectBuilder<'b, Schema, SelectInitial, (), Columns::Marker>, SelectInitial>
         where
             On: ToSQL<'b, PostgresValue<'b>>,
-            Columns: ToSQL<'b, PostgresValue<'b>>,
+            Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
             DrizzleBuilder {

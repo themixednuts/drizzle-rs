@@ -152,6 +152,7 @@ impl<'a> From<&SQLiteValue<'a>> for OwnedSQLiteValue {
 
 impl SQLParam for OwnedSQLiteValue {
     const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::SQLite;
+    type DialectMarker = drizzle_core::dialect::SQLiteDialect;
 }
 
 impl<'a> From<OwnedSQLiteValue> for SQL<'a, OwnedSQLiteValue> {

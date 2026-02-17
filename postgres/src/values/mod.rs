@@ -598,6 +598,7 @@ impl<'a> PostgresValue<'a> {
 // Implement core traits required by Drizzle
 impl<'a> SQLParam for PostgresValue<'a> {
     const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::PostgreSQL;
+    type DialectMarker = drizzle_core::dialect::PostgresDialect;
 }
 
 impl<'a> From<PostgresValue<'a>> for SQL<'a, PostgresValue<'a>> {

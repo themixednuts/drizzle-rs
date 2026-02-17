@@ -277,9 +277,33 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         .map(|(idx, info)| generate_partial_field_conversion(idx, info))
         .collect();
 
+    // Generate FromDrizzleRow impl for SelectModel only when all fields have leaf impls
+    let has_unsupported_fields = field_infos.iter().any(|info| {
+        let cat = TypeCategory::from_type(&info.base_type);
+        info.is_enum
+            || info.is_pgenum
+            || (info.is_json && cat != TypeCategory::Json)
+            || matches!(
+                cat,
+                TypeCategory::Enum | TypeCategory::ArrayString | TypeCategory::ArrayVec
+            )
+    });
+
+    let field_count = field_infos.len();
+    let from_drizzle_row_fields: Vec<_> = field_infos
+        .iter()
+        .enumerate()
+        .map(|(idx, info)| {
+            let name = &info.ident;
+            quote! {
+                #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
+            }
+        })
+        .collect();
+
     // Generate implementation using drizzle::postgres::Row which re-exports
     // the Row type from whichever driver is active
-    Ok(quote! {
+    let base_impls = quote! {
         impl ::std::convert::TryFrom<&drizzle::postgres::Row> for #select_model_ident {
             type Error = #drizzle_error;
 
@@ -299,7 +323,24 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
                 })
             }
         }
-    })
+    };
+
+    if has_unsupported_fields {
+        Ok(base_impls)
+    } else {
+        let fdr_impl = quote! {
+            impl drizzle::core::FromDrizzleRow<drizzle::postgres::Row> for #select_model_ident {
+                const COLUMN_COUNT: usize = #field_count;
+
+                fn from_row_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                    Ok(Self {
+                        #(#from_drizzle_row_fields)*
+                    })
+                }
+            }
+        };
+        Ok(quote! { #base_impls #fdr_impl })
+    }
 }
 
 /// Fallback when no postgres driver is enabled - returns empty TokenStream

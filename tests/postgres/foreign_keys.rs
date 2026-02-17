@@ -414,7 +414,7 @@ postgres_test!(test_cascade_deletes_children, FkCascadeSchema, {
     );
 
     // Verify child exists
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all);
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all_as);
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].parent_id, Some(1));
 
@@ -422,7 +422,7 @@ postgres_test!(test_cascade_deletes_children, FkCascadeSchema, {
     drizzle_exec!(db.delete(fk_parent).r#where(eq(fk_parent.id, 1)) => execute);
 
     // Verify child was deleted by cascade
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all);
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all_as);
     assert_eq!(children.len(), 0, "Child should be deleted by CASCADE");
 });
 
@@ -447,7 +447,7 @@ postgres_test!(test_set_null_nullifies_children, FkSetNullSchema, {
     );
 
     // Verify child exists with parent_id set
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null) => all);
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null) => all_as);
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].parent_id, Some(1));
 
@@ -455,7 +455,7 @@ postgres_test!(test_set_null_nullifies_children, FkSetNullSchema, {
     drizzle_exec!(db.delete(fk_parent).r#where(eq(fk_parent.id, 1)) => execute);
 
     // Verify child still exists but parent_id is NULL
-    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null) => all);
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_set_null) => all_as);
     assert_eq!(children.len(), 1, "Child should still exist");
     assert_eq!(
         children[0].parent_id, None,
@@ -492,7 +492,7 @@ postgres_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
 
     // Verify child has parent_id = 1
     let children: Vec<ChildDefaultResult> =
-        drizzle_exec!(db.select(()).from(fk_set_default) => all);
+        drizzle_exec!(db.select(()).from(fk_set_default) => all_as);
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].parent_id, 1);
 
@@ -501,7 +501,7 @@ postgres_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
 
     // Verify child's parent_id is now the default value (0)
     let children: Vec<ChildDefaultResult> =
-        drizzle_exec!(db.select(()).from(fk_set_default) => all);
+        drizzle_exec!(db.select(()).from(fk_set_default) => all_as);
     assert_eq!(children.len(), 1, "Child should still exist");
     assert_eq!(
         children[0].parent_id, 0,
@@ -539,7 +539,7 @@ postgres_test!(
 
         // Verify child has parent_id = 1
         let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
+            drizzle_exec!(db.select(()).from(fk_update_cascade) => all_as);
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].parent_id, Some(1));
 
@@ -553,7 +553,7 @@ postgres_test!(
 
         // Verify child's parent_id was cascaded to 100
         let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
+            drizzle_exec!(db.select(()).from(fk_update_cascade) => all_as);
         assert_eq!(children.len(), 1);
         assert_eq!(
             children[0].parent_id,
@@ -588,7 +588,7 @@ postgres_test!(
 
         // Verify child has parent_id = 1
         let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
+            drizzle_exec!(db.select(()).from(fk_update_set_null) => all_as);
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].parent_id, Some(1));
 
@@ -602,7 +602,7 @@ postgres_test!(
 
         // Verify child's parent_id is now NULL
         let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
+            drizzle_exec!(db.select(()).from(fk_update_set_null) => all_as);
         assert_eq!(children.len(), 1);
         assert_eq!(
             children[0].parent_id, None,
@@ -657,7 +657,7 @@ postgres_test!(
             db.select(())
                 .from(fk_both_actions)
                 .r#where(eq(fk_both_actions.value, "Child1"))
-                => all
+                => all_as
         );
         assert_eq!(
             children[0].parent_id, None,
@@ -672,12 +672,13 @@ postgres_test!(
             db.select(())
                 .from(fk_both_actions)
                 .r#where(eq(fk_both_actions.value, "Child2"))
-                => all
+                => all_as
         );
         assert_eq!(children.len(), 0, "ON DELETE CASCADE should delete child2");
 
         // Child1 should still exist (parent was updated, not deleted)
-        let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_both_actions) => all);
+        let children: Vec<ChildResult> =
+            drizzle_exec!(db.select(()).from(fk_both_actions) => all_as);
         assert_eq!(children.len(), 1, "Child1 should still exist");
     }
 );

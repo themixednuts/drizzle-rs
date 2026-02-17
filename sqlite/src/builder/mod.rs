@@ -261,19 +261,21 @@ impl ExecutableState for CTEInit {}
 /// );
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct QueryBuilder<'a, Schema = (), State = (), Table = ()> {
+pub struct QueryBuilder<'a, Schema = (), State = (), Table = (), Marker = (), Row = ()> {
     pub sql: SQL<'a, SQLiteValue<'a>>,
     schema: PhantomData<Schema>,
     state: PhantomData<State>,
     table: PhantomData<Table>,
+    marker: PhantomData<Marker>,
+    row: PhantomData<Row>,
 }
 
 //------------------------------------------------------------------------------
 // QueryBuilder Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, Schema, State, Table> ToSQL<'a, SQLiteValue<'a>>
-    for QueryBuilder<'a, Schema, State, Table>
+impl<'a, Schema, State, Table, Marker, Row> ToSQL<'a, SQLiteValue<'a>>
+    for QueryBuilder<'a, Schema, State, Table, Marker, Row>
 {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         self.sql.clone()
@@ -328,6 +330,8 @@ impl<'a> QueryBuilder<'a> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -371,9 +375,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// let query = builder.select((user.id, user.name)).from(user);
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."id", "users"."name" FROM "users""#);
     /// ```
-    pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    pub fn select<T>(
+        &self,
+        columns: T,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial, (), T::Marker>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let sql = crate::helpers::select(columns);
         select::SelectBuilder {
@@ -381,6 +388,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -419,9 +428,9 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     pub fn select_distinct<T>(
         &self,
         columns: T,
-    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial, (), T::Marker>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let sql = crate::helpers::select_distinct(columns);
         select::SelectBuilder {
@@ -429,14 +438,19 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
-    pub fn select<T>(&self, columns: T) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    pub fn select<T>(
+        &self,
+        columns: T,
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial, (), T::Marker>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let sql = self.sql.clone().append(crate::helpers::select(columns));
         select::SelectBuilder {
@@ -444,6 +458,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -451,9 +467,9 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     pub fn select_distinct<T>(
         &self,
         columns: T,
-    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial>
+    ) -> select::SelectBuilder<'a, Schema, select::SelectInitial, (), T::Marker>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
     {
         let sql = self
             .sql
@@ -464,6 +480,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -487,6 +505,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -510,6 +530,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -533,6 +555,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -550,6 +574,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }
@@ -604,6 +630,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -658,6 +686,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -711,6 +741,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 
@@ -724,6 +756,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
         }
     }
 }

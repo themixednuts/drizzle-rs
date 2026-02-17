@@ -48,7 +48,7 @@ sqlite_test!(simple_insert, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "test"))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -92,7 +92,7 @@ sqlite_test!(complex_insert, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(Complex::name, "complex_user"))
-        => all
+        => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -125,7 +125,7 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "conflict_test"))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -166,7 +166,7 @@ sqlite_test!(feature_gated_insert, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.name, "feature_test"))
-        => all
+        => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -260,7 +260,7 @@ sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 1);
@@ -308,7 +308,7 @@ sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all
+            => all_as
     );
 
     assert_eq!(results.len(), 1);
