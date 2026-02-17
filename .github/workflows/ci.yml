@@ -125,7 +125,7 @@ jobs:
         id: test
         run: |
           mkdir -p test-output
-          cargo test --workspace --features "turso,uuid,serde" -- --test-threads=1 2>&1 | tee test-output/output.txt || true
+          cargo test --workspace --features "turso,uuid,serde" 2>&1 | tee test-output/output.txt || true
 
           if grep -q "FAILED" test-output/output.txt; then
             echo "has_failures=true" >> $GITHUB_OUTPUT
