@@ -31,7 +31,11 @@ sqlite_test!(test_transaction_commit, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Transaction commit test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     // Verify both records were inserted
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
@@ -157,7 +161,11 @@ sqlite_test!(test_transaction_query_builders, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Transaction query builders test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     // Verify final state
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
@@ -289,7 +297,11 @@ sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Nested transaction operations should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     // Verify final committed state
     let final_users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
@@ -417,7 +429,11 @@ sqlite_test!(test_savepoint_commit, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Savepoint commit test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     // Both records should exist
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
@@ -464,7 +480,11 @@ sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Outer transaction should survive rolled-back savepoint, got: {:?}",
+        result.as_ref().err()
+    );
 
     // Only outer + after_sp should exist, inner_rollback should be gone
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
@@ -547,7 +567,11 @@ sqlite_test!(test_nested_savepoints, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Nested savepoints test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
@@ -786,7 +810,11 @@ sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Sequential sibling savepoints should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 5);
@@ -860,7 +888,11 @@ sqlite_test!(test_sequential_savepoints_mixed_outcomes, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Mixed savepoint outcomes should recover and succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     let names: Vec<String> = users.iter().map(|u| u.name.clone()).collect();
@@ -921,7 +953,11 @@ sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Savepoint data visibility test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 });
 
 sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
@@ -965,7 +1001,11 @@ sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Rolled-back savepoint data test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 });
 
 sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
@@ -1030,7 +1070,11 @@ sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Savepoint update/delete rollback test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     // Verify final committed state matches
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
@@ -1083,7 +1127,11 @@ sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Nested savepoint inner rollback test should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
@@ -1138,7 +1186,11 @@ sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Prepared statement outside transaction should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 });
 
 sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
@@ -1185,7 +1237,11 @@ sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Prepared statement in savepoint should succeed, got: {:?}",
+        result.as_ref().err()
+    );
 });
 
 sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
@@ -1227,7 +1283,11 @@ sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
         })
     ));
 
-    assert!(result.is_ok());
+    drizzle_assert!(
+        result.is_ok(),
+        "Prepared statement should survive savepoint rollback, got: {:?}",
+        result.as_ref().err()
+    );
 });
 
 // Static assertion: OwnedPreparedStatement is Send + Sync

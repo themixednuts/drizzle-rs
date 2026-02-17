@@ -275,7 +275,7 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
             {old_name: "original_name"}
         ]
     ));
-    assert_eq!(update_count, 1, "Should have updated one row");
+    drizzle_assert_eq!(1, update_count, "Should have updated one row");
 
     // Verify the new name exists
     let results: Vec<SimpleResult> = drizzle_exec!(
@@ -334,7 +334,7 @@ sqlite_test!(
 
         // Execute — only the placeholder needs to be bound
         let update_count = drizzle_exec!(prepared.execute(db.conn(), params![{new_age: 30}]));
-        assert_eq!(update_count, 1, "Should have updated one row");
+        drizzle_assert_eq!(1, update_count, "Should have updated one row");
 
         // Verify both concrete and placeholder-bound fields were updated
         let results: Vec<ComplexResult> = drizzle_exec!(
