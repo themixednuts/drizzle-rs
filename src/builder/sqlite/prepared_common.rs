@@ -13,9 +13,10 @@ macro_rules! sqlite_async_prepared_impl {
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, params) = self.inner.bind(params);
-                let params: Vec<$value> = params.map(Into::into).collect();
+                let mut driver_params = Vec::with_capacity(self.inner.params.len());
+                driver_params.extend(params.map(Into::into));
 
-                conn.exec(sql_str, params).await
+                conn.exec(sql_str, driver_params).await
             }
 
             /// Runs the prepared statement and returns all matching rows
@@ -34,9 +35,10 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let params: Vec<$value> = params.map(Into::into).collect();
+                let mut driver_params = Vec::with_capacity(self.inner.params.len());
+                driver_params.extend(params.map(Into::into));
 
-                let mut rows = conn.fetch(sql_str, params).await?;
+                let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 let mut results = Vec::new();
                 while let Some(row) = rows.next().await? {
@@ -63,8 +65,9 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let params: Vec<$value> = params.map(Into::into).collect();
-                let mut rows = conn.fetch(sql_str, params).await?;
+                let mut driver_params = Vec::with_capacity(self.inner.params.len());
+                driver_params.extend(params.map(Into::into));
+                let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 if let Some(row) = rows.next().await? {
                     T::try_from(&row).map_err(Into::into)
@@ -87,9 +90,10 @@ macro_rules! sqlite_async_prepared_impl {
                 >,
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, params) = self.inner.bind(params);
-                let params: Vec<$value> = params.map(Into::into).collect();
+                let mut driver_params = Vec::with_capacity(self.inner.params.len());
+                driver_params.extend(params.map(Into::into));
 
-                conn.exec(sql_str, params).await
+                conn.exec(sql_str, driver_params).await
             }
 
             /// Runs the prepared statement and returns all matching rows
@@ -108,8 +112,9 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let params: Vec<$value> = params.map(Into::into).collect();
-                let mut rows = conn.fetch(sql_str, params).await?;
+                let mut driver_params = Vec::with_capacity(self.inner.params.len());
+                driver_params.extend(params.map(Into::into));
+                let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 let mut results = Vec::new();
                 while let Some(row) = rows.next().await? {
@@ -136,8 +141,9 @@ macro_rules! sqlite_async_prepared_impl {
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
                 let (sql_str, params) = self.inner.bind(params);
-                let params: Vec<$value> = params.map(Into::into).collect();
-                let mut rows = conn.fetch(sql_str, params).await?;
+                let mut driver_params = Vec::with_capacity(self.inner.params.len());
+                driver_params.extend(params.map(Into::into));
+                let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 if let Some(row) = rows.next().await? {
                     T::try_from(&row).map_err(Into::into)
