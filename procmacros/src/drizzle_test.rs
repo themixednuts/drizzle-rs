@@ -159,6 +159,55 @@ fn generate_rusqlite_test(
                             }
                         }
                     }};
+                    // Prepared operation pattern with SQL/param capture
+                    ($prepared:ident . execute($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.execute($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.execute($conn, __params_vec.clone()) {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . all($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.all($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.all($conn, __params_vec.clone()) {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . get($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.get($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.get($conn, __params_vec.clone()) {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                     // Old pattern: drizzle_exec!(operation) - uses stringify
                     ($operation:expr) => {{
                         let __op_str = stringify!($operation);
@@ -309,6 +358,55 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Prepared operation pattern with SQL/param capture
+                    ($prepared:ident . execute($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.execute($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.execute($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . all($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.all($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.all($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . get($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.get($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.get($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
                             Err(e) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
@@ -467,6 +565,55 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Prepared operation pattern with SQL/param capture
+                    ($prepared:ident . execute($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.execute($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.execute($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . all($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.all($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.all($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . get($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.get($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.get($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
                             Err(e) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
@@ -693,6 +840,55 @@ fn generate_postgres_sync_test(
                             }
                         }
                     }};
+                    // Prepared operation pattern with SQL/param capture
+                    ($prepared:ident . execute($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.execute($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.execute($conn, __params_vec.clone()) {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . all($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.all($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.all($conn, __params_vec.clone()) {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . get($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.get($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.get($conn, __params_vec.clone()) {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
                     // Old pattern: drizzle_exec!(operation) - uses stringify
                     ($operation:expr) => {{
                         let __op_str = stringify!($operation);
@@ -852,6 +1048,55 @@ fn generate_tokio_postgres_test(
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
                             },
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    // Prepared operation pattern with SQL/param capture
+                    ($prepared:ident . execute($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.execute($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.execute($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . all($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.all($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.all($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
+                            Err(e) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
+                                db.fail_with_op(__test_name, &e, __op_str);
+                            }
+                        }
+                    }};
+                    ($prepared:ident . get($conn:expr, $params:expr)) => {{
+                        let __op_str = stringify!($prepared.get($conn, $params));
+                        let __sql_str = $prepared.to_string();
+                        let __params_vec: Vec<_> = ($params).into_iter().collect();
+                        let __params_str = format!("{:?}", __params_vec);
+                        match $prepared.get($conn, __params_vec.clone()).await {
+                            Ok(v) => {
+                                db.record_sql(__op_str, &__sql_str, &__params_str, None);
+                                v
+                            }
                             Err(e) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, Some(format!("{}", e)));
                                 db.fail_with_op(__test_name, &e, __op_str);
