@@ -614,7 +614,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// // Usage: let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
 /// ```
 #[cfg(feature = "sqlite")]
-#[proc_macro_derive(SQLiteFromRow, attributes(column, json))]
+#[proc_macro_derive(SQLiteFromRow, attributes(column, json, from))]
 pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
@@ -648,7 +648,7 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[cfg(feature = "postgres")]
-#[proc_macro_derive(PostgresFromRow, attributes(column))]
+#[proc_macro_derive(PostgresFromRow, attributes(column, from))]
 pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 

@@ -47,13 +47,12 @@ async fn main() {
     println!("Users: {:?}", user_rows);
     println!("Posts: {:?}", post_rows);
 
-    #[derive(SQLiteFromRow, Default, Debug)]
+    #[derive(SQLiteFromRow, Debug)]
+    #[from(Users)]
     struct JoinedResult {
         #[cfg(feature = "uuid")]
-        #[column(Users::id)]
         id: Uuid,
         #[cfg(not(feature = "uuid"))]
-        #[column(Users::id)]
         id: i64,
         #[cfg(feature = "uuid")]
         #[column(Posts::id)]
@@ -66,10 +65,10 @@ async fn main() {
     }
 
     let row: JoinedResult = db
-        .select(JoinedResult::default())
+        .select(JoinedResult::Select)
         .from(users)
         .left_join(posts)
-        .get_as()
+        .get()
         .await
         .expect("select users on posts.user_id");
 

@@ -910,9 +910,10 @@ where
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
-        Rw: drizzle_core::row::FromDrizzleRow<::postgres::Row>,
+        for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
+            + drizzle_core::row::MarkerScopeValidFor<Proof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all");
@@ -932,7 +933,10 @@ where
         let rows = self.drizzle.client.query(&sql_str, &param_refs[..])?;
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
-            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(row)?);
+            decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
+                &::postgres::Row,
+                R,
+            >>::decode(row)?);
         }
         Ok(decoded)
     }
@@ -947,9 +951,10 @@ where
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub fn get(self) -> drizzle_core::error::Result<Rw>
+    pub fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
-        Rw: drizzle_core::row::FromDrizzleRow<::postgres::Row>,
+        for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
+            + drizzle_core::row::MarkerScopeValidFor<Proof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get");
@@ -967,6 +972,6 @@ where
         );
 
         let row = self.drizzle.client.query_one(&sql_str, &param_refs[..])?;
-        drizzle_core::row::FromDrizzleRow::from_row(&row)
+        <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
     }
 }

@@ -27,6 +27,7 @@ mod turso;
 use core::marker::PhantomData;
 
 use crate::error::DrizzleError;
+use crate::{Cons, Nil};
 
 // =============================================================================
 // Select Target Markers
@@ -43,6 +44,192 @@ pub struct SelectCols<Cols>(PhantomData<Cols>);
 /// Marker: raw SQL or untyped expression — R must be user-specified.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectExpr;
+
+/// Marker: explicit row model target chosen by user.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectAs<R>(PhantomData<R>);
+
+/// Marker wrapper that carries in-scope tables.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Scoped<Marker, Scope>(PhantomData<(Marker, Scope)>);
+
+/// Declares the set of tables a custom row model requires.
+pub trait SelectRequiredTables {
+    type RequiredTables;
+}
+
+/// Type-level witness that a table exists at the head of a scope list.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScopeHere;
+
+/// Type-level witness that a table exists deeper in a scope list.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScopeThere<Prev>(PhantomData<Prev>);
+
+/// Type-level table membership in a scope list.
+pub trait ScopeContains<Table, Witness> {}
+
+impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
+
+impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
+    Tail: ScopeContains<Table, Witness>
+{
+}
+
+/// Required-table list satisfaction.
+pub trait ScopeSatisfies<Required, Proof> {}
+
+impl<Scope> ScopeSatisfies<Nil, ()> for Scope {}
+
+impl<Scope, Head, Tail, HeadProof, TailProof>
+    ScopeSatisfies<Cons<Head, Tail>, (HeadProof, TailProof)> for Scope
+where
+    Scope: ScopeContains<Head, HeadProof>,
+    Scope: ScopeSatisfies<Tail, TailProof>,
+{
+}
+
+/// Marker-level required-table extraction.
+pub trait MarkerRequiredTables {
+    type RequiredTables;
+}
+
+impl MarkerRequiredTables for SelectStar {
+    type RequiredTables = Nil;
+}
+
+impl<Cols> MarkerRequiredTables for SelectCols<Cols> {
+    type RequiredTables = Nil;
+}
+
+impl MarkerRequiredTables for SelectExpr {
+    type RequiredTables = Nil;
+}
+
+impl<R> MarkerRequiredTables for SelectAs<R>
+where
+    R: SelectRequiredTables,
+{
+    type RequiredTables = R::RequiredTables;
+}
+
+/// Marker validation for a specific scope-satisfaction proof.
+#[diagnostic::on_unimplemented(
+    message = "query is missing required tables for selected row",
+    label = "add the missing .join(...) tables for this selector"
+)]
+///
+/// ```
+/// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectRequiredTables};
+/// use drizzle_core::row::{MarkerScopeValidFor, ScopeHere};
+///
+/// struct Users;
+/// struct Model;
+///
+/// impl SelectRequiredTables for Model {
+///     type RequiredTables = Cons<Users, Nil>;
+/// }
+///
+/// type Good = Scoped<SelectAs<Model>, Cons<Users, Nil>>;
+///
+/// fn needs_valid<M: MarkerScopeValidFor<(ScopeHere, ())>>() {}
+///
+/// fn main() {
+///     needs_valid::<Good>();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectRequiredTables};
+/// use drizzle_core::row::{MarkerScopeValidFor, ScopeHere};
+///
+/// struct Users;
+/// struct Posts;
+/// struct Model;
+///
+/// impl SelectRequiredTables for Model {
+///     type RequiredTables = Cons<Users, Nil>;
+/// }
+///
+/// type Bad = Scoped<SelectAs<Model>, Cons<Posts, Nil>>;
+///
+/// fn needs_valid<M: MarkerScopeValidFor<(ScopeHere, ())>>() {}
+///
+/// fn main() {
+///     needs_valid::<Bad>();
+/// }
+/// ```
+pub trait MarkerScopeValidFor<Proof> {}
+
+impl<M, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<M, Scope>
+where
+    M: MarkerRequiredTables,
+    Scope: ScopeSatisfies<<M as MarkerRequiredTables>::RequiredTables, Proof>,
+{
+}
+
+/// Pushes a joined table into the marker scope.
+pub trait ScopePush<Joined> {
+    type Out;
+}
+
+impl<M, Scope, Joined> ScopePush<Joined> for Scoped<M, Scope> {
+    type Out = Scoped<M, Cons<Joined, Scope>>;
+}
+
+/// Marker-directed row decoding for `.all()`/`.get()`.
+pub trait DecodeSelectedRef<RowRef, R> {
+    fn decode(row: RowRef) -> Result<R, DrizzleError>;
+}
+
+impl<RowRef, R> DecodeSelectedRef<RowRef, R> for SelectAs<R>
+where
+    R: TryFrom<RowRef>,
+    <R as TryFrom<RowRef>>::Error: Into<DrizzleError>,
+{
+    fn decode(row: RowRef) -> Result<R, DrizzleError> {
+        R::try_from(row).map_err(Into::into)
+    }
+}
+
+impl<RowRef, R, M, Scope> DecodeSelectedRef<RowRef, R> for Scoped<M, Scope>
+where
+    M: DecodeSelectedRef<RowRef, R>,
+{
+    fn decode(row: RowRef) -> Result<R, DrizzleError> {
+        M::decode(row)
+    }
+}
+
+impl<RowRef, Row: ?Sized, R> DecodeSelectedRef<RowRef, R> for SelectStar
+where
+    RowRef: core::ops::Deref<Target = Row>,
+    R: FromDrizzleRow<Row>,
+{
+    fn decode(row: RowRef) -> Result<R, DrizzleError> {
+        R::from_row(&*row)
+    }
+}
+
+impl<RowRef, Row: ?Sized, Cols, R> DecodeSelectedRef<RowRef, R> for SelectCols<Cols>
+where
+    RowRef: core::ops::Deref<Target = Row>,
+    R: FromDrizzleRow<Row>,
+{
+    fn decode(row: RowRef) -> Result<R, DrizzleError> {
+        R::from_row(&*row)
+    }
+}
+
+impl<RowRef, Row: ?Sized, R> DecodeSelectedRef<RowRef, R> for SelectExpr
+where
+    RowRef: core::ops::Deref<Target = Row>,
+    R: FromDrizzleRow<Row>,
+{
+    fn decode(row: RowRef) -> Result<R, DrizzleError> {
+        R::from_row(&*row)
+    }
+}
 
 // =============================================================================
 // FromDrizzleRow — offset-based row extraction
@@ -349,6 +536,31 @@ impl<T> ResolveRow<T> for SelectExpr {
     type Row = ();
 }
 
+impl<R, T> ResolveRow<T> for SelectAs<R>
+where
+    R: SelectAsFrom<T>,
+{
+    type Row = R;
+}
+
+impl<M, Scope, T> ResolveRow<T> for Scoped<M, Scope>
+where
+    M: ResolveRow<T>,
+{
+    type Row = M::Row;
+}
+
+/// Compile-time constraint for `.select(MyRow::Select).from(table)` base table matching.
+///
+/// `#[from(Table)]` on `*FromRow` structs emits `impl SelectAsFrom<Table> for MyRow`.
+/// Structs without `#[from(...)]` may opt into any table.
+#[diagnostic::on_unimplemented(
+    message = "row selector `{Self}` cannot be used with table `{Table}`",
+    label = "the #[from(...)] table does not match .from(...)",
+    note = "set #[from(TheTable)] to the same table passed to .from(...)"
+)]
+pub trait SelectAsFrom<Table> {}
+
 // -- SelectCols: column value types → row tuple --
 
 macro_rules! impl_resolve_row_cols {
@@ -385,18 +597,16 @@ impl<R, T> AfterJoin<R, T> for SelectExpr {
     type NewRow = R;
 }
 
-// =============================================================================
-// Fallback impls for () marker (backward compatibility during transition)
-// =============================================================================
-
-/// When Marker = `()` (default before `IntoSelectTarget` is wired), R defaults to `()`.
-impl<T> ResolveRow<T> for () {
-    type Row = ();
+/// Explicit model + JOIN → R unchanged.
+impl<Row, R, T> AfterJoin<R, T> for SelectAs<Row> {
+    type NewRow = R;
 }
 
-/// When Marker = `()`, joins leave R unchanged.
-impl<R, T> AfterJoin<R, T> for () {
-    type NewRow = R;
+impl<M, Scope, R, T> AfterJoin<R, T> for Scoped<M, Scope>
+where
+    M: AfterJoin<R, T>,
+{
+    type NewRow = M::NewRow;
 }
 
 // =============================================================================

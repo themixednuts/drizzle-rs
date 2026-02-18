@@ -150,8 +150,10 @@ pub mod core {
 
     /// Row inference types and traits.
     pub use drizzle_core::row::{
-        AfterJoin, ExprValueType, FromDrizzleRow, HasSelectModel, IntoSelectTarget, ResolveRow,
-        SQLTypeToRust, SelectCols, SelectExpr, SelectStar, WrapNullable,
+        AfterJoin, DecodeSelectedRef, ExprValueType, FromDrizzleRow, HasSelectModel,
+        IntoSelectTarget, MarkerScopeValidFor, ResolveRow, SQLTypeToRust, ScopePush, Scoped,
+        SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar,
+        WrapNullable,
     };
 }
 

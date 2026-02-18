@@ -356,16 +356,20 @@ where
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub async fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    pub async fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
-        Rw: drizzle_core::row::FromDrizzleRow<::libsql::Row>,
+        for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
+            + drizzle_core::row::MarkerScopeValidFor<Proof>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
         let mut rows = self.transaction.tx.query(&sql_str, params).await?;
         let mut decoded = Vec::new();
         while let Some(row) = rows.next().await? {
-            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(&row)?);
+            decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
+                &::libsql::Row,
+                R,
+            >>::decode(&row)?);
         }
         Ok(decoded)
     }
@@ -380,15 +384,16 @@ where
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub async fn get(self) -> drizzle_core::error::Result<Rw>
+    pub async fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
-        Rw: drizzle_core::row::FromDrizzleRow<::libsql::Row>,
+        for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
+            + drizzle_core::row::MarkerScopeValidFor<Proof>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
         let mut rows = self.transaction.tx.query(&sql_str, params).await?;
         if let Some(row) = rows.next().await? {
-            drizzle_core::row::FromDrizzleRow::from_row(&row)
+            <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row)
         } else {
             Err(DrizzleError::NotFound)
         }

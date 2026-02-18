@@ -211,17 +211,18 @@ let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
 
 ## Joins
 
-Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct:
+Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct.
+`#[from(Users)]` sets the default source table for unannotated fields:
 
 ```rust
 use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
 
-#[derive(SQLiteFromRow, Default, Debug)]
+#[derive(SQLiteFromRow, Debug)]
+#[from(Users)]
 struct UserWithPost {
     #[column(Users::id)]
     user_id: i64,
-    #[column(Users::name)]
     name: String,
     #[column(Posts::id)]
     post_id: i64,
@@ -231,14 +232,14 @@ struct UserWithPost {
 
 // Explicit ON condition
 let rows: Vec<UserWithPost> = db
-    .select(UserWithPost::default())
+    .select(UserWithPost::Select)
     .from(users)
     .left_join((posts, eq(users.id, posts.author_id)))
     .all()?;
 
 // Auto-FK: derives the ON condition from #[column(references = ...)]
 let rows: Vec<UserWithPost> = db
-    .select(UserWithPost::default())
+    .select(UserWithPost::Select)
     .from(users)
     .left_join(posts)
     .all()?;

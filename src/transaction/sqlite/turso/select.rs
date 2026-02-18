@@ -28,7 +28,14 @@ impl<'a, 'conn, Schema, M>
         'a,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectFromSet,
+            T,
+            drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+            <M as drizzle_core::ResolveRow<T>>::Row,
+        >,
         SelectFromSet,
     >
     where
@@ -127,13 +134,13 @@ where
             Schema,
             SelectJoinSet,
             J::JoinedTable,
-            M,
+            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
             <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
         >,
         SelectJoinSet,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         let builder = self.builder.join(arg);
         TransactionBuilder {
@@ -208,13 +215,13 @@ where
             Schema,
             SelectJoinSet,
             J::JoinedTable,
-            M,
+            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
             <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
         >,
         SelectJoinSet,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         let builder = self.builder.join(arg);
         TransactionBuilder {

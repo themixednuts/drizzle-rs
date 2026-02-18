@@ -47,6 +47,7 @@ pub(crate) mod prelude {
 }
 
 pub mod builder;
+pub mod cte;
 pub mod dialect;
 pub mod error;
 pub mod expr;
@@ -67,15 +68,16 @@ pub mod row;
 pub mod types;
 
 // Re-export key types and traits
-pub use builder::{BuilderInit, ExecutableState, OrderByClause};
+pub use builder::{BuilderInit, ExecutableState};
 pub use dialect::{Dialect, DialectExt, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
-    AfterJoin, ExprValueType, FromDrizzleRow, HasSelectModel, IntoSelectTarget, ResolveRow,
-    SQLTypeToRust, SelectCols, SelectExpr, SelectStar, WrapNullable,
+    AfterJoin, DecodeSelectedRef, ExprValueType, FromDrizzleRow, HasSelectModel, IntoSelectTarget,
+    MarkerScopeValidFor, ResolveRow, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
+    SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
