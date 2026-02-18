@@ -34,46 +34,6 @@ use drizzle_types::Dialect;
 use combinators::{parse_index_struct, parse_schema_struct, parse_table_struct};
 
 // =============================================================================
-// Dialect Extensions
-// =============================================================================
-
-/// Extension trait for parser-specific dialect functionality
-pub trait DialectParserExt {
-    /// Get the table attribute prefix for this dialect
-    fn table_prefix(&self) -> &'static str;
-    /// Get the index attribute prefix for this dialect
-    fn index_prefix(&self) -> &'static str;
-    /// Get the schema derive attribute for this dialect
-    fn schema_derive(&self) -> &'static str;
-}
-
-impl DialectParserExt for Dialect {
-    fn table_prefix(&self) -> &'static str {
-        match self {
-            Dialect::SQLite => "#[SQLiteTable",
-            Dialect::PostgreSQL => "#[PostgresTable",
-            Dialect::MySQL => "#[MySQLTable",
-        }
-    }
-
-    fn index_prefix(&self) -> &'static str {
-        match self {
-            Dialect::SQLite => "#[SQLiteIndex",
-            Dialect::PostgreSQL => "#[PostgresIndex",
-            Dialect::MySQL => "#[MySQLIndex",
-        }
-    }
-
-    fn schema_derive(&self) -> &'static str {
-        match self {
-            Dialect::SQLite => "#[derive(SQLiteSchema)]",
-            Dialect::PostgreSQL => "#[derive(PostgresSchema)]",
-            Dialect::MySQL => "#[derive(MySQLSchema)]",
-        }
-    }
-}
-
-// =============================================================================
 // Schema Parser
 // =============================================================================
 

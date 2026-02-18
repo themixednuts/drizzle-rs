@@ -2,18 +2,6 @@ use crate::prelude::*;
 use crate::{ToSQL, sql::SQL, traits::SQLParam};
 use core::any::Any;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SchemaName(pub &'static str);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TableName(pub &'static str);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ColumnName(pub &'static str);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct IndexName(pub &'static str);
-
 /// Trait for database enum types that can be part of a schema
 pub trait SQLEnumInfo: Any + Send + Sync {
     /// The name of this enum type
@@ -24,17 +12,6 @@ pub trait SQLEnumInfo: Any + Send + Sync {
 
     /// All possible values of this enum
     fn variants(&self) -> &'static [&'static str];
-}
-
-/// Helper trait for converting enum info objects to trait objects
-pub trait AsEnumInfo: SQLEnumInfo {
-    fn as_enum(&self) -> &dyn SQLEnumInfo;
-}
-
-impl<T: SQLEnumInfo> AsEnumInfo for T {
-    fn as_enum(&self) -> &dyn SQLEnumInfo {
-        self
-    }
 }
 
 impl core::fmt::Debug for dyn SQLEnumInfo {

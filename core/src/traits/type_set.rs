@@ -1,9 +1,11 @@
 use core::marker::PhantomData;
 
 /// Empty type-level set/list.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Nil;
 
 /// Non-empty type-level set/list node.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Cons<Head, Tail>(PhantomData<(Head, Tail)>);
 
 /// Marker trait for type-level sets/lists.
