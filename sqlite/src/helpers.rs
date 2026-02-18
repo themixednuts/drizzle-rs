@@ -3,7 +3,7 @@ use crate::prelude::*;
 use crate::traits::{SQLiteTable, SQLiteTableInfo};
 use crate::values::SQLiteValue;
 use drizzle_core::{
-    Joinable, SQL, Token, helpers as core_helpers,
+    SQL, Token, helpers as core_helpers,
     traits::{SQLColumnInfo, SQLModel, ToSQL},
 };
 
@@ -16,71 +16,12 @@ pub(crate) use core_helpers::{
 // Re-export Join from core
 pub use drizzle_core::Join;
 
-// =============================================================================
-// JoinArg trait — dispatch between bare table (auto-FK) and (table, condition)
-// =============================================================================
-
-/// Trait for arguments accepted by `.join()` and related join methods.
-///
-/// Implemented for:
-/// - **`(table, condition)`** — explicit ON condition (always available)
-/// - **bare table** — auto-derives ON condition from FK metadata (requires `Joinable` bound)
-pub trait JoinArg<'a, FromTable> {
-    type JoinedTable;
-    fn into_join_sql(self, join: Join) -> SQL<'a, SQLiteValue<'a>>;
-}
-
-/// Bare table: derives the ON condition from `Joinable::fk_columns()`.
-impl<'a, U, T> JoinArg<'a, T> for U
-where
-    U: SQLiteTable<'a> + Joinable<T>,
-    T: SQLiteTableInfo + Default,
-{
-    type JoinedTable = U;
-    fn into_join_sql(self, join: Join) -> SQL<'a, SQLiteValue<'a>> {
-        use drizzle_core::ToSQL;
-        let from = T::default();
-        let cols = <U as Joinable<T>>::fk_columns();
-        let join_name = self.name();
-        let from_name = from.name();
-
-        let mut condition = SQL::with_capacity_chunks(cols.len() * 7);
-        for (idx, (self_col, target_col)) in cols.iter().enumerate() {
-            if idx > 0 {
-                condition.push_mut(Token::AND);
-            }
-            condition.append_mut(
-                SQL::ident(join_name.to_string())
-                    .push(Token::DOT)
-                    .append(SQL::ident(self_col.to_string())),
-            );
-            condition.push_mut(Token::EQ);
-            condition.append_mut(
-                SQL::ident(from_name.to_string())
-                    .push(Token::DOT)
-                    .append(SQL::ident(target_col.to_string())),
-            );
-        }
-
-        join.to_sql()
-            .append(&self)
-            .push(Token::ON)
-            .append(&condition)
-    }
-}
-
-/// Tuple `(table, condition)`: explicit ON condition.
-impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
-where
-    U: SQLiteTable<'a>,
-    C: ToSQL<'a, SQLiteValue<'a>>,
-{
-    type JoinedTable = U;
-    fn into_join_sql(self, join: Join) -> SQL<'a, SQLiteValue<'a>> {
-        let (table, condition) = self;
-        join_internal(table, join, condition)
-    }
-}
+drizzle_core::impl_join_arg_trait!(
+    table_trait: SQLiteTable<'a>,
+    table_info_trait: SQLiteTableInfo,
+    condition_trait: ToSQL<'a, SQLiteValue<'a>>,
+    value_type: SQLiteValue<'a>,
+);
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
 fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, SQLiteValue<'a>> {

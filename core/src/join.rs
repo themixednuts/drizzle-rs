@@ -334,3 +334,79 @@ macro_rules! impl_join_helpers {
         }
     };
 }
+
+/// Macro to generate dialect-specific `JoinArg` trait and impls.
+///
+/// This consolidates the shared logic for:
+/// - explicit join tuples: `(table, condition)`
+/// - auto-FK joins for bare tables
+#[macro_export]
+macro_rules! impl_join_arg_trait {
+    (
+        table_trait: $TableTrait:path,
+        table_info_trait: $TableInfoTrait:path,
+        condition_trait: $ConditionTrait:path,
+        value_type: $ValueType:ty $(,)?
+    ) => {
+        /// Trait for arguments accepted by `.join()` and related join methods.
+        pub trait JoinArg<'a, FromTable> {
+            type JoinedTable;
+            fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType>;
+        }
+
+        /// Bare table: derives the ON condition from `Joinable::fk_columns()`.
+        impl<'a, U, T> JoinArg<'a, T> for U
+        where
+            U: $TableTrait + $crate::Joinable<T>,
+            T: $TableInfoTrait + ::core::default::Default,
+        {
+            type JoinedTable = U;
+
+            fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType> {
+                use $crate::ToSQL;
+
+                let from = T::default();
+                let cols = <U as $crate::Joinable<T>>::fk_columns();
+                let join_name = self.name();
+                let from_name = from.name();
+
+                let mut condition = $crate::SQL::with_capacity_chunks(cols.len() * 7);
+                for (idx, (self_col, target_col)) in cols.iter().enumerate() {
+                    if idx > 0 {
+                        condition.push_mut($crate::Token::AND);
+                    }
+                    condition.append_mut(
+                        $crate::SQL::ident(join_name.to_string())
+                            .push($crate::Token::DOT)
+                            .append($crate::SQL::ident(self_col.to_string())),
+                    );
+                    condition.push_mut($crate::Token::EQ);
+                    condition.append_mut(
+                        $crate::SQL::ident(from_name.to_string())
+                            .push($crate::Token::DOT)
+                            .append($crate::SQL::ident(target_col.to_string())),
+                    );
+                }
+
+                join.to_sql()
+                    .append(&self)
+                    .push($crate::Token::ON)
+                    .append(&condition)
+            }
+        }
+
+        /// Tuple `(table, condition)`: explicit ON condition.
+        impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
+        where
+            U: $TableTrait,
+            C: $ConditionTrait,
+        {
+            type JoinedTable = U;
+
+            fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType> {
+                let (table, condition) = self;
+                join_internal(table, join, condition)
+            }
+        }
+    };
+}
