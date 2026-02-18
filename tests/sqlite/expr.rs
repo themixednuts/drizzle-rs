@@ -499,6 +499,17 @@ sqlite_test!(test_multiple_aliases, SimpleSchema, {
 sqlite_test!(test_cte_integration_simple, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
+    struct FilteredUsersTag;
+    impl drizzle::core::Tag for FilteredUsersTag {
+        const NAME: &'static str = "filtered_users";
+    }
+
+    #[derive(SQLiteFromRow)]
+    struct CteSimpleRow {
+        id: i32,
+        name: String,
+    }
+
     // Insert test data
     let test_data = [
         InsertSimple::new("Alice").with_id(1),
@@ -512,14 +523,14 @@ sqlite_test!(test_cte_integration_simple, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(gt(simple.id, 1))
-        .into_cte("filtered_users");
+        .into_cte::<FilteredUsersTag>();
 
     // Use the CTE with typed column access via Deref
-    let result: Vec<SelectSimple> = drizzle_exec!(
+    let result: Vec<CteSimpleRow> = drizzle_exec!(
         db.with(&filtered_users)
-            .select((filtered_users.id, filtered_users.name))
+            .select(CteSimpleRow::Select)
             .from(&filtered_users)
-            => all_as
+            => all
     );
 
     assert_eq!(result.len(), 2);
@@ -529,6 +540,11 @@ sqlite_test!(test_cte_integration_simple, SimpleSchema, {
 
 sqlite_test!(test_cte_integration_with_aggregation, SimpleSchema, {
     let SimpleSchema { simple } = schema;
+
+    struct UserCountTag;
+    impl drizzle::core::Tag for UserCountTag {
+        const NAME: &'static str = "user_count";
+    }
 
     // Insert test data
     let test_data = [
@@ -543,19 +559,19 @@ sqlite_test!(test_cte_integration_with_aggregation, SimpleSchema, {
     let user_count = db
         .select(count(simple.id).alias("count"))
         .from(simple)
-        .into_cte("user_count");
+        .into_cte::<UserCountTag>();
 
     #[derive(SQLiteFromRow)]
     struct CountResult {
         count: i32,
     }
 
-    // Use the CTE - for aggregated results, use sql!() to select the computed column
+    // Use the CTE with inferred FromRow selector columns
     let result: Vec<CountResult> = drizzle_exec!(
         db.with(&user_count)
-            .select(sql!("count"))
+            .select(CountResult::Select)
             .from(&user_count)
-            => all_as
+            => all
     );
 
     assert_eq!(result.len(), 1);
@@ -564,6 +580,11 @@ sqlite_test!(test_cte_integration_with_aggregation, SimpleSchema, {
 
 sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
     let SimpleSchema { simple } = schema;
+
+    struct FilteredUsersTag;
+    impl drizzle::core::Tag for FilteredUsersTag {
+        const NAME: &'static str = "filtered_users";
+    }
 
     // Insert test data
     let test_data = [
@@ -580,7 +601,7 @@ sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(gt(simple.id, 2))
-        .into_cte("filtered_users");
+        .into_cte::<FilteredUsersTag>();
 
     #[derive(SQLiteFromRow)]
     struct StatsResult {
@@ -608,6 +629,15 @@ sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
 sqlite_test!(test_cte_after_join, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
+    struct SimpleTag;
+    impl drizzle::core::Tag for SimpleTag {
+        const NAME: &'static str = "simple_alias";
+    }
+    struct JoinedSimpleTag;
+    impl drizzle::core::Tag for JoinedSimpleTag {
+        const NAME: &'static str = "joined_simple";
+    }
+
     let test_data = [
         InsertSimple::new("Alpha").with_id(1),
         InsertSimple::new("Beta").with_id(2),
@@ -615,12 +645,12 @@ sqlite_test!(test_cte_after_join, SimpleSchema, {
     ];
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-    let simple_alias = Simple::alias("simple_alias");
+    let simple_alias = Simple::alias::<SimpleTag>();
     let joined_simple = db
         .select((simple.id, simple.name))
         .from(simple)
         .join((simple_alias, eq(simple.id, simple_alias.id)))
-        .into_cte("joined_simple");
+        .into_cte::<JoinedSimpleTag>();
 
     let results: Vec<SelectSimple> = drizzle_exec!(
         db.with(&joined_simple)
@@ -638,6 +668,11 @@ sqlite_test!(test_cte_after_join, SimpleSchema, {
 sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
+    struct PagedSimpleTag;
+    impl drizzle::core::Tag for PagedSimpleTag {
+        const NAME: &'static str = "paged_simple";
+    }
+
     let test_data = [
         InsertSimple::new("One").with_id(1),
         InsertSimple::new("Two").with_id(2),
@@ -652,7 +687,7 @@ sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
         .order_by([asc(simple.id)])
         .limit(2)
         .offset(1)
-        .into_cte("paged_simple");
+        .into_cte::<PagedSimpleTag>();
 
     let results: Vec<SelectSimple> = drizzle_exec!(
         db.with(&paged_simple)

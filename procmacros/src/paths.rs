@@ -185,6 +185,14 @@ pub mod core {
         quote!(drizzle::core::SQLTable)
     }
 
+    pub fn tag() -> TokenStream {
+        quote!(drizzle::core::Tag)
+    }
+
+    pub fn taggable_alias() -> TokenStream {
+        quote!(drizzle::core::TaggableAlias)
+    }
+
     pub fn sql_view() -> TokenStream {
         quote!(drizzle::core::SQLView)
     }

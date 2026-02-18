@@ -18,6 +18,19 @@ struct PgSimpleResult {
     name: String,
 }
 
+#[derive(Debug, PostgresFromRow)]
+#[from(SimpleView)]
+struct PgSimpleViewResult {
+    id: i32,
+    name: String,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgSimpleAliasResult {
+    id: i32,
+    name: String,
+}
+
 #[PostgresView(
     NAME = "simple_view",
     DEFINITION = {
@@ -115,10 +128,10 @@ postgres_test!(schema_with_view, ViewTestSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db
-        .select((simple_view.id, simple_view.name))
+        .select(PgSimpleViewResult::Select)
         .from(simple_view)
         .order_by([asc(simple_view.id)]);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleViewResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alpha");
@@ -168,7 +181,12 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
         .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
     drizzle_exec!(stmt => execute);
 
-    let sv = SimpleView::alias("sv");
+    struct SvTag;
+    impl drizzle::core::Tag for SvTag {
+        const NAME: &'static str = "sv";
+    }
+
+    let sv = SimpleView::alias::<SvTag>();
     let stmt = db
         .select((sv.id, sv.name))
         .from(sv)
@@ -179,7 +197,14 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
     assert!(sql.contains("FROM \"simple_view\" AS \"sv\""));
     assert!(sql.contains("\"sv\".\"name\""));
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let sv2 = SimpleView::alias::<SvTag>();
+    let typed_stmt = db
+        .select(PgSimpleAliasResult::Select)
+        .from(sv2)
+        .r#where(eq(sv2.name, "alpha"))
+        .order_by([asc(sv2.id)]);
+
+    let results: Vec<PgSimpleAliasResult> = drizzle_exec!(typed_stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alpha");
 

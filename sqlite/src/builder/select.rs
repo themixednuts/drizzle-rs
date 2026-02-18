@@ -25,14 +25,6 @@ fn append_sql<'a>(
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectInitial;
 
-impl SelectInitial {
-    /// Creates a new SelectInitial marker
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
 /// Marker for the state after FROM clause
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectFromSet;
@@ -65,56 +57,6 @@ pub struct SelectOffsetSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectSetOpSet;
 
-// Const constructors for all marker types
-impl SelectFromSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectJoinSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectWhereSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectGroupSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectOrderSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectLimitSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectOffsetSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl SelectSetOpSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
@@ -140,9 +82,9 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, M, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>
             where
-                M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+                M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
             {
                 use drizzle_core::Join;
                 SelectBuilder {
@@ -362,10 +304,18 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
     /// ```
     #[inline]
+    #[allow(clippy::type_complexity)]
     pub fn from<T>(
         self,
         query: T,
-    ) -> SelectBuilder<'a, S, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectFromSet,
+        T,
+        drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+        <M as drizzle_core::ResolveRow<T>>::Row,
+    >
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
         M: drizzle_core::ResolveRow<T>,
@@ -437,11 +387,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
         S,
         SelectJoinSet,
         J::JoinedTable,
-        M,
+        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
         <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         SelectBuilder {
             sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
@@ -625,11 +575,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectJoinSet, T, M, R> {
         S,
         SelectJoinSet,
         J::JoinedTable,
-        M,
+        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
         <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         SelectBuilder {
             sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
@@ -774,19 +724,21 @@ impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
 where
     State: AsCteState,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
+    <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased:
+        drizzle_core::TaggableAlias,
 {
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
-    pub fn into_cte(
-        self,
-        name: &'static str,
-    ) -> super::CTEView<
+    pub fn into_cte<Tag: drizzle_core::Tag>(self) -> super::CTEView<
         'a,
-        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        <<T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::Tagged<Tag>,
         Self,
-    > {
+    >{
+        let name = Tag::NAME;
         super::CTEView::new(
-            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias(name),
+            <<T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::tag::<Tag>(
+                <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias_named(name),
+            ),
             name,
             self,
         )

@@ -2,7 +2,7 @@ use crate::common::generate_expr_impl;
 use crate::generators::{
     SQLTableInfoConfig, generate_impl, generate_sql_column_info, generate_sql_table_info,
 };
-use crate::paths::{core as core_paths, sqlite as sqlite_paths};
+use crate::paths::{core as core_paths, sqlite as sqlite_paths, std as std_paths};
 use crate::sqlite::generators::*;
 use crate::sqlite::table::context::MacroContext;
 use heck::ToUpperCamelCase;
@@ -14,7 +14,7 @@ use quote::{format_ident, quote};
 /// For a table `Users` with fields `id` and `name`, this generates:
 /// - `AliasedUsers` struct with `AliasedUsersId` and `AliasedUsersName` fields
 /// - Each aliased field contains the table alias name
-/// - `Users::alias(name: &'static str) -> AliasedUsers` method
+/// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
 pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let table_name = &ctx.struct_ident;
     let struct_vis = &ctx.struct_vis;
@@ -27,10 +27,13 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql_schema = core_paths::sql_schema();
     let sql_table = core_paths::sql_table();
     let sql_table_meta = core_paths::sql_table_meta();
+    let alias_tag = core_paths::tag();
+    let taggable_alias = core_paths::taggable_alias();
     let sql_table_info = core_paths::sql_table_info();
     let token = core_paths::token();
     let to_sql = core_paths::to_sql();
     let sql_param = core_paths::sql_param();
+    let phantom_data = std_paths::phantom_data();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
     let sqlite_table = sqlite_paths::sqlite_table();
@@ -313,6 +316,17 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         },
     );
 
+    let tagged_aliased_table_name = format_ident!("TaggedAliased{}", table_name);
+    let alias_type_name = format_ident!("{}Alias", table_name);
+    let tagged_const_defs: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, aliased_type)| {
+            quote! {
+                pub const #field_name: #aliased_type = #aliased_type::new(Tag::NAME);
+            }
+        })
+        .collect();
+
     Ok(quote! {
 
         // Generate all aliased field type definitions
@@ -336,6 +350,60 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         }
 
+        #struct_vis struct #tagged_aliased_table_name<Tag: #alias_tag> {
+            inner: #aliased_table_name,
+            _tag: #phantom_data<fn() -> Tag>,
+        }
+
+        impl<Tag: #alias_tag> ::core::marker::Copy for #tagged_aliased_table_name<Tag> {}
+
+        impl<Tag: #alias_tag> ::core::clone::Clone for #tagged_aliased_table_name<Tag> {
+            fn clone(&self) -> Self {
+                *self
+            }
+        }
+
+        impl<Tag: #alias_tag> ::core::default::Default for #tagged_aliased_table_name<Tag> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        #[allow(non_upper_case_globals)]
+        impl<Tag: #alias_tag> #tagged_aliased_table_name<Tag> {
+            pub const fn new() -> Self {
+                Self {
+                    inner: #aliased_table_name::new(Tag::NAME),
+                    _tag: #phantom_data,
+                }
+            }
+
+            pub const fn from_inner(inner: #aliased_table_name) -> Self {
+                Self {
+                    inner,
+                    _tag: #phantom_data,
+                }
+            }
+
+            #(#tagged_const_defs)*
+        }
+
+        impl<Tag: #alias_tag> ::std::ops::Deref for #tagged_aliased_table_name<Tag> {
+            type Target = #aliased_table_name;
+
+            fn deref(&self) -> &Self::Target {
+                &self.inner
+            }
+        }
+
+        impl #taggable_alias for #aliased_table_name {
+            type Tagged<Tag: #alias_tag> = #tagged_aliased_table_name<Tag>;
+
+            fn tag<Tag: #alias_tag>(self) -> Self::Tagged<Tag> {
+                #tagged_aliased_table_name::<Tag>::from_inner(self)
+            }
+        }
+
         // Implement table traits for the aliased table
         #sql_table_info_impl
 
@@ -353,6 +421,104 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         // ToSQL implementation for aliased table
         #to_sql_impl
 
+        impl<'a, Tag: #alias_tag> #to_sql<'a, #sqlite_value<'a>> for #tagged_aliased_table_name<Tag> {
+            fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
+                #to_sql::to_sql(&self.inner)
+            }
+        }
+
+        impl<Tag: #alias_tag + 'static> #sql_table_info for #tagged_aliased_table_name<Tag> {
+            fn name(&self) -> &str {
+                #sql_table_info::name(&self.inner)
+            }
+
+            fn schema(&self) -> ::std::option::Option<&str> {
+                #sql_table_info::schema(&self.inner)
+            }
+
+            fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
+                #sql_table_info::columns(&self.inner)
+            }
+
+            fn primary_key(&self) -> ::std::option::Option<&'static dyn drizzle::core::SQLPrimaryKeyInfo> {
+                #sql_table_info::primary_key(&self.inner)
+            }
+
+            fn foreign_keys(&self) -> &'static [&'static dyn drizzle::core::SQLForeignKeyInfo] {
+                #sql_table_info::foreign_keys(&self.inner)
+            }
+
+            fn constraints(&self) -> &'static [&'static dyn drizzle::core::SQLConstraintInfo] {
+                #sql_table_info::constraints(&self.inner)
+            }
+
+            fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {
+                #sql_table_info::dependencies(&self.inner)
+            }
+        }
+
+        impl<Tag: #alias_tag + 'static> #sqlite_table_info for #tagged_aliased_table_name<Tag> {
+            fn r#type(&self) -> &#sqlite_schema_type {
+                #sqlite_table_info::r#type(&self.inner)
+            }
+
+            fn strict(&self) -> bool {
+                #sqlite_table_info::strict(&self.inner)
+            }
+
+            fn without_rowid(&self) -> bool {
+                #sqlite_table_info::without_rowid(&self.inner)
+            }
+
+            fn sqlite_columns(&self) -> &'static [&'static dyn #sqlite_column_info] {
+                #sqlite_table_info::sqlite_columns(&self.inner)
+            }
+
+            fn sqlite_dependencies(&self) -> &'static [&'static dyn #sqlite_table_info] {
+                #sqlite_table_info::sqlite_dependencies(&self.inner)
+            }
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>> for #tagged_aliased_table_name<Tag> {
+            type Select = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Select;
+            type Insert<T> = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Insert<T>;
+            type Update = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Update;
+            type Aliased = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Aliased;
+            type ForeignKeys = <#aliased_table_name as #sql_table_meta>::ForeignKeys;
+            type PrimaryKey = <#aliased_table_name as #sql_table_meta>::PrimaryKey;
+            type Constraints = <#aliased_table_name as #sql_table_meta>::Constraints;
+
+            fn alias_named(name: &'static str) -> Self::Aliased {
+                <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::alias_named(name)
+            }
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> #sqlite_table<'a> for #tagged_aliased_table_name<Tag> {
+            const WITHOUT_ROWID: bool = <#aliased_table_name as #sqlite_table<'a>>::WITHOUT_ROWID;
+            const STRICT: bool = <#aliased_table_name as #sqlite_table<'a>>::STRICT;
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>> for #tagged_aliased_table_name<Tag> {
+            const NAME: &'static str = <#aliased_table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::NAME;
+            const TYPE: #sqlite_schema_type = <#aliased_table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::TYPE;
+            const SQL: &'static str = <#aliased_table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::SQL;
+
+            fn ddl(&self) -> #sql<'a, #sqlite_value<'a>> {
+                #sql_schema::ddl(&self.inner)
+            }
+        }
+
+        impl<Tag: #alias_tag + 'static> drizzle::core::HasSelectModel for #tagged_aliased_table_name<Tag> {
+            type SelectModel = <#aliased_table_name as drizzle::core::HasSelectModel>::SelectModel;
+            const COLUMN_COUNT: usize = <#aliased_table_name as drizzle::core::HasSelectModel>::COLUMN_COUNT;
+        }
+
+        impl<Tag: #alias_tag + 'static> drizzle::core::IntoSelectTarget for #tagged_aliased_table_name<Tag> {
+            type Marker = drizzle::core::SelectStar;
+        }
+
+        #struct_vis type #alias_type_name<Tag> = #tagged_aliased_table_name<Tag>;
+
         // HasSelectModel for aliased table (delegates to original)
         impl drizzle::core::HasSelectModel for #aliased_table_name {
             type SelectModel = <#table_name as drizzle::core::HasSelectModel>::SelectModel;
@@ -364,8 +530,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         // Add alias() method to the original table struct
         impl #table_name {
-            pub const fn alias(alias: &'static str) -> #aliased_table_name {
-                #aliased_table_name::new(alias)
+            pub const fn alias<Tag: #alias_tag + 'static>() -> #alias_type_name<Tag> {
+                #tagged_aliased_table_name::<Tag>::new()
             }
         }
     })
