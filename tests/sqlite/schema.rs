@@ -97,6 +97,19 @@ struct ExistingUsersView {
     email: String,
 }
 
+#[derive(SQLiteFromRow, Debug, PartialEq, Eq)]
+#[from(UserEmailsView)]
+struct UserEmailRow {
+    id: i32,
+    email: String,
+}
+
+#[derive(SQLiteFromRow, Debug, PartialEq, Eq)]
+struct UserEmailAliasRow {
+    id: i32,
+    email: String,
+}
+
 #[derive(SQLiteSchema)]
 struct ViewTestSchema {
     user: User,
@@ -202,11 +215,11 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
     let result = drizzle_exec!(db.insert(user).values(insert_data) => execute);
     assert_eq!(result, 2);
 
-    let results: Vec<SelectUserEmailsView> = drizzle_exec!(
-        db.select((user_emails.id, user_emails.email))
+    let results: Vec<UserEmailRow> = drizzle_exec!(
+        db.select(UserEmailRow::Select)
             .from(user_emails)
             .order_by(asc(user_emails.id))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 2);
@@ -256,7 +269,12 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
     let result = drizzle_exec!(db.insert(user).values(insert_data) => execute);
     assert_eq!(result, 2);
 
-    let ue = UserEmailsView::alias("ue");
+    struct UeTag;
+    impl drizzle::core::Tag for UeTag {
+        const NAME: &'static str = "ue";
+    }
+
+    let ue = UserEmailsView::alias::<UeTag>();
     let stmt = db
         .select((ue.id, ue.email))
         .from(ue)
@@ -269,7 +287,13 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
         r#"SELECT "ue"."id", "ue"."email" FROM "user_emails" AS "ue" WHERE "ue"."email" = ? ORDER BY "ue"."id" ASC"#
     );
 
-    let results: Vec<SelectUserEmailsView> = drizzle_exec!(stmt => all_as);
+    let ue2 = UserEmailsView::alias::<UeTag>();
+    let alias_stmt = db
+        .select(UserEmailAliasRow::Select)
+        .from(ue2)
+        .r#where(eq(ue2.email, "a@example.com"))
+        .order_by([asc(ue2.id)]);
+    let results: Vec<UserEmailAliasRow> = drizzle_exec!(alias_stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].email, "a@example.com");
 
@@ -396,7 +420,7 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
     assert_eq!(employee.name(), "employees");
     let emp_deps = employee.dependencies();
     assert_eq!(emp_deps.len(), 2); // Department and Employee (self-reference)
-                                   // Dependencies should be sorted by name for deterministic order
+    // Dependencies should be sorted by name for deterministic order
     assert_eq!(emp_deps[0].name(), "departments");
     assert_eq!(emp_deps[1].name(), "employees");
 

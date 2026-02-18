@@ -249,22 +249,32 @@ postgres_test!(cte_after_join, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     let results: Vec<PgSimpleResult> = {
-        let simple_alias = Simple::alias("simple_alias");
+        struct SimpleTag;
+        impl drizzle::core::Tag for SimpleTag {
+            const NAME: &'static str = "simple_alias";
+        }
+        struct JoinedSimpleTag;
+        impl drizzle::core::Tag for JoinedSimpleTag {
+            const NAME: &'static str = "joined_simple";
+        }
+
+        let simple_alias = Simple::alias::<SimpleTag>();
         let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
         let join_cond = eq(simple.id, simple_alias.id);
         let joined_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
             .from(simple)
             .join((simple_alias, join_cond))
-            .into_cte("joined_simple");
+            .into_cte::<JoinedSimpleTag>();
         let joined_alias = joined_simple.table;
 
-        drizzle_exec!(db
-            .with(&joined_simple)
-            .select((joined_alias.id, joined_alias.name))
-            .from(&joined_simple)
-            .order_by([asc(joined_alias.id)])
-            .all_as())
+        drizzle_exec!(
+            db.with(&joined_simple)
+                .select((joined_alias.id, joined_alias.name))
+                .from(&joined_simple)
+                .order_by([asc(joined_alias.id)])
+                .all_as()
+        )
     };
 
     assert_eq!(results.len(), 3);
@@ -284,6 +294,11 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     let results: Vec<PgSimpleResult> = {
+        struct PagedSimpleTag;
+        impl drizzle::core::Tag for PagedSimpleTag {
+            const NAME: &'static str = "paged_simple";
+        }
+
         let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
         let paged_simple: drizzle_postgres::builder::CTEView<'static, _, _> = builder
             .select((simple.id, simple.name))
@@ -291,15 +306,16 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
             .order_by([asc(simple.id)])
             .limit(2)
             .offset(1)
-            .into_cte("paged_simple");
+            .into_cte::<PagedSimpleTag>();
         let paged_alias = paged_simple.table;
 
-        drizzle_exec!(db
-            .with(&paged_simple)
-            .select((paged_alias.id, paged_alias.name))
-            .from(&paged_simple)
-            .order_by([asc(paged_alias.id)])
-            .all_as())
+        drizzle_exec!(
+            db.with(&paged_simple)
+                .select((paged_alias.id, paged_alias.name))
+                .from(&paged_simple)
+                .order_by([asc(paged_alias.id)])
+                .all_as()
+        )
     };
 
     assert_eq!(results.len(), 2);

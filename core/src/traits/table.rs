@@ -10,6 +10,17 @@ pub struct Empty;
 /// Marker: at least one field has been set on this update model.
 pub struct NonEmpty;
 
+/// Type-level name marker used for strongly-typed aliases/CTEs.
+pub trait Tag {
+    const NAME: &'static str;
+}
+
+/// Trait implemented by generated runtime alias table types that can be tagged.
+pub trait TaggableAlias: Sized {
+    type Tagged<Name: Tag>;
+    fn tag<Name: Tag>(self) -> Self::Tagged<Name>;
+}
+
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL model (Select, Insert, or Update)",
     label = "this type cannot be used as a query model"
@@ -60,9 +71,9 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     /// For a table `Users`, this would be `AliasedUsers`.
     type Aliased: SQLTable<'a, Type, Value>;
 
-    /// Creates an aliased version of this table with the given name.
-    /// Used for self-joins and CTEs.
-    fn alias(name: &'static str) -> Self::Aliased;
+    /// Creates an aliased version of this table with the given runtime name.
+    /// Primarily used by internal builders (e.g., CTE construction).
+    fn alias_named(name: &'static str) -> Self::Aliased;
 }
 
 pub trait SQLTableInfo: Any + Send + Sync {
@@ -153,11 +164,5 @@ impl core::fmt::Debug for dyn SQLTableInfo {
             .field("primary_key", &self.primary_key().map(|pk| pk.columns()))
             .field("constraints", &self.constraints().len())
             .finish()
-    }
-}
-
-pub trait AsTableInfo: Sized + SQLTableInfo {
-    fn as_table(&self) -> &dyn SQLTableInfo {
-        self
     }
 }

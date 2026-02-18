@@ -373,7 +373,14 @@ impl<'d, 'a, Conn, Schema, M>
         'd,
         Conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T, M, <M as drizzle_core::ResolveRow<T>>::Row>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectFromSet,
+            T,
+            drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+            <M as drizzle_core::ResolveRow<T>>::Row,
+        >,
         SelectFromSet,
     >
     where
@@ -470,13 +477,13 @@ impl<'d, 'a, Conn, Schema, T, M, R>
             Schema,
             SelectJoinSet,
             J::JoinedTable,
-            M,
+            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
             <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
         >,
         SelectJoinSet,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
@@ -549,13 +556,13 @@ impl<'d, 'a, Conn, Schema, T, M, R>
             Schema,
             SelectJoinSet,
             J::JoinedTable,
-            M,
+            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
             <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
         >,
         SelectJoinSet,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         let builder = self.builder.join(arg);
         DrizzleBuilder {
@@ -678,18 +685,16 @@ impl<'d, 'a, Conn, Schema, State, T, M, R>
 where
     State: AsCteState,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
+    <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased: drizzle_core::TaggableAlias,
 {
-    /// Converts this SELECT query into a CTE (Common Table Expression) with the given name.
+    /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
-    pub fn into_cte(
-        self,
-        name: &'static str,
-    ) -> CTEView<
+    pub fn into_cte<Tag: drizzle_core::Tag>(self) -> CTEView<
         'a,
-        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased,
+        <<T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::Tagged<Tag>,
         SelectBuilder<'a, Schema, State, T, M, R>,
-    > {
-        self.builder.into_cte(name)
+    >{
+        self.builder.into_cte::<Tag>()
     }
 }
 

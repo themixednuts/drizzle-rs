@@ -217,7 +217,7 @@ pub(crate) fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> Toke
             type PrimaryKey = #primary_key;
             type Constraints = #constraints;
 
-            fn alias(name: &'static str) -> Self::Aliased {
+            fn alias_named(name: &'static str) -> Self::Aliased {
                 #aliased::new(name)
             }
         }

@@ -33,6 +33,44 @@ struct NamePair {
     name2: String,
 }
 
+struct AliasS;
+impl drizzle::core::Tag for AliasS {
+    const NAME: &'static str = "s";
+}
+
+struct AliasSimple;
+impl drizzle::core::Tag for AliasSimple {
+    const NAME: &'static str = "s_alias";
+}
+
+#[cfg(feature = "uuid")]
+struct AliasC1;
+#[cfg(feature = "uuid")]
+impl drizzle::core::Tag for AliasC1 {
+    const NAME: &'static str = "c1";
+}
+
+#[cfg(feature = "uuid")]
+struct AliasC2;
+#[cfg(feature = "uuid")]
+impl drizzle::core::Tag for AliasC2 {
+    const NAME: &'static str = "c2";
+}
+
+#[cfg(feature = "uuid")]
+struct AliasU;
+#[cfg(feature = "uuid")]
+impl drizzle::core::Tag for AliasU {
+    const NAME: &'static str = "u";
+}
+
+#[cfg(feature = "uuid")]
+struct AliasP;
+#[cfg(feature = "uuid")]
+impl drizzle::core::Tag for AliasP {
+    const NAME: &'static str = "p";
+}
+
 sqlite_test!(basic_table_alias, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
@@ -46,9 +84,12 @@ sqlite_test!(basic_table_alias, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test basic table alias
-    let s = Simple::alias("s");
-    let stmt = db.select((s.id, s.name)).from(s).r#where(eq(s.name, "bob"));
-    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all_as);
+    let s = Simple::alias::<AliasS>();
+    let stmt = db
+        .select(SimpleResult::Select)
+        .from(s)
+        .r#where(eq(s.name, "bob"));
+    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "bob");
@@ -67,7 +108,7 @@ sqlite_test!(table_alias_with_conditions, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test alias with WHERE conditions
-    let s_alias = Simple::alias("s_alias");
+    let s_alias = Simple::alias::<AliasSimple>();
     let stmt = db
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
@@ -98,8 +139,8 @@ sqlite_test!(self_join_with_aliases, ComplexSchema, {
     drizzle_exec!(db.insert(complex).values(test_data) => execute);
 
     // Self-join using aliases to find users with same email
-    let c1 = Complex::alias("c1");
-    let c2 = Complex::alias("c2");
+    let c1 = Complex::alias::<AliasC1>();
+    let c2 = Complex::alias::<AliasC2>();
 
     let stmt = db
         .select((c1.name.alias("name1"), c2.name.alias("name2")))
@@ -145,8 +186,8 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
     drizzle_exec!(db.insert(post).values(posts) => execute);
 
     // Join with aliases
-    let u = Complex::alias("u");
-    let p = Post::alias("p");
+    let u = Complex::alias::<AliasU>();
+    let p = Post::alias::<AliasP>();
 
     let stmt = db
         .select((u.name.alias("user_name"), p.title.alias("post_title")))
@@ -180,7 +221,7 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
     );
 
     // Query using table alias
-    let s_alias = Simple::alias("s_alias");
+    let s_alias = Simple::alias::<AliasSimple>();
     let alias_stmt = db
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
