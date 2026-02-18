@@ -33,38 +33,6 @@ pub struct InsertOnConflictSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertDoUpdateSet;
 
-// Const constructors for insert marker types
-impl InsertInitial {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl InsertValuesSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl InsertReturningSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl InsertOnConflictSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-impl InsertDoUpdateSet {
-    #[inline]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
 // Mark states that can execute insert queries
 impl ExecutableState for InsertValuesSet {}
 impl ExecutableState for InsertReturningSet {}

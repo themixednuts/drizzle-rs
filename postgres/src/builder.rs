@@ -1,6 +1,6 @@
 use drizzle_core::Token;
 // Re-export common enums and traits from core
-pub use drizzle_core::builder::{BuilderInit, ExecutableState, OrderByClause};
+pub use drizzle_core::builder::{BuilderInit, ExecutableState};
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
     traits::{SQLSchema, SQLTable},

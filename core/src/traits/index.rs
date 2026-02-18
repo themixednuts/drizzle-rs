@@ -16,12 +16,6 @@ pub trait SQLIndexInfo: Any + Send + Sync {
     }
 }
 
-pub trait AsIndexInfo: Sized + SQLIndexInfo {
-    fn as_index(&self) -> &dyn SQLIndexInfo {
-        self
-    }
-}
-
 impl core::fmt::Debug for dyn SQLIndexInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SQLIndexInfo")
