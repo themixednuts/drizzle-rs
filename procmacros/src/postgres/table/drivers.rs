@@ -285,7 +285,17 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
             || (info.is_json && cat != TypeCategory::Json)
             || matches!(
                 cat,
-                TypeCategory::Enum | TypeCategory::ArrayString | TypeCategory::ArrayVec
+                TypeCategory::Enum
+                    | TypeCategory::ArrayString
+                    | TypeCategory::ArrayVec
+                    | TypeCategory::GeoPoint
+                    | TypeCategory::GeoRect
+                    | TypeCategory::GeoLineString
+                    | TypeCategory::IpAddr
+                    | TypeCategory::Cidr
+                    | TypeCategory::MacAddr
+                    | TypeCategory::BitVec
+                    | TypeCategory::Unknown
             )
     });
 

@@ -406,9 +406,10 @@ where
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub fn all(self) -> drizzle_core::error::Result<Vec<Rw>>
+    pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
-        Rw: for<'r> drizzle_core::row::FromDrizzleRow<::rusqlite::Row<'r>>,
+        for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
+            + drizzle_core::row::MarkerScopeValidFor<Proof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.all");
@@ -419,7 +420,10 @@ where
         let mut raw_rows = stmt.query(params_from_iter(params))?;
         let mut decoded = Vec::new();
         while let Some(row) = raw_rows.next()? {
-            decoded.push(drizzle_core::row::FromDrizzleRow::from_row(row)?);
+            decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
+                &::rusqlite::Row<'_>,
+                R,
+            >>::decode(row)?);
         }
         Ok(decoded)
     }
@@ -435,9 +439,10 @@ where
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub fn get(self) -> drizzle_core::error::Result<Rw>
+    pub fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
-        Rw: for<'r> drizzle_core::row::FromDrizzleRow<::rusqlite::Row<'r>>,
+        for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
+            + drizzle_core::row::MarkerScopeValidFor<Proof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.get");
@@ -446,7 +451,10 @@ where
 
         let mut stmt = self.transaction.tx.prepare(&sql_str)?;
         stmt.query_row(params_from_iter(params), |row| {
-            Ok(drizzle_core::row::FromDrizzleRow::from_row(row))
+            Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
+                &::rusqlite::Row<'_>,
+                R,
+            >>::decode(row))
         })?
     }
 }

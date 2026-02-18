@@ -7,6 +7,7 @@ use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
+#[from(Simple)]
 struct NamedSimple {
     id: i32,
     name: String,
@@ -42,6 +43,19 @@ postgres_test!(tuple_struct_maps_by_index, SimpleSchema, {
 
     assert_eq!(result.0, "Alice");
     assert_eq!(result.1, 1);
+});
+
+postgres_test!(fromrow_inferred_with_select_target, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
+    drizzle_exec!(stmt => execute);
+
+    let stmt = db.select(NamedSimple::Select).from(simple);
+    let result: NamedSimple = drizzle_exec!(stmt => get);
+
+    assert_eq!(result.id, 1);
+    assert_eq!(result.name, "Alice");
 });
 
 #[cfg(feature = "tokio-postgres")]

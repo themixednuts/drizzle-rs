@@ -162,12 +162,14 @@ sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
 
 // Test FromRow derive macro with partial selection
 #[derive(SQLiteFromRow, Debug, Default)]
+#[from(TypeTest)]
 struct DerivedPartialSimple {
     name: String,
 }
 
 // Test FromRow with column mapping
 #[derive(SQLiteFromRow, Debug, Default)]
+#[from(TypeTest)]
 struct DerivedSimpleWithColumns {
     #[column(TypeTest::id)]
     table_id: i32,
@@ -185,8 +187,11 @@ sqlite_test!(
         drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
 
         // Test the derived implementation with partial selection
-        let result: DerivedPartialSimple =
-            drizzle_exec!(db.select(type_test.name).from(type_test) => get_as);
+        let result: DerivedPartialSimple = drizzle_exec!(
+            db.select(DerivedPartialSimple::Select)
+                .from(type_test)
+                => get
+        );
         assert_eq!(result.name, "derive_test");
     }
 );
@@ -199,9 +204,9 @@ sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
 
     // Test the column-mapped FromRow implementation
     let result: DerivedSimpleWithColumns = drizzle_exec!(
-        db.select(DerivedSimpleWithColumns::default())
+        db.select(DerivedSimpleWithColumns::Select)
             .from(type_test)
-            => get_as
+            => get
     );
 
     assert_eq!(result.table_id, 42);

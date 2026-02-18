@@ -26,11 +26,11 @@ macro_rules! drizzle_builder_join_impl {
                 'd,
                 Conn,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, M, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>,
                 SelectJoinSet,
             >
             where
-                M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+                M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
             {
                 let builder = self.builder.[<$type _join>](arg);
                 DrizzleBuilder {
@@ -70,11 +70,11 @@ macro_rules! transaction_builder_join_impl {
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, M, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>,
                 SelectJoinSet,
             >
             where
-                M: drizzle_core::AfterJoin<R, J::JoinedTable>,
+                M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
             {
                 let builder = self.builder.[<$type _join>](arg);
                 TransactionBuilder {

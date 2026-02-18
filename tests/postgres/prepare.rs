@@ -358,7 +358,7 @@ postgres_test!(test_prepared_performance_comparison, SimpleSchema, {
             db.select(())
                 .from(simple)
                 .r#where(eq(simple.name, format!("User{}", i)))
-                => all_as
+                => all
         );
     }
     let regular_duration = start.elapsed();
