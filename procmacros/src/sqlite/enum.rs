@@ -267,7 +267,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(feature = "rusqlite")]
     let row_column_list_rusqlite = quote! {
         impl<'__drizzle_r> #row_column_list<::rusqlite::Row<'__drizzle_r>> for #name {
-            type Columns = #type_set_cons<(), #type_set_nil>;
+            type Columns = #type_set_cons<#name, #type_set_nil>;
         }
     };
     #[cfg(not(feature = "rusqlite"))]
@@ -276,7 +276,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(feature = "libsql")]
     let row_column_list_libsql = quote! {
         impl #row_column_list<::libsql::Row> for #name {
-            type Columns = #type_set_cons<(), #type_set_nil>;
+            type Columns = #type_set_cons<#name, #type_set_nil>;
         }
     };
     #[cfg(not(feature = "libsql"))]
@@ -285,7 +285,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(feature = "turso")]
     let row_column_list_turso = quote! {
         impl #row_column_list<::turso::Row> for #name {
-            type Columns = #type_set_cons<(), #type_set_nil>;
+            type Columns = #type_set_cons<#name, #type_set_nil>;
         }
     };
     #[cfg(not(feature = "turso"))]

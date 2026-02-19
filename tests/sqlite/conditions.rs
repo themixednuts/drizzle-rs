@@ -12,7 +12,7 @@ use drizzle_macros::sqlite_test;
 #[cfg(feature = "serde")]
 #[derive(Debug, SQLiteFromRow)]
 struct JsonExtractResult {
-    extract: String,
+    extract: Option<String>,
 }
 
 #[derive(Debug, SQLiteFromRow)]
@@ -416,13 +416,19 @@ sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
 
     // Test json_extract helper on the metadata field
     let result: Vec<JsonExtractResult> = drizzle_exec!(
-        db.select(alias(json_extract(complex.metadata, "theme"), "extract"))
+        db.select(alias(
+            cast::<_, _, drizzle::core::types::Text>(
+                json_extract(complex.metadata, "theme"),
+                "TEXT",
+            ),
+            "extract",
+        ))
             .from(complex)
             .r#where(is_not_null(complex.metadata))
             => all
     );
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].extract, "dark");
+    assert_eq!(result[0].extract, Some("dark".to_string()));
 });
 
 sqlite_test!(test_condition_edge_cases, SimpleSchema, {

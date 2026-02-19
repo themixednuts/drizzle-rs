@@ -487,7 +487,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
 
         #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
         impl #row_column_list<drizzle::postgres::Row> for #name {
-            type Columns = #type_set_cons<(), #type_set_nil>;
+            type Columns = #type_set_cons<#name, #type_set_nil>;
         }
 
         impl #schema_item_tables for #name {

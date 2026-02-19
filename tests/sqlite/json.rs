@@ -17,7 +17,7 @@ pub struct Profile {
 #[derive(SQLiteFromRow, Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct UserResult {
     id: Uuid,
-    age: i64,
+    age: Option<i64>,
 }
 
 #[SQLiteTable(NAME = "json_users", STRICT)]
@@ -64,7 +64,11 @@ sqlite_test!(json_storage, Schema, {
     let stmt = db
         .select((
             jsonuser.id,
-            drizzle::sqlite::expr::json_extract(jsonuser.profile, "age").alias("age"),
+            cast::<_, _, drizzle::core::types::BigInt>(
+                drizzle::sqlite::expr::json_extract(jsonuser.profile, "age"),
+                "INTEGER",
+            )
+            .alias("age"),
         ))
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
@@ -72,7 +76,7 @@ sqlite_test!(json_storage, Schema, {
     let user: UserResult = drizzle_exec!(stmt => get);
 
     assert_eq!(user.id, id);
-    assert_eq!(user.age, 30);
+    assert_eq!(user.age, Some(30));
 
     // Test reading full JSON column back via #[json] on FromRow struct
     let stmt = db
