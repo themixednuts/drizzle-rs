@@ -1,0 +1,37 @@
+error[E0277]: no statistical aggregate policy for `drizzle::core::types::Any` on this dialect
+ --> tests/ui/aggregate_types_postgres/fail/stddev_any_requires_explicit_cast.rs:6:24
+  |
+6 |     let _ = stddev_pop(raw_non_null::<PostgresValue, Any>("'1'"));
+  |             ---------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ stddev/variance result type is not defined for this SQL type/dialect
+  |             |
+  |             required by a bound introduced by this call
+  |
+  = help: the trait `StatisticalAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is not implemented for `drizzle::core::types::Any`
+  = help: the following other types implement trait `StatisticalAggregatePolicy<D>`:
+            Double
+            Float
+            Int
+            drizzle::core::types::BigInt
+            drizzle::core::types::SmallInt
+note: required by a bound in `stddev_pop`
+ --> core/src/expr/agg.rs
+  |
+  | pub fn stddev_pop<'a, V, E>(
+  |        ---------- required by a bound in this function
+...
+  |     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `stddev_pop`
+
+error[E0277]: no statistical aggregate policy for `drizzle::core::types::Any` on this dialect
+ --> tests/ui/aggregate_types_postgres/fail/stddev_any_requires_explicit_cast.rs:6:13
+  |
+6 |     let _ = stddev_pop(raw_non_null::<PostgresValue, Any>("'1'"));
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ stddev/variance result type is not defined for this SQL type/dialect
+  |
+  = help: the trait `StatisticalAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is not implemented for `drizzle::core::types::Any`
+  = help: the following other types implement trait `StatisticalAggregatePolicy<D>`:
+            Double
+            Float
+            Int
+            drizzle::core::types::BigInt
+            drizzle::core::types::SmallInt

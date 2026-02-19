@@ -11,9 +11,53 @@
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{Double, Numeric};
+use crate::types::{DataType, Double, Integral, Numeric};
+use crate::{PostgresDialect, SQLiteDialect};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
+
+#[diagnostic::on_unimplemented(
+    message = "no rounding policy for `{Self}` on this dialect",
+    label = "round/ceil/floor/trunc return type is not defined for this SQL type/dialect"
+)]
+pub trait RoundingPolicy<D>: Numeric {
+    type Output: DataType;
+}
+
+impl RoundingPolicy<SQLiteDialect> for crate::types::SmallInt {
+    type Output = Double;
+}
+impl RoundingPolicy<SQLiteDialect> for crate::types::Int {
+    type Output = Double;
+}
+impl RoundingPolicy<SQLiteDialect> for crate::types::BigInt {
+    type Output = Double;
+}
+impl RoundingPolicy<SQLiteDialect> for crate::types::Float {
+    type Output = Double;
+}
+impl RoundingPolicy<SQLiteDialect> for crate::types::Double {
+    type Output = Double;
+}
+impl RoundingPolicy<SQLiteDialect> for crate::types::Any {
+    type Output = Double;
+}
+
+impl RoundingPolicy<PostgresDialect> for crate::types::SmallInt {
+    type Output = Double;
+}
+impl RoundingPolicy<PostgresDialect> for crate::types::Int {
+    type Output = Double;
+}
+impl RoundingPolicy<PostgresDialect> for crate::types::BigInt {
+    type Output = Double;
+}
+impl RoundingPolicy<PostgresDialect> for crate::types::Float {
+    type Output = Double;
+}
+impl RoundingPolicy<PostgresDialect> for crate::types::Double {
+    type Output = Double;
+}
 
 // =============================================================================
 // ABSOLUTE VALUE
@@ -57,11 +101,14 @@ where
 /// // SELECT ROUND(users.price)
 /// let rounded = round(users.price);
 /// ```
-pub fn round<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn round<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("ROUND", expr.into_sql()))
 }
@@ -78,12 +125,25 @@ where
 /// // SELECT ROUND(users.price, 2)
 /// let rounded = round_to(users.price, 2);
 /// ```
-pub fn round_to<'a, V, E, P>(expr: E, precision: P) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn round_to<'a, V, E, P>(
+    expr: E,
+    precision: P,
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
+    <E::Nullable as NullOr<P::Nullable>>::Output,
+    Scalar,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: RoundingPolicy<V::DialectMarker>,
     P: Expr<'a, V>,
+    P::SQLType: Integral,
+    E::Nullable: NullOr<P::Nullable>,
+    P::Nullable: Nullability,
 {
     SQLExpr::new(SQL::func(
         "ROUND",
@@ -105,11 +165,14 @@ where
 /// // SELECT CEIL(users.price)
 /// let ceiling = ceil(users.price);
 /// ```
-pub fn ceil<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn ceil<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("CEIL", expr.into_sql()))
 }
@@ -126,11 +189,14 @@ where
 /// // SELECT FLOOR(users.price)
 /// let floored = floor(users.price);
 /// ```
-pub fn floor<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn floor<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("FLOOR", expr.into_sql()))
 }
@@ -147,11 +213,14 @@ where
 /// // SELECT TRUNC(users.price)
 /// let truncated = trunc(users.price);
 /// ```
-pub fn trunc<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn trunc<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("TRUNC", expr.into_sql()))
 }

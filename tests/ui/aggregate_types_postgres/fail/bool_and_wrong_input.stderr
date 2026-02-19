@@ -1,0 +1,22 @@
+error[E0277]: boolean aggregates are not supported for `Int` on this dialect
+ --> tests/ui/aggregate_types_postgres/fail/bool_and_wrong_input.rs:6:22
+  |
+6 |     let _ = bool_and(raw_non_null::<PostgresValue, Int>("1"));
+  |             -------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a boolean expression with a dialect that supports BOOL_AND/BOOL_OR
+  |             |
+  |             required by a bound introduced by this call
+  |
+  = help: the trait `BooleanAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is not implemented for `Int`
+help: the trait `BooleanAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is implemented for `drizzle::core::types::Bool`
+ --> core/src/expr/agg.rs
+  |
+  | impl BooleanAggregatePolicy<PostgresDialect> for Bool {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `bool_and`
+ --> core/src/expr/agg.rs
+  |
+  | pub fn bool_and<'a, V, E>(expr: E) -> SQLExpr<'a, V, Bool, Null, Agg>
+  |        -------- required by a bound in this function
+...
+  |     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `bool_and`

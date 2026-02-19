@@ -189,6 +189,63 @@ pub trait SelectedColumnList {
 trait SameType<T> {}
 impl<T> SameType<T> for T {}
 
+trait ColumnTypeCompatible<Row: ?Sized, Expected, Actual> {}
+
+impl<Row: ?Sized, T> ColumnTypeCompatible<Row, T, T> for () {}
+
+trait TypeListCompatible<Row: ?Sized, ActualList> {}
+
+impl<Row: ?Sized> TypeListCompatible<Row, crate::Nil> for crate::Nil {}
+
+impl<Row: ?Sized, EH, ET, AH, AT> TypeListCompatible<Row, crate::Cons<AH, AT>>
+    for crate::Cons<EH, ET>
+where
+    (): ColumnTypeCompatible<Row, EH, AH>,
+    ET: TypeListCompatible<Row, AT>,
+{
+}
+
+trait SqliteDecodeRow {}
+
+#[cfg(feature = "rusqlite")]
+impl<'r> SqliteDecodeRow for ::rusqlite::Row<'r> {}
+
+#[cfg(feature = "libsql")]
+impl SqliteDecodeRow for ::libsql::Row {}
+
+#[cfg(feature = "turso")]
+impl SqliteDecodeRow for ::turso::Row {}
+
+macro_rules! impl_sqlite_integer_decode_compat {
+    ($expected:ty => $($actual:ty),+ $(,)?) => {
+        $(
+            impl<Row> ColumnTypeCompatible<Row, $expected, $actual> for ()
+            where
+                Row: SqliteDecodeRow,
+            {
+            }
+        )+
+    };
+}
+
+impl_sqlite_integer_decode_compat!(
+    i64 => i8, i16, i32, isize, u8, u16, u32, u64, usize, bool
+);
+
+impl_sqlite_integer_decode_compat!(
+    Option<i64> =>
+        Option<i8>,
+        Option<i16>,
+        Option<i32>,
+        Option<isize>,
+        Option<u8>,
+        Option<u16>,
+        Option<u32>,
+        Option<u64>,
+        Option<usize>,
+        Option<bool>
+);
+
 macro_rules! impl_row_column_list_one {
     ($($ty:ty),+ $(,)?) => {
         $(
@@ -411,7 +468,8 @@ impl<Row: ?Sized, Cols, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, 
 where
     Cols: SelectedColumnList,
     Actual: RowColumnList<Row>,
-    <Cols as SelectedColumnList>::Columns: SameType<<Actual as RowColumnList<Row>>::Columns>,
+    <Cols as SelectedColumnList>::Columns:
+        TypeListCompatible<Row, <Actual as RowColumnList<Row>>::Columns>,
 {
 }
 
@@ -633,6 +691,62 @@ sql_rust_mapping! {
     Bool     => bool,
     Bytes    => crate::prelude::Vec<u8>,
     Any      => crate::prelude::String,
+}
+
+impl<D, T> SQLTypeToRust<D> for crate::types::Array<T>
+where
+    T: crate::types::DataType + SQLTypeToRust<D>,
+{
+    type RustType = crate::prelude::Vec<<T as SQLTypeToRust<D>>::RustType>;
+}
+
+impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Integer {
+    type RustType = i64;
+}
+
+impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Real {
+    type RustType = f64;
+}
+
+impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Blob {
+    type RustType = crate::prelude::Vec<u8>;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Int2 {
+    type RustType = i16;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Int4 {
+    type RustType = i32;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Int8 {
+    type RustType = i64;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Float4 {
+    type RustType = f32;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Float8 {
+    type RustType = f64;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Varchar {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Bytea {
+    type RustType = crate::prelude::Vec<u8>;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Boolean {
+    type RustType = bool;
+}
+
+#[cfg(feature = "chrono")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamptz {
+    type RustType = chrono::DateTime<chrono::Utc>;
 }
 
 // -- SQLite dialect mappings ---------------------------------------------------
