@@ -43,11 +43,8 @@ pub mod helpers;
 pub mod pragma;
 pub mod traits;
 pub mod types {
-    pub use drizzle_core::types::*;
-
-    pub type Integer = BigInt;
-    pub type Real = Double;
-    pub type Blob = Bytes;
+    pub use drizzle_types::sql::*;
+    pub use drizzle_types::sqlite::types::*;
 }
 pub mod values;
 

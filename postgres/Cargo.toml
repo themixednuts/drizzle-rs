@@ -11,6 +11,7 @@ rust-version.workspace = true
 
 [dependencies]
 drizzle-core = { workspace = true }
+drizzle-types = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
@@ -35,8 +36,8 @@ drizzle-migrations = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["drizzle-core/std", "compact_str?/std"]
-alloc = ["drizzle-core/alloc"]
+std = ["drizzle-core/std", "drizzle-types/std", "compact_str?/std"]
+alloc = ["drizzle-core/alloc", "drizzle-types/alloc"]
 
 serde = [
     "dep:serde_json",
