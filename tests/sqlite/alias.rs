@@ -234,3 +234,30 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
     assert_eq!(alias_results.len(), 1);
     assert_eq!(alias_results[0].name, "aliased");
 });
+
+sqlite_test!(tagged_alias_forwards_alias_metadata, SimpleSchema, {
+    let tagged = Simple::alias::<AliasSimple>();
+    let base = Simple::new();
+
+    assert_eq!(tagged.name(), "s_alias");
+    assert!(!std::ptr::eq(tagged.columns(), base.columns()));
+    assert!(!std::ptr::eq(
+        tagged.sqlite_columns(),
+        base.sqlite_columns()
+    ));
+});
+
+sqlite_test!(runtime_alias_named_uses_base_metadata, SimpleSchema, {
+    let runtime =
+        <Simple as SQLTable<'static, SQLiteSchemaType, SQLiteValue<'static>>>::alias_named(
+            "runtime_simple",
+        );
+    let base = Simple::new();
+
+    assert_eq!(runtime.name(), "runtime_simple");
+    assert!(std::ptr::eq(runtime.columns(), base.columns()));
+    assert!(std::ptr::eq(
+        runtime.sqlite_columns(),
+        base.sqlite_columns()
+    ));
+});

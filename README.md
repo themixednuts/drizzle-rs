@@ -245,6 +245,27 @@ let rows: Vec<UserWithPost> = db
     .all()?;
 ```
 
+## Typed Aliases (`Tag`)
+
+Use a `Tag` to create compile-time-safe aliases for self-joins, CTEs, and
+typed `Select` models.
+
+```rust
+use drizzle::sqlite::prelude::*;
+
+struct U;
+impl drizzle::core::Tag for U {
+    const NAME: &'static str = "u";
+}
+
+let u = Users::alias::<U>();
+let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
+```
+
+`alias_named(...)` is still available for runtime names (used internally by
+query builders), but metadata traits like `columns()` return base table static
+metadata in that mode.
+
 ## Order By / Limit / Offset
 
 ```rust
