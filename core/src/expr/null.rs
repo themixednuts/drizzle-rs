@@ -49,6 +49,27 @@ impl NullOr<Null> for Null {
     type Output = Null;
 }
 
+/// Combine nullability for COALESCE-style fallback behavior.
+///
+/// Result is nullable only when both inputs are nullable.
+pub trait NullAnd<Rhs: Nullability>: Nullability {
+    /// The resulting nullability.
+    type Output: Nullability;
+}
+
+impl NullAnd<NonNull> for NonNull {
+    type Output = NonNull;
+}
+impl NullAnd<Null> for NonNull {
+    type Output = NonNull;
+}
+impl NullAnd<NonNull> for Null {
+    type Output = NonNull;
+}
+impl NullAnd<Null> for Null {
+    type Output = Null;
+}
+
 // =============================================================================
 // COALESCE Function
 // =============================================================================
@@ -69,12 +90,15 @@ impl NullOr<Null> for Null {
 /// // ❌ Compile error: Int not compatible with Text
 /// coalesce(users.age, "unknown");
 /// ```
-pub fn coalesce<'a, V, E, D>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, Null, Scalar>
+pub fn coalesce<'a, V, E, D, N>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, N, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     D: Expr<'a, V>,
+    N: Nullability,
     E::SQLType: Compatible<D::SQLType>,
+    E::Nullable: NullAnd<D::Nullable, Output = N>,
+    D::Nullable: Nullability,
 {
     SQLExpr::new(SQL::func(
         "COALESCE",
@@ -149,12 +173,15 @@ where
 ///
 /// Requires compatible types between the expression and default.
 /// Returns the first argument if not NULL, otherwise returns the second.
-pub fn ifnull<'a, V, E, D>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, Null, Scalar>
+pub fn ifnull<'a, V, E, D, N>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, N, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     D: Expr<'a, V>,
+    N: Nullability,
     E::SQLType: Compatible<D::SQLType>,
+    E::Nullable: NullAnd<D::Nullable, Output = N>,
+    D::Nullable: Nullability,
 {
     SQLExpr::new(SQL::func(
         "IFNULL",
