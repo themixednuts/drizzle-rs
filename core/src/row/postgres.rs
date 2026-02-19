@@ -57,18 +57,42 @@ macro_rules! impl_option_postgres {
 mod tokio_pg {
     use super::*;
 
-    impl_leaf_postgres!(::tokio_postgres::Row; i8, i16, i32, i64, f32, f64, bool, String, Vec<u8>);
+    impl_leaf_postgres!(
+        ::tokio_postgres::Row;
+        i8,
+        i16,
+        i32,
+        i64,
+        f32,
+        f64,
+        bool,
+        String,
+        Vec<u8>,
+        Vec<i16>,
+        Vec<i32>,
+        Vec<i64>,
+        Vec<f32>,
+        Vec<f64>,
+        Vec<bool>,
+        Vec<String>
+    );
 
     impl_option_postgres!(::tokio_postgres::Row);
 
     #[cfg(feature = "uuid")]
     impl_leaf_postgres!(::tokio_postgres::Row; uuid::Uuid);
+    #[cfg(feature = "uuid")]
+    impl_leaf_postgres!(::tokio_postgres::Row; Vec<uuid::Uuid>);
 
     #[cfg(feature = "chrono")]
     impl_leaf_postgres!(::tokio_postgres::Row; chrono::NaiveDate, chrono::NaiveTime, chrono::NaiveDateTime, chrono::DateTime<chrono::Utc>);
+    #[cfg(feature = "chrono")]
+    impl_leaf_postgres!(::tokio_postgres::Row; Vec<chrono::NaiveDate>, Vec<chrono::NaiveTime>, Vec<chrono::NaiveDateTime>, Vec<chrono::DateTime<chrono::Utc>>);
 
     #[cfg(feature = "serde")]
     impl_leaf_postgres!(::tokio_postgres::Row; serde_json::Value);
+    #[cfg(feature = "serde")]
+    impl_leaf_postgres!(::tokio_postgres::Row; Vec<serde_json::Value>);
 }
 
 // -- postgres-sync impls (only when tokio-postgres is NOT enabled) --
@@ -77,16 +101,40 @@ mod tokio_pg {
 mod sync_pg {
     use super::*;
 
-    impl_leaf_postgres!(::postgres::Row; i8, i16, i32, i64, f32, f64, bool, String, Vec<u8>);
+    impl_leaf_postgres!(
+        ::postgres::Row;
+        i8,
+        i16,
+        i32,
+        i64,
+        f32,
+        f64,
+        bool,
+        String,
+        Vec<u8>,
+        Vec<i16>,
+        Vec<i32>,
+        Vec<i64>,
+        Vec<f32>,
+        Vec<f64>,
+        Vec<bool>,
+        Vec<String>
+    );
 
     impl_option_postgres!(::postgres::Row);
 
     #[cfg(feature = "uuid")]
     impl_leaf_postgres!(::postgres::Row; uuid::Uuid);
+    #[cfg(feature = "uuid")]
+    impl_leaf_postgres!(::postgres::Row; Vec<uuid::Uuid>);
 
     #[cfg(feature = "chrono")]
     impl_leaf_postgres!(::postgres::Row; chrono::NaiveDate, chrono::NaiveTime, chrono::NaiveDateTime, chrono::DateTime<chrono::Utc>);
+    #[cfg(feature = "chrono")]
+    impl_leaf_postgres!(::postgres::Row; Vec<chrono::NaiveDate>, Vec<chrono::NaiveTime>, Vec<chrono::NaiveDateTime>, Vec<chrono::DateTime<chrono::Utc>>);
 
     #[cfg(feature = "serde")]
     impl_leaf_postgres!(::postgres::Row; serde_json::Value);
+    #[cfg(feature = "serde")]
+    impl_leaf_postgres!(::postgres::Row; Vec<serde_json::Value>);
 }

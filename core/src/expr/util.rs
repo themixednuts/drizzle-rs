@@ -176,6 +176,44 @@ impl DefaultCastTypeName for crate::types::Jsonb {
     const CAST_TYPE_NAME: &'static str = "JSONB";
 }
 
+impl DefaultCastTypeName for drizzle_types::sqlite::types::Integer {
+    const CAST_TYPE_NAME: &'static str = "INTEGER";
+}
+impl DefaultCastTypeName for drizzle_types::sqlite::types::Real {
+    const CAST_TYPE_NAME: &'static str = "REAL";
+}
+impl DefaultCastTypeName for drizzle_types::sqlite::types::Blob {
+    const CAST_TYPE_NAME: &'static str = "BLOB";
+}
+
+impl DefaultCastTypeName for drizzle_types::postgres::types::Int2 {
+    const CAST_TYPE_NAME: &'static str = "SMALLINT";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Int4 {
+    const CAST_TYPE_NAME: &'static str = "INTEGER";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Int8 {
+    const CAST_TYPE_NAME: &'static str = "BIGINT";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Float4 {
+    const CAST_TYPE_NAME: &'static str = "REAL";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Float8 {
+    const CAST_TYPE_NAME: &'static str = "DOUBLE PRECISION";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Varchar {
+    const CAST_TYPE_NAME: &'static str = "VARCHAR";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Bytea {
+    const CAST_TYPE_NAME: &'static str = "BYTEA";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Boolean {
+    const CAST_TYPE_NAME: &'static str = "BOOLEAN";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Timestamptz {
+    const CAST_TYPE_NAME: &'static str = "TIMESTAMPTZ";
+}
+
 /// Input accepted by [`cast`].
 ///
 /// You can pass:
@@ -212,100 +250,6 @@ where
 {
     fn cast_type_name(self) -> &'a str {
         T::CAST_TYPE_NAME
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::BigInt, SQLiteDialect>
-    for drizzle_types::sqlite::types::Integer
-{
-    fn cast_type_name(self) -> &'a str {
-        "INTEGER"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Double, SQLiteDialect>
-    for drizzle_types::sqlite::types::Real
-{
-    fn cast_type_name(self) -> &'a str {
-        "REAL"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Bytes, SQLiteDialect> for drizzle_types::sqlite::types::Blob {
-    fn cast_type_name(self) -> &'a str {
-        "BLOB"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::SmallInt, PostgresDialect>
-    for drizzle_types::postgres::types::Int2
-{
-    fn cast_type_name(self) -> &'a str {
-        "int2"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Int, PostgresDialect>
-    for drizzle_types::postgres::types::Int4
-{
-    fn cast_type_name(self) -> &'a str {
-        "int4"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::BigInt, PostgresDialect>
-    for drizzle_types::postgres::types::Int8
-{
-    fn cast_type_name(self) -> &'a str {
-        "int8"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Float, PostgresDialect>
-    for drizzle_types::postgres::types::Float4
-{
-    fn cast_type_name(self) -> &'a str {
-        "float4"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Double, PostgresDialect>
-    for drizzle_types::postgres::types::Float8
-{
-    fn cast_type_name(self) -> &'a str {
-        "float8"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::VarChar, PostgresDialect>
-    for drizzle_types::postgres::types::Varchar
-{
-    fn cast_type_name(self) -> &'a str {
-        "varchar"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Bytes, PostgresDialect>
-    for drizzle_types::postgres::types::Bytea
-{
-    fn cast_type_name(self) -> &'a str {
-        "bytea"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::Bool, PostgresDialect>
-    for drizzle_types::postgres::types::Boolean
-{
-    fn cast_type_name(self) -> &'a str {
-        "boolean"
-    }
-}
-
-impl<'a> CastTarget<'a, crate::types::TimestampTz, PostgresDialect>
-    for drizzle_types::postgres::types::Timestamptz
-{
-    fn cast_type_name(self) -> &'a str {
-        "timestamptz"
     }
 }
 

@@ -1,19 +1,23 @@
-error[E0271]: type mismatch resolving `<CountRow as RowColumnList<Row<'r>>>::Columns == Cons<i64, Nil>`
+error[E0277]: the trait bound `for<'r> (): drizzle_core::row::ColumnTypeCompatible<Row<'r>, i64, Option<i64>>` is not satisfied
   --> tests/ui/aggregate_types/fail/count_as_nullable.rs:29:10
    |
 29 |         .all()
-   |          ^^^ type mismatch resolving `<CountRow as RowColumnList<Row<'r>>>::Columns == Cons<i64, Nil>`
+   |          ^^^ the trait `for<'r> drizzle_core::row::ColumnTypeCompatible<Row<'r>, i64, Option<i64>>` is not implemented for `()`
    |
-note: expected this to be `Cons<i64, Nil>`
-  --> tests/ui/aggregate_types/fail/count_as_nullable.rs:17:10
-   |
-17 | #[derive(SQLiteFromRow)]
-   |          ^^^^^^^^^^^^^
-   = note: expected struct `Cons<i64, Nil>`
-              found struct `Cons<Option<i64>, Nil>`
-   = note: required for `SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::core::types::BigInt, drizzle::core::expr::NonNull, Agg>>,)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), CountRow>`
+   = help: the following other types implement trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<bool>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<i16>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<i32>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<i8>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<isize>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<u16>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<u32>>`
+             `()` implements `drizzle_core::row::ColumnTypeCompatible<Row, Option<i64>, Option<u64>>`
+           and $N others
+   = note: required for `Cons<i64, Nil>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<Option<i64>, Nil>>`
+   = note: required for `SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>,)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), CountRow>`
    = note: 1 redundant requirement hidden
-   = note: required for `Scoped<SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::core::types::BigInt, drizzle::core::expr::NonNull, Agg>>,)>, Cons<User, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), CountRow>`
+   = note: required for `Scoped<SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>,)>, Cons<User, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), CountRow>`
 note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
@@ -22,4 +26,3 @@ note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle:
 ...
    |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
-   = note: this error originates in the derive macro `SQLiteFromRow` (in Nightly builds, run with -Z macro-backtrace for more info)

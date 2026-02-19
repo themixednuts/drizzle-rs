@@ -13,9 +13,42 @@
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{BigInt, Date, Double, Temporal, Text, Time, Timestamp, TimestampTz};
+use crate::types::{
+    BigInt, DataType, Date, Double, Numeric, Temporal, Text, Time, Timestamp, TimestampTz,
+};
+use crate::{PostgresDialect, SQLiteDialect};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
+
+#[diagnostic::on_unimplemented(
+    message = "this date/time function is not available for this dialect",
+    label = "use a dialect-specific alternative"
+)]
+pub trait SQLiteDateTimeSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "this date/time function is not available for this dialect",
+    label = "use a dialect-specific alternative"
+)]
+pub trait PostgresDateTimeSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "DATE_TRUNC output type is not defined for `{Self}` on this dialect",
+    label = "DATE_TRUNC accepts timestamp/timestamptz and preserves the timestamp flavor"
+)]
+pub trait DateTruncPolicy<D>: Temporal {
+    type Output: DataType;
+}
+
+impl SQLiteDateTimeSupport for SQLiteDialect {}
+impl PostgresDateTimeSupport for PostgresDialect {}
+
+impl DateTruncPolicy<PostgresDialect> for Timestamp {
+    type Output = Timestamp;
+}
+impl DateTruncPolicy<PostgresDialect> for TimestampTz {
+    type Output = TimestampTz;
+}
 
 // =============================================================================
 // CURRENT DATE/TIME (Cross-database)
@@ -100,6 +133,7 @@ where
 pub fn date<'a, V, E>(expr: E) -> SQLExpr<'a, V, Date, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -121,6 +155,7 @@ where
 pub fn time<'a, V, E>(expr: E) -> SQLExpr<'a, V, Time, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -142,6 +177,7 @@ where
 pub fn datetime<'a, V, E>(expr: E) -> SQLExpr<'a, V, Timestamp, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -175,6 +211,7 @@ where
 pub fn strftime<'a, V, F, E>(format: F, expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
     F: Expr<'a, V>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
@@ -200,6 +237,7 @@ where
 pub fn julianday<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -221,6 +259,7 @@ where
 pub fn unixepoch<'a, V, E>(expr: E) -> SQLExpr<'a, V, BigInt, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -244,6 +283,7 @@ where
 pub fn now<'a, V>() -> SQLExpr<'a, V, TimestampTz, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
 {
     SQLExpr::new(SQL::raw("NOW()"))
 }
@@ -264,15 +304,17 @@ where
 /// // SELECT DATE_TRUNC('month', users.created_at)
 /// let month_start = date_trunc("month", users.created_at);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn date_trunc<'a, V, P, E>(
     precision: P,
     expr: E,
-) -> SQLExpr<'a, V, Timestamp, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <E::SQLType as DateTruncPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
     P: Expr<'a, V>,
     E: Expr<'a, V>,
-    E::SQLType: Temporal,
+    E::SQLType: DateTruncPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func(
         "DATE_TRUNC",
@@ -303,6 +345,7 @@ pub fn extract<'a, 'f, V, E>(field: &'f str, expr: E) -> SQLExpr<'a, V, Double, 
 where
     'f: 'a,
     V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -334,6 +377,7 @@ pub fn age<'a, V, E1, E2>(
 ) -> SQLExpr<'a, V, Text, <E1::Nullable as NullOr<E2::Nullable>>::Output, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
     E1: Expr<'a, V>,
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,
@@ -376,6 +420,7 @@ where
 pub fn to_char<'a, V, E, F>(expr: E, format: F) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
     F: Expr<'a, V>,
@@ -388,7 +433,7 @@ where
 
 /// TO_TIMESTAMP - converts a Unix timestamp to a timestamp (PostgreSQL).
 ///
-/// Returns Timestamp type. The input should be a numeric Unix timestamp.
+/// Returns TimestampTz type. The input should be a numeric Unix timestamp.
 ///
 /// # Example
 ///
@@ -398,10 +443,12 @@ where
 /// // SELECT TO_TIMESTAMP(users.created_unix)
 /// let ts = to_timestamp(users.created_unix);
 /// ```
-pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, Timestamp, E::Nullable, Scalar>
+pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, TimestampTz, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
     E: Expr<'a, V>,
+    E::SQLType: Numeric,
 {
     SQLExpr::new(SQL::func("TO_TIMESTAMP", expr.into_sql()))
 }

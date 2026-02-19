@@ -1,0 +1,26 @@
+error[E0277]: `drizzle::core::types::Text` is not an integer SQL type
+ --> tests/ui/scalar_types_sqlite/fail/round_to_precision_must_be_integral.rs:8:9
+  |
+6 |     let _ = round_to(
+  |             -------- required by a bound introduced by this call
+7 |         raw_non_null::<SQLiteValue, Double>("1.234"),
+8 |         raw_non_null::<SQLiteValue, Text>("'two'"),
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected SmallInt, Int, or BigInt
+  |
+  = help: the trait `Integral` is not implemented for `drizzle::core::types::Text`
+  = help: the following other types implement trait `Integral`:
+            Int
+            Int2
+            Int4
+            Int8
+            drizzle::core::types::BigInt
+            drizzle::core::types::SmallInt
+            drizzle::sqlite::types::Integer
+note: required by a bound in `round_to`
+ --> core/src/expr/math.rs
+  |
+  | pub fn round_to<'a, V, E, P>(
+  |        -------- required by a bound in this function
+...
+  |     P::SQLType: Integral,
+  |                 ^^^^^^^^ required by this bound in `round_to`

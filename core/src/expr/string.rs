@@ -6,14 +6,55 @@
 //! # Type Safety
 //!
 //! - `upper`, `lower`, `trim`: Require `Textual` types
-//! - `length`: Returns BigInt from `Textual` input
+//! - `length`: Dialect-aware integer output from text input
 //! - `substr`, `replace`, `instr`: Require `Textual` types
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{BigInt, Text, Textual};
+use crate::types::{DataType, Text, Textual, VarChar};
+use crate::{PostgresDialect, SQLiteDialect};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
+
+#[diagnostic::on_unimplemented(
+    message = "no length policy for `{Self}` on this dialect",
+    label = "length return type is not defined for this SQL type/dialect"
+)]
+pub trait LengthPolicy<D>: DataType {
+    type Output: DataType;
+}
+
+#[diagnostic::on_unimplemented(
+    message = "this string function is not available for this dialect",
+    label = "use a dialect-specific alternative"
+)]
+pub trait SQLiteStringSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "this string function is not available for this dialect",
+    label = "use a dialect-specific alternative"
+)]
+pub trait PostgresStringSupport {}
+
+impl LengthPolicy<SQLiteDialect> for Text {
+    type Output = drizzle_types::sqlite::types::Integer;
+}
+impl LengthPolicy<SQLiteDialect> for VarChar {
+    type Output = drizzle_types::sqlite::types::Integer;
+}
+impl LengthPolicy<SQLiteDialect> for crate::types::Any {
+    type Output = drizzle_types::sqlite::types::Integer;
+}
+
+impl LengthPolicy<PostgresDialect> for Text {
+    type Output = drizzle_types::postgres::types::Int4;
+}
+impl LengthPolicy<PostgresDialect> for VarChar {
+    type Output = drizzle_types::postgres::types::Int4;
+}
+
+impl SQLiteStringSupport for SQLiteDialect {}
+impl PostgresStringSupport for PostgresDialect {}
 
 // =============================================================================
 // CASE CONVERSION
@@ -117,7 +158,7 @@ where
 
 /// LENGTH - returns the length of a string.
 ///
-/// Returns BigInt type, preserves nullability.
+/// Returns a dialect-aware integer type, preserves nullability.
 ///
 /// # Example
 ///
@@ -127,11 +168,14 @@ where
 /// // SELECT LENGTH(users.name)
 /// let name_len = length(users.name);
 /// ```
-pub fn length<'a, V, E>(expr: E) -> SQLExpr<'a, V, BigInt, E::Nullable, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn length<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as LengthPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Textual,
+    E::SQLType: LengthPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("LENGTH", expr.into_sql()))
 }
@@ -219,7 +263,7 @@ where
 /// INSTR - finds the position of a substring.
 ///
 /// Returns the 1-indexed position of the first occurrence of `search`
-/// in the expression, or 0 if not found. Returns BigInt.
+/// in the expression, or 0 if not found. Returns SQLite INTEGER.
 /// Preserves the nullability of the input expression.
 ///
 /// # Example
@@ -230,9 +274,13 @@ where
 /// // SELECT INSTR(users.email, '@')
 /// let at_pos = instr(users.email, "@");
 /// ```
-pub fn instr<'a, V, E, S>(expr: E, search: S) -> SQLExpr<'a, V, BigInt, E::Nullable, Scalar>
+pub fn instr<'a, V, E, S>(
+    expr: E,
+    search: S,
+) -> SQLExpr<'a, V, drizzle_types::sqlite::types::Integer, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SQLiteStringSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     S: Expr<'a, V>,
@@ -240,6 +288,25 @@ where
 {
     SQLExpr::new(SQL::func(
         "INSTR",
+        expr.into_sql().push(Token::COMMA).append(search.into_sql()),
+    ))
+}
+
+/// STRPOS - finds the position of a substring (PostgreSQL).
+pub fn strpos<'a, V, E, S>(
+    expr: E,
+    search: S,
+) -> SQLExpr<'a, V, drizzle_types::postgres::types::Int4, E::Nullable, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresStringSupport,
+    E: Expr<'a, V>,
+    E::SQLType: Textual,
+    S: Expr<'a, V>,
+    S::SQLType: Textual,
+{
+    SQLExpr::new(SQL::func(
+        "STRPOS",
         expr.into_sql().push(Token::COMMA).append(search.into_sql()),
     ))
 }

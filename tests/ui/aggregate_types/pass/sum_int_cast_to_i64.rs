@@ -25,7 +25,7 @@ fn main() {
 
     let _: drizzle::Result<Vec<SumRow>> = db
         .select(alias(
-            cast::<_, _, drizzle::core::types::BigInt>(
+            cast::<_, _, drizzle::sqlite::types::Integer>(
                 sum(user.age),
                 drizzle::sqlite::types::Integer,
             ),

@@ -1,0 +1,37 @@
+error[E0277]: no statistical aggregate policy for `Int` on this dialect
+ --> tests/ui/aggregate_types/fail/stddev_pop_requires_postgres.rs:6:24
+  |
+6 |     let _ = stddev_pop(raw_non_null::<SQLiteValue, Int>("1"));
+  |             ---------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ stddev/variance result type is not defined for this SQL type/dialect
+  |             |
+  |             required by a bound introduced by this call
+  |
+help: the trait `StatisticalAggregatePolicy<drizzle_core::dialect::SQLiteDialect>` is not implemented for `Int`
+      but trait `StatisticalAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is implemented for it
+ --> core/src/expr/agg.rs
+  |
+  | impl StatisticalAggregatePolicy<PostgresDialect> for Int {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: for that trait implementation, expected `drizzle_core::dialect::PostgresDialect`, found `drizzle_core::dialect::SQLiteDialect`
+note: required by a bound in `stddev_pop`
+ --> core/src/expr/agg.rs
+  |
+  | pub fn stddev_pop<'a, V, E>(
+  |        ---------- required by a bound in this function
+...
+  |     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `stddev_pop`
+
+error[E0277]: no statistical aggregate policy for `Int` on this dialect
+ --> tests/ui/aggregate_types/fail/stddev_pop_requires_postgres.rs:6:13
+  |
+6 |     let _ = stddev_pop(raw_non_null::<SQLiteValue, Int>("1"));
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ stddev/variance result type is not defined for this SQL type/dialect
+  |
+help: the trait `StatisticalAggregatePolicy<drizzle_core::dialect::SQLiteDialect>` is not implemented for `Int`
+      but trait `StatisticalAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is implemented for it
+ --> core/src/expr/agg.rs
+  |
+  | impl StatisticalAggregatePolicy<PostgresDialect> for Int {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: for that trait implementation, expected `drizzle_core::dialect::PostgresDialect`, found `drizzle_core::dialect::SQLiteDialect`

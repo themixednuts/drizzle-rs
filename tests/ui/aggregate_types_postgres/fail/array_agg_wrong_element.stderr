@@ -1,0 +1,10 @@
+error[E0308]: mismatched types
+  --> tests/ui/aggregate_types_postgres/fail/array_agg_wrong_element.rs:14:31
+   |
+14 |     let _: Option<Vec<i64>> = value_type(array_agg(raw_non_null::<PostgresValue, Int>("1")));
+   |            ----------------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<Vec<i64>>`, found `Option<Vec<i32>>`
+   |            |
+   |            expected due to this
+   |
+   = note: expected enum `Option<Vec<i64>>`
+              found enum `Option<Vec<i32>>`

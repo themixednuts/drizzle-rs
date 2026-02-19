@@ -47,6 +47,22 @@ fn aggregate_types_postgres_ui() {
 
 #[cfg(feature = "rusqlite")]
 #[test]
+fn scalar_types_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/scalar_types_sqlite/pass/*.rs");
+    t.compile_fail("tests/ui/scalar_types_sqlite/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn scalar_types_postgres_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/scalar_types_postgres/pass/*.rs");
+    t.compile_fail("tests/ui/scalar_types_postgres/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
 fn sqlite_strict_affinity_ui() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/sqlite_strict_affinity/pass/*.rs");

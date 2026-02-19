@@ -6,14 +6,11 @@ error[E0277]: the trait bound `Float8: CastTarget<'_, Int, drizzle_core::dialect
    |             |
    |             required by a bound introduced by this call
    |
-help: the trait `CastTarget<'_, Int, drizzle_core::dialect::PostgresDialect>` is not implemented for `Float8`
-      but trait `CastTarget<'_, Double, drizzle_core::dialect::PostgresDialect>` is implemented for it
+help: the trait `CastTarget<'a, T, D>` is implemented for `&'a str`
   --> core/src/expr/util.rs
    |
-   | / impl<'a> CastTarget<'a, crate::types::Double, PostgresDialect>
-   | |     for drizzle_types::postgres::types::Float8
-   | |______________________________________________^
-   = help: for that trait implementation, expected `Double`, found `Int`
+   | impl<'a, T: DataType, D> CastTarget<'a, T, D> for &'a str {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `drizzle::core::expr::cast`
   --> core/src/expr/util.rs
    |

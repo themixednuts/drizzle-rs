@@ -1,0 +1,24 @@
+error[E0277]: this string function is not available for this dialect
+ --> tests/ui/scalar_types_postgres/fail/instr_requires_sqlite.rs:6:13
+  |
+6 |       let _ = instr(
+  |  _____________^
+7 | |         raw_non_null::<PostgresValue, Text>("'hello'"),
+8 | |         raw_non_null::<PostgresValue, Text>("'ll'"),
+9 | |     );
+  | |_____^ use a dialect-specific alternative
+  |
+  = help: the trait `SQLiteStringSupport` is not implemented for `drizzle_core::dialect::PostgresDialect`
+help: the trait `SQLiteStringSupport` is implemented for `drizzle_core::dialect::SQLiteDialect`
+ --> core/src/expr/string.rs
+  |
+  | impl SQLiteStringSupport for SQLiteDialect {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `instr`
+ --> core/src/expr/string.rs
+  |
+  | pub fn instr<'a, V, E, S>(
+  |        ----- required by a bound in this function
+...
+  |     V::DialectMarker: SQLiteStringSupport,
+  |                       ^^^^^^^^^^^^^^^^^^^ required by this bound in `instr`
