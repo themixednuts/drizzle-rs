@@ -3,6 +3,7 @@
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
 use crate::common::schema::postgres::*;
+use drizzle::core::expr::eq;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
@@ -52,6 +53,50 @@ postgres_test!(fromrow_inferred_with_select_target, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(NamedSimple::Select).from(simple);
+    let result: NamedSimple = drizzle_exec!(stmt => get);
+
+    assert_eq!(result.id, 1);
+    assert_eq!(result.name, "Alice");
+});
+
+postgres_test!(insert_returning_select_target_infers_row, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .returning(NamedSimple::Select);
+    let result: NamedSimple = drizzle_exec!(stmt => get);
+
+    assert_eq!(result.id, 1);
+    assert_eq!(result.name, "Alice");
+});
+
+postgres_test!(update_returning_select_target_infers_row, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(db.insert(simple).values([InsertSimple::new("Alice")]) => execute);
+
+    let stmt = db
+        .update(simple)
+        .set(UpdateSimple::default().with_name("Bob"))
+        .r#where(eq(simple.id, 1))
+        .returning(NamedSimple::Select);
+    let result: NamedSimple = drizzle_exec!(stmt => get);
+
+    assert_eq!(result.id, 1);
+    assert_eq!(result.name, "Bob");
+});
+
+postgres_test!(delete_returning_select_target_infers_row, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(db.insert(simple).values([InsertSimple::new("Alice")]) => execute);
+
+    let stmt = db
+        .delete(simple)
+        .r#where(eq(simple.id, 1))
+        .returning(NamedSimple::Select);
     let result: NamedSimple = drizzle_exec!(stmt => get);
 
     assert_eq!(result.id, 1);

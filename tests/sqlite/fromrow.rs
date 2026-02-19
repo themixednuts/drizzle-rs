@@ -213,6 +213,28 @@ sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
     assert_eq!(result.table_name, "column_test");
 });
 
+sqlite_test!(
+    test_insert_returning_select_target_infers_row,
+    TypeTestSchema,
+    {
+        let TypeTestSchema { type_test } = schema;
+
+        let stmt = db
+            .insert(type_test)
+            .values([InsertTypeTest::new(
+                "returning_test",
+                30,
+                88.0,
+                true,
+                [1, 2, 3],
+            )])
+            .returning(DerivedPartialSimple::Select);
+
+        let result: DerivedPartialSimple = drizzle_exec!(stmt => get);
+        assert_eq!(result.name, "returning_test");
+    }
+);
+
 #[derive(SQLiteFromRow, Debug, PartialEq)]
 struct NamedNameId {
     id: i32,
