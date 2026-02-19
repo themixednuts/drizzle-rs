@@ -8,6 +8,29 @@ use std::marker::PhantomData;
 
 use crate::transaction::postgres::tokio_postgres::TransactionBuilder;
 
+type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
+    <Columns as drizzle_core::IntoSelectTarget>::Marker,
+    drizzle_core::Cons<Table, drizzle_core::Nil>,
+>;
+
+type ReturningRow<Table, Columns> =
+    <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
+
+type UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBuilder<
+    'a,
+    'conn,
+    Schema,
+    UpdateBuilder<
+        'a,
+        Schema,
+        UpdateReturningSet,
+        Table,
+        ReturningMarker<Table, Columns>,
+        ReturningRow<Table, Columns>,
+    >,
+    UpdateReturningSet,
+>;
+
 impl<'a, 'conn, Schema, Table>
     TransactionBuilder<
         'a,
@@ -66,16 +89,14 @@ impl<'a, 'conn, Schema, Table>
         }
     }
 
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        'conn,
-        Schema,
-        UpdateBuilder<'a, Schema, UpdateReturningSet, Table>,
-        UpdateReturningSet,
-    > {
+        columns: Columns,
+    ) -> UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
@@ -94,16 +115,14 @@ impl<'a, 'conn, Schema, Table>
         UpdateWhereSet,
     >
 {
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        'conn,
-        Schema,
-        UpdateBuilder<'a, Schema, UpdateReturningSet, Table>,
-        UpdateReturningSet,
-    > {
+        columns: Columns,
+    ) -> UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,

@@ -624,16 +624,27 @@ where
     }
 
     /// Adds RETURNING clause
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertBuilder<
+            'b,
+            Schema,
+            InsertReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         InsertReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -653,16 +664,27 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertBuilder<
+            'b,
+            Schema,
+            InsertReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         InsertReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -700,16 +722,27 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     }
 
     /// Adds RETURNING clause after DO UPDATE SET
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertBuilder<
+            'b,
+            Schema,
+            InsertReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         InsertReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -795,16 +828,27 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         }
     }
 
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateReturningSet, Table>,
+        UpdateBuilder<
+            'b,
+            Schema,
+            UpdateReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         UpdateReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -841,16 +885,27 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         }
     }
 
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateReturningSet, Table>,
+        UpdateBuilder<
+            'b,
+            Schema,
+            UpdateReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         UpdateReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -869,16 +924,27 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         UpdateWhereSet,
     >
 {
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateReturningSet, Table>,
+        UpdateBuilder<
+            'b,
+            Schema,
+            UpdateReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         UpdateReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -917,16 +983,27 @@ where
         }
     }
 
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        DeleteBuilder<'b, Schema, DeleteReturningSet, Table>,
+        DeleteBuilder<
+            'b,
+            Schema,
+            DeleteReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         DeleteReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -945,16 +1022,27 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         DeleteWhereSet,
     >
 {
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, PostgresValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
-        DeleteBuilder<'b, Schema, DeleteReturningSet, Table>,
+        DeleteBuilder<
+            'b,
+            Schema,
+            DeleteReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         DeleteReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,

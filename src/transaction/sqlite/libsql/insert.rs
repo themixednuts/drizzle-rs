@@ -8,6 +8,28 @@ use drizzle_sqlite::traits::SQLiteTable;
 use drizzle_sqlite::values::SQLiteValue;
 use std::marker::PhantomData;
 
+type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
+    <Columns as drizzle_core::IntoSelectTarget>::Marker,
+    drizzle_core::Cons<Table, drizzle_core::Nil>,
+>;
+
+type ReturningRow<Table, Columns> =
+    <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
+
+type InsertReturningTxBuilder<'a, Schema, Table, Columns> = TransactionBuilder<
+    'a,
+    Schema,
+    InsertBuilder<
+        'a,
+        Schema,
+        InsertReturningSet,
+        Table,
+        ReturningMarker<Table, Columns>,
+        ReturningRow<Table, Columns>,
+    >,
+    InsertReturningSet,
+>;
+
 /// Intermediate builder for typed ON CONFLICT within a libsql transaction.
 pub struct TransactionOnConflictBuilder<'a, Schema, Table> {
     transaction: &'a super::Transaction<Schema>,
@@ -119,15 +141,14 @@ where
     }
 
     /// Adds RETURNING clause
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
-        InsertReturningSet,
-    > {
+        columns: Columns,
+    ) -> InsertReturningTxBuilder<'a, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
@@ -146,15 +167,14 @@ impl<'a, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
-        InsertReturningSet,
-    > {
+        columns: Columns,
+    ) -> InsertReturningTxBuilder<'a, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
@@ -190,15 +210,14 @@ impl<'a, Schema, Table>
     }
 
     /// Adds RETURNING clause after DO UPDATE SET
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
-        InsertReturningSet,
-    > {
+        columns: Columns,
+    ) -> InsertReturningTxBuilder<'a, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
