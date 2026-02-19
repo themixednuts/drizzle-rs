@@ -1,0 +1,10 @@
+error[E0308]: mismatched types
+  --> tests/ui/aggregate_types_postgres/fail/avg_wrong_type.rs:21:26
+   |
+21 |     let _: Option<i64> = value_type(avg(user.age));
+   |            -----------   ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<i64>`, found `Option<f64>`
+   |            |
+   |            expected due to this
+   |
+   = note: expected enum `Option<i64>`
+              found enum `Option<f64>`
