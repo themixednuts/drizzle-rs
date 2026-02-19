@@ -685,15 +685,16 @@ impl<'d, 'a, Conn, Schema, State, T, M, R>
 where
     State: AsCteState,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
-    <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased: drizzle_core::TaggableAlias,
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
-    pub fn into_cte<Tag: drizzle_core::Tag>(self) -> CTEView<
+    pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
+        self,
+    ) -> CTEView<
         'a,
-        <<T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::Tagged<Tag>,
+        <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased<Tag>,
         SelectBuilder<'a, Schema, State, T, M, R>,
-    >{
+    > {
         self.builder.into_cte::<Tag>()
     }
 }

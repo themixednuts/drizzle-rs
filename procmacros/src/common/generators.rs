@@ -191,6 +191,7 @@ pub(crate) struct SQLTableConfig<'a> {
 
 /// Generate SQLTable trait implementation for a given dialect.
 pub(crate) fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> TokenStream {
+    let tag = core_paths::tag();
     let sql_table = core_paths::sql_table();
     let sql_table_meta = core_paths::sql_table_meta();
     let schema_type = D::schema_type();
@@ -212,13 +213,13 @@ pub(crate) fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> Toke
             type Select = #select;
             type Insert<T> = #insert;
             type Update = #update;
-            type Aliased = #aliased;
+            type Aliased<Name: #tag + 'static> = #aliased<Name>;
             type ForeignKeys = #foreign_keys;
             type PrimaryKey = #primary_key;
             type Constraints = #constraints;
 
-            fn alias_named(name: &'static str) -> Self::Aliased {
-                #aliased::new(name)
+            fn alias<Name: #tag + 'static>() -> Self::Aliased<Name> {
+                #aliased::<Name>::new()
             }
         }
 

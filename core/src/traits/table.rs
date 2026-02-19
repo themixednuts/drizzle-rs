@@ -53,12 +53,6 @@ impl<T, Name: Tag> Deref for Tagged<T, Name> {
     }
 }
 
-/// Trait implemented by generated runtime alias table types that can be tagged.
-pub trait TaggableAlias: Sized {
-    type Tagged<Name: Tag>;
-    fn tag<Name: Tag>(self) -> Self::Tagged<Name>;
-}
-
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL model (Select, Insert, or Update)",
     label = "this type cannot be used as a query model"
@@ -106,12 +100,10 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     type Update: SQLModel<'a, Value> + 'a;
 
     /// The aliased version of this table for self-joins and CTEs.
-    /// For a table `Users`, this would be `AliasedUsers`.
-    type Aliased: SQLTable<'a, Type, Value>;
+    type Aliased<Name: Tag + 'static>: SQLTable<'a, Type, Value>;
 
-    /// Creates an aliased version of this table with the given runtime name.
-    /// Primarily used by internal builders (e.g., CTE construction).
-    fn alias_named(name: &'static str) -> Self::Aliased;
+    /// Creates a strongly-typed alias using the compile-time [`Tag`] name.
+    fn alias<Name: Tag + 'static>() -> Self::Aliased<Name>;
 }
 
 pub trait SQLTableInfo: Any + Send + Sync {

@@ -18,7 +18,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql = core_paths::sql();
     let sql_column_info = core_paths::sql_column_info();
     let alias_tag = core_paths::tag();
-    let taggable_alias = core_paths::taggable_alias();
     let tagged = core_paths::tagged();
     let phantom_data = std_paths::phantom_data();
     let token = core_paths::token();
@@ -313,15 +312,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             ];
         }
 
-        impl #taggable_alias for #aliased_table_name {
-            type Tagged<Tag: #alias_tag> = #alias_type_name<Tag>;
-
-            fn tag<Tag: #alias_tag>(self) -> Self::Tagged<Tag> {
-                #alias_type_name::<Tag>::from_inner(self)
-            }
-        }
-
-
         // Implement table traits for the aliased table
         impl SQLTableInfo for #aliased_table_name {
             fn name(&self) -> &str {
@@ -393,11 +383,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             type Constraints = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Constraints;
             type Insert<T> = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Insert<T>;
             type Update = <#table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Update;
-            // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
-            type Aliased = #aliased_table_name;
+            type Aliased<Name: #alias_tag + 'static> = #alias_type_name<Name>;
 
-            fn alias_named(name: &'static str) -> Self::Aliased {
-                #aliased_table_name::new(name)
+            fn alias<Name: #alias_tag + 'static>() -> Self::Aliased<Name> {
+                #alias_type_name::<Name>::new()
             }
         }
 
@@ -475,10 +464,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             type Constraints = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Constraints;
             type Insert<T> = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Insert<T>;
             type Update = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Update;
-            type Aliased = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased;
+            type Aliased<Name: #alias_tag + 'static> = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased<Name>;
 
-            fn alias_named(name: &'static str) -> Self::Aliased {
-                <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias_named(name)
+            fn alias<Name: #alias_tag + 'static>() -> Self::Aliased<Name> {
+                <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::alias::<Name>()
             }
         }
 

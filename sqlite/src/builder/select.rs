@@ -724,21 +724,19 @@ impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
 where
     State: AsCteState,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
-    <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased:
-        drizzle_core::TaggableAlias,
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
-    pub fn into_cte<Tag: drizzle_core::Tag>(self) -> super::CTEView<
+    pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
+        self,
+    ) -> super::CTEView<
         'a,
-        <<T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::Tagged<Tag>,
+        <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased<Tag>,
         Self,
-    >{
+    > {
         let name = Tag::NAME;
         super::CTEView::new(
-            <<T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::tag::<Tag>(
-                <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias_named(name),
-            ),
+            <T as SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>>::alias::<Tag>(),
             name,
             self,
         )

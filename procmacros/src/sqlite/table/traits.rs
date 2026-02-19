@@ -121,14 +121,14 @@ pub(crate) fn generate_table_impls(
         }
     };
 
-    let aliased_table_ident = format_ident!("Aliased{}", struct_ident);
+    let alias_type_ident = format_ident!("{}Alias", struct_ident);
     let non_empty_marker = core_paths::non_empty_marker();
     let sql_table_impl = generate_sql_table(SQLTableConfig {
         struct_ident,
         select: quote! {#select_model},
         insert: quote! {#insert_model<'a, T>},
         update: quote! {#update_model<'a, #non_empty_marker>},
-        aliased: quote! {#aliased_table_ident},
+        aliased: quote! {#alias_type_ident},
         foreign_keys: quote! {#foreign_keys_type},
         primary_key: quote! {#primary_key_type},
         constraints: quote! { #constraints_type },

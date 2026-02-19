@@ -28,7 +28,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql_table = core_paths::sql_table();
     let sql_table_meta = core_paths::sql_table_meta();
     let alias_tag = core_paths::tag();
-    let taggable_alias = core_paths::taggable_alias();
     let tagged = core_paths::tagged();
     let sql_table_info = core_paths::sql_table_info();
     let token = core_paths::token();
@@ -41,6 +40,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sqlite_table_info = sqlite_paths::sqlite_table_info();
     let sqlite_column = sqlite_paths::sqlite_column();
     let sqlite_column_info = sqlite_paths::sqlite_column_info();
+    let alias_type_name = format_ident!("{}Alias", table_name);
 
     // Generate aliased field structs and their names
     let aliased_fields: Vec<_> = ctx
@@ -283,8 +283,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         select: quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Select},
         insert: quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Insert<T>},
         update: quote! {<#table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Update},
-        // Aliased tables alias to themselves (aliasing an already aliased table returns the same type)
-        aliased: quote! {#aliased_table_name},
+        aliased: quote! {#alias_type_name},
         foreign_keys: quote! {<#table_name as #sql_table_meta>::ForeignKeys},
         primary_key: quote! {<#table_name as #sql_table_meta>::PrimaryKey},
         constraints: quote! {<#table_name as #sql_table_meta>::Constraints},
@@ -318,7 +317,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     );
 
     let tagged_alias_meta_name = format_ident!("AliasTagMeta{}", table_name);
-    let alias_type_name = format_ident!("{}Alias", table_name);
     let tagged_const_defs: Vec<TokenStream> = aliased_fields
         .iter()
         .map(|(field_name, aliased_type)| {
@@ -416,14 +414,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             ];
         }
 
-        impl #taggable_alias for #aliased_table_name {
-            type Tagged<Tag: #alias_tag> = #alias_type_name<Tag>;
-
-            fn tag<Tag: #alias_tag>(self) -> Self::Tagged<Tag> {
-                #alias_type_name::<Tag>::from_inner(self)
-            }
-        }
-
         // Implement table traits for the aliased table
         #sql_table_info_impl
 
@@ -503,13 +493,13 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             type Select = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Select;
             type Insert<T> = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Insert<T>;
             type Update = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Update;
-            type Aliased = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Aliased;
+            type Aliased<Name: #alias_tag + 'static> = <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::Aliased<Name>;
             type ForeignKeys = <#aliased_table_name as #sql_table_meta>::ForeignKeys;
             type PrimaryKey = <#aliased_table_name as #sql_table_meta>::PrimaryKey;
             type Constraints = <#aliased_table_name as #sql_table_meta>::Constraints;
 
-            fn alias_named(name: &'static str) -> Self::Aliased {
-                <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::alias_named(name)
+            fn alias<Name: #alias_tag + 'static>() -> Self::Aliased<Name> {
+                <#aliased_table_name as #sql_table<'a, #sqlite_schema_type, #sqlite_value<'a>>>::alias::<Name>()
             }
         }
 
