@@ -121,12 +121,16 @@ where
 /// // COALESCE(users.nickname, users.username, 'Anonymous')
 /// let name = coalesce_many(users.nickname, [users.username, "Anonymous"]);
 /// ```
-pub fn coalesce_many<'a, V, E, I>(first: E, rest: I) -> SQLExpr<'a, V, E::SQLType, Null, Scalar>
+pub fn coalesce_many<'a, V, E, I, N>(first: E, rest: I) -> SQLExpr<'a, V, E::SQLType, N, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
+    N: Nullability,
     I: IntoIterator,
     I::Item: Expr<'a, V>,
+    E::SQLType: Compatible<<I::Item as Expr<'a, V>>::SQLType>,
+    E::Nullable: NullAnd<<I::Item as Expr<'a, V>>::Nullable, Output = N>,
+    <I::Item as Expr<'a, V>>::Nullable: Nullability,
 {
     let mut sql = first.into_sql();
     for value in rest {
