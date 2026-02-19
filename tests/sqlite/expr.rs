@@ -62,6 +62,11 @@ struct CoalesceStringResult {
     coalesce: String,
 }
 
+#[derive(Debug, SQLiteFromRow)]
+struct CoalesceManyStringResult {
+    value: String,
+}
+
 #[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct CoalesceIntResult {
@@ -274,6 +279,38 @@ sqlite_test!(test_coalesce_expression, ComplexSchema, {
     assert_eq!(result.len(), 3);
     // All should be 0 since we didn't set any ages
     assert!(result.iter().all(|r| r.coalesce == 0));
+});
+
+#[cfg(feature = "uuid")]
+sqlite_test!(test_coalesce_many_expression, ComplexSchema, {
+    let ComplexSchema { complex } = schema;
+
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User A", true, Role::User)
+                .with_email("user@example.com".to_string()),])
+            => execute
+    );
+
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("User B", false, Role::Admin)])
+            => execute
+    );
+
+    let result: Vec<CoalesceManyStringResult> = drizzle_exec!(
+        db.select(alias(
+            coalesce_many(complex.email, ["no-email@example.com"]),
+            "value",
+        ))
+        .from(complex)
+            => all
+    );
+
+    assert_eq!(result.len(), 2);
+    let values: Vec<String> = result.iter().map(|r| r.value.clone()).collect();
+    assert!(values.contains(&"user@example.com".to_string()));
+    assert!(values.contains(&"no-email@example.com".to_string()));
 });
 
 sqlite_test!(test_alias_expression, SimpleSchema, {
