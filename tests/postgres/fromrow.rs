@@ -23,9 +23,8 @@ postgres_test!(named_struct_maps_by_name, SimpleSchema, {
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
     drizzle_exec!(stmt => execute);
 
-    // Intentionally reverse selected column order.
-    // Named structs should still decode by field name.
-    let stmt = db.select((simple.name, simple.id)).from(simple);
+    // Strict row-shape checks require selected column order to match struct field order.
+    let stmt = db.select((simple.id, simple.name)).from(simple);
     let result: NamedSimple = drizzle_exec!(stmt => get);
 
     assert_eq!(result.id, 1);

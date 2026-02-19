@@ -255,9 +255,8 @@ sqlite_test!(test_fromrow_named_struct_maps_by_name, TypeTestSchema, {
     let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
     drizzle_exec!(db.insert(type_test).values([row]) => execute);
 
-    // Intentionally reverse selected column order.
-    // Named structs should decode by field name.
-    let stmt = db.select((type_test.name, type_test.id)).from(type_test);
+    // Strict typed decode follows selected column order.
+    let stmt = db.select((type_test.id, type_test.name)).from(type_test);
     let result: NamedNameId = drizzle_exec!(stmt => get);
 
     assert_eq!(result.id, 42);

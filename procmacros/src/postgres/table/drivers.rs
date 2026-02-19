@@ -288,8 +288,9 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
 
     let field_count = field_infos.len();
     let mut column_list = quote!(#type_set_nil);
-    for _ in 0..field_count {
-        column_list = quote!(#type_set_cons<(), #column_list>);
+    for info in field_infos.iter().rev() {
+        let select_ty = &info.field_type;
+        column_list = quote!(#type_set_cons<#select_ty, #column_list>);
     }
 
     // Generate implementation using drizzle::postgres::Row which re-exports

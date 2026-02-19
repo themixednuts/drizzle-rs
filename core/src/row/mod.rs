@@ -175,7 +175,8 @@ where
 
 /// Type-level column-list representation for a row decode target.
 ///
-/// Each consumed column is represented by a `Cons<(), ...>` node.
+/// Each consumed column is represented by a `Cons<T, ...>` node where `T`
+/// is the decoded Rust type for that column.
 pub trait RowColumnList<Row: ?Sized> {
     type Columns: crate::TypeSet;
 }
@@ -192,7 +193,7 @@ macro_rules! impl_row_column_list_one {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl<Row: ?Sized> RowColumnList<Row> for $ty {
-                type Columns = crate::Cons<(), crate::Nil>;
+                type Columns = crate::Cons<$ty, crate::Nil>;
             }
         )+
     };
@@ -222,67 +223,64 @@ impl<Row: ?Sized> RowColumnList<Row> for () {
 
 #[cfg(feature = "uuid")]
 impl<Row: ?Sized> RowColumnList<Row> for uuid::Uuid {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<uuid::Uuid, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveDate {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<chrono::NaiveDate, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveTime {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<chrono::NaiveTime, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveDateTime {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<chrono::NaiveDateTime, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::DateTime<chrono::Utc> {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<chrono::DateTime<chrono::Utc>, crate::Nil>;
 }
 
 #[cfg(feature = "serde")]
 impl<Row: ?Sized> RowColumnList<Row> for serde_json::Value {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<serde_json::Value, crate::Nil>;
 }
 
 #[cfg(feature = "arrayvec")]
 impl<Row: ?Sized, const N: usize> RowColumnList<Row> for arrayvec::ArrayString<N> {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<arrayvec::ArrayString<N>, crate::Nil>;
 }
 
 #[cfg(feature = "arrayvec")]
 impl<Row: ?Sized, T, const N: usize> RowColumnList<Row> for arrayvec::ArrayVec<T, N> {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<arrayvec::ArrayVec<T, N>, crate::Nil>;
 }
 
 impl<Row: ?Sized> RowColumnList<Row> for compact_str::CompactString {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<compact_str::CompactString, crate::Nil>;
 }
 
 #[cfg(feature = "bytes")]
 impl<Row: ?Sized> RowColumnList<Row> for bytes::Bytes {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<bytes::Bytes, crate::Nil>;
 }
 
 #[cfg(feature = "bytes")]
 impl<Row: ?Sized> RowColumnList<Row> for bytes::BytesMut {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<bytes::BytesMut, crate::Nil>;
 }
 
 impl<Row: ?Sized, A: smallvec::Array> RowColumnList<Row> for smallvec::SmallVec<A> {
-    type Columns = crate::Cons<(), crate::Nil>;
+    type Columns = crate::Cons<smallvec::SmallVec<A>, crate::Nil>;
 }
 
-impl<Row: ?Sized, T> RowColumnList<Row> for Option<T>
-where
-    T: RowColumnList<Row>,
-{
-    type Columns = <T as RowColumnList<Row>>::Columns;
+impl<Row: ?Sized, T> RowColumnList<Row> for Option<T> {
+    type Columns = crate::Cons<Option<T>, crate::Nil>;
 }
 
 impl<Row: ?Sized, A> RowColumnList<Row> for (A,)
@@ -384,8 +382,8 @@ where
 /// Currently enforced for `SelectCols<_>` where selected shape is explicit.
 #[diagnostic::on_unimplemented(
     message = "selected shape does not match decode target `{Actual}`",
-    label = "this decode target consumes a different number of columns than .select(...)",
-    note = "match tuple arity with .select((...)) or use .all_as::<T>()"
+    label = "this decode target is not type-compatible with .select(...) output",
+    note = "use .all_as::<T>() for explicit remapping when selecting custom expressions"
 )]
 pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual> {}
 
@@ -400,7 +398,10 @@ where
 {
 }
 
-impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectExpr {}
+impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectExpr where
+    Inferred: SameType<Actual>
+{
+}
 
 impl<Row: ?Sized, R, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
     for SelectAs<R>
@@ -876,13 +877,13 @@ macro_rules! selected_columns_cons {
         crate::Nil
     };
     ($head:ident $(, $tail:ident)*) => {
-        crate::Cons<(), selected_columns_cons!($($tail),*)>
+        crate::Cons<<$head as ExprValueType>::ValueType, selected_columns_cons!($($tail),*)>
     };
 }
 
 macro_rules! impl_selected_column_list_tuple {
     ($($T:ident),+; $($idx:tt),+) => {
-        impl<$($T),+> SelectedColumnList for ($($T,)+) {
+        impl<$($T: ExprValueType),+> SelectedColumnList for ($($T,)+) {
             type Columns = selected_columns_cons!($($T),+);
         }
     };

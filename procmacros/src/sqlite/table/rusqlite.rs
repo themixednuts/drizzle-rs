@@ -150,8 +150,9 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 
     let field_count = field_infos.len();
     let mut column_list = quote!(#type_set_nil);
-    for _ in 0..field_count {
-        column_list = quote!(#type_set_cons<(), #column_list>);
+    for info in field_infos.iter().rev() {
+        let select_ty = info.get_select_type();
+        column_list = quote!(#type_set_cons<#select_ty, #column_list>);
     }
     let from_drizzle_row_impl = quote! {
         impl<'__drizzle_r> drizzle::core::FromDrizzleRow<::rusqlite::Row<'__drizzle_r>> for #select_model_ident {

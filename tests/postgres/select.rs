@@ -24,18 +24,18 @@ struct PgCountResult {
 
 #[derive(Debug, PostgresFromRow)]
 struct PgSumResult {
-    total_age: i64,
+    total_age: Option<i32>,
 }
 
 #[derive(Debug, PostgresFromRow)]
 struct PgAvgResult {
-    avg_age: f64,
+    avg_age: Option<f64>,
 }
 
 #[derive(Debug, PostgresFromRow)]
 struct PgMinMaxResult {
-    min_age: i32,
-    max_age: i32,
+    min_age: Option<i32>,
+    max_age: Option<i32>,
 }
 
 #[derive(Debug, PostgresFromRow)]
@@ -45,7 +45,7 @@ struct PgAliasResult {
 
 #[derive(Debug, PostgresFromRow)]
 struct PgCoalesceResult {
-    email: String,
+    email: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -583,11 +583,14 @@ postgres_test!(select_with_aggregate_sum, ComplexSchema, {
     );
 
     let stmt = db
-        .select(alias(sum(complex.age), "total_age"))
+        .select(alias(
+            cast::<_, _, drizzle::core::types::Int>(sum(complex.age), "int4"),
+            "total_age",
+        ))
         .from(complex);
 
     let result: PgSumResult = drizzle_exec!(stmt => get);
-    assert_eq!(result.total_age, 55);
+    assert_eq!(result.total_age, Some(55));
 });
 
 #[cfg(feature = "uuid")]
@@ -615,7 +618,7 @@ postgres_test!(select_with_aggregate_avg, ComplexSchema, {
         .from(complex);
 
     let result: PgAvgResult = drizzle_exec!(stmt => get);
-    assert!((result.avg_age - 25.0).abs() < 0.01);
+    assert!(result.avg_age.is_some_and(|avg| (avg - 25.0).abs() < 0.01));
 });
 
 #[cfg(feature = "uuid")]
@@ -646,8 +649,8 @@ postgres_test!(select_with_aggregate_min_max, ComplexSchema, {
         .from(complex);
 
     let result: PgMinMaxResult = drizzle_exec!(stmt => get);
-    assert_eq!(result.min_age, 25);
-    assert_eq!(result.max_age, 35);
+    assert_eq!(result.min_age, Some(25));
+    assert_eq!(result.max_age, Some(35));
 });
 
 #[cfg(feature = "uuid")]
@@ -673,10 +676,13 @@ postgres_test!(select_distinct, ComplexSchema, {
     #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
     struct PgDistinctRoleResult {
-        role: Role,
+        role: String,
     }
     let results: Vec<PgDistinctRoleResult> = drizzle_exec!(
-        db.select(alias(distinct(complex.role), "role"))
+        db.select(alias(
+            distinct(cast::<_, _, drizzle::core::types::Text>(complex.role, "text")),
+            "role",
+        ))
             .from(complex)
             => all
     );
@@ -718,7 +724,7 @@ postgres_test!(select_with_coalesce, ComplexSchema, {
         .from(complex);
 
     let result: PgCoalesceResult = drizzle_exec!(stmt => get);
-    assert_eq!(result.email, "unknown@example.com");
+    assert_eq!(result.email, Some("unknown@example.com".to_string()));
 });
 
 // =============================================================================
@@ -734,7 +740,7 @@ struct PgInferredDateResult {
     today: chrono::NaiveDate,
 }
 
-/// Tests that current_date() deserializes as NaiveDate on PostgreSQL (requires chrono).
+// Tests that current_date() deserializes as NaiveDate on PostgreSQL (requires chrono).
 #[cfg(feature = "chrono")]
 postgres_test!(test_inferred_current_date, SimpleSchema, {
     let SimpleSchema { simple } = schema;

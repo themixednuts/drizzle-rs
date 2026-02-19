@@ -114,12 +114,15 @@ fn build_scope_list_type(table_paths: &[syn::Path]) -> TokenStream {
     )
 }
 
-fn build_column_list_type(field_count: usize) -> TokenStream {
+fn build_column_list_type_from_fields(
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+) -> TokenStream {
     let type_set_nil = core_paths::type_set_nil();
     let type_set_cons = core_paths::type_set_cons();
     let mut columns = quote!(#type_set_nil);
-    for _ in 0..field_count {
-        columns = quote!(#type_set_cons<(), #columns>);
+    for field in fields.iter().rev() {
+        let ty = &field.ty;
+        columns = quote!(#type_set_cons<#ty, #columns>);
     }
     columns
 }
@@ -215,10 +218,10 @@ fn generate_driver_row_column_list_impl(
     struct_name: &Ident,
     impl_generics: TokenStream,
     row_type: TokenStream,
-    field_count: usize,
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
 ) -> TokenStream {
     let row_column_list = core_paths::row_column_list();
-    let columns = build_column_list_type(field_count);
+    let columns = build_column_list_type_from_fields(fields);
     quote! {
         impl #impl_generics #row_column_list<#row_type> for #struct_name {
             type Columns = #columns;
@@ -365,7 +368,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             struct_name,
             quote!(<'__drizzle_r>),
             quote!(::rusqlite::Row<'__drizzle_r>),
-            field_count,
+            fields,
         ));
     }
 
@@ -407,7 +410,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             struct_name,
             quote!(),
             quote!(::turso::Row),
-            field_count,
+            fields,
         ));
     }
 
@@ -453,7 +456,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             struct_name,
             quote!(),
             quote!(::libsql::Row),
-            field_count,
+            fields,
         ));
     }
 
@@ -591,7 +594,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         struct_name,
         quote!(),
         quote!(::tokio_postgres::Row),
-        field_count,
+        fields,
     );
     let sync_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
         struct_name,
@@ -606,7 +609,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         struct_name,
         quote!(),
         quote!(::postgres::Row),
-        field_count,
+        fields,
     );
     let select_as_from = quote!(drizzle::core::SelectAsFrom);
     let select_as_from_impl = if let Some(default_table) = default_from.as_ref() {
