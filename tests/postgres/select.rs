@@ -45,7 +45,7 @@ struct PgAliasResult {
 
 #[derive(Debug, PostgresFromRow)]
 struct PgCoalesceResult {
-    email: Option<String>,
+    email: String,
 }
 
 #[allow(dead_code)]
@@ -724,7 +724,7 @@ postgres_test!(select_with_coalesce, ComplexSchema, {
         .from(complex);
 
     let result: PgCoalesceResult = drizzle_exec!(stmt => get);
-    assert_eq!(result.email, Some("unknown@example.com".to_string()));
+    assert_eq!(result.email, "unknown@example.com");
 });
 
 // =============================================================================

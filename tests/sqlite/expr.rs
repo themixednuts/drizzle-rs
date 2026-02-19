@@ -59,13 +59,13 @@ struct DistinctResult {
 
 #[derive(Debug, SQLiteFromRow)]
 struct CoalesceStringResult {
-    coalesce: Option<String>,
+    coalesce: String,
 }
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct CoalesceIntResult {
-    coalesce: Option<i32>,
+    coalesce: i32,
 }
 
 #[derive(Debug, SQLiteFromRow)]
@@ -88,13 +88,13 @@ struct SumAliasResult {
 struct ComplexAggregateResult {
     count: i64,
     avg: Option<f64>,
-    max_age: Option<i32>,
+    max_age: i32,
 }
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, SQLiteFromRow)]
 struct CoalesceAvgResult {
-    coalesce: Option<f64>,
+    coalesce: f64,
 }
 
 sqlite_test!(test_aggregate_functions, SimpleSchema, {
@@ -260,10 +260,7 @@ sqlite_test!(test_coalesce_expression, ComplexSchema, {
         => all
     );
     assert_eq!(result.len(), 3);
-    let emails: Vec<String> = result
-        .iter()
-        .map(|r| r.coalesce.clone().expect("coalesce(email)"))
-        .collect();
+    let emails: Vec<String> = result.iter().map(|r| r.coalesce.clone()).collect();
     assert!(emails.contains(&"user@example.com".to_string()));
     assert!(emails.contains(&"user3@example.com".to_string()));
     assert!(emails.contains(&"no-email@example.com".to_string()));
@@ -276,7 +273,7 @@ sqlite_test!(test_coalesce_expression, ComplexSchema, {
     );
     assert_eq!(result.len(), 3);
     // All should be 0 since we didn't set any ages
-    assert!(result.iter().all(|r| r.coalesce == Some(0)));
+    assert!(result.iter().all(|r| r.coalesce == 0));
 });
 
 sqlite_test!(test_alias_expression, SimpleSchema, {
@@ -349,7 +346,7 @@ sqlite_test!(test_complex_expressions, ComplexSchema, {
     );
     assert_eq!(result[0].count, 3); // count
     assert!((result[0].avg.expect("avg") - 85.266).abs() < 0.1); // avg score
-    assert_eq!(result[0].max_age, Some(30)); // max age (coalesced)
+    assert_eq!(result[0].max_age, 30); // max age (coalesced)
 
     // Test nested expressions
     let result: Vec<CoalesceAvgResult> = drizzle_exec!(
@@ -358,7 +355,7 @@ sqlite_test!(test_complex_expressions, ComplexSchema, {
             .r#where(is_not_null(complex.score))
             => all
     );
-    assert!((result[0].coalesce.expect("coalesce") - 85.266).abs() < 0.1);
+    assert!((result[0].coalesce - 85.266).abs() < 0.1);
 });
 
 #[cfg(feature = "uuid")]
@@ -461,7 +458,7 @@ sqlite_test!(test_expression_edge_cases, SimpleSchema, {
             .r#where(eq(simple.name, ""))
             => all
     );
-    assert_eq!(result[0].coalesce, Some("".to_string())); // Empty string is not NULL, so coalesce returns it
+    assert_eq!(result[0].coalesce, ""); // Empty string is not NULL, so coalesce returns it
 });
 
 sqlite_test!(test_multiple_aliases, SimpleSchema, {
