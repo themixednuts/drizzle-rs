@@ -387,6 +387,23 @@ where
 )]
 pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual> {}
 
+/// Marker-level guard for strict decode entry points.
+///
+/// Raw `SelectExpr` (`select(sql!(...))`) is intentionally excluded so strict
+/// decode requires either typed expressions (`raw_non_null`, `sql!(.., Type)`) or
+/// explicit remapping via `.all_as::<T>()`.
+#[diagnostic::on_unimplemented(
+    message = "raw select expressions require explicit typing in strict decode",
+    label = "`select(sql!(...)).all()/get()` is not allowed in strict mode",
+    note = "use typed wrappers like `raw_non_null`/`raw_nullable` or call `.all_as::<T>()` / `.get_as::<T>()`"
+)]
+pub trait StrictDecodeMarker {}
+
+impl StrictDecodeMarker for SelectStar {}
+impl<Cols> StrictDecodeMarker for SelectCols<Cols> {}
+impl<R> StrictDecodeMarker for SelectAs<R> {}
+impl<M, Scope> StrictDecodeMarker for Scoped<M, Scope> where M: StrictDecodeMarker {}
+
 impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectStar {}
 
 impl<Row: ?Sized, Cols, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
