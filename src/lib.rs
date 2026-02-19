@@ -166,7 +166,7 @@ pub mod sqlite {
     };
     pub use drizzle_sqlite::params;
     pub use drizzle_sqlite::{
-        attrs, builder, common, connection, expr, helpers, pragma, traits, values,
+        attrs, builder, common, connection, expr, helpers, pragma, traits, types, values,
     };
 
     #[cfg(feature = "rusqlite")]
@@ -223,7 +223,7 @@ pub mod postgres {
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
     pub use drizzle_postgres::params;
-    pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, values};
+    pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
     pub use drizzle_postgres::Row;
