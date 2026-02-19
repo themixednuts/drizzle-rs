@@ -598,7 +598,7 @@ impl<'a> FieldInfo<'a> {
 
         // Determine the SQLite type:
         // 1. Use explicit type from attribute if provided
-        // 2. Otherwise, infer from Rust type
+        // 2. Otherwise, infer from Rust type (hard error if unsupported)
         let type_category = if properties.is_json {
             TypeCategory::Json
         } else if properties.is_enum {
@@ -612,11 +612,17 @@ impl<'a> FieldInfo<'a> {
             attrs.column_type.clone()
         } else {
             // Infer from Rust type
-            type_category_to_sqlite(&type_category).unwrap_or(
-                // If we can't infer, default to ANY (flexible SQLite type)
-                // This allows unknown types to work but may cause runtime issues
-                SQLiteType::Any,
-            )
+            type_category_to_sqlite(&type_category).ok_or_else(|| {
+                let base_type_str = quote!(#base_type).to_string().replace(' ', "");
+                Error::new(
+                    field_name.span(),
+                    format!(
+                        "Cannot infer SQLite type for Rust type '{}'. \
+Use a supported Rust type or add an explicit column type override (e.g. #[column(any)]).",
+                        base_type_str
+                    ),
+                )
+            })?
         };
 
         Self::validate_constraints(

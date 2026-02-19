@@ -1,0 +1,5 @@
+error: Cannot infer SQLite type for Rust type 'Opaque'. Use a supported Rust type or add an explicit column type override (e.g. #[column(any)]).
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:5
+  |
+8 |     payload: Opaque,
+  |     ^^^^^^^
