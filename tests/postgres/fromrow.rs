@@ -26,7 +26,7 @@ postgres_test!(named_struct_maps_by_name, SimpleSchema, {
     // Intentionally reverse selected column order.
     // Named structs should still decode by field name.
     let stmt = db.select((simple.name, simple.id)).from(simple);
-    let result: NamedSimple = drizzle_exec!(stmt => get_as);
+    let result: NamedSimple = drizzle_exec!(stmt => get);
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
@@ -40,7 +40,7 @@ postgres_test!(tuple_struct_maps_by_index, SimpleSchema, {
 
     // Tuple structs decode positionally, so this follows SELECT order.
     let stmt = db.select((simple.name, simple.id)).from(simple);
-    let result: TupleNameId = drizzle_exec!(stmt => get_as);
+    let result: TupleNameId = drizzle_exec!(stmt => get);
 
     assert_eq!(result.0, "Alice");
     assert_eq!(result.1, 1);

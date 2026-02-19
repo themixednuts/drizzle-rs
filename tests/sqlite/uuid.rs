@@ -83,7 +83,7 @@ sqlite_test!(test_uuid_text_storage, UuidTextSchema, {
         db.select((table.id, table.uuid_field, table.name))
             .from(table)
             .r#where(eq(table.name, "text storage test"))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -97,7 +97,7 @@ sqlite_test!(test_uuid_text_storage, UuidTextSchema, {
         db.select(r#typeof(table.uuid_field).alias("uuid_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(result.0, "text");
@@ -118,7 +118,7 @@ sqlite_test!(test_uuid_blob_storage, UuidBlobSchema, {
         db.select((table.id, table.uuid_field, table.name))
             .from(table)
             .r#where(eq(table.name, "blob storage test"))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -132,7 +132,7 @@ sqlite_test!(test_uuid_blob_storage, UuidBlobSchema, {
         db.select(r#typeof(table.uuid_field).alias("uuid_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(result.0, "blob");
@@ -149,7 +149,7 @@ sqlite_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
     let results: Vec<SelectUuidTextTest> = drizzle_exec!(
         db.select((table.id, table.uuid_field, table.name))
             .from(table)
-            => all_as
+            => all
     );
     assert_eq!(results[0].uuid_field, test_uuid);
 });
@@ -165,7 +165,7 @@ sqlite_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
     let results: Vec<SelectUuidBlobTest> = drizzle_exec!(
         db.select((table.id, table.uuid_field, table.name))
             .from(table)
-            => all_as
+            => all
     );
     assert_eq!(results[0].uuid_field, test_uuid);
 });
@@ -181,7 +181,7 @@ sqlite_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     let results: Vec<SelectUuidTextDefault> = drizzle_exec!(
         db.select((table.id, table.uuid_field, table.name))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -197,7 +197,7 @@ sqlite_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
         db.select(r#typeof(table.uuid_field).alias("uuid_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(result.0, "text");
@@ -214,7 +214,7 @@ sqlite_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     let results: Vec<SelectUuidBlobDefault> = drizzle_exec!(
         db.select((table.id, table.uuid_field, table.name))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -230,7 +230,7 @@ sqlite_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
         db.select(r#typeof(table.uuid_field).alias("uuid_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(result.0, "blob");
@@ -251,7 +251,7 @@ sqlite_test!(
         let results: Vec<SelectUuidTextDefault> = drizzle_exec!(
             db.select((table.id, table.uuid_field, table.name))
                 .from(table)
-                => all_as
+                => all
         );
         assert_eq!(results.len(), 2);
 
@@ -277,7 +277,7 @@ sqlite_test!(
         let results: Vec<SelectUuidBlobDefault> = drizzle_exec!(
             db.select((table.id, table.uuid_field, table.name))
                 .from(table)
-                => all_as
+                => all
         );
         assert_eq!(results.len(), 2);
 

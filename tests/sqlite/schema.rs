@@ -170,7 +170,7 @@ sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
         db.select(())
             .from(schema.user)
             .r#where(eq(schema.user.email, "test@example.com"))
-            => all_as
+            => all
     );
 
     assert_eq!(users.len(), 1);
@@ -192,7 +192,7 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
         db.select(())
             .from(user)
             .r#where(eq(user.email, "destructured@example.com"))
-            => all_as
+            => all
     );
 
     assert_eq!(users.len(), 1);

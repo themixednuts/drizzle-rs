@@ -30,7 +30,7 @@ postgres_test!(insert_single_row, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -48,7 +48,7 @@ postgres_test!(insert_multiple_rows, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -69,7 +69,7 @@ postgres_test!(insert_with_optional_fields, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -88,7 +88,7 @@ postgres_test!(insert_with_null_fields, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -110,7 +110,7 @@ postgres_test!(insert_special_characters, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 5);
     assert!(results.iter().any(|r| r.name == "O'Brien"));
@@ -134,7 +134,7 @@ postgres_test!(insert_with_custom_uuid, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(eq(complex.id, custom_id));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, custom_id);
@@ -155,7 +155,7 @@ postgres_test!(insert_large_batch, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 100);
 });

@@ -85,7 +85,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .from(complex)
             .inner_join((post, eq(complex.id, post.author_id)))
             .order_by([asc(complex.name), asc(post.title)])
-            => all_as
+            => all
     );
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded because no posts
@@ -120,7 +120,7 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
             .from(complex)
             .inner_join((post, eq(complex.id, post.author_id)))
             .r#where(eq(complex.name, "alice"))
-            => all_as
+            => all
     );
 
     assert_eq!(alice_posts.len(), 2);
@@ -169,7 +169,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .join(post)
             .order_by([asc(complex.name), asc(post.title)])
-            => all_as
+            => all
     );
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded
@@ -190,7 +190,7 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
             .from(complex)
             .inner_join(post)
             .r#where(eq(complex.name, "alice"))
-            => all_as
+            => all
     );
 
     assert_eq!(inner_results.len(), 2);
@@ -265,7 +265,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
         .join((category, eq(post_category.category_id, category.id)))
         .order_by([asc(post.title), asc(category.name)]);
 
-    let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt => all_as);
+    let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt => all);
 
     // Should have 4 results (each post-category relationship)
     assert_eq!(join_results.len(), 4);
@@ -302,7 +302,7 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
             .join((category, eq(post_category.category_id, category.id)))
             .r#where(eq(post.published, true))
             .order_by([asc(post.title), asc(category.name)])
-            => all_as
+            => all
     );
 
     // Should exclude Draft Post (published = false)
@@ -366,7 +366,7 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
             .join(post_category)
             .join(category)
             .order_by([asc(post.title), asc(category.name)])
-            => all_as
+            => all
     );
 
     // Go Guide -> Programming = 1 row
