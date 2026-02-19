@@ -265,6 +265,23 @@ let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 Aliases are tag-driven (`alias::<Tag>()` / `into_cte::<Tag>()`) and always use
 the compile-time name from `Tag::NAME`.
 
+## Dialect Type Aliases
+
+`core::types` stays the canonical type system, and each dialect now exposes
+friendly aliases for cast targets.
+
+```rust
+use drizzle::core::expr::cast;
+
+// SQLite
+let age = cast(json_age, drizzle::sqlite::types::Integer);
+
+// PostgreSQL
+let age = cast(user.age, drizzle::postgres::types::Int4);
+```
+
+Use a string cast target only when you need a custom SQL type name.
+
 ## Order By / Limit / Offset
 
 ```rust

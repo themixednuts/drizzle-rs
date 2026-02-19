@@ -64,9 +64,9 @@ sqlite_test!(json_storage, Schema, {
     let stmt = db
         .select((
             jsonuser.id,
-            cast::<_, _, drizzle::sqlite::types::Integer>(
+            cast(
                 drizzle::sqlite::expr::json_extract(jsonuser.profile, "age"),
-                "INTEGER",
+                drizzle::sqlite::types::Integer,
             )
             .alias("age"),
         ))

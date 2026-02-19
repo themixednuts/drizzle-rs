@@ -417,9 +417,9 @@ sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
     // Test json_extract helper on the metadata field
     let result: Vec<JsonExtractResult> = drizzle_exec!(
         db.select(alias(
-            cast::<_, _, drizzle::core::types::Text>(
+            cast(
                 json_extract(complex.metadata, "theme"),
-                "TEXT",
+                drizzle::sqlite::types::Text,
             ),
             "extract",
         ))
