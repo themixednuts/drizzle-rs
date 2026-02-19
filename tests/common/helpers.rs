@@ -456,6 +456,8 @@ pub mod test_db {
 pub mod rusqlite_setup {
     use super::test_db::TestDb;
     use drizzle::sqlite::rusqlite::Drizzle;
+    use drizzle_migrations::{Migration, MigrationSet};
+    use drizzle_types::Dialect;
     use rusqlite::Connection;
 
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<Drizzle<S>>, S) {
@@ -468,8 +470,17 @@ pub mod rusqlite_setup {
             .expect("create statements")
             .collect();
         let (db, schema) = Drizzle::new(conn, schema);
+        let migrations = MigrationSet::new(
+            vec![Migration::with_hash(
+                "0000_schema_init",
+                "schema_init",
+                0,
+                schema_ddl.clone(),
+            )],
+            Dialect::SQLite,
+        );
 
-        if let Err(e) = db.create() {
+        if let Err(e) = db.migrate(&migrations) {
             let test_db = TestDb::new(db, "rusqlite", schema_ddl);
             test_db.fail(
                 "schema_creation",
@@ -488,6 +499,8 @@ pub mod rusqlite_setup {
 pub mod libsql_setup {
     use super::test_db::TestDb;
     use drizzle::sqlite::libsql::Drizzle;
+    use drizzle_migrations::{Migration, MigrationSet};
+    use drizzle_types::Dialect;
     use libsql::Builder;
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
@@ -506,8 +519,17 @@ pub mod libsql_setup {
             .expect("create statements")
             .collect();
         let (db, schema) = Drizzle::new(conn, schema);
+        let migrations = MigrationSet::new(
+            vec![Migration::with_hash(
+                "0000_schema_init",
+                "schema_init",
+                0,
+                schema_ddl.clone(),
+            )],
+            Dialect::SQLite,
+        );
 
-        if let Err(e) = db.create().await {
+        if let Err(e) = db.migrate(&migrations).await {
             let test_db = TestDb::new(db, "libsql", schema_ddl);
             test_db.fail(
                 "schema_creation",
@@ -526,6 +548,8 @@ pub mod libsql_setup {
 pub mod turso_setup {
     use super::test_db::TestDb;
     use drizzle::sqlite::turso::Drizzle;
+    use drizzle_migrations::{Migration, MigrationSet};
+    use drizzle_types::Dialect;
     use turso::Builder;
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
@@ -543,9 +567,18 @@ pub mod turso_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(conn, schema);
+        let (mut db, schema) = Drizzle::new(conn, schema);
+        let migrations = MigrationSet::new(
+            vec![Migration::with_hash(
+                "0000_schema_init",
+                "schema_init",
+                0,
+                schema_ddl.clone(),
+            )],
+            Dialect::SQLite,
+        );
 
-        if let Err(e) = db.create().await {
+        if let Err(e) = db.migrate(&migrations).await {
             let test_db = TestDb::new(db, "turso", schema_ddl);
             test_db.fail(
                 "schema_creation",
@@ -564,6 +597,8 @@ pub mod turso_setup {
 pub mod postgres_sync_setup {
     use super::{CapturedStatement, FailureContext, failure_report};
     use drizzle::postgres::sync::Drizzle;
+    use drizzle_migrations::{Migration, MigrationSet};
+    use drizzle_types::Dialect;
     use postgres::{Client, NoTls};
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
@@ -754,7 +789,18 @@ pub mod postgres_sync_setup {
             .collect();
         let (mut db, schema) = Drizzle::new(client, schema);
 
-        if let Err(e) = db.create() {
+        let migrations = MigrationSet::new(
+            vec![Migration::with_hash(
+                "0000_schema_init",
+                "schema_init",
+                0,
+                schema_ddl.clone(),
+            )],
+            Dialect::PostgreSQL,
+        )
+        .with_schema(schema_name.clone());
+
+        if let Err(e) = db.migrate(&migrations) {
             let test_db = TestDb {
                 db,
                 schema_name,
@@ -783,6 +829,8 @@ pub mod postgres_sync_setup {
 pub mod tokio_postgres_setup {
     use super::{CapturedStatement, FailureContext, failure_report};
     use drizzle::postgres::tokio::Drizzle;
+    use drizzle_migrations::{Migration, MigrationSet};
+    use drizzle_types::Dialect;
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
@@ -1007,9 +1055,19 @@ pub mod tokio_postgres_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(client, schema);
+        let (mut db, schema) = Drizzle::new(client, schema);
+        let migrations = MigrationSet::new(
+            vec![Migration::with_hash(
+                "0000_schema_init",
+                "schema_init",
+                0,
+                schema_ddl.clone(),
+            )],
+            Dialect::PostgreSQL,
+        )
+        .with_schema(schema_name.clone());
 
-        if let Err(e) = db.create().await {
+        if let Err(e) = db.migrate(&migrations).await {
             let test_db = TestDb {
                 db,
                 schema_name,
