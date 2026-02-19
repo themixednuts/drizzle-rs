@@ -4,6 +4,8 @@ use crate::{
     SQLSchema, SQLSchemaType, ToSQL,
 };
 use core::any::Any;
+use core::marker::PhantomData;
+use core::ops::Deref;
 
 /// Marker: no fields have been set on this update model.
 pub struct Empty;
@@ -13,6 +15,42 @@ pub struct NonEmpty;
 /// Type-level name marker used for strongly-typed aliases/CTEs.
 pub trait Tag {
     const NAME: &'static str;
+}
+
+/// Generic typed wrapper that binds a value to a compile-time [`Tag`].
+#[derive(Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Tagged<T, Name: Tag> {
+    inner: T,
+    _tag: PhantomData<fn() -> Name>,
+}
+
+impl<T: Copy, Name: Tag> Copy for Tagged<T, Name> {}
+
+impl<T: Copy, Name: Tag> Clone for Tagged<T, Name> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T, Name: Tag> Tagged<T, Name> {
+    pub const fn new(inner: T) -> Self {
+        Self {
+            inner,
+            _tag: PhantomData,
+        }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.inner
+    }
+}
+
+impl<T, Name: Tag> Deref for Tagged<T, Name> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 /// Trait implemented by generated runtime alias table types that can be tagged.
