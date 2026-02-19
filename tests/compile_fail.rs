@@ -37,6 +37,14 @@ fn aggregate_types_ui() {
     t.compile_fail("tests/ui/aggregate_types/fail/*.rs");
 }
 
+#[cfg(feature = "postgres")]
+#[test]
+fn aggregate_types_postgres_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/aggregate_types_postgres/pass/*.rs");
+    t.compile_fail("tests/ui/aggregate_types_postgres/fail/*.rs");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn sqlite_strict_affinity_ui() {

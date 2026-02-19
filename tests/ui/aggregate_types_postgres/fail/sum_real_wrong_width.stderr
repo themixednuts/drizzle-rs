@@ -1,0 +1,10 @@
+error[E0308]: mismatched types
+  --> tests/ui/aggregate_types_postgres/fail/sum_real_wrong_width.rs:21:26
+   |
+21 |     let _: Option<f32> = value_type(sum(user.score));
+   |            -----------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<f32>`, found `Option<f64>`
+   |            |
+   |            expected due to this
+   |
+   = note: expected enum `Option<f32>`
+              found enum `Option<f64>`

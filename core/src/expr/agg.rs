@@ -11,9 +11,77 @@
 
 use crate::sql::SQL;
 use crate::traits::SQLParam;
-use crate::types::{BigInt, Double, Numeric};
+use crate::types::{Any, BigInt, Double, Float, Int, Numeric, SmallInt};
+use crate::{PostgresDialect, SQLiteDialect};
 
 use super::{Agg, Expr, NonNull, Null, SQLExpr, Scalar};
+
+// =============================================================================
+// Dialect Aggregate Policy
+// =============================================================================
+
+/// Dialect-specific aggregate output mapping.
+///
+/// Keeps aggregate output typing in one place so all aggregate functions
+/// follow the same per-dialect policy.
+#[diagnostic::on_unimplemented(
+    message = "no aggregate policy for `{Self}` on this dialect",
+    label = "aggregate result type is not defined for this SQL type/dialect"
+)]
+pub trait AggregatePolicy<D>: Numeric {
+    type Sum: crate::types::DataType;
+    type Avg: crate::types::DataType;
+}
+
+impl AggregatePolicy<SQLiteDialect> for SmallInt {
+    type Sum = SmallInt;
+    type Avg = Double;
+}
+impl AggregatePolicy<SQLiteDialect> for Int {
+    type Sum = Int;
+    type Avg = Double;
+}
+impl AggregatePolicy<SQLiteDialect> for BigInt {
+    type Sum = BigInt;
+    type Avg = Double;
+}
+impl AggregatePolicy<SQLiteDialect> for Float {
+    type Sum = Float;
+    type Avg = Double;
+}
+impl AggregatePolicy<SQLiteDialect> for Double {
+    type Sum = Double;
+    type Avg = Double;
+}
+impl AggregatePolicy<SQLiteDialect> for Any {
+    type Sum = Any;
+    type Avg = Double;
+}
+
+impl AggregatePolicy<PostgresDialect> for SmallInt {
+    type Sum = BigInt;
+    type Avg = Double;
+}
+impl AggregatePolicy<PostgresDialect> for Int {
+    type Sum = BigInt;
+    type Avg = Double;
+}
+impl AggregatePolicy<PostgresDialect> for BigInt {
+    type Sum = BigInt;
+    type Avg = Double;
+}
+impl AggregatePolicy<PostgresDialect> for Float {
+    type Sum = Double;
+    type Avg = Double;
+}
+impl AggregatePolicy<PostgresDialect> for Double {
+    type Sum = Double;
+    type Avg = Double;
+}
+impl AggregatePolicy<PostgresDialect> for Any {
+    type Sum = Any;
+    type Avg = Double;
+}
 
 // =============================================================================
 // COUNT
@@ -94,11 +162,13 @@ where
 /// // ❌ Compile error: Text is not Numeric
 /// sum(users.name);
 /// ```
-pub fn sum<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
+pub fn sum<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: AggregatePolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("SUM", expr.into_sql()))
 }
@@ -107,11 +177,13 @@ where
 ///
 /// Requires the expression to be `Numeric`.
 /// Preserves the input expression's SQL type.
-pub fn sum_distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
+pub fn sum_distinct<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: AggregatePolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func(
         "SUM",
@@ -137,11 +209,13 @@ where
 /// // ❌ Compile error: Text is not Numeric
 /// avg(users.name);
 /// ```
-pub fn avg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, Null, Agg>
+pub fn avg<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: AggregatePolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func("AVG", expr.into_sql()))
 }
@@ -149,11 +223,13 @@ where
 /// AVG(DISTINCT expr) - calculates average of distinct numeric values.
 ///
 /// Requires the expression to be `Numeric`.
-pub fn avg_distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, Null, Agg>
+pub fn avg_distinct<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg, Null, Agg>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    E::SQLType: Numeric,
+    E::SQLType: AggregatePolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func(
         "AVG",
