@@ -107,7 +107,7 @@ postgres_test!(schema_simple_works, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
@@ -234,7 +234,7 @@ postgres_test!(schema_complex_works, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
@@ -253,7 +253,7 @@ postgres_test!(schema_with_enum_works, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
 });
@@ -272,7 +272,7 @@ postgres_test!(schema_multiple_inserts, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
 });

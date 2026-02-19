@@ -43,7 +43,7 @@ sqlite_test!(compact_string_roundtrip_and_storage, CompactStringSchema, {
         db.select((table.id, table.name, table.note))
             .from(table)
             .r#where(eq(table.id, 1))
-            => all_as
+            => all
     );
 
     assert_eq!(out.len(), 1);
@@ -56,7 +56,7 @@ sqlite_test!(compact_string_roundtrip_and_storage, CompactStringSchema, {
         db.select(r#typeof(table.name).alias("name_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(ty.0, "text");
@@ -91,7 +91,7 @@ sqlite_test!(bytes_roundtrip_and_storage, BytesBlobSchema, {
         db.select((table.id, table.payload, table.mutable_payload, table.note))
             .from(table)
             .r#where(eq(table.id, 1))
-            => all_as
+            => all
     );
 
     assert_eq!(out.len(), 1);
@@ -108,7 +108,7 @@ sqlite_test!(bytes_roundtrip_and_storage, BytesBlobSchema, {
         ))
         .from(table)
         .r#where(eq(table.id, 1))
-        => get_as
+        => get
     );
 
     assert_eq!(ty.0, "blob");
@@ -143,7 +143,7 @@ sqlite_test!(smallvec_roundtrip_and_storage, SmallVecBlobSchema, {
         db.select((table.id, table.payload, table.note))
             .from(table)
             .r#where(eq(table.id, 1))
-            => all_as
+            => all
     );
 
     assert_eq!(out.len(), 1);
@@ -156,7 +156,7 @@ sqlite_test!(smallvec_roundtrip_and_storage, SmallVecBlobSchema, {
         db.select(r#typeof(table.payload).alias("payload_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(ty.0, "blob");

@@ -78,7 +78,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .from(simple)
         .r#where(eq(simple.name, "beta"));
 
-    let where_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let where_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
@@ -90,7 +90,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .order_by([asc(simple.name)])
         .limit(2);
 
-    let ordered_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let ordered_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
@@ -104,7 +104,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .limit(2)
         .offset(2);
 
-    let offset_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let offset_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
@@ -146,7 +146,7 @@ postgres_test!(select_with_where, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."name" = $1"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 });
@@ -175,7 +175,7 @@ postgres_test!(select_with_order_by, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alpha");
     assert_eq!(results[1].name, "beta");
@@ -201,7 +201,7 @@ postgres_test!(select_with_limit, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" LIMIT 2"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 });
 
@@ -231,7 +231,7 @@ postgres_test!(select_with_offset, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
     // After ordering: four, one, three, two - offset 1 skips "four"
     assert_eq!(results[0].name, "one");
@@ -273,7 +273,7 @@ postgres_test!(cte_after_join, SimpleSchema, {
                 .select((joined_alias.id, joined_alias.name))
                 .from(&joined_simple)
                 .order_by([asc(joined_alias.id)])
-                .all_as()
+                .all()
         )
     };
 
@@ -314,7 +314,7 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
                 .select((paged_alias.id, paged_alias.name))
                 .from(&paged_simple)
                 .order_by([asc(paged_alias.id)])
-                .all_as()
+                .all()
         )
     };
 
@@ -334,7 +334,7 @@ postgres_test!(select_with_generated_model, SimpleSchema, {
 
     let stmt = db.select(()).from(simple).order_by([asc(simple.id)]);
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all_as);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "sel_a");
@@ -366,7 +366,7 @@ postgres_test!(select_with_multiple_order_by, ComplexSchema, {
         .from(complex)
         .order_by([desc(complex.age), asc(complex.name)]);
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3);
     // age DESC, name ASC: Alice(30), Charlie(30), Bob(25)
     assert_eq!(results[0].name, "Alice");
@@ -396,7 +396,7 @@ postgres_test!(select_with_in_array, SimpleSchema, {
     // Should have PostgreSQL numbered placeholders
     assert!(sql.contains("$1"));
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3);
 });
 
@@ -420,7 +420,7 @@ postgres_test!(select_with_like_pattern, SimpleSchema, {
     assert!(sql.contains("LIKE"));
     assert!(sql.contains("$1"));
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 });
 
@@ -445,7 +445,7 @@ postgres_test!(select_with_null_check, ComplexSchema, {
 
     assert!(sql.contains("IS NULL"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
 });
@@ -478,7 +478,7 @@ postgres_test!(select_with_between, ComplexSchema, {
     assert!(sql.contains("$1"));
     assert!(sql.contains("$2"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Adult");
 });
@@ -507,7 +507,7 @@ postgres_test!(select_with_enum_condition, ComplexSchema, {
     assert!(sql.contains(r#""complex"."role""#));
     assert!(sql.contains("$1"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
 });
@@ -541,7 +541,7 @@ postgres_test!(select_complex_where, ComplexSchema, {
     assert!(sql.contains("AND"));
     assert!(sql.contains("OR"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     // Should match Alice (active=true, role=Admin) and Bob (active=true, age>21)
     assert_eq!(results.len(), 2);
 });
@@ -561,7 +561,7 @@ postgres_test!(select_with_aggregate_count, SimpleSchema, {
 
     let stmt = db.select(alias(count(simple.id), "count")).from(simple);
 
-    let result: PgCountResult = drizzle_exec!(stmt => get_as);
+    let result: PgCountResult = drizzle_exec!(stmt => get);
     assert_eq!(result.count, 3);
 });
 
@@ -586,7 +586,7 @@ postgres_test!(select_with_aggregate_sum, ComplexSchema, {
         .select(alias(sum(complex.age), "total_age"))
         .from(complex);
 
-    let result: PgSumResult = drizzle_exec!(stmt => get_as);
+    let result: PgSumResult = drizzle_exec!(stmt => get);
     assert_eq!(result.total_age, 55);
 });
 
@@ -614,7 +614,7 @@ postgres_test!(select_with_aggregate_avg, ComplexSchema, {
         ))
         .from(complex);
 
-    let result: PgAvgResult = drizzle_exec!(stmt => get_as);
+    let result: PgAvgResult = drizzle_exec!(stmt => get);
     assert!((result.avg_age - 25.0).abs() < 0.01);
 });
 
@@ -645,7 +645,7 @@ postgres_test!(select_with_aggregate_min_max, ComplexSchema, {
         ))
         .from(complex);
 
-    let result: PgMinMaxResult = drizzle_exec!(stmt => get_as);
+    let result: PgMinMaxResult = drizzle_exec!(stmt => get);
     assert_eq!(result.min_age, 25);
     assert_eq!(result.max_age, 35);
 });
@@ -678,7 +678,7 @@ postgres_test!(select_distinct, ComplexSchema, {
     let results: Vec<PgDistinctRoleResult> = drizzle_exec!(
         db.select(alias(distinct(complex.role), "role"))
             .from(complex)
-            => all_as
+            => all
     );
     assert_eq!(results.len(), 2);
 });
@@ -694,7 +694,7 @@ postgres_test!(select_with_alias, SimpleSchema, {
 
     let stmt = db.select(alias(simple.name, "user_name")).from(simple);
 
-    let result: PgAliasResult = drizzle_exec!(stmt => get_as);
+    let result: PgAliasResult = drizzle_exec!(stmt => get);
     assert_eq!(result.user_name, "test");
 });
 
@@ -717,7 +717,7 @@ postgres_test!(select_with_coalesce, ComplexSchema, {
         ))
         .from(complex);
 
-    let result: PgCoalesceResult = drizzle_exec!(stmt => get_as);
+    let result: PgCoalesceResult = drizzle_exec!(stmt => get);
     assert_eq!(result.email, "unknown@example.com");
 });
 
@@ -741,7 +741,7 @@ postgres_test!(test_inferred_current_date, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
     let result: Vec<PgInferredDateResult> =
-        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all);
     assert_eq!(result.len(), 1);
     let today = result[0].today;
     assert!(chrono::Datelike::year(&today) >= 2024);
@@ -761,7 +761,7 @@ postgres_test!(test_inferred_current_timestamp, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
     let result: Vec<PgInferredTimestampResult> =
-        drizzle_exec!(db.select(alias(current_timestamp(), "now")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(current_timestamp(), "now")).from(simple) => all);
     assert_eq!(result.len(), 1);
     assert!(result[0].now.timestamp() > 0);
 });

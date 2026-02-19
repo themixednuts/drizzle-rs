@@ -69,7 +69,7 @@ sqlite_test!(test_arraystring_text_storage, ArrayStringSchema, {
         db.select((table.id, table.name, table.description))
             .from(table)
             .r#where(eq(table.description, "test description"))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -83,7 +83,7 @@ sqlite_test!(test_arraystring_text_storage, ArrayStringSchema, {
         db.select(r#typeof(table.name).alias("name_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(result.0, "text");
@@ -106,7 +106,7 @@ sqlite_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
         db.select((table.id, table.data, table.label))
             .from(table)
             .r#where(eq(table.label, "blob test"))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -120,7 +120,7 @@ sqlite_test!(test_arrayvec_blob_storage, ArrayVecBlobSchema, {
         db.select(r#typeof(table.data).alias("data_type"))
             .from(table)
             .r#where(eq(table.id, 1))
-            => get_as
+            => get
     );
 
     assert_eq!(result.0, "blob");
@@ -144,7 +144,7 @@ sqlite_test!(test_arraystring_roundtrip, ArrayStringSchema, {
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), test_strings.len());
@@ -178,7 +178,7 @@ sqlite_test!(test_arrayvec_roundtrip, ArrayVecBlobSchema, {
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), test_data.len());
@@ -221,7 +221,7 @@ sqlite_test!(test_mixed_arrayvec_types, MixedArrayVecSchema, {
             table.large_data
         ))
         .from(table)
-        => all_as
+        => all
     );
 
     assert_eq!(results.len(), 1);
@@ -249,7 +249,7 @@ sqlite_test!(test_arraystring_empty, ArrayStringSchema, {
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -268,7 +268,7 @@ sqlite_test!(test_arrayvec_empty, ArrayVecBlobSchema, {
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -287,7 +287,7 @@ sqlite_test!(test_arraystring_max_capacity, ArrayStringSchema, {
     let results: Vec<SelectArrayStringTest> = drizzle_exec!(
         db.select((table.id, table.name, table.description))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -310,7 +310,7 @@ sqlite_test!(test_arrayvec_max_capacity, ArrayVecBlobSchema, {
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -345,7 +345,7 @@ sqlite_test!(test_arrayvec_update, ArrayVecBlobSchema, {
     let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
         db.select((table.id, table.data, table.label))
             .from(table)
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);

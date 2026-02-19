@@ -48,7 +48,7 @@ sqlite_test!(simple_update, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -59,7 +59,7 @@ sqlite_test!(simple_update, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original"))
-            => all_as
+            => all
     );
 
     assert_eq!(old_results.len(), 0);
@@ -110,7 +110,7 @@ sqlite_test!(complex_update, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.name, "user"))
-        => all_as
+        => all
     );
 
     assert_eq!(results.len(), 1);
@@ -143,7 +143,7 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
-            => all_as
+            => all
     );
     assert_eq!(results.len(), 2);
 
@@ -151,7 +151,7 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "other"))
-            => all_as
+            => all
     );
     assert_eq!(results.len(), 1);
 });
@@ -189,7 +189,7 @@ sqlite_test!(update_with_complex_where, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.name, "matched"))
-        => all_as
+        => all
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "matched");
@@ -216,7 +216,7 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "Updated"))
-            => all_as
+            => all
     );
     assert_eq!(results.len(), 2);
 
@@ -224,7 +224,7 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(in_array(simple.name, ["Bob", "David"]))
-            => all_as
+            => all
     );
     assert_eq!(results.len(), 2);
 });
@@ -242,7 +242,7 @@ sqlite_test!(update_no_matching_rows, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let results: Vec<SimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all_as);
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -303,7 +303,7 @@ sqlite_test!(feature_gated_update, ComplexSchema, {
         ))
         .from(complex)
         .r#where(eq(complex.id, test_id))
-        => all_as
+        => all
     );
 
     assert_eq!(results.len(), 1);

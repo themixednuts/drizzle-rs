@@ -62,7 +62,7 @@ postgres_test!(arraystring_insert_and_select, PgArrayStringSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "Hello");
@@ -81,7 +81,7 @@ postgres_test!(arrayvec_blob_insert_and_select, PgArrayVecBlobSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
@@ -98,7 +98,7 @@ postgres_test!(arraystring_empty, PgArrayStringSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "");
@@ -114,7 +114,7 @@ postgres_test!(arrayvec_empty, PgArrayVecBlobSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert!(results[0].data.is_empty());
@@ -131,7 +131,7 @@ postgres_test!(arraystring_max_capacity, PgArrayStringSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "1234567890123456");
@@ -152,7 +152,7 @@ postgres_test!(arrayvec_max_capacity, PgArrayVecBlobSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.len(), 32);
@@ -182,7 +182,7 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[9, 8, 7, 6, 5]);
@@ -227,7 +227,7 @@ postgres_test!(array_nullable_test, PgArrayNullableSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table).order_by(table.id);
-    let results: Vec<ArrayNullableResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayNullableResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
 
@@ -252,7 +252,7 @@ postgres_test!(arraystring_unicode_boundary, PgArrayStringSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "こんにちは");

@@ -38,7 +38,7 @@ postgres_test!(update_single_row, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Updated");
@@ -64,14 +64,14 @@ postgres_test!(update_multiple_rows, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "updated"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "other"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
 });
 
@@ -98,7 +98,7 @@ postgres_test!(update_multiple_columns, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -128,7 +128,7 @@ postgres_test!(update_with_complex_where, ComplexSchema, {
         .select(())
         .from(complex)
         .r#where(eq(complex.active, false));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Adult");
@@ -155,14 +155,14 @@ postgres_test!(update_with_in_condition, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Updated"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(in_array(simple.name, ["Bob", "David"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 });
 
@@ -179,7 +179,7 @@ postgres_test!(update_no_matching_rows, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -253,7 +253,7 @@ postgres_test!(update_with_placeholders_execute, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "updated_name"));
-    let rows: Vec<PgSimpleResult> = drizzle_exec!(stmt => all_as);
+    let rows: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "updated_name");

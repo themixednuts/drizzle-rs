@@ -114,28 +114,28 @@ sqlite_test!(test_aggregate_functions, SimpleSchema, {
     let result: Vec<CountResult> = drizzle_exec!(
         db.select(alias(count(simple.id), "count"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].count, 4);
 
     // Test sum function
     let result: Vec<SumResult> =
-        drizzle_exec!(db.select(alias(sum(simple.id), "sum")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(sum(simple.id), "sum")).from(simple) => all);
     assert_eq!(result[0].sum, 100);
 
     // Test min function
     let result: Vec<MinResult> =
-        drizzle_exec!(db.select(alias(min(simple.id), "min")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(min(simple.id), "min")).from(simple) => all);
     assert_eq!(result[0].min, 10);
 
     // Test max function
     let result: Vec<MaxResult> =
-        drizzle_exec!(db.select(alias(max(simple.id), "max")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(max(simple.id), "max")).from(simple) => all);
     assert_eq!(result[0].max, 40);
 
     // Test avg function
     let result: Vec<AvgResult> =
-        drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple) => all);
     assert_eq!(result[0].avg, 25.0);
 });
 
@@ -156,7 +156,7 @@ sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     let result: Vec<CountResult> = drizzle_exec!(
         db.select(alias(count(complex.score), "count"))
             .from(complex)
-            => all_as
+            => all
     );
     assert_eq!(result[0].count, 4);
 
@@ -164,7 +164,7 @@ sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     let result: Vec<SumRealResult> = drizzle_exec!(
         db.select(alias(sum(complex.score), "sum"))
             .from(complex)
-            => all_as
+            => all
     );
     assert!((result[0].sum - 344.5).abs() < 0.1);
 
@@ -172,7 +172,7 @@ sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     let result: Vec<AvgResult> = drizzle_exec!(
         db.select(alias(avg(complex.score), "avg"))
             .from(complex)
-            => all_as
+            => all
     );
     assert!((result[0].avg - 86.125).abs() < 0.1);
 
@@ -180,7 +180,7 @@ sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     let result: Vec<MinRealResult> = drizzle_exec!(
         db.select(alias(min(complex.score), "min"))
             .from(complex)
-            => all_as
+            => all
     );
     assert!((result[0].min - 78.3).abs() < 0.1);
 
@@ -188,7 +188,7 @@ sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
     let result: Vec<MaxRealResult> = drizzle_exec!(
         db.select(alias(max(complex.score), "max"))
             .from(complex)
-            => all_as
+            => all
     );
     assert!((result[0].max - 92.0).abs() < 0.1);
 });
@@ -210,7 +210,7 @@ sqlite_test!(test_distinct_expression, SimpleSchema, {
     let result: Vec<DistinctResult> = drizzle_exec!(
         db.select(alias(distinct(simple.name), "name"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 3);
     let names: Vec<String> = result.iter().map(|r| r.name.clone()).collect();
@@ -222,7 +222,7 @@ sqlite_test!(test_distinct_expression, SimpleSchema, {
     let result: Vec<CountResult> = drizzle_exec!(
         db.select(alias(count(distinct(simple.name)), "count"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].count, 3);
 });
@@ -258,7 +258,7 @@ sqlite_test!(test_coalesce_expression, ComplexSchema, {
             "coalesce"
         ))
         .from(complex)
-        => all_as
+        => all
     );
     assert_eq!(result.len(), 3);
     let emails: Vec<String> = result.iter().map(|r| r.coalesce.clone()).collect();
@@ -270,7 +270,7 @@ sqlite_test!(test_coalesce_expression, ComplexSchema, {
     let result: Vec<CoalesceIntResult> = drizzle_exec!(
         db.select(alias(coalesce(complex.age, 0), "coalesce"))
             .from(complex)
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 3);
     // All should be 0 since we didn't set any ages
@@ -288,7 +288,7 @@ sqlite_test!(test_alias_expression, SimpleSchema, {
     let result: Vec<AliasResult> = drizzle_exec!(
         db.select(alias(simple.name, "item_name"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].item_name, "Test Item");
 
@@ -296,7 +296,7 @@ sqlite_test!(test_alias_expression, SimpleSchema, {
     let result: Vec<CountAliasResult> = drizzle_exec!(
         db.select(alias(count(simple.id), "total_count"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].total_count, 1);
 
@@ -304,7 +304,7 @@ sqlite_test!(test_alias_expression, SimpleSchema, {
     let result: Vec<SumAliasResult> = drizzle_exec!(
         db.select(alias(sum(simple.id), "id_sum"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].id_sum, 1);
 });
@@ -343,7 +343,7 @@ sqlite_test!(test_complex_expressions, ComplexSchema, {
             alias(coalesce(max(complex.age), 0), "max_age")
         ))
         .from(complex)
-        => all_as
+        => all
     );
     assert_eq!(result[0].count, 3); // count
     assert!((result[0].avg - 85.266).abs() < 0.1); // avg score
@@ -354,7 +354,7 @@ sqlite_test!(test_complex_expressions, ComplexSchema, {
         db.select(alias(coalesce(avg(complex.score), 0.0), "coalesce"))
             .from(complex)
             .r#where(is_not_null(complex.score))
-            => all_as
+            => all
     );
     assert!((result[0].coalesce - 85.266).abs() < 0.1);
 });
@@ -377,7 +377,7 @@ sqlite_test!(test_expressions_with_conditions, ComplexSchema, {
         db.select(alias(count(complex.id), "count"))
             .from(complex)
             .r#where(eq(complex.active, true))
-            => all_as
+            => all
     );
     assert_eq!(result[0].count, 2);
 
@@ -386,7 +386,7 @@ sqlite_test!(test_expressions_with_conditions, ComplexSchema, {
         db.select(alias(avg(complex.score), "avg"))
             .from(complex)
             .r#where(eq(complex.role, Role::Admin))
-            => all_as
+            => all
     );
     assert!((result[0].avg - 90.35).abs() < 0.1);
 
@@ -395,7 +395,7 @@ sqlite_test!(test_expressions_with_conditions, ComplexSchema, {
         db.select(alias(max(complex.score), "max"))
             .from(complex)
             .r#where(eq(complex.active, false))
-            => all_as
+            => all
     );
     assert!((result[0].max - 88.7).abs() < 0.1);
 });
@@ -409,7 +409,7 @@ sqlite_test!(test_aggregate_with_empty_result, SimpleSchema, {
     let result: Vec<CountResult> = drizzle_exec!(
         db.select(alias(count(simple.id), "count"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].count, 0);
 
@@ -432,7 +432,7 @@ sqlite_test!(test_expression_edge_cases, SimpleSchema, {
     let result: Vec<CountResult> = drizzle_exec!(
         db.select(alias(count(simple.id), "count"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].count, 2);
 
@@ -440,7 +440,7 @@ sqlite_test!(test_expression_edge_cases, SimpleSchema, {
     let result: Vec<DistinctResult> = drizzle_exec!(
         db.select(alias(distinct(simple.name), "name"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 2);
     let names: Vec<String> = result.iter().map(|r| r.name.clone()).collect();
@@ -449,7 +449,7 @@ sqlite_test!(test_expression_edge_cases, SimpleSchema, {
 
     // Test sum with zero
     let result: Vec<SumResult> =
-        drizzle_exec!(db.select(alias(sum(simple.id), "sum")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(sum(simple.id), "sum")).from(simple) => all);
     assert_eq!(result[0].sum, 1);
 
     // Test coalesce with empty string
@@ -457,7 +457,7 @@ sqlite_test!(test_expression_edge_cases, SimpleSchema, {
         db.select(alias(coalesce(simple.name, "default"), "coalesce"))
             .from(simple)
             .r#where(eq(simple.name, ""))
-            => all_as
+            => all
     );
     assert_eq!(result[0].coalesce, ""); // Empty string is not NULL, so coalesce returns it
 });
@@ -486,7 +486,7 @@ sqlite_test!(test_multiple_aliases, SimpleSchema, {
             alias(count(simple.id), "total")
         ))
         .from(simple)
-        => all_as
+        => all
     );
 
     assert_eq!(result[0].identifier, 1);
@@ -618,7 +618,7 @@ sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
                 sql!("'high_id_users'").alias("category"),
             ))
             .from(&filtered_users)
-            => all_as
+            => all
     );
 
     assert_eq!(result.len(), 1);
@@ -657,7 +657,7 @@ sqlite_test!(test_cte_after_join, SimpleSchema, {
             .select((joined_simple.id, joined_simple.name))
             .from(&joined_simple)
             .order_by([asc(joined_simple.id)])
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 3);
@@ -694,7 +694,7 @@ sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
             .select((paged_simple.id, paged_simple.name))
             .from(&paged_simple)
             .order_by([asc(paged_simple.id)])
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 2);
@@ -723,7 +723,7 @@ sqlite_test!(test_modulo_operator, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id % 5, 0))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 10);
@@ -734,7 +734,7 @@ sqlite_test!(test_modulo_operator, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id % 10, 3))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].id, 23);
@@ -758,7 +758,7 @@ sqlite_test!(test_between_method, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(simple.id.between(10, 20))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].id, 10);
@@ -770,7 +770,7 @@ sqlite_test!(test_between_method, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(simple.id.not_between(10, 20))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 5);
@@ -795,7 +795,7 @@ sqlite_test!(test_in_array_method, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(simple.id.in_array([1, 3, 5]))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].name, "Alice");
@@ -807,7 +807,7 @@ sqlite_test!(test_in_array_method, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(simple.id.not_in_array([1, 3, 5]))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Bob");
@@ -818,7 +818,7 @@ sqlite_test!(test_in_array_method, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(simple.name.in_array(["Alice", "Eve"]))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Alice");
@@ -845,7 +845,7 @@ sqlite_test!(test_column_arithmetic, SimpleSchema, {
     let result: Vec<ComputedResult> = drizzle_exec!(
         db.select(alias(simple.id * 2, "computed"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].computed, 20); // 10 * 2
@@ -857,7 +857,7 @@ sqlite_test!(test_column_arithmetic, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(lt(simple.id, 25))
-            => all_as
+            => all
     );
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 10);
@@ -898,7 +898,7 @@ sqlite_test!(test_string_upper_lower, SimpleSchema, {
         db.select(alias(upper(simple.name), "result"))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "HELLO WORLD");
 
@@ -907,7 +907,7 @@ sqlite_test!(test_string_upper_lower, SimpleSchema, {
         db.select(alias(lower(simple.name), "result"))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "hello world");
 });
@@ -928,7 +928,7 @@ sqlite_test!(test_string_trim, SimpleSchema, {
         db.select(alias(trim(simple.name), "result"))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "trimmed");
 
@@ -937,7 +937,7 @@ sqlite_test!(test_string_trim, SimpleSchema, {
         db.select(alias(ltrim(simple.name), "result"))
             .from(simple)
             .r#where(eq(simple.id, 2))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "left");
 
@@ -946,7 +946,7 @@ sqlite_test!(test_string_trim, SimpleSchema, {
         db.select(alias(rtrim(simple.name), "result"))
             .from(simple)
             .r#where(eq(simple.id, 3))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "right");
 });
@@ -967,7 +967,7 @@ sqlite_test!(test_string_length, SimpleSchema, {
         db.select(alias(length(simple.name), "length"))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all_as
+            => all
     );
     assert_eq!(result[0].length, 5);
 
@@ -976,7 +976,7 @@ sqlite_test!(test_string_length, SimpleSchema, {
         db.select(alias(length(simple.name), "length"))
             .from(simple)
             .r#where(eq(simple.id, 2))
-            => all_as
+            => all
     );
     assert_eq!(result[0].length, 0);
 });
@@ -992,7 +992,7 @@ sqlite_test!(test_string_substr, SimpleSchema, {
     let result: Vec<StringResult> = drizzle_exec!(
         db.select(alias(substr(simple.name, 1, 5), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "Hello");
 
@@ -1000,7 +1000,7 @@ sqlite_test!(test_string_substr, SimpleSchema, {
     let result: Vec<StringResult> = drizzle_exec!(
         db.select(alias(substr(simple.name, 7, 5), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "World");
 });
@@ -1016,7 +1016,7 @@ sqlite_test!(test_string_replace, SimpleSchema, {
     let result: Vec<StringResult> = drizzle_exec!(
         db.select(alias(replace(simple.name, "World", "Rust"), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "Hello Rust");
 
@@ -1024,7 +1024,7 @@ sqlite_test!(test_string_replace, SimpleSchema, {
     let result: Vec<StringResult> = drizzle_exec!(
         db.select(alias(replace(simple.name, "xyz", "abc"), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "Hello World");
 });
@@ -1040,7 +1040,7 @@ sqlite_test!(test_string_instr, SimpleSchema, {
     let result: Vec<InstrResult> = drizzle_exec!(
         db.select(alias(instr(simple.name, "World"), "position"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].position, 7);
 
@@ -1048,7 +1048,7 @@ sqlite_test!(test_string_instr, SimpleSchema, {
     let result: Vec<InstrResult> = drizzle_exec!(
         db.select(alias(instr(simple.name, "xyz"), "position"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].position, 0);
 });
@@ -1068,7 +1068,7 @@ sqlite_test!(test_string_concat, SimpleSchema, {
         db.select(alias(concat(simple.name, "!"), "result"))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "Hello!");
 
@@ -1077,7 +1077,7 @@ sqlite_test!(test_string_concat, SimpleSchema, {
         db.select(alias(concat(concat(simple.name, " "), "there"), "result"))
             .from(simple)
             .r#where(eq(simple.id, 1))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "Hello there");
 });
@@ -1093,7 +1093,7 @@ sqlite_test!(test_string_functions_combined, SimpleSchema, {
     let result: Vec<StringResult> = drizzle_exec!(
         db.select(alias(upper(trim(simple.name)), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "HELLO WORLD");
 
@@ -1101,7 +1101,7 @@ sqlite_test!(test_string_functions_combined, SimpleSchema, {
     let result: Vec<StringResult> = drizzle_exec!(
         db.select(alias(lower(trim(simple.name)), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, "hello world");
 
@@ -1109,7 +1109,7 @@ sqlite_test!(test_string_functions_combined, SimpleSchema, {
     let result: Vec<LengthResult> = drizzle_exec!(
         db.select(alias(length(trim(simple.name)), "length"))
             .from(simple)
-            => all_as
+            => all
     );
     assert_eq!(result[0].length, 11); // "Hello World" without leading/trailing spaces
 });
@@ -1144,7 +1144,7 @@ sqlite_test!(test_math_abs, SimpleSchema, {
         db.select(alias(abs(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Negative"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, 10);
 
@@ -1153,7 +1153,7 @@ sqlite_test!(test_math_abs, SimpleSchema, {
         db.select(alias(abs(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Zero"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, 0);
 });
@@ -1171,7 +1171,7 @@ sqlite_test!(test_math_round, SimpleSchema, {
     let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(round(simple.id / 10), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     // Integer division: 37 / 10 = 3, ROUND(3) = 3.0
     assert_eq!(result[0].result, 3.0);
@@ -1193,7 +1193,7 @@ sqlite_test!(test_math_sign, SimpleSchema, {
         db.select(alias(sign(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Negative"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, -1);
 
@@ -1202,7 +1202,7 @@ sqlite_test!(test_math_sign, SimpleSchema, {
         db.select(alias(sign(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Zero"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, 0);
 
@@ -1211,7 +1211,7 @@ sqlite_test!(test_math_sign, SimpleSchema, {
         db.select(alias(sign(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Positive"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, 1);
 });
@@ -1232,7 +1232,7 @@ sqlite_test!(test_math_mod, SimpleSchema, {
         db.select(alias(mod_(simple.id, 3), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Ten"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, 1);
 
@@ -1241,7 +1241,7 @@ sqlite_test!(test_math_mod, SimpleSchema, {
         db.select(alias(mod_(simple.id, 4), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Fifteen"))
-            => all_as
+            => all
     );
     assert_eq!(result[0].result, 3);
 });
@@ -1268,7 +1268,7 @@ sqlite_test!(test_datetime_current, SimpleSchema, {
 
     // Test CURRENT_DATE - returns format YYYY-MM-DD
     let result: Vec<CurrentDateResult> =
-        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all);
     // Just verify it's in the expected format (YYYY-MM-DD)
     assert!(result[0].today.len() == 10);
     assert!(result[0].today.contains('-'));
@@ -1284,7 +1284,7 @@ sqlite_test!(test_datetime_strftime, SimpleSchema, {
     let result: Vec<DateResult> = drizzle_exec!(
         db.select(alias(strftime("%Y", current_date()), "result"))
             .from(simple)
-            => all_as
+            => all
     );
     // Should return 4-digit year
     assert!(result[0].result.len() == 4);
@@ -1310,7 +1310,7 @@ sqlite_test!(test_inferred_current_date, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
     let result: Vec<InferredDateResult> =
-        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all);
     assert_eq!(result.len(), 1);
     // SQLite returns YYYY-MM-DD for CURRENT_DATE
     assert_eq!(result[0].today.len(), 10);
@@ -1328,7 +1328,7 @@ sqlite_test!(test_inferred_current_timestamp, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
     let result: Vec<InferredTimestampResult> =
-        drizzle_exec!(db.select(alias(current_timestamp(), "now")).from(simple) => all_as);
+        drizzle_exec!(db.select(alias(current_timestamp(), "now")).from(simple) => all);
     assert_eq!(result.len(), 1);
     // SQLite returns YYYY-MM-DD HH:MM:SS for CURRENT_TIMESTAMP
     assert!(result[0].now.contains(' '));

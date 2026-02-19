@@ -285,7 +285,7 @@ postgres_test!(test_prepared_execute_insert, SimpleSchema, {
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "PreparedInsert"))
-            => all_as
+            => all
     );
 
     assert_eq!(results.len(), 1);
@@ -401,7 +401,7 @@ postgres_test!(test_prepared_insert_multiple_times, SimpleSchema, {
 
     // Verify all inserts worked
     let results: Vec<PgSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all_as);
+        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(results.len(), 5);
     for i in 0..5 {
