@@ -105,6 +105,7 @@ pub(crate) fn type_is_vec_u8(ty: &Type) -> bool {
     })
 }
 
+#[cfg(feature = "sqlite")]
 pub(crate) fn type_is_byte_slice(ty: &Type) -> bool {
     match ty {
         Type::Reference(reference) => match reference.elem.as_ref() {
@@ -296,14 +297,6 @@ pub(crate) fn type_is_datetime_tz(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "DateTime")
-}
-
-pub(crate) fn type_is_chrono_date(ty: &Type) -> bool {
-    type_is_naive_date(ty)
-}
-
-pub(crate) fn type_is_chrono_time(ty: &Type) -> bool {
-    type_is_naive_time(ty)
 }
 
 #[allow(dead_code)]

@@ -1,76 +1,111 @@
-//! Type mapping utilities for converting Rust types to SQL type markers.
+//! Type mapping utilities for converting schema column types to SQL markers.
 //!
-//! This module provides functions to determine the appropriate `DataType` and
-//! `Nullability` markers for column types based on their Rust types.
+//! Expression SQL markers are derived from declared database column types.
 
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Type;
 
-use crate::common::{
-    is_option_type, option_inner_type, type_is_array_u8, type_is_bool, type_is_byte_slice,
-    type_is_chrono_date, type_is_chrono_time, type_is_datetime_tz, type_is_float, type_is_int,
-    type_is_json_value, type_is_naive_datetime, type_is_string_like, type_is_uuid, type_is_vec_u8,
-};
+#[cfg(feature = "postgres")]
+use crate::postgres::field::PostgreSQLType;
+#[cfg(feature = "sqlite")]
+use crate::sqlite::field::SQLiteType;
+
+use crate::common::is_option_type;
 use crate::paths::core as core_paths;
 
-/// Determines the SQL DataType marker for a given Rust type.
-///
-/// Maps common Rust types to their corresponding `drizzle_core::types` markers.
-/// Unknown types fall back to `Any` for backward compatibility.
-pub fn rust_type_to_sql_type(ty: &Type) -> TokenStream {
+#[cfg(feature = "sqlite")]
+pub fn sqlite_column_type_to_sql_type(column_type: &SQLiteType) -> TokenStream {
+    match column_type {
+        SQLiteType::Integer => quote!(drizzle::sqlite::types::Integer),
+        SQLiteType::Real => quote!(drizzle::sqlite::types::Real),
+        SQLiteType::Blob => quote!(drizzle::sqlite::types::Blob),
+        SQLiteType::Text => {
+            let types = core_paths::types();
+            quote!(#types::Text)
+        }
+        SQLiteType::Numeric | SQLiteType::Any => {
+            let types = core_paths::types();
+            quote!(#types::Any)
+        }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+pub fn sqlite_column_type_is_numeric(column_type: &SQLiteType) -> bool {
+    matches!(
+        column_type,
+        SQLiteType::Integer | SQLiteType::Real | SQLiteType::Numeric
+    )
+}
+
+#[cfg(feature = "postgres")]
+pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenStream {
     let types = core_paths::types();
-    let ty = option_inner_type(ty).unwrap_or(ty);
 
-    if type_is_int(ty, "i8") || type_is_int(ty, "i16") || type_is_int(ty, "u8") {
-        return quote!(#types::SmallInt);
+    match column_type {
+        PostgreSQLType::Smallint | PostgreSQLType::Smallserial => {
+            quote!(drizzle::postgres::types::Int2)
+        }
+        PostgreSQLType::Integer | PostgreSQLType::Serial => {
+            quote!(drizzle::postgres::types::Int4)
+        }
+        PostgreSQLType::Bigint | PostgreSQLType::Bigserial => {
+            quote!(drizzle::postgres::types::Int8)
+        }
+        PostgreSQLType::Real => quote!(drizzle::postgres::types::Float4),
+        PostgreSQLType::DoublePrecision => quote!(drizzle::postgres::types::Float8),
+        PostgreSQLType::Text | PostgreSQLType::Varchar | PostgreSQLType::Char => {
+            quote!(drizzle::postgres::types::Varchar)
+        }
+        PostgreSQLType::Boolean => quote!(drizzle::postgres::types::Boolean),
+        PostgreSQLType::Bytea => quote!(drizzle::postgres::types::Bytea),
+        PostgreSQLType::Timestamptz => quote!(drizzle::postgres::types::Timestamptz),
+        PostgreSQLType::Timestamp => quote!(#types::Timestamp),
+        PostgreSQLType::Date => quote!(#types::Date),
+        PostgreSQLType::Time | PostgreSQLType::Timetz => quote!(#types::Time),
+        PostgreSQLType::Numeric => quote!(#types::Any),
+        #[cfg(feature = "uuid")]
+        PostgreSQLType::Uuid => quote!(#types::Uuid),
+        #[cfg(feature = "serde")]
+        PostgreSQLType::Json => quote!(#types::Json),
+        #[cfg(feature = "serde")]
+        PostgreSQLType::Jsonb => quote!(#types::Jsonb),
+        #[cfg(feature = "chrono")]
+        PostgreSQLType::Interval => quote!(#types::Any),
+        #[cfg(feature = "cidr")]
+        PostgreSQLType::Inet
+        | PostgreSQLType::Cidr
+        | PostgreSQLType::MacAddr
+        | PostgreSQLType::MacAddr8 => quote!(#types::Any),
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Point
+        | PostgreSQLType::Line
+        | PostgreSQLType::Lseg
+        | PostgreSQLType::Box
+        | PostgreSQLType::Path
+        | PostgreSQLType::Polygon
+        | PostgreSQLType::Circle => quote!(#types::Any),
+        #[cfg(feature = "bit-vec")]
+        PostgreSQLType::Bit | PostgreSQLType::Varbit => quote!(#types::Any),
+        PostgreSQLType::Enum(_) => quote!(#types::Any),
     }
-    if type_is_int(ty, "i32") || type_is_int(ty, "u16") {
-        return quote!(#types::Int);
-    }
-    if type_is_int(ty, "i64")
-        || type_is_int(ty, "isize")
-        || type_is_int(ty, "u32")
-        || type_is_int(ty, "u64")
-        || type_is_int(ty, "usize")
-    {
-        return quote!(#types::BigInt);
-    }
-    if type_is_float(ty, "f32") {
-        return quote!(#types::Float);
-    }
-    if type_is_float(ty, "f64") {
-        return quote!(#types::Double);
-    }
-    if type_is_bool(ty) {
-        return quote!(#types::Bool);
-    }
-    if type_is_string_like(ty) {
-        return quote!(#types::Text);
-    }
-    if type_is_vec_u8(ty) || type_is_byte_slice(ty) || type_is_array_u8(ty) {
-        return quote!(#types::Bytes);
-    }
-    if type_is_uuid(ty) {
-        return quote!(#types::Uuid);
-    }
-    if type_is_naive_datetime(ty) {
-        return quote!(#types::Timestamp);
-    }
-    if type_is_datetime_tz(ty) {
-        return quote!(#types::TimestampTz);
-    }
-    if type_is_chrono_date(ty) {
-        return quote!(#types::Date);
-    }
-    if type_is_chrono_time(ty) {
-        return quote!(#types::Time);
-    }
-    if type_is_json_value(ty) {
-        return quote!(#types::Json);
-    }
+}
 
-    quote!(#types::Any)
+#[cfg(feature = "postgres")]
+pub fn postgres_column_type_is_numeric(column_type: &PostgreSQLType) -> bool {
+    matches!(
+        column_type,
+        PostgreSQLType::Smallint
+            | PostgreSQLType::Integer
+            | PostgreSQLType::Bigint
+            | PostgreSQLType::Smallserial
+            | PostgreSQLType::Serial
+            | PostgreSQLType::Bigserial
+            | PostgreSQLType::Real
+            | PostgreSQLType::DoublePrecision
+            | PostgreSQLType::Numeric
+    )
 }
 
 /// Determines the nullability marker for a given Rust type.
@@ -173,24 +208,4 @@ pub fn generate_arithmetic_ops(
             }
         }
     }
-}
-
-/// Checks if a SQL type marker is numeric and can have arithmetic operators.
-pub fn is_numeric_sql_type(ty: &Type) -> bool {
-    let ty = option_inner_type(ty).unwrap_or(ty);
-    matches!(
-        ty,
-        _ if type_is_int(ty, "i8")
-            || type_is_int(ty, "i16")
-            || type_is_int(ty, "u8")
-            || type_is_int(ty, "i32")
-            || type_is_int(ty, "u16")
-            || type_is_int(ty, "i64")
-            || type_is_int(ty, "isize")
-            || type_is_int(ty, "u32")
-            || type_is_int(ty, "u64")
-            || type_is_int(ty, "usize")
-            || type_is_float(ty, "f32")
-            || type_is_float(ty, "f64")
-    )
 }
