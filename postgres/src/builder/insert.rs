@@ -158,7 +158,25 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
 /// - `Schema`: The database schema type, ensuring only valid tables can be referenced
 /// - `State`: The current builder state, enforcing proper query construction order
 /// - `Table`: The table being inserted into
-pub type InsertBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schema, State, Table>;
+pub type InsertBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
+    super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
+
+type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
+    <Columns as drizzle_core::IntoSelectTarget>::Marker,
+    drizzle_core::Cons<Table, drizzle_core::Nil>,
+>;
+
+type ReturningRow<Table, Columns> =
+    <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
+
+type ReturningBuilder<'a, S, T, Columns> = InsertBuilder<
+    'a,
+    S,
+    InsertReturningSet,
+    T,
+    ReturningMarker<T, Columns>,
+    ReturningRow<T, Columns>,
+>;
 
 //------------------------------------------------------------------------------
 // Initial State Implementation
@@ -377,10 +395,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 
     /// Adds a RETURNING clause and transitions to ReturningSet state
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
             sql: self.sql.append(returning_sql),
@@ -400,10 +419,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     /// Adds a RETURNING clause after ON CONFLICT
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
             sql: self.sql.append(returning_sql),
@@ -441,10 +461,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
 
     /// Adds a RETURNING clause after DO UPDATE SET
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> InsertBuilder<'a, S, InsertReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
             sql: self.sql.append(returning_sql),

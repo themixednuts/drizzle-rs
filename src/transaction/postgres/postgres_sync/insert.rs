@@ -8,6 +8,29 @@ use drizzle_postgres::traits::PostgresTable;
 use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
+type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
+    <Columns as drizzle_core::IntoSelectTarget>::Marker,
+    drizzle_core::Cons<Table, drizzle_core::Nil>,
+>;
+
+type ReturningRow<Table, Columns> =
+    <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
+
+type InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBuilder<
+    'a,
+    'conn,
+    Schema,
+    InsertBuilder<
+        'a,
+        Schema,
+        InsertReturningSet,
+        Table,
+        ReturningMarker<Table, Columns>,
+        ReturningRow<Table, Columns>,
+    >,
+    InsertReturningSet,
+>;
+
 /// Intermediate builder for typed ON CONFLICT within a postgres-sync transaction.
 pub struct TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
     transaction: &'a super::Transaction<'conn, Schema>,
@@ -141,16 +164,14 @@ where
     }
 
     /// Adds RETURNING clause
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        'conn,
-        Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
-        InsertReturningSet,
-    > {
+        columns: Columns,
+    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
@@ -170,16 +191,14 @@ impl<'a, 'conn, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        'conn,
-        Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
-        InsertReturningSet,
-    > {
+        columns: Columns,
+    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,
@@ -217,16 +236,14 @@ impl<'a, 'conn, Schema, Table>
     }
 
     /// Adds RETURNING clause after DO UPDATE SET
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> TransactionBuilder<
-        'a,
-        'conn,
-        Schema,
-        InsertBuilder<'a, Schema, InsertReturningSet, Table>,
-        InsertReturningSet,
-    > {
+        columns: Columns,
+    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         TransactionBuilder {
             transaction: self.transaction,

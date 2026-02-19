@@ -765,16 +765,27 @@ where
     }
 
     /// Adds RETURNING clause
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, SQLiteValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
-        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertBuilder<
+            'b,
+            Schema,
+            InsertReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         InsertReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -794,16 +805,27 @@ impl<'a, 'b, Conn, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, SQLiteValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
-        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertBuilder<
+            'b,
+            Schema,
+            InsertReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         InsertReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -841,16 +863,27 @@ impl<'a, 'b, Conn, Schema, Table>
     }
 
     /// Adds RETURNING clause after DO UPDATE SET
-    pub fn returning(
+    pub fn returning<Columns>(
         self,
-        columns: impl ToSQL<'b, SQLiteValue<'b>>,
+        columns: Columns,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
-        InsertBuilder<'b, Schema, InsertReturningSet, Table>,
+        InsertBuilder<
+            'b,
+            Schema,
+            InsertReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
         InsertReturningSet,
-    > {
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
             drizzle: self.drizzle,

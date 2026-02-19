@@ -42,7 +42,25 @@ impl ExecutableState for UpdateReturningSet {}
 //------------------------------------------------------------------------------
 
 /// Builds an UPDATE query specifically for PostgreSQL
-pub type UpdateBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schema, State, Table>;
+pub type UpdateBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
+    super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
+
+type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
+    <Columns as drizzle_core::IntoSelectTarget>::Marker,
+    drizzle_core::Cons<Table, drizzle_core::Nil>,
+>;
+
+type ReturningRow<Table, Columns> =
+    <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
+
+type ReturningBuilder<'a, S, T, Columns> = UpdateBuilder<
+    'a,
+    S,
+    UpdateReturningSet,
+    T,
+    ReturningMarker<T, Columns>,
+    ReturningRow<T, Columns>,
+>;
 
 //------------------------------------------------------------------------------
 // Initial State Implementation
@@ -111,10 +129,11 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
     /// Adds a RETURNING clause and transitions to the ReturningSet state
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
             sql: self.sql.append(returning_sql),
@@ -151,10 +170,11 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
 
     /// Adds a RETURNING clause after FROM
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
             sql: self.sql.append(returning_sql),
@@ -174,10 +194,11 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> UpdateBuilder<'a, S, UpdateReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
             sql: self.sql.append(returning_sql),
