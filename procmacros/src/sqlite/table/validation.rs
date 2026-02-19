@@ -1,7 +1,43 @@
-use crate::sqlite::field::FieldInfo;
+use crate::sqlite::field::{FieldInfo, SQLiteType};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::Expr;
+
+pub(crate) fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn::Result<()> {
+    let mut errors: Vec<syn::Error> = Vec::new();
+
+    for info in field_infos {
+        if strict && !info.column_type.is_strict_allowed() {
+            errors.push(syn::Error::new_spanned(
+                info.ident,
+                format!(
+                    "column `{}` uses `{}` affinity, which is not allowed in STRICT tables",
+                    info.column_name, info.column_type
+                ),
+            ));
+        }
+
+        if !strict && matches!(info.column_type, SQLiteType::Any) {
+            errors.push(syn::Error::new_spanned(
+                info.ident,
+                format!(
+                    "column `{}` uses `ANY`, which is only allowed on STRICT tables; add `#[SQLiteTable(strict)]`",
+                    info.column_name
+                ),
+            ));
+        }
+    }
+
+    let mut iter = errors.into_iter();
+    if let Some(mut first) = iter.next() {
+        for err in iter {
+            first.combine(err);
+        }
+        return Err(first);
+    }
+
+    Ok(())
+}
 
 /// Generates compile-time validation blocks for default literals
 pub(crate) fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {

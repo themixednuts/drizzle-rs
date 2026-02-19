@@ -1,10 +1,11 @@
 use drizzle::core::expr::CastTarget;
 use drizzle::core::types as core_types;
 use drizzle::sqlite::types as sqlite_types;
+use drizzle_core::dialect::SQLiteDialect;
 
 #[test]
 fn sqlite_dialect_types_are_distinct_markers_with_cast_mappings() {
-    fn assert_target<T: core_types::DataType, C: CastTarget<'static, T>>(_: C) {}
+    fn assert_target<T: core_types::DataType, C: CastTarget<'static, T, SQLiteDialect>>(_: C) {}
 
     let _ = sqlite_types::Integer;
     let _ = sqlite_types::Real;

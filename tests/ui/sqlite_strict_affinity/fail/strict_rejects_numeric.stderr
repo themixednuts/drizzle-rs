@@ -1,0 +1,11 @@
+error: column `amount` uses `NUMERIC` affinity, which is not allowed in STRICT tables
+ --> tests/ui/sqlite_strict_affinity/fail/strict_rejects_numeric.rs:8:5
+  |
+8 |     amount: i64,
+  |     ^^^^^^
+
+error[E0433]: failed to resolve: use of undeclared type `StrictNumeric`
+  --> tests/ui/sqlite_strict_affinity/fail/strict_rejects_numeric.rs:12:13
+   |
+12 |     let _ = StrictNumeric::default();
+   |             ^^^^^^^^^^^^^ use of undeclared type `StrictNumeric`

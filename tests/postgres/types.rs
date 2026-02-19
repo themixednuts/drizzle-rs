@@ -1,10 +1,11 @@
 use drizzle::core::expr::CastTarget;
 use drizzle::core::types as core_types;
 use drizzle::postgres::types as postgres_types;
+use drizzle_core::dialect::PostgresDialect;
 
 #[test]
 fn postgres_dialect_types_are_distinct_markers_with_cast_mappings() {
-    fn assert_target<T: core_types::DataType, C: CastTarget<'static, T>>(_: C) {}
+    fn assert_target<T: core_types::DataType, C: CastTarget<'static, T, PostgresDialect>>(_: C) {}
 
     let _ = postgres_types::Int2;
     let _ = postgres_types::Int4;
