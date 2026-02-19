@@ -45,6 +45,26 @@ impl Compatible<Json> for Jsonb {}
 impl Compatible<TimestampTz> for Timestamp {}
 impl Compatible<Timestamp> for TimestampTz {}
 
+impl Compatible<Text> for Date {}
+impl Compatible<VarChar> for Date {}
+impl Compatible<Date> for Text {}
+impl Compatible<Date> for VarChar {}
+
+impl Compatible<Text> for Time {}
+impl Compatible<VarChar> for Time {}
+impl Compatible<Time> for Text {}
+impl Compatible<Time> for VarChar {}
+
+impl Compatible<Text> for Timestamp {}
+impl Compatible<VarChar> for Timestamp {}
+impl Compatible<Timestamp> for Text {}
+impl Compatible<Timestamp> for VarChar {}
+
+impl Compatible<Text> for TimestampTz {}
+impl Compatible<VarChar> for TimestampTz {}
+impl Compatible<TimestampTz> for Text {}
+impl Compatible<TimestampTz> for VarChar {}
+
 impl Compatible<SmallInt> for Any {}
 impl Compatible<Int> for Any {}
 impl Compatible<BigInt> for Any {}

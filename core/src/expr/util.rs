@@ -4,7 +4,7 @@ use crate::dialect::{PostgresDialect, SQLiteDialect};
 use crate::prelude::ToString;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
-use crate::types::{DataType, Textual};
+use crate::types::{Compatible, DataType, Textual};
 
 use super::{Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
 
@@ -185,6 +185,21 @@ pub trait CastTarget<'a, T: DataType, D> {
     fn cast_type_name(self) -> &'a str;
 }
 
+/// Additional cast safety policy by dialect.
+#[diagnostic::on_unimplemented(
+    message = "cannot cast `{Source}` to `{Target}` for this dialect",
+    label = "cast target is incompatible with source type",
+    note = "for SQLite strict typing, use a compatible cast target or cast through ANY/raw sql intentionally"
+)]
+pub trait CastTypePolicy<D, Source: DataType, Target: DataType> {}
+
+impl<Source: DataType, Target: DataType> CastTypePolicy<PostgresDialect, Source, Target> for () {}
+
+impl<Source: DataType, Target: DataType> CastTypePolicy<SQLiteDialect, Source, Target> for () where
+    Source: Compatible<Target>
+{
+}
+
 impl<'a, T: DataType, D> CastTarget<'a, T, D> for &'a str {
     fn cast_type_name(self) -> &'a str {
         self
@@ -324,6 +339,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     Target: DataType,
+    (): CastTypePolicy<V::DialectMarker, E::SQLType, Target>,
 {
     SQLExpr::new(SQL::func(
         "CAST",
