@@ -38,6 +38,19 @@ pub mod common;
 pub mod expr;
 pub mod helpers;
 pub mod traits;
+pub mod types {
+    pub use drizzle_core::types::*;
+
+    pub type Int2 = SmallInt;
+    pub type Int4 = Int;
+    pub type Int8 = BigInt;
+    pub type Float4 = Float;
+    pub type Float8 = Double;
+    pub type Varchar = VarChar;
+    pub type Bytea = Bytes;
+    pub type Boolean = Bool;
+    pub type Timestamptz = TimestampTz;
+}
 pub mod values;
 
 #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
