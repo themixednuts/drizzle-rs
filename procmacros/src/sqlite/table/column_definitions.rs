@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::common::{
-    generate_arithmetic_ops, generate_expr_impl, is_numeric_sql_type, rust_type_to_nullability,
-    rust_type_to_sql_type,
+    generate_arithmetic_ops, generate_expr_impl, rust_type_to_nullability,
+    sqlite_column_type_is_numeric, sqlite_column_type_to_sql_type,
 };
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
@@ -193,7 +193,7 @@ pub(crate) fn generate_column_definitions<'a>(
         let is_autoincrement = info.is_autoincrement;
 
         // Compute SQL type and nullability markers for type-safe expressions
-        let sql_type_marker = rust_type_to_sql_type(rust_type);
+        let sql_type_marker = sqlite_column_type_to_sql_type(&info.column_type);
         let sql_nullable_marker = rust_type_to_nullability(rust_type);
 
         let mut foreign_key_types = Vec::new();
@@ -236,7 +236,7 @@ pub(crate) fn generate_column_definitions<'a>(
         );
 
         // Generate arithmetic operators for numeric columns
-        let arithmetic_ops = if is_numeric_sql_type(rust_type) {
+        let arithmetic_ops = if sqlite_column_type_is_numeric(&info.column_type) {
             generate_arithmetic_ops(
                 &zst_ident,
                 sqlite_value.clone(),

@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::common::{
-    generate_arithmetic_ops, generate_expr_impl, is_numeric_sql_type, rust_type_to_nullability,
-    rust_type_to_sql_type,
+    generate_arithmetic_ops, generate_expr_impl, postgres_column_type_is_numeric,
+    postgres_column_type_to_sql_type, rust_type_to_nullability,
 };
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
@@ -251,7 +251,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         let is_unique = field_info.is_unique;
 
         // Compute SQL type and nullability markers for type-safe expressions
-        let sql_type_marker = rust_type_to_sql_type(rust_type);
+        let sql_type_marker = postgres_column_type_to_sql_type(&field_info.column_type);
         let sql_nullable_marker = rust_type_to_nullability(rust_type);
 
         // Only Serial/Bigserial columns have is_serial/is_bigserial fields - others are always false
@@ -287,7 +287,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         );
 
         // Generate arithmetic operators for numeric columns
-        let arithmetic_ops = if is_numeric_sql_type(rust_type) {
+        let arithmetic_ops = if postgres_column_type_is_numeric(&field_info.column_type) {
             generate_arithmetic_ops(
                 &zst_ident,
                 postgres_value,
