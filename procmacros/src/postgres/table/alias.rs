@@ -19,6 +19,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sql_column_info = core_paths::sql_column_info();
     let alias_tag = core_paths::tag();
     let taggable_alias = core_paths::taggable_alias();
+    let tagged = core_paths::tagged();
     let phantom_data = std_paths::phantom_data();
     let token = core_paths::token();
 
@@ -90,8 +91,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 }
 
                 fn table(&self) -> &dyn SQLTableInfo {
-                    // This is tricky - we need a static reference but each column has different alias
-                    // For now, return the original table info
+                    // Column info requires a static table reference, so runtime alias names are
+                    // intentionally not reflected here.
                     static ORIGINAL_TABLE: #table_name = #table_name::new();
                     &ORIGINAL_TABLE
                 }
@@ -125,8 +126,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 }
 
                 fn table(&self) -> &dyn PostgresTableInfo {
-                    // This is tricky - we need a static reference but each alias instance
-                    // has a different alias string. For now, return the original table info.
+                    // Column info requires a static table reference, so runtime alias names are
+                    // intentionally not reflected here.
                     static ORIGINAL_TABLE: #table_name = #table_name::new();
                     &ORIGINAL_TABLE
                 }
@@ -213,13 +214,29 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         })
         .collect();
 
-    let tagged_aliased_table_name = format_ident!("TaggedAliased{}", table_name);
+    let tagged_alias_meta_name = format_ident!("AliasTagMeta{}", table_name);
     let alias_type_name = format_ident!("{}Alias", table_name);
     let tagged_const_defs: Vec<TokenStream> = aliased_fields
         .iter()
         .map(|(field_name, aliased_type)| {
             quote! {
-                pub const #field_name: #aliased_type = #aliased_type::new(Tag::NAME);
+                const #field_name: #aliased_type = #aliased_type::new(Tag::NAME);
+            }
+        })
+        .collect();
+    let tagged_sql_column_refs: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, _)| {
+            quote! {
+                &(#tagged_alias_meta_name::<Tag>::#field_name) as &'static dyn SQLColumnInfo
+            }
+        })
+        .collect();
+    let tagged_postgres_column_refs: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, _)| {
+            quote! {
+                &(#tagged_alias_meta_name::<Tag>::#field_name) as &'static dyn PostgresColumnInfo
             }
         })
         .collect();
@@ -247,57 +264,60 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         }
 
-        #struct_vis struct #tagged_aliased_table_name<Tag: #alias_tag> {
-            inner: #aliased_table_name,
-            _tag: #phantom_data<fn() -> Tag>,
+        #struct_vis struct #alias_type_name<Tag: #alias_tag>(#tagged<#aliased_table_name, Tag>);
+
+        impl<Tag: #alias_tag> #alias_type_name<Tag> {
+            pub const fn new() -> Self {
+                Self(#tagged::new(#aliased_table_name::new(Tag::NAME)))
+            }
+
+            pub const fn from_inner(inner: #aliased_table_name) -> Self {
+                Self(#tagged::new(inner))
+            }
         }
 
-        impl<Tag: #alias_tag> ::core::marker::Copy for #tagged_aliased_table_name<Tag> {}
+        impl<Tag: #alias_tag> ::core::marker::Copy for #alias_type_name<Tag> {}
 
-        impl<Tag: #alias_tag> ::core::clone::Clone for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag> ::core::clone::Clone for #alias_type_name<Tag> {
             fn clone(&self) -> Self {
                 *self
             }
         }
 
-        impl<Tag: #alias_tag> ::core::default::Default for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag> ::core::default::Default for #alias_type_name<Tag> {
             fn default() -> Self {
                 Self::new()
             }
         }
 
-        #[allow(non_upper_case_globals)]
-        impl<Tag: #alias_tag> #tagged_aliased_table_name<Tag> {
-            pub const fn new() -> Self {
-                Self {
-                    inner: #aliased_table_name::new(Tag::NAME),
-                    _tag: #phantom_data,
-                }
-            }
-
-            pub const fn from_inner(inner: #aliased_table_name) -> Self {
-                Self {
-                    inner,
-                    _tag: #phantom_data,
-                }
-            }
-
-            #(#tagged_const_defs)*
-        }
-
-        impl<Tag: #alias_tag> ::std::ops::Deref for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag> ::core::ops::Deref for #alias_type_name<Tag> {
             type Target = #aliased_table_name;
 
             fn deref(&self) -> &Self::Target {
-                &self.inner
+                ::core::ops::Deref::deref(&self.0)
             }
         }
 
+        struct #tagged_alias_meta_name<Tag: #alias_tag>(#phantom_data<fn() -> Tag>);
+
+        #[allow(non_upper_case_globals)]
+        impl<Tag: #alias_tag> #tagged_alias_meta_name<Tag> {
+            #(#tagged_const_defs)*
+
+            const SQL_COLUMNS: &'static [&'static dyn SQLColumnInfo] = &[
+                #(#tagged_sql_column_refs,)*
+            ];
+
+            const POSTGRES_COLUMNS: &'static [&'static dyn PostgresColumnInfo] = &[
+                #(#tagged_postgres_column_refs,)*
+            ];
+        }
+
         impl #taggable_alias for #aliased_table_name {
-            type Tagged<Tag: #alias_tag> = #tagged_aliased_table_name<Tag>;
+            type Tagged<Tag: #alias_tag> = #alias_type_name<Tag>;
 
             fn tag<Tag: #alias_tag>(self) -> Self::Tagged<Tag> {
-                #tagged_aliased_table_name::<Tag>::from_inner(self)
+                #alias_type_name::<Tag>::from_inner(self)
             }
         }
 
@@ -314,9 +334,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
 
             fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-                // TODO: This is tricky because we need static references but each alias instance
-                // has a different alias string. For now, return original columns.
-                // The individual aliased fields can still be accessed directly via table.field
+                // Runtime aliases cannot expose alias-specific static column descriptors because
+                // this trait requires a `'static` slice; we intentionally forward base metadata.
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as SQLTableInfo>::columns(&ORIGINAL_TABLE)
             }
@@ -350,9 +369,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
 
             fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
-                // TODO: This is tricky because we need static references but each alias instance
-                // has a different alias string. For now, return original columns.
-                // The individual aliased fields can still be accessed directly via table.field
+                // Runtime aliases cannot expose alias-specific static column descriptors because
+                // this trait requires a `'static` slice; we intentionally forward base metadata.
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as PostgresTableInfo>::postgres_columns(&ORIGINAL_TABLE)
             }
@@ -404,53 +422,53 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
         }
 
-        impl<Tag: #alias_tag + 'static> SQLTableInfo for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag + 'static> SQLTableInfo for #alias_type_name<Tag> {
             fn name(&self) -> &str {
-                SQLTableInfo::name(&self.inner)
+                Tag::NAME
             }
 
             fn schema(&self) -> ::std::option::Option<&str> {
-                SQLTableInfo::schema(&self.inner)
+                SQLTableInfo::schema(::core::ops::Deref::deref(self))
             }
 
             fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-                SQLTableInfo::columns(&self.inner)
+                #tagged_alias_meta_name::<Tag>::SQL_COLUMNS
             }
 
             fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-                SQLTableInfo::primary_key(&self.inner)
+                SQLTableInfo::primary_key(::core::ops::Deref::deref(self))
             }
 
             fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
-                SQLTableInfo::foreign_keys(&self.inner)
+                SQLTableInfo::foreign_keys(::core::ops::Deref::deref(self))
             }
 
             fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
-                SQLTableInfo::constraints(&self.inner)
+                SQLTableInfo::constraints(::core::ops::Deref::deref(self))
             }
 
             fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
-                SQLTableInfo::dependencies(&self.inner)
+                SQLTableInfo::dependencies(::core::ops::Deref::deref(self))
             }
         }
 
-        impl<Tag: #alias_tag + 'static> PostgresTableInfo for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag + 'static> PostgresTableInfo for #alias_type_name<Tag> {
             fn r#type(&self) -> &PostgresSchemaType {
-                PostgresTableInfo::r#type(&self.inner)
+                PostgresTableInfo::r#type(::core::ops::Deref::deref(self))
             }
 
             fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
-                PostgresTableInfo::postgres_columns(&self.inner)
+                #tagged_alias_meta_name::<Tag>::POSTGRES_COLUMNS
             }
 
             fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo] {
-                PostgresTableInfo::postgres_dependencies(&self.inner)
+                PostgresTableInfo::postgres_dependencies(::core::ops::Deref::deref(self))
             }
         }
 
-        impl<'a, Tag: #alias_tag + 'static> PostgresTable<'a> for #tagged_aliased_table_name<Tag> {}
+        impl<'a, Tag: #alias_tag + 'static> PostgresTable<'a> for #alias_type_name<Tag> {}
 
-        impl<'a, Tag: #alias_tag + 'static> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #tagged_aliased_table_name<Tag> {
+        impl<'a, Tag: #alias_tag + 'static> SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> for #alias_type_name<Tag> {
             type Select = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Select;
             type ForeignKeys = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::ForeignKeys;
             type PrimaryKey = <#aliased_table_name as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::PrimaryKey;
@@ -464,25 +482,25 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
         }
 
-        impl<Tag: #alias_tag + 'static> SQLTableMeta for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag + 'static> SQLTableMeta for #alias_type_name<Tag> {
             type ForeignKeys = <#aliased_table_name as SQLTableMeta>::ForeignKeys;
             type PrimaryKey = <#aliased_table_name as SQLTableMeta>::PrimaryKey;
             type Constraints = <#aliased_table_name as SQLTableMeta>::Constraints;
         }
 
-        impl<'a, Tag: #alias_tag + 'static> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #tagged_aliased_table_name<Tag> {
+        impl<'a, Tag: #alias_tag + 'static> SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>> for #alias_type_name<Tag> {
             const NAME: &'static str = <#aliased_table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::NAME;
             const TYPE: PostgresSchemaType = <#aliased_table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::TYPE;
             const SQL: &'static str = <#aliased_table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::SQL;
 
             fn ddl(&self) -> SQL<'a, PostgresValue<'a>> {
-                SQLSchema::ddl(&self.inner)
+                SQLSchema::ddl(::core::ops::Deref::deref(self))
             }
         }
 
-        impl<'a, Tag: #alias_tag + 'static> ToSQL<'a, PostgresValue<'a>> for #tagged_aliased_table_name<Tag> {
+        impl<'a, Tag: #alias_tag + 'static> ToSQL<'a, PostgresValue<'a>> for #alias_type_name<Tag> {
             fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                ToSQL::to_sql(&self.inner)
+                ToSQL::to_sql(::core::ops::Deref::deref(self))
             }
         }
 
@@ -495,21 +513,19 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             type Marker = drizzle::core::SelectStar;
         }
 
-        impl<Tag: #alias_tag + 'static> drizzle::core::HasSelectModel for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag + 'static> drizzle::core::HasSelectModel for #alias_type_name<Tag> {
             type SelectModel = <#aliased_table_name as drizzle::core::HasSelectModel>::SelectModel;
             const COLUMN_COUNT: usize = <#aliased_table_name as drizzle::core::HasSelectModel>::COLUMN_COUNT;
         }
 
-        impl<Tag: #alias_tag + 'static> drizzle::core::IntoSelectTarget for #tagged_aliased_table_name<Tag> {
+        impl<Tag: #alias_tag + 'static> drizzle::core::IntoSelectTarget for #alias_type_name<Tag> {
             type Marker = drizzle::core::SelectStar;
         }
-
-        #struct_vis type #alias_type_name<Tag> = #tagged_aliased_table_name<Tag>;
 
         // Add alias() method to the original table struct
         impl #table_name {
             pub const fn alias<Tag: #alias_tag + 'static>() -> #alias_type_name<Tag> {
-                #tagged_aliased_table_name::<Tag>::new()
+                #alias_type_name::<Tag>::new()
             }
         }
     })
