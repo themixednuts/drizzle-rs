@@ -1,0 +1,25 @@
+error[E0271]: type mismatch resolving `<CountRow as RowColumnList<Row<'r>>>::Columns == Cons<i64, Nil>`
+  --> tests/ui/aggregate_types/fail/count_as_nullable.rs:29:10
+   |
+29 |         .all()
+   |          ^^^ type mismatch resolving `<CountRow as RowColumnList<Row<'r>>>::Columns == Cons<i64, Nil>`
+   |
+note: expected this to be `Cons<i64, Nil>`
+  --> tests/ui/aggregate_types/fail/count_as_nullable.rs:17:10
+   |
+17 | #[derive(SQLiteFromRow)]
+   |          ^^^^^^^^^^^^^
+   = note: expected struct `Cons<i64, Nil>`
+              found struct `Cons<Option<i64>, Nil>`
+   = note: required for `SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::core::types::BigInt, drizzle::core::expr::NonNull, Agg>>,)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), CountRow>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Scoped<SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::core::types::BigInt, drizzle::core::expr::NonNull, Agg>>,)>, Cons<User, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), CountRow>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
+   = note: this error originates in the derive macro `SQLiteFromRow` (in Nightly builds, run with -Z macro-backtrace for more info)

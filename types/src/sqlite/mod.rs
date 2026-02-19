@@ -21,5 +21,5 @@ pub mod types {
     pub struct Blob;
 }
 
-pub use sql_type::SQLiteType;
+pub use sql_type::{SQLiteAffinity, SQLiteType};
 pub use type_category::{SQLTypeCategory, TypeCategory};

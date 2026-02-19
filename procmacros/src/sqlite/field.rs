@@ -59,6 +59,17 @@ impl From<SharedSQLiteType> for SQLiteType {
 }
 
 impl SQLiteType {
+    pub(crate) const fn to_shared(&self) -> SharedSQLiteType {
+        match self {
+            Self::Integer => SharedSQLiteType::Integer,
+            Self::Text => SharedSQLiteType::Text,
+            Self::Blob => SharedSQLiteType::Blob,
+            Self::Real => SharedSQLiteType::Real,
+            Self::Numeric => SharedSQLiteType::Numeric,
+            Self::Any => SharedSQLiteType::Any,
+        }
+    }
+
     /// Convert from attribute name to enum variant
     pub(crate) fn from_attribute_name(name: &str) -> Option<Self> {
         SharedSQLiteType::from_attribute_name(name).map(Into::into)
@@ -74,6 +85,10 @@ impl SQLiteType {
             Self::Numeric => "NUMERIC",
             Self::Any => "ANY",
         }
+    }
+
+    pub(crate) const fn is_strict_allowed(&self) -> bool {
+        self.to_shared().is_strict_allowed()
     }
 
     /// Check if a flag is valid for this column type

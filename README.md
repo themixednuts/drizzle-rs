@@ -265,10 +265,10 @@ let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 Aliases are tag-driven (`alias::<Tag>()` / `into_cte::<Tag>()`) and always use
 the compile-time name from `Tag::NAME`.
 
-## Dialect Type Aliases
+## Dialect Type Markers
 
-`core::types` stays the canonical type system, and each dialect now exposes
-friendly aliases for cast targets.
+`core::types` stays the canonical type system, and each dialect exposes
+marker values for cast targets.
 
 ```rust
 use drizzle::core::expr::cast;

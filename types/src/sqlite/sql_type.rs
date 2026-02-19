@@ -62,6 +62,19 @@ pub enum SQLiteType {
     Any,
 }
 
+/// SQLite type affinity classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
+pub enum SQLiteAffinity {
+    Integer,
+    Text,
+    Blob,
+    Real,
+    Numeric,
+    Any,
+}
+
 impl SQLiteType {
     /// Convert from attribute name to enum variant
     ///
@@ -98,6 +111,30 @@ impl SQLiteType {
             Self::Numeric => "NUMERIC",
             Self::Any => "ANY",
         }
+    }
+
+    /// Returns this type's SQLite affinity.
+    #[must_use]
+    pub const fn affinity(&self) -> SQLiteAffinity {
+        match self {
+            Self::Integer => SQLiteAffinity::Integer,
+            Self::Text => SQLiteAffinity::Text,
+            Self::Blob => SQLiteAffinity::Blob,
+            Self::Real => SQLiteAffinity::Real,
+            Self::Numeric => SQLiteAffinity::Numeric,
+            Self::Any => SQLiteAffinity::Any,
+        }
+    }
+
+    /// Whether this type is allowed for STRICT tables.
+    ///
+    /// SQLite STRICT supports: INTEGER, REAL, TEXT, BLOB, ANY.
+    #[must_use]
+    pub const fn is_strict_allowed(&self) -> bool {
+        matches!(
+            self,
+            Self::Integer | Self::Real | Self::Text | Self::Blob | Self::Any
+        )
     }
 
     /// Check if a flag is valid for this column type
@@ -165,6 +202,26 @@ mod tests {
         assert_eq!(SQLiteType::Real.to_sql_type(), "REAL");
         assert_eq!(SQLiteType::Numeric.to_sql_type(), "NUMERIC");
         assert_eq!(SQLiteType::Any.to_sql_type(), "ANY");
+    }
+
+    #[test]
+    fn test_affinity_mapping() {
+        assert_eq!(SQLiteType::Integer.affinity(), SQLiteAffinity::Integer);
+        assert_eq!(SQLiteType::Text.affinity(), SQLiteAffinity::Text);
+        assert_eq!(SQLiteType::Blob.affinity(), SQLiteAffinity::Blob);
+        assert_eq!(SQLiteType::Real.affinity(), SQLiteAffinity::Real);
+        assert_eq!(SQLiteType::Numeric.affinity(), SQLiteAffinity::Numeric);
+        assert_eq!(SQLiteType::Any.affinity(), SQLiteAffinity::Any);
+    }
+
+    #[test]
+    fn test_strict_allowed_types() {
+        assert!(SQLiteType::Integer.is_strict_allowed());
+        assert!(SQLiteType::Text.is_strict_allowed());
+        assert!(SQLiteType::Blob.is_strict_allowed());
+        assert!(SQLiteType::Real.is_strict_allowed());
+        assert!(SQLiteType::Any.is_strict_allowed());
+        assert!(!SQLiteType::Numeric.is_strict_allowed());
     }
 
     #[test]

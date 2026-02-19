@@ -35,7 +35,7 @@ use ddl::generate_const_ddl;
 use json::generate_json_impls;
 use models::generate_model_definitions;
 use traits::generate_table_impls;
-use validation::generate_default_validations;
+use validation::{generate_default_validations, validate_strict_affinity};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -64,6 +64,8 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         .iter()
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
         .collect::<Result<Vec<_>>>()?;
+
+    validate_strict_affinity(&field_infos, attrs.strict)?;
 
     // Calculate required fields pattern for const generic
     let required_fields_pattern = required_fields_pattern(&field_infos, |info| {

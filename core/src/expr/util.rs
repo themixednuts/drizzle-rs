@@ -1,5 +1,6 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
+use crate::dialect::{PostgresDialect, SQLiteDialect};
 use crate::prelude::ToString;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
@@ -180,17 +181,17 @@ impl DefaultCastTypeName for crate::types::Jsonb {
 /// You can pass:
 /// - a SQL type string (dialect-specific), or
 /// - a type marker value (uses that marker's default SQL cast name).
-pub trait CastTarget<'a, T: DataType> {
+pub trait CastTarget<'a, T: DataType, D> {
     fn cast_type_name(self) -> &'a str;
 }
 
-impl<'a, T: DataType> CastTarget<'a, T> for &'a str {
+impl<'a, T: DataType, D> CastTarget<'a, T, D> for &'a str {
     fn cast_type_name(self) -> &'a str {
         self
     }
 }
 
-impl<'a, T> CastTarget<'a, T> for T
+impl<'a, T, D> CastTarget<'a, T, D> for T
 where
     T: DataType + DefaultCastTypeName,
 {
@@ -199,73 +200,95 @@ where
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::BigInt> for drizzle_types::sqlite::types::Integer {
+impl<'a> CastTarget<'a, crate::types::BigInt, SQLiteDialect>
+    for drizzle_types::sqlite::types::Integer
+{
     fn cast_type_name(self) -> &'a str {
         "INTEGER"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Double> for drizzle_types::sqlite::types::Real {
+impl<'a> CastTarget<'a, crate::types::Double, SQLiteDialect>
+    for drizzle_types::sqlite::types::Real
+{
     fn cast_type_name(self) -> &'a str {
         "REAL"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Bytes> for drizzle_types::sqlite::types::Blob {
+impl<'a> CastTarget<'a, crate::types::Bytes, SQLiteDialect> for drizzle_types::sqlite::types::Blob {
     fn cast_type_name(self) -> &'a str {
         "BLOB"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::SmallInt> for drizzle_types::postgres::types::Int2 {
+impl<'a> CastTarget<'a, crate::types::SmallInt, PostgresDialect>
+    for drizzle_types::postgres::types::Int2
+{
     fn cast_type_name(self) -> &'a str {
         "int2"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Int> for drizzle_types::postgres::types::Int4 {
+impl<'a> CastTarget<'a, crate::types::Int, PostgresDialect>
+    for drizzle_types::postgres::types::Int4
+{
     fn cast_type_name(self) -> &'a str {
         "int4"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::BigInt> for drizzle_types::postgres::types::Int8 {
+impl<'a> CastTarget<'a, crate::types::BigInt, PostgresDialect>
+    for drizzle_types::postgres::types::Int8
+{
     fn cast_type_name(self) -> &'a str {
         "int8"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Float> for drizzle_types::postgres::types::Float4 {
+impl<'a> CastTarget<'a, crate::types::Float, PostgresDialect>
+    for drizzle_types::postgres::types::Float4
+{
     fn cast_type_name(self) -> &'a str {
         "float4"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Double> for drizzle_types::postgres::types::Float8 {
+impl<'a> CastTarget<'a, crate::types::Double, PostgresDialect>
+    for drizzle_types::postgres::types::Float8
+{
     fn cast_type_name(self) -> &'a str {
         "float8"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::VarChar> for drizzle_types::postgres::types::Varchar {
+impl<'a> CastTarget<'a, crate::types::VarChar, PostgresDialect>
+    for drizzle_types::postgres::types::Varchar
+{
     fn cast_type_name(self) -> &'a str {
         "varchar"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Bytes> for drizzle_types::postgres::types::Bytea {
+impl<'a> CastTarget<'a, crate::types::Bytes, PostgresDialect>
+    for drizzle_types::postgres::types::Bytea
+{
     fn cast_type_name(self) -> &'a str {
         "bytea"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::Bool> for drizzle_types::postgres::types::Boolean {
+impl<'a> CastTarget<'a, crate::types::Bool, PostgresDialect>
+    for drizzle_types::postgres::types::Boolean
+{
     fn cast_type_name(self) -> &'a str {
         "boolean"
     }
 }
 
-impl<'a> CastTarget<'a, crate::types::TimestampTz> for drizzle_types::postgres::types::Timestamptz {
+impl<'a> CastTarget<'a, crate::types::TimestampTz, PostgresDialect>
+    for drizzle_types::postgres::types::Timestamptz
+{
     fn cast_type_name(self) -> &'a str {
         "timestamptz"
     }
@@ -295,7 +318,7 @@ impl<'a> CastTarget<'a, crate::types::TimestampTz> for drizzle_types::postgres::
 /// ```
 pub fn cast<'a, V, E, Target>(
     expr: E,
-    target_type: impl CastTarget<'a, Target>,
+    target_type: impl CastTarget<'a, Target, V::DialectMarker>,
 ) -> SQLExpr<'a, V, Target, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
