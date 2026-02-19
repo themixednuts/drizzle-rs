@@ -63,6 +63,9 @@ impl DriverConfig for TursoDriver {
 /// Generate TryFrom implementations for turso::Row for a table's models
 pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let drizzle_error = paths::core::drizzle_error();
+    let row_column_list = paths::core::row_column_list();
+    let type_set_nil = paths::core::type_set_nil();
+    let type_set_cons = paths::core::type_set_cons();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -112,6 +115,10 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
     };
 
     let field_count = field_infos.len();
+    let mut column_list = quote!(#type_set_nil);
+    for _ in 0..field_count {
+        column_list = quote!(#type_set_cons<(), #column_list>);
+    }
     let from_drizzle_row_impl = quote! {
         impl drizzle::core::FromDrizzleRow<::turso::Row> for #select_model_ident {
             const COLUMN_COUNT: usize = #field_count;
@@ -123,10 +130,16 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
             }
         }
     };
+    let row_column_list_impl = quote! {
+        impl #row_column_list<::turso::Row> for #select_model_ident {
+            type Columns = #column_list;
+        }
+    };
 
     Ok(quote! {
         #select_model_try_from_impl
         #from_drizzle_row_impl
+        #row_column_list_impl
     })
 }
 

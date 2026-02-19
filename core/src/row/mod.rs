@@ -115,8 +115,9 @@ where
 
 /// Marker validation for a specific scope-satisfaction proof.
 #[diagnostic::on_unimplemented(
-    message = "query is missing required tables for selected row",
-    label = "add the missing .join(...) tables for this selector"
+    message = "selected row requires tables not present in the current query scope",
+    label = "add .join(...) entries for every table referenced by this selector",
+    note = "for aliased selectors, use the same alias type in #[from(...)] and .from(...)"
 )]
 ///
 /// ```
@@ -165,6 +166,251 @@ impl<M, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<M, Scope>
 where
     M: MarkerRequiredTables,
     Scope: ScopeSatisfies<<M as MarkerRequiredTables>::RequiredTables, Proof>,
+{
+}
+
+// =============================================================================
+// Marker column-count validation for strict decode paths
+// =============================================================================
+
+/// Type-level column-list representation for a row decode target.
+///
+/// Each consumed column is represented by a `Cons<(), ...>` node.
+pub trait RowColumnList<Row: ?Sized> {
+    type Columns: crate::TypeSet;
+}
+
+/// Type-level column-list representation for selected column tuples.
+pub trait SelectedColumnList {
+    type Columns: crate::TypeSet;
+}
+
+trait SameType<T> {}
+impl<T> SameType<T> for T {}
+
+macro_rules! impl_row_column_list_one {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<Row: ?Sized> RowColumnList<Row> for $ty {
+                type Columns = crate::Cons<(), crate::Nil>;
+            }
+        )+
+    };
+}
+
+impl_row_column_list_one!(
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    f32,
+    f64,
+    bool,
+    crate::prelude::String,
+    crate::prelude::Vec<u8>
+);
+
+impl<Row: ?Sized> RowColumnList<Row> for () {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "uuid")]
+impl<Row: ?Sized> RowColumnList<Row> for uuid::Uuid {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "chrono")]
+impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveDate {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "chrono")]
+impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveTime {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "chrono")]
+impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveDateTime {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "chrono")]
+impl<Row: ?Sized> RowColumnList<Row> for chrono::DateTime<chrono::Utc> {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "serde")]
+impl<Row: ?Sized> RowColumnList<Row> for serde_json::Value {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "arrayvec")]
+impl<Row: ?Sized, const N: usize> RowColumnList<Row> for arrayvec::ArrayString<N> {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "arrayvec")]
+impl<Row: ?Sized, T, const N: usize> RowColumnList<Row> for arrayvec::ArrayVec<T, N> {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+impl<Row: ?Sized> RowColumnList<Row> for compact_str::CompactString {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "bytes")]
+impl<Row: ?Sized> RowColumnList<Row> for bytes::Bytes {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+#[cfg(feature = "bytes")]
+impl<Row: ?Sized> RowColumnList<Row> for bytes::BytesMut {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+impl<Row: ?Sized, A: smallvec::Array> RowColumnList<Row> for smallvec::SmallVec<A> {
+    type Columns = crate::Cons<(), crate::Nil>;
+}
+
+impl<Row: ?Sized, T> RowColumnList<Row> for Option<T>
+where
+    T: RowColumnList<Row>,
+{
+    type Columns = <T as RowColumnList<Row>>::Columns;
+}
+
+impl<Row: ?Sized, A> RowColumnList<Row> for (A,)
+where
+    A: RowColumnList<Row>,
+{
+    type Columns = <A as RowColumnList<Row>>::Columns;
+}
+
+impl<Row: ?Sized, A, B> RowColumnList<Row> for (A, B)
+where
+    A: RowColumnList<Row>,
+    B: RowColumnList<Row>,
+    <A as RowColumnList<Row>>::Columns: crate::Concat<<B as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<A as RowColumnList<Row>>::Columns as crate::Concat<
+        <B as RowColumnList<Row>>::Columns,
+    >>::Output;
+}
+
+impl<Row: ?Sized, A, B, C> RowColumnList<Row> for (A, B, C)
+where
+    A: RowColumnList<Row>,
+    B: RowColumnList<Row>,
+    C: RowColumnList<Row>,
+    <A as RowColumnList<Row>>::Columns: crate::Concat<<B as RowColumnList<Row>>::Columns>,
+    <<A as RowColumnList<Row>>::Columns as crate::Concat<<B as RowColumnList<Row>>::Columns>>::Output:
+        crate::Concat<<C as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<<A as RowColumnList<Row>>::Columns as crate::Concat<
+        <B as RowColumnList<Row>>::Columns,
+    >>::Output as crate::Concat<<C as RowColumnList<Row>>::Columns>>::Output;
+}
+
+impl<Row: ?Sized, A, B, C, D> RowColumnList<Row> for (A, B, C, D)
+where
+    A: RowColumnList<Row>,
+    B: RowColumnList<Row>,
+    C: RowColumnList<Row>,
+    D: RowColumnList<Row>,
+    (A, B, C): RowColumnList<Row>,
+    <(A, B, C) as RowColumnList<Row>>::Columns: crate::Concat<<D as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<(A, B, C) as RowColumnList<Row>>::Columns as crate::Concat<
+        <D as RowColumnList<Row>>::Columns,
+    >>::Output;
+}
+
+impl<Row: ?Sized, A, B, C, D, E> RowColumnList<Row> for (A, B, C, D, E)
+where
+    E: RowColumnList<Row>,
+    (A, B, C, D): RowColumnList<Row>,
+    <(A, B, C, D) as RowColumnList<Row>>::Columns:
+        crate::Concat<<E as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<(A, B, C, D) as RowColumnList<Row>>::Columns as crate::Concat<
+        <E as RowColumnList<Row>>::Columns,
+    >>::Output;
+}
+
+impl<Row: ?Sized, A, B, C, D, E, F> RowColumnList<Row> for (A, B, C, D, E, F)
+where
+    F: RowColumnList<Row>,
+    (A, B, C, D, E): RowColumnList<Row>,
+    <(A, B, C, D, E) as RowColumnList<Row>>::Columns:
+        crate::Concat<<F as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<(A, B, C, D, E) as RowColumnList<Row>>::Columns as crate::Concat<
+        <F as RowColumnList<Row>>::Columns,
+    >>::Output;
+}
+
+impl<Row: ?Sized, A, B, C, D, E, F, G> RowColumnList<Row> for (A, B, C, D, E, F, G)
+where
+    G: RowColumnList<Row>,
+    (A, B, C, D, E, F): RowColumnList<Row>,
+    <(A, B, C, D, E, F) as RowColumnList<Row>>::Columns:
+        crate::Concat<<G as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<(A, B, C, D, E, F) as RowColumnList<Row>>::Columns as crate::Concat<
+        <G as RowColumnList<Row>>::Columns,
+    >>::Output;
+}
+
+impl<Row: ?Sized, A, B, C, D, E, F, G, H> RowColumnList<Row> for (A, B, C, D, E, F, G, H)
+where
+    H: RowColumnList<Row>,
+    (A, B, C, D, E, F, G): RowColumnList<Row>,
+    <(A, B, C, D, E, F, G) as RowColumnList<Row>>::Columns:
+        crate::Concat<<H as RowColumnList<Row>>::Columns>,
+{
+    type Columns = <<(A, B, C, D, E, F, G) as RowColumnList<Row>>::Columns as crate::Concat<
+        <H as RowColumnList<Row>>::Columns,
+    >>::Output;
+}
+
+/// Marker-level column-count compatibility check used by strict `.all()` / `.get()`.
+///
+/// Currently enforced for `SelectCols<_>` where selected shape is explicit.
+#[diagnostic::on_unimplemented(
+    message = "selected shape does not match decode target `{Actual}`",
+    label = "this decode target consumes a different number of columns than .select(...)",
+    note = "match tuple arity with .select((...)) or use .all_as::<T>()"
+)]
+pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual> {}
+
+impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectStar {}
+
+impl<Row: ?Sized, Cols, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
+    for SelectCols<Cols>
+where
+    Cols: SelectedColumnList,
+    Actual: RowColumnList<Row>,
+    <Cols as SelectedColumnList>::Columns: SameType<<Actual as RowColumnList<Row>>::Columns>,
+{
+}
+
+impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectExpr {}
+
+impl<Row: ?Sized, R, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
+    for SelectAs<R>
+{
+}
+
+impl<M, Scope, Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
+    for Scoped<M, Scope>
+where
+    M: MarkerColumnCountValid<Row, Inferred, Actual>,
 {
 }
 
@@ -284,6 +530,32 @@ macro_rules! impl_from_drizzle_row_tuple {
 }
 
 with_col_sizes_8!(impl_from_drizzle_row_tuple);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_from_drizzle_row_tuple);
+
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_from_drizzle_row_tuple);
+
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_from_drizzle_row_tuple);
+
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_from_drizzle_row_tuple);
+
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_from_drizzle_row_tuple);
 
 // =============================================================================
 // SQLTypeToRust — SQL type marker × dialect → canonical Rust type
@@ -573,6 +845,77 @@ macro_rules! impl_resolve_row_cols {
 
 with_col_sizes_8!(impl_resolve_row_cols);
 
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_resolve_row_cols);
+
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_resolve_row_cols);
+
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_resolve_row_cols);
+
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_resolve_row_cols);
+
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_resolve_row_cols);
+
+macro_rules! selected_columns_cons {
+    () => {
+        crate::Nil
+    };
+    ($head:ident $(, $tail:ident)*) => {
+        crate::Cons<(), selected_columns_cons!($($tail),*)>
+    };
+}
+
+macro_rules! impl_selected_column_list_tuple {
+    ($($T:ident),+; $($idx:tt),+) => {
+        impl<$($T),+> SelectedColumnList for ($($T,)+) {
+            type Columns = selected_columns_cons!($($T),+);
+        }
+    };
+}
+
+with_col_sizes_8!(impl_selected_column_list_tuple);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_selected_column_list_tuple);
+
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_selected_column_list_tuple);
+
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_selected_column_list_tuple);
+
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_selected_column_list_tuple);
+
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_selected_column_list_tuple);
+
 // =============================================================================
 // AfterJoin — how joins transform the row type
 // =============================================================================
@@ -666,3 +1009,29 @@ macro_rules! impl_into_select_target_tuple {
 }
 
 with_col_sizes_8!(impl_into_select_target_tuple);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_into_select_target_tuple);
+
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_into_select_target_tuple);
+
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_into_select_target_tuple);
+
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_into_select_target_tuple);
+
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_into_select_target_tuple);

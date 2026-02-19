@@ -369,7 +369,8 @@ where
     pub async fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::turso::Row, Rw, R>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
@@ -397,7 +398,8 @@ where
     pub async fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::turso::Row, Rw, R>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();

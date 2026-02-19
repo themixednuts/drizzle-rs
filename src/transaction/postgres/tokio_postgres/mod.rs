@@ -532,7 +532,8 @@ where
     pub async fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
     {
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]
@@ -568,7 +569,8 @@ where
     pub async fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
     {
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]

@@ -46,7 +46,7 @@ drizzle-seed = { path = "./seed", version = "0.1", default-features = false }
 regex = { version = "1.12" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env", "color"] }
-bytes = { version = "1.11" }
+bytes = { version = "1.11.1" }
 compact_str = { version = "0.9.0", default-features = false }
 hashbrown = { version = "0.16", default-features = false, features = [
   "default-hasher",
@@ -108,6 +108,7 @@ puffin_egui = { version = "0.29" }
 eframe = { version = "0.33" }
 bytes = { workspace = true }
 compact_str = { workspace = true }
+trybuild = { version = "1.0" }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }
@@ -205,8 +206,8 @@ arrayvec = [
   "drizzle-macros/arrayvec",
   "drizzle-core/arrayvec",
 ]
-compact-str = ["drizzle-postgres?/compact-str", "drizzle-macros/compact-str"]
-bytes = ["drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-macros/bytes"]
+compact-str = ["drizzle-core/compact-str", "drizzle-postgres?/compact-str", "drizzle-macros/compact-str"]
+bytes = ["drizzle-core/bytes", "drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-macros/bytes"]
 smallvec-types = [
   "drizzle-postgres?/smallvec",
   "drizzle-sqlite?/smallvec",

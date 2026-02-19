@@ -258,6 +258,9 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
 #[cfg(feature = "postgres")]
 pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let drizzle_error = paths::core::drizzle_error();
+    let row_column_list = paths::core::row_column_list();
+    let type_set_nil = paths::core::type_set_nil();
+    let type_set_cons = paths::core::type_set_cons();
     let MacroContext {
         field_infos,
         select_model_ident,
@@ -284,6 +287,10 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         .collect();
 
     let field_count = field_infos.len();
+    let mut column_list = quote!(#type_set_nil);
+    for _ in 0..field_count {
+        column_list = quote!(#type_set_cons<(), #column_list>);
+    }
 
     // Generate implementation using drizzle::postgres::Row which re-exports
     // the Row type from whichever driver is active
@@ -318,6 +325,10 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
                     #(#from_drizzle_field_inits)*
                 })
             }
+        }
+
+        impl #row_column_list<drizzle::postgres::Row> for #select_model_ident {
+            type Columns = #column_list;
         }
     };
 

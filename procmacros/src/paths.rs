@@ -193,6 +193,10 @@ pub mod core {
         quote!(drizzle::core::TaggableAlias)
     }
 
+    pub fn tagged() -> TokenStream {
+        quote!(drizzle::core::Tagged)
+    }
+
     pub fn sql_view() -> TokenStream {
         quote!(drizzle::core::SQLView)
     }
@@ -359,6 +363,11 @@ pub mod core {
     /// Path to the SelectStar marker (row inference).
     pub fn select_star() -> TokenStream {
         quote!(drizzle::core::SelectStar)
+    }
+
+    /// Path to the RowColumnList trait (strict decode column-shape checks).
+    pub fn row_column_list() -> TokenStream {
+        quote!(drizzle::core::RowColumnList)
     }
 }
 
