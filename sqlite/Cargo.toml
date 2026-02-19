@@ -11,6 +11,7 @@ rust-version.workspace = true
 
 [dependencies]
 drizzle-core = { workspace = true }
+drizzle-types = { workspace = true }
 thiserror = { workspace = true }
 compact_str = { workspace = true }
 
@@ -36,8 +37,8 @@ drizzle-migrations = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["drizzle-core/std", "thiserror/std", "compact_str/std"]
-alloc = ["drizzle-core/alloc"]
+std = ["drizzle-core/std", "drizzle-types/std", "thiserror/std", "compact_str/std"]
+alloc = ["drizzle-core/alloc", "drizzle-types/alloc"]
 
 rusqlite = ["std", "dep:rusqlite", "drizzle-core/rusqlite"]
 libsql = ["std", "dep:libsql", "drizzle-core/libsql"]
