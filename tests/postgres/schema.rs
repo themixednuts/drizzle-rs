@@ -229,21 +229,6 @@ postgres_test!(tagged_alias_forwards_alias_metadata, SimpleSchema, {
     ));
 });
 
-postgres_test!(runtime_alias_named_uses_base_metadata, SimpleSchema, {
-    let runtime =
-        <Simple as SQLTable<'static, PostgresSchemaType, PostgresValue<'static>>>::alias_named(
-            "runtime_simple",
-        );
-    let base = Simple::new();
-
-    assert_eq!(runtime.name(), "runtime_simple");
-    assert!(std::ptr::eq(runtime.columns(), base.columns()));
-    assert!(std::ptr::eq(
-        runtime.postgres_columns(),
-        base.postgres_columns()
-    ));
-});
-
 postgres_test!(view_definition_with_options_sql, SimpleSchema, {
     let sql = SimpleViewWithOptions::create_view_sql();
     assert!(sql.contains("CREATE MATERIALIZED VIEW"));

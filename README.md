@@ -262,9 +262,8 @@ let u = Users::alias::<U>();
 let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 ```
 
-`alias_named(...)` is still available for runtime names (used internally by
-query builders), but metadata traits like `columns()` return base table static
-metadata in that mode.
+Aliases are tag-driven (`alias::<Tag>()` / `into_cte::<Tag>()`) and always use
+the compile-time name from `Tag::NAME`.
 
 ## Order By / Limit / Offset
 

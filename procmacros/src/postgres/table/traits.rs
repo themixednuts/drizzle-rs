@@ -16,7 +16,7 @@ pub(super) fn generate_table_impls(
 ) -> Result<TokenStream> {
     let columns_len = column_zst_idents.len();
     let struct_ident = ctx.struct_ident;
-    let aliased_table_ident = format_ident!("Aliased{}", struct_ident);
+    let alias_type_ident = format_ident!("{}Alias", struct_ident);
     let table_name = &ctx.table_name;
     let create_table_sql = &ctx.create_table_sql;
     let (select_model, insert_model, update_model) = (
@@ -120,7 +120,7 @@ pub(super) fn generate_table_impls(
         select: quote! { #select_model },
         insert: quote! { #insert_model<'a, T> },
         update: quote! { #update_model<'a, #non_empty_marker> },
-        aliased: quote! { #aliased_table_ident },
+        aliased: quote! { #alias_type_ident },
         foreign_keys: quote! { #foreign_keys_type },
         primary_key: quote! { #primary_key_type },
         constraints: quote! { #constraints_type },

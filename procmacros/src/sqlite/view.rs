@@ -284,7 +284,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         sqlite_dependencies,
     );
 
-    let aliased_table_ident = format_ident!("Aliased{}", struct_ident);
+    let alias_type_ident = format_ident!("{}Alias", struct_ident);
     let select_model_ident = &ctx.select_model_ident;
     let insert_model_ident = &ctx.insert_model_ident;
     let update_model_ident = &ctx.update_model_ident;
@@ -295,7 +295,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         select: quote! { #select_model_ident },
         insert: quote! { #insert_model_ident<'a, T> },
         update: quote! { #update_model_ident<'a, #non_empty_marker> },
-        aliased: quote! { #aliased_table_ident },
+        aliased: quote! { #alias_type_ident },
         foreign_keys: quote! { () },
         primary_key: quote! { #no_primary_key },
         constraints: quote! { #no_constraint },

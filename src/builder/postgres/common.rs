@@ -524,16 +524,16 @@ impl<'d, 'a, DrizzleRef, Schema, State, T, M, R>
 where
     State: AsCteState,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
-    <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased:
-        drizzle_core::TaggableAlias,
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
-    pub fn into_cte<Tag: drizzle_core::Tag>(self) -> CTEView<
+    pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
+        self,
+    ) -> CTEView<
         'a,
-        <<T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased as drizzle_core::TaggableAlias>::Tagged<Tag>,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased<Tag>,
         SelectBuilder<'a, Schema, State, T, M, R>,
-    >{
+    > {
         self.builder.into_cte::<Tag>()
     }
 }

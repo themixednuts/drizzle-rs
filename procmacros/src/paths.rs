@@ -189,10 +189,6 @@ pub mod core {
         quote!(drizzle::core::Tag)
     }
 
-    pub fn taggable_alias() -> TokenStream {
-        quote!(drizzle::core::TaggableAlias)
-    }
-
     pub fn tagged() -> TokenStream {
         quote!(drizzle::core::Tagged)
     }
