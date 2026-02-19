@@ -11,7 +11,7 @@ use syn::{Field, Result};
 pub(crate) struct TursoDriver;
 
 impl DriverJsonAccessor for TursoDriver {
-    fn json_accessor(idx: usize) -> TokenStream {
+    fn json_accessor(idx: TokenStream) -> TokenStream {
         quote! {
             {
                 let value = row.get_value(#idx)?;
@@ -34,4 +34,12 @@ pub(crate) fn generate_field_assignment(
     field_name: Option<&syn::Ident>,
 ) -> Result<TokenStream> {
     shared::generate_field_assignment::<TursoDriver>(idx, field, field_name)
+}
+
+pub(crate) fn generate_field_assignment_with_index_expr(
+    idx_expr: TokenStream,
+    field: &Field,
+    field_name: Option<&syn::Ident>,
+) -> Result<TokenStream> {
+    shared::generate_field_assignment_with_index::<TursoDriver>(idx_expr, field, field_name)
 }

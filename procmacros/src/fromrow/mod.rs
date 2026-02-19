@@ -90,6 +90,21 @@ fn collect_required_tables(
     tables
 }
 
+#[cfg(feature = "sqlite")]
+fn should_decode_named_fields_by_name(
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    is_tuple: bool,
+    default_from: Option<&ExprPath>,
+) -> bool {
+    if is_tuple || default_from.is_some() {
+        return false;
+    }
+
+    !fields
+        .iter()
+        .any(|field| parse_column_reference(field).is_some())
+}
+
 fn build_scope_list_type(table_paths: &[syn::Path]) -> TokenStream {
     let scope_nil = quote!(drizzle::core::Nil);
     table_paths.iter().rev().fold(
@@ -158,56 +173,24 @@ fn generate_driver_try_from(
     }
 }
 
-/// Generate a FromDrizzleRow implementation for a specific driver.
-///
-/// `impl_generics` should be e.g. `<'__drizzle_r>` for rusqlite, or empty for others.
-#[allow(dead_code)]
-fn generate_from_drizzle_row_impl(
+/// Generate a driver-specific FromDrizzleRow implementation.
+fn generate_driver_from_drizzle_row_impl(
     struct_name: &Ident,
     impl_generics: TokenStream,
     row_type: TokenStream,
     error_type: TokenStream,
-    field_count: usize,
-    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    field_assignments: &[TokenStream],
     is_tuple: bool,
+    field_count: usize,
 ) -> TokenStream {
-    let from_drizzle_row_fields: Vec<_> = fields
-        .iter()
-        .enumerate()
-        .map(|(idx, field)| {
-            if is_tuple {
-                quote! {
-                    drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
-                }
-            } else {
-                let name = field.ident.as_ref().unwrap();
-                quote! {
-                    #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
-                }
-            }
-        })
-        .collect();
-
     let construct = if is_tuple {
-        quote! { Self(#(#from_drizzle_row_fields)*) }
+        quote! { Self(#(#field_assignments)*) }
     } else {
-        quote! { Self { #(#from_drizzle_row_fields)* } }
+        quote! { Self { #(#field_assignments)* } }
     };
 
-    // Add where bounds so the impl only exists when all field types support FromDrizzleRow
-    let where_bounds: Vec<_> = fields
-        .iter()
-        .map(|field| {
-            let ty = &field.ty;
-            quote! { #ty: drizzle::core::FromDrizzleRow<#row_type> }
-        })
-        .collect();
-
     quote! {
-        impl #impl_generics drizzle::core::FromDrizzleRow<#row_type> for #struct_name
-        where
-            #(#where_bounds,)*
-        {
+        impl #impl_generics drizzle::core::FromDrizzleRow<#row_type> for #struct_name {
             const COLUMN_COUNT: usize = #field_count;
 
             fn from_row_at(row: &#row_type, offset: usize) -> ::std::result::Result<Self, #error_type> {
@@ -310,12 +293,31 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     let sqlite_value = sqlite_paths::sqlite_value();
 
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
+    let field_count = fields.len();
+    let decode_named_by_name =
+        should_decode_named_fields_by_name(fields, is_tuple, default_from.as_ref());
 
     // Rusqlite implementation
     #[cfg(feature = "rusqlite")]
     {
         let field_assignments =
             generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)?;
+        let from_drizzle_assignments = if decode_named_by_name {
+            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)?
+        } else {
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let field_name = if is_tuple { None } else { field.ident.as_ref() };
+                    rusqlite::generate_field_assignment_with_index_expr(
+                        quote!(offset + #idx),
+                        field,
+                        field_name,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?
+        };
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
@@ -324,6 +326,15 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             &field_assignments,
             is_tuple,
         ));
+        impl_blocks.push(generate_driver_from_drizzle_row_impl(
+            struct_name,
+            quote!(<'__drizzle_r>),
+            quote!(::rusqlite::Row<'__drizzle_r>),
+            quote!(#drizzle_error),
+            &from_drizzle_assignments,
+            is_tuple,
+            field_count,
+        ));
     }
 
     // Turso implementation
@@ -331,6 +342,18 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     {
         let field_assignments =
             generate_field_assignments(fields, is_tuple, turso::generate_field_assignment)?;
+        let from_drizzle_assignments = fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| {
+                let field_name = if is_tuple { None } else { field.ident.as_ref() };
+                turso::generate_field_assignment_with_index_expr(
+                    quote!(offset + #idx),
+                    field,
+                    field_name,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
@@ -339,6 +362,15 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             &field_assignments,
             is_tuple,
         ));
+        impl_blocks.push(generate_driver_from_drizzle_row_impl(
+            struct_name,
+            quote!(),
+            quote!(::turso::Row),
+            quote!(#drizzle_error),
+            &from_drizzle_assignments,
+            is_tuple,
+            field_count,
+        ));
     }
 
     // Libsql implementation
@@ -346,6 +378,22 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     {
         let field_assignments =
             generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)?;
+        let from_drizzle_assignments = if decode_named_by_name {
+            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)?
+        } else {
+            fields
+                .iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let field_name = if is_tuple { None } else { field.ident.as_ref() };
+                    libsql::generate_field_assignment_with_index_expr(
+                        quote!(offset + #idx),
+                        field,
+                        field_name,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?
+        };
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
@@ -353,6 +401,15 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
+        ));
+        impl_blocks.push(generate_driver_from_drizzle_row_impl(
+            struct_name,
+            quote!(),
+            quote!(::libsql::Row),
+            quote!(#drizzle_error),
+            &from_drizzle_assignments,
+            is_tuple,
+            field_count,
         ));
     }
 
@@ -416,6 +473,10 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
 
     let field_assignments =
         generate_field_assignments(fields, is_tuple, postgres::generate_field_assignment)?;
+    let decode_named_by_name = !is_tuple
+        && !fields
+            .iter()
+            .any(|field| parse_column_reference(field).is_some());
 
     let struct_construct = if is_tuple {
         quote! {
@@ -441,14 +502,56 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         postgres_value,
     );
 
-    // Generate the TryFrom implementations with proper conditional compilation
-    // to avoid duplicate implementations (postgres::Row is tokio_postgres::Row)
-    //
-    // Note: We do NOT generate FromDrizzleRow here because postgres::Row is a concrete
-    // type (no lifetime parameter), so where bounds like `Role: FromDrizzleRow<postgres::Row>`
-    // are provably unsatisfiable and rejected by the compiler when any field type lacks
-    // the impl. The table macro's SelectModel generation handles FromDrizzleRow separately
-    // with field-type inspection to skip unsupported cases.
+    // Generate TryFrom + FromDrizzleRow implementations with proper conditional
+    // compilation to avoid duplicate implementations
+    // (postgres::Row is tokio_postgres::Row).
+    let field_count = fields.len();
+    let from_drizzle_assignments = if decode_named_by_name {
+        fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| {
+                let field_name = field
+                    .ident
+                    .as_ref()
+                    .ok_or_else(|| syn::Error::new_spanned(field, "expected named struct field"))?;
+                postgres::generate_named_field_assignment_with_offset_fallback(
+                    idx, field, field_name,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| {
+                let field_name = if is_tuple { None } else { field.ident.as_ref() };
+                postgres::generate_field_assignment_with_index_expr(
+                    quote!(offset + #idx),
+                    field,
+                    field_name,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
+    let tokio_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
+        struct_name,
+        quote!(),
+        quote!(::tokio_postgres::Row),
+        quote!(#drizzle_error),
+        &from_drizzle_assignments,
+        is_tuple,
+        field_count,
+    );
+    let sync_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
+        struct_name,
+        quote!(),
+        quote!(::postgres::Row),
+        quote!(#drizzle_error),
+        &from_drizzle_assignments,
+        is_tuple,
+        field_count,
+    );
     let select_as_from = quote!(drizzle::core::SelectAsFrom);
     let select_as_from_impl = if let Some(default_table) = default_from.as_ref() {
         quote! {
@@ -481,6 +584,9 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
             }
         }
 
+        #[cfg(feature = "tokio-postgres")]
+        #tokio_from_drizzle_impl
+
         // When only postgres-sync is enabled (without tokio-postgres), use postgres::Row
         #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
@@ -490,6 +596,9 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
                 #struct_construct
             }
         }
+
+        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+        #sync_from_drizzle_impl
 
         #tosql_impl
         #select_as_from_impl
