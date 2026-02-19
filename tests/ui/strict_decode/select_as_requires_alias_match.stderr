@@ -1,0 +1,22 @@
+error[E0308]: mismatched types
+  --> tests/ui/strict_decode/select_as_requires_alias_match.rs:33:63
+   |
+33 |     let _rows: Vec<UserRow> = db.select(UserRow::Select).from(u).all().unwrap();
+   |                                                          ---- ^ expected `User`, found `UserAlias<UTag>`
+   |                                                          |
+   |                                                          arguments to this method are incorrect
+   |
+   = note: expected struct `User`
+              found struct `UserAlias<UTag>`
+help: the return type of this call is `UserAlias<UTag>` due to the type of the argument passed
+  --> tests/ui/strict_decode/select_as_requires_alias_match.rs:33:31
+   |
+33 |     let _rows: Vec<UserRow> = db.select(UserRow::Select).from(u).all().unwrap();
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-^
+   |                                                               |
+   |                                                               this argument influences the return type of `from`
+note: method defined here
+  --> src/builder/sqlite/common.rs
+   |
+   |     pub fn from<T>(
+   |            ^^^^

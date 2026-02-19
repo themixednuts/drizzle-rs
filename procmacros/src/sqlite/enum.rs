@@ -9,6 +9,8 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     let drizzle_error = core_paths::drizzle_error();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
+    let row_column_list = core_paths::row_column_list();
+    let type_set_cons = core_paths::type_set_cons();
     #[allow(unused_variables)]
     let from_sqlite_value = sqlite_paths::from_sqlite_value();
     let impl_try_from_int = core_paths::impl_try_from_int();
@@ -262,6 +264,33 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote! {};
 
+    #[cfg(feature = "rusqlite")]
+    let row_column_list_rusqlite = quote! {
+        impl<'__drizzle_r> #row_column_list<::rusqlite::Row<'__drizzle_r>> for #name {
+            type Columns = #type_set_cons<(), #type_set_nil>;
+        }
+    };
+    #[cfg(not(feature = "rusqlite"))]
+    let row_column_list_rusqlite = quote! {};
+
+    #[cfg(feature = "libsql")]
+    let row_column_list_libsql = quote! {
+        impl #row_column_list<::libsql::Row> for #name {
+            type Columns = #type_set_cons<(), #type_set_nil>;
+        }
+    };
+    #[cfg(not(feature = "libsql"))]
+    let row_column_list_libsql = quote! {};
+
+    #[cfg(feature = "turso")]
+    let row_column_list_turso = quote! {
+        impl #row_column_list<::turso::Row> for #name {
+            type Columns = #type_set_cons<(), #type_set_nil>;
+        }
+    };
+    #[cfg(not(feature = "turso"))]
+    let row_column_list_turso = quote! {};
+
     // Generate FromSQLiteValue implementation for all SQLite drivers
     // This trait provides a unified interface for value conversion
     let from_sqlite_value_impl = quote! {
@@ -292,6 +321,9 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         #base_impls
         #rusqlite_impls
         #from_sqlite_value_impl
+        #row_column_list_rusqlite
+        #row_column_list_libsql
+        #row_column_list_turso
 
         impl #schema_item_tables for #name {
             type Tables = #type_set_nil;

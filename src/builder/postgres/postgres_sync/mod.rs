@@ -913,7 +913,8 @@ where
     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all");
@@ -954,7 +955,8 @@ where
     pub fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get");

@@ -106,11 +106,22 @@ fn should_decode_named_fields_by_name(
 }
 
 fn build_scope_list_type(table_paths: &[syn::Path]) -> TokenStream {
-    let scope_nil = quote!(drizzle::core::Nil);
+    let type_set_nil = core_paths::type_set_nil();
+    let type_set_cons = core_paths::type_set_cons();
     table_paths.iter().rev().fold(
-        scope_nil,
-        |acc, table_path| quote!(drizzle::core::Cons<#table_path, #acc>),
+        type_set_nil,
+        |acc, table_path| quote!(#type_set_cons<#table_path, #acc>),
     )
+}
+
+fn build_column_list_type(field_count: usize) -> TokenStream {
+    let type_set_nil = core_paths::type_set_nil();
+    let type_set_cons = core_paths::type_set_cons();
+    let mut columns = quote!(#type_set_nil);
+    for _ in 0..field_count {
+        columns = quote!(#type_set_cons<(), #columns>);
+    }
+    columns
 }
 
 #[cfg(feature = "libsql")]
@@ -196,6 +207,21 @@ fn generate_driver_from_drizzle_row_impl(
             fn from_row_at(row: &#row_type, offset: usize) -> ::std::result::Result<Self, #error_type> {
                 ::std::result::Result::Ok(#construct)
             }
+        }
+    }
+}
+
+fn generate_driver_row_column_list_impl(
+    struct_name: &Ident,
+    impl_generics: TokenStream,
+    row_type: TokenStream,
+    field_count: usize,
+) -> TokenStream {
+    let row_column_list = core_paths::row_column_list();
+    let columns = build_column_list_type(field_count);
+    quote! {
+        impl #impl_generics #row_column_list<#row_type> for #struct_name {
+            type Columns = #columns;
         }
     }
 }
@@ -335,6 +361,12 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             is_tuple,
             field_count,
         ));
+        impl_blocks.push(generate_driver_row_column_list_impl(
+            struct_name,
+            quote!(<'__drizzle_r>),
+            quote!(::rusqlite::Row<'__drizzle_r>),
+            field_count,
+        ));
     }
 
     // Turso implementation
@@ -369,6 +401,12 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
+            field_count,
+        ));
+        impl_blocks.push(generate_driver_row_column_list_impl(
+            struct_name,
+            quote!(),
+            quote!(::turso::Row),
             field_count,
         ));
     }
@@ -409,6 +447,12 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
             quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
+            field_count,
+        ));
+        impl_blocks.push(generate_driver_row_column_list_impl(
+            struct_name,
+            quote!(),
+            quote!(::libsql::Row),
             field_count,
         ));
     }
@@ -543,6 +587,12 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         is_tuple,
         field_count,
     );
+    let tokio_row_column_list_impl = generate_driver_row_column_list_impl(
+        struct_name,
+        quote!(),
+        quote!(::tokio_postgres::Row),
+        field_count,
+    );
     let sync_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
         struct_name,
         quote!(),
@@ -550,6 +600,12 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         quote!(#drizzle_error),
         &from_drizzle_assignments,
         is_tuple,
+        field_count,
+    );
+    let sync_row_column_list_impl = generate_driver_row_column_list_impl(
+        struct_name,
+        quote!(),
+        quote!(::postgres::Row),
         field_count,
     );
     let select_as_from = quote!(drizzle::core::SelectAsFrom);
@@ -587,6 +643,9 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         #[cfg(feature = "tokio-postgres")]
         #tokio_from_drizzle_impl
 
+        #[cfg(feature = "tokio-postgres")]
+        #tokio_row_column_list_impl
+
         // When only postgres-sync is enabled (without tokio-postgres), use postgres::Row
         #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
@@ -599,6 +658,9 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
 
         #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
         #sync_from_drizzle_impl
+
+        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+        #sync_row_column_list_impl
 
         #tosql_impl
         #select_as_from_impl

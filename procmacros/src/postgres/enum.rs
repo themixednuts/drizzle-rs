@@ -12,6 +12,8 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     let sql_enum_info = core_paths::sql_enum_info();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
+    let type_set_cons = core_paths::type_set_cons();
+    let row_column_list = core_paths::row_column_list();
     let drizzle_error = core_paths::drizzle_error();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
@@ -481,6 +483,11 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             type SQLType = drizzle::core::types::Any;
             type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
+        }
+
+        #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+        impl #row_column_list<drizzle::postgres::Row> for #name {
+            type Columns = #type_set_cons<(), #type_set_nil>;
         }
 
         impl #schema_item_tables for #name {

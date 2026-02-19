@@ -409,7 +409,8 @@ where
     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.all");
@@ -442,7 +443,8 @@ where
     pub fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
-            + drizzle_core::row::MarkerScopeValidFor<Proof>,
+            + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.get");
