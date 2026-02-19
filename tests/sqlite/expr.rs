@@ -1266,7 +1266,11 @@ sqlite_test!(test_datetime_current, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // Test CURRENT_DATE - returns format YYYY-MM-DD
-    let result: Vec<CurrentDateResult> = drizzle_exec!(db.select(alias(cast::<_, _, drizzle::core::types::Text>(current_date(), "TEXT"), "today")).from(simple) => all);
+    let result: Vec<CurrentDateResult> = drizzle_exec!(
+        db.select(alias(cast(current_date(), drizzle::sqlite::types::Text), "today"))
+            .from(simple)
+            => all
+    );
     // Just verify it's in the expected format (YYYY-MM-DD)
     assert!(result[0].today.len() == 10);
     assert!(result[0].today.contains('-'));
@@ -1307,7 +1311,11 @@ sqlite_test!(test_inferred_current_date, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
-    let result: Vec<InferredDateResult> = drizzle_exec!(db.select(alias(cast::<_, _, drizzle::core::types::Text>(current_date(), "TEXT"), "today")).from(simple) => all);
+    let result: Vec<InferredDateResult> = drizzle_exec!(
+        db.select(alias(cast(current_date(), drizzle::sqlite::types::Text), "today"))
+            .from(simple)
+            => all
+    );
     assert_eq!(result.len(), 1);
     // SQLite returns YYYY-MM-DD for CURRENT_DATE
     assert_eq!(result[0].today.len(), 10);
@@ -1324,7 +1332,14 @@ sqlite_test!(test_inferred_current_timestamp, SimpleSchema, {
     let SimpleSchema { simple } = schema;
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
-    let result: Vec<InferredTimestampResult> = drizzle_exec!(db.select(alias(cast::<_, _, drizzle::core::types::Text>(current_timestamp(), "TEXT"), "now")).from(simple) => all);
+    let result: Vec<InferredTimestampResult> = drizzle_exec!(
+        db.select(alias(
+            cast(current_timestamp(), drizzle::sqlite::types::Text),
+            "now",
+        ))
+        .from(simple)
+            => all
+    );
     assert_eq!(result.len(), 1);
     // SQLite returns YYYY-MM-DD HH:MM:SS for CURRENT_TIMESTAMP
     assert!(result[0].now.contains(' '));

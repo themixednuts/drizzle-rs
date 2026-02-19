@@ -121,27 +121,181 @@ where
 // CAST
 // =============================================================================
 
+/// Default SQL cast type name for a type marker.
+pub trait DefaultCastTypeName: DataType {
+    const CAST_TYPE_NAME: &'static str;
+}
+
+impl DefaultCastTypeName for crate::types::SmallInt {
+    const CAST_TYPE_NAME: &'static str = "SMALLINT";
+}
+impl DefaultCastTypeName for crate::types::Int {
+    const CAST_TYPE_NAME: &'static str = "INTEGER";
+}
+impl DefaultCastTypeName for crate::types::BigInt {
+    const CAST_TYPE_NAME: &'static str = "BIGINT";
+}
+impl DefaultCastTypeName for crate::types::Float {
+    const CAST_TYPE_NAME: &'static str = "REAL";
+}
+impl DefaultCastTypeName for crate::types::Double {
+    const CAST_TYPE_NAME: &'static str = "DOUBLE PRECISION";
+}
+impl DefaultCastTypeName for crate::types::Text {
+    const CAST_TYPE_NAME: &'static str = "TEXT";
+}
+impl DefaultCastTypeName for crate::types::VarChar {
+    const CAST_TYPE_NAME: &'static str = "VARCHAR";
+}
+impl DefaultCastTypeName for crate::types::Bool {
+    const CAST_TYPE_NAME: &'static str = "BOOLEAN";
+}
+impl DefaultCastTypeName for crate::types::Bytes {
+    const CAST_TYPE_NAME: &'static str = "BLOB";
+}
+impl DefaultCastTypeName for crate::types::Date {
+    const CAST_TYPE_NAME: &'static str = "DATE";
+}
+impl DefaultCastTypeName for crate::types::Time {
+    const CAST_TYPE_NAME: &'static str = "TIME";
+}
+impl DefaultCastTypeName for crate::types::Timestamp {
+    const CAST_TYPE_NAME: &'static str = "TIMESTAMP";
+}
+impl DefaultCastTypeName for crate::types::TimestampTz {
+    const CAST_TYPE_NAME: &'static str = "TIMESTAMPTZ";
+}
+impl DefaultCastTypeName for crate::types::Uuid {
+    const CAST_TYPE_NAME: &'static str = "UUID";
+}
+impl DefaultCastTypeName for crate::types::Json {
+    const CAST_TYPE_NAME: &'static str = "JSON";
+}
+impl DefaultCastTypeName for crate::types::Jsonb {
+    const CAST_TYPE_NAME: &'static str = "JSONB";
+}
+
+/// Input accepted by [`cast`].
+///
+/// You can pass:
+/// - a SQL type string (dialect-specific), or
+/// - a type marker value (uses that marker's default SQL cast name).
+pub trait CastTarget<'a, T: DataType> {
+    fn cast_type_name(self) -> &'a str;
+}
+
+impl<'a, T: DataType> CastTarget<'a, T> for &'a str {
+    fn cast_type_name(self) -> &'a str {
+        self
+    }
+}
+
+impl<'a, T> CastTarget<'a, T> for T
+where
+    T: DataType + DefaultCastTypeName,
+{
+    fn cast_type_name(self) -> &'a str {
+        T::CAST_TYPE_NAME
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::BigInt> for drizzle_types::sqlite::types::Integer {
+    fn cast_type_name(self) -> &'a str {
+        "INTEGER"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Double> for drizzle_types::sqlite::types::Real {
+    fn cast_type_name(self) -> &'a str {
+        "REAL"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Bytes> for drizzle_types::sqlite::types::Blob {
+    fn cast_type_name(self) -> &'a str {
+        "BLOB"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::SmallInt> for drizzle_types::postgres::types::Int2 {
+    fn cast_type_name(self) -> &'a str {
+        "int2"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Int> for drizzle_types::postgres::types::Int4 {
+    fn cast_type_name(self) -> &'a str {
+        "int4"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::BigInt> for drizzle_types::postgres::types::Int8 {
+    fn cast_type_name(self) -> &'a str {
+        "int8"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Float> for drizzle_types::postgres::types::Float4 {
+    fn cast_type_name(self) -> &'a str {
+        "float4"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Double> for drizzle_types::postgres::types::Float8 {
+    fn cast_type_name(self) -> &'a str {
+        "float8"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::VarChar> for drizzle_types::postgres::types::Varchar {
+    fn cast_type_name(self) -> &'a str {
+        "varchar"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Bytes> for drizzle_types::postgres::types::Bytea {
+    fn cast_type_name(self) -> &'a str {
+        "bytea"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::Bool> for drizzle_types::postgres::types::Boolean {
+    fn cast_type_name(self) -> &'a str {
+        "boolean"
+    }
+}
+
+impl<'a> CastTarget<'a, crate::types::TimestampTz> for drizzle_types::postgres::types::Timestamptz {
+    fn cast_type_name(self) -> &'a str {
+        "timestamptz"
+    }
+}
+
 /// Cast an expression to a different type.
 ///
-/// The target type marker specifies the result type for the type system,
-/// while the SQL type string specifies the actual SQL type name (dialect-specific).
+/// The target type marker specifies the result type for the type system.
+/// The cast target may be:
+/// - a SQL type string (`"INTEGER"`, `"int4"`, `"VARCHAR(255)"`), or
+/// - a type marker value (`Int`, `Text`, `drizzle::sqlite::types::Integer`, ...).
+///
 /// Preserves the input expression's nullability and aggregate marker.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use drizzle_core::expr::cast;
-/// use drizzle_core::types::Text;
+/// use drizzle_core::types::{Int, Text};
 ///
 /// // SELECT CAST(users.age AS TEXT)
-/// let age_text = cast::<_, _, _, Text>(users.age, "TEXT");
+/// let age_text = cast::<_, _, Text>(users.age, Text);
 ///
-/// // PostgreSQL-specific
-/// let age_text = cast::<_, _, _, Text>(users.age, "VARCHAR(255)");
+/// // Explicit SQL type name (dialect-specific)
+/// let age_text = cast::<_, _, Text>(users.age, "VARCHAR(255)");
+/// let age_int = cast::<_, _, Int>(users.age, "int4");
 /// ```
 pub fn cast<'a, V, E, Target>(
     expr: E,
-    target_type: &'a str,
+    target_type: impl CastTarget<'a, Target>,
 ) -> SQLExpr<'a, V, Target, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
@@ -152,7 +306,7 @@ where
         "CAST",
         expr.into_sql()
             .push(Token::AS)
-            .append(SQL::raw(target_type)),
+            .append(SQL::raw(target_type.cast_type_name())),
     ))
 }
 

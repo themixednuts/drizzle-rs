@@ -7,8 +7,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-#[cfg(feature = "uuid")]
-use drizzle_core::types::Double;
 use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
@@ -584,7 +582,7 @@ postgres_test!(select_with_aggregate_sum, ComplexSchema, {
 
     let stmt = db
         .select(alias(
-            cast::<_, _, drizzle::core::types::Int>(sum(complex.age), "int4"),
+            cast(sum(complex.age), drizzle::postgres::types::Int4),
             "total_age",
         ))
         .from(complex);
@@ -612,7 +610,7 @@ postgres_test!(select_with_aggregate_avg, ComplexSchema, {
 
     let stmt = db
         .select(alias(
-            cast::<_, _, Double>(avg(complex.age), "float8"),
+            cast(avg(complex.age), drizzle::postgres::types::Float8),
             "avg_age",
         ))
         .from(complex);
@@ -680,7 +678,7 @@ postgres_test!(select_distinct, ComplexSchema, {
     }
     let results: Vec<PgDistinctRoleResult> = drizzle_exec!(
         db.select(alias(
-            distinct(cast::<_, _, drizzle::core::types::Text>(complex.role, "text")),
+            distinct(cast(complex.role, drizzle::postgres::types::Varchar)),
             "role",
         ))
             .from(complex)
