@@ -640,6 +640,7 @@ where
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
     {
         #[cfg(feature = "profiling")]
@@ -674,6 +675,7 @@ where
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
     {
         #[cfg(feature = "profiling")]

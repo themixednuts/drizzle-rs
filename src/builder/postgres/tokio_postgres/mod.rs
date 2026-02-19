@@ -930,6 +930,7 @@ where
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
     {
         let (sql_str, param_refs) = {
@@ -970,6 +971,7 @@ where
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
     {
         let (sql_str, param_refs) = {

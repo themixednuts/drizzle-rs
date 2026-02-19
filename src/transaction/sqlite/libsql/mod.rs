@@ -360,6 +360,7 @@ where
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, R>,
     {
         let (sql_str, params) = self.builder.sql.build();
@@ -389,6 +390,7 @@ where
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, R>,
     {
         let (sql_str, params) = self.builder.sql.build();
