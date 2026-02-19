@@ -65,41 +65,95 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         }
     };
 
-    // Generate FromDrizzleRow impl for SelectModel only when all fields have leaf impls
-    let has_unsupported_fields = field_infos.iter().any(|info| {
-        matches!(
-            info.type_category(),
-            TypeCategory::Enum
-                | TypeCategory::Json
-                | TypeCategory::ArrayString
-                | TypeCategory::ArrayVec
-        )
-    });
+    let from_drizzle_row_fields: Vec<_> = field_infos
+        .iter()
+        .enumerate()
+        .map(|(idx, info)| {
+            let name = info.ident;
+            let base_type = info.base_type;
+            let idx_expr = quote!(offset + #idx);
+            let select_type = info.get_select_type();
+            let is_select_optional = syn::parse2::<syn::Type>(select_type)
+                .map(|ty| crate::common::is_option_type(&ty))
+                .unwrap_or(info.is_nullable && !info.has_default);
 
-    let from_drizzle_row_impl = if has_unsupported_fields {
-        quote! {}
-    } else {
-        let field_count = field_infos.len();
-        let from_drizzle_row_fields: Vec<_> = field_infos
-            .iter()
-            .enumerate()
-            .map(|(idx, info)| {
-                let name = info.ident;
+            let value_expr = if info.type_category() == TypeCategory::Json {
+                match info.column_type {
+                    SQLiteType::Text => {
+                        if is_select_optional {
+                            quote! {
+                                {
+                                    let v: Option<String> = row.get(#idx_expr)?;
+                                    v.map(|s| serde_json::from_str(&s)).transpose()?
+                                }
+                            }
+                        } else {
+                            quote! {
+                                {
+                                    let v: String = row.get(#idx_expr)?;
+                                    serde_json::from_str(&v)?
+                                }
+                            }
+                        }
+                    }
+                    SQLiteType::Blob => {
+                        if is_select_optional {
+                            quote! {
+                                {
+                                    let v: Option<Vec<u8>> = row.get(#idx_expr)?;
+                                    v.map(|b| serde_json::from_slice(&b)).transpose()?
+                                }
+                            }
+                        } else {
+                            quote! {
+                                {
+                                    let v: Vec<u8> = row.get(#idx_expr)?;
+                                    serde_json::from_slice(&v)?
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        quote! {
+                            {
+                                return Err(#drizzle_error::ConversionError(
+                                    "JSON fields must use TEXT or BLOB storage".into(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            } else if is_select_optional {
                 quote! {
-                    #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
+                    {
+                        use drizzle::sqlite::traits::DrizzleRowByIndex;
+                        DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx_expr)?
+                    }
                 }
-            })
-            .collect();
-
-        quote! {
-            impl<'__drizzle_r> drizzle::core::FromDrizzleRow<::rusqlite::Row<'__drizzle_r>> for #select_model_ident {
-                const COLUMN_COUNT: usize = #field_count;
-
-                fn from_row_at(row: &::rusqlite::Row<'__drizzle_r>, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
-                    Ok(Self {
-                        #(#from_drizzle_row_fields)*
-                    })
+            } else {
+                quote! {
+                    {
+                        use drizzle::sqlite::traits::DrizzleRowByIndex;
+                        DrizzleRowByIndex::get_column::<#base_type>(row, #idx_expr)?
+                    }
                 }
+            };
+
+            quote! {
+                #name: #value_expr,
+            }
+        })
+        .collect();
+
+    let field_count = field_infos.len();
+    let from_drizzle_row_impl = quote! {
+        impl<'__drizzle_r> drizzle::core::FromDrizzleRow<::rusqlite::Row<'__drizzle_r>> for #select_model_ident {
+            const COLUMN_COUNT: usize = #field_count;
+
+            fn from_row_at(row: &::rusqlite::Row<'__drizzle_r>, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                Ok(Self {
+                    #(#from_drizzle_row_fields)*
+                })
             }
         }
     };

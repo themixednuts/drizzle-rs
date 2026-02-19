@@ -11,11 +11,10 @@ use syn::{Field, Result};
 pub(crate) struct LibsqlDriver;
 
 impl DriverJsonAccessor for LibsqlDriver {
-    fn json_accessor(idx: usize) -> TokenStream {
-        let idx = idx as i32;
+    fn json_accessor(idx: TokenStream) -> TokenStream {
         quote! {
             {
-                let json_str: String = row.get::<String>(#idx)?;
+                let json_str: String = row.get::<String>((#idx) as i32)?;
                 serde_json::from_str(&json_str)
                     .map_err(|e| drizzle::error::DrizzleError::ConversionError(e.to_string().into()))
             }
@@ -38,4 +37,12 @@ pub(crate) fn generate_field_assignment(
     field_name: Option<&syn::Ident>,
 ) -> Result<TokenStream> {
     shared::generate_field_assignment::<LibsqlDriver>(idx, field, field_name)
+}
+
+pub(crate) fn generate_field_assignment_with_index_expr(
+    idx_expr: TokenStream,
+    field: &Field,
+    field_name: Option<&syn::Ident>,
+) -> Result<TokenStream> {
+    shared::generate_field_assignment_with_index::<LibsqlDriver>(idx_expr, field, field_name)
 }

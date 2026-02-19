@@ -146,3 +146,119 @@ pub(crate) fn generate_field_assignment(
     };
     Ok(name)
 }
+
+/// Generate field assignment using an arbitrary index expression.
+///
+/// Used by FromDrizzleRow::from_row_at for offset-aware decoding.
+pub(crate) fn generate_field_assignment_with_index_expr(
+    idx_expr: TokenStream,
+    field: &Field,
+    field_name: Option<&syn::Ident>,
+) -> Result<TokenStream> {
+    let category = TypeCategory::from_type(&field.ty);
+    let target_type = extract_inner_type(&field.ty);
+    let is_optional = is_option_type(&field.ty);
+
+    let needs_from_postgres_value = matches!(
+        category,
+        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
+    );
+
+    let assignment = if needs_from_postgres_value {
+        if is_optional {
+            quote! {
+                {
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<Option<#target_type>>(row, #idx_expr)?
+                }
+            }
+        } else {
+            quote! {
+                {
+                    use drizzle::postgres::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<#target_type>(row, #idx_expr)?
+                }
+            }
+        }
+    } else {
+        let ty = &field.ty;
+        quote! {
+            row.get::<_, #ty>(#idx_expr)
+        }
+    };
+
+    if let Some(field_name) = field_name {
+        Ok(quote! {
+            #field_name: #assignment,
+        })
+    } else {
+        Ok(quote! {
+            #assignment,
+        })
+    }
+}
+
+/// Generate named field assignment that decodes by name at top-level
+/// (`offset == 0`) and by index for non-zero offsets.
+///
+/// This preserves named-struct behavior for top-level selects while keeping
+/// offset-aware decoding correct when nested in larger selections.
+pub(crate) fn generate_named_field_assignment_with_offset_fallback(
+    idx: usize,
+    field: &Field,
+    field_name: &syn::Ident,
+) -> Result<TokenStream> {
+    let category = TypeCategory::from_type(&field.ty);
+    let target_type = extract_inner_type(&field.ty);
+    let is_optional = is_option_type(&field.ty);
+    let field_name_str = field_name.to_string();
+
+    let needs_from_postgres_value = matches!(
+        category,
+        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
+    );
+
+    let (by_name, by_index) = if needs_from_postgres_value {
+        if is_optional {
+            (
+                quote! {
+                    {
+                        use drizzle::postgres::traits::DrizzleRowByName;
+                        DrizzleRowByName::get_column_by_name::<Option<#target_type>>(row, #field_name_str)?
+                    }
+                },
+                quote! {
+                    {
+                        use drizzle::postgres::traits::DrizzleRowByIndex;
+                        DrizzleRowByIndex::get_column::<Option<#target_type>>(row, offset + #idx)?
+                    }
+                },
+            )
+        } else {
+            (
+                quote! {
+                    {
+                        use drizzle::postgres::traits::DrizzleRowByName;
+                        DrizzleRowByName::get_column_by_name::<#target_type>(row, #field_name_str)?
+                    }
+                },
+                quote! {
+                    {
+                        use drizzle::postgres::traits::DrizzleRowByIndex;
+                        DrizzleRowByIndex::get_column::<#target_type>(row, offset + #idx)?
+                    }
+                },
+            )
+        }
+    } else {
+        let ty = &field.ty;
+        (
+            quote! { row.get::<_, #ty>(#field_name_str) },
+            quote! { row.get::<_, #ty>(offset + #idx) },
+        )
+    };
+
+    Ok(quote! {
+        #field_name: if offset == 0 { #by_name } else { #by_index },
+    })
+}

@@ -59,8 +59,16 @@ pub(crate) fn generate_field_conversion<D: DriverConfig>(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
+    generate_field_conversion_with_index::<D>(quote!(#idx), info, is_optional)
+}
+
+/// Generate field conversion code for any driver with a custom index expression.
+pub(crate) fn generate_field_conversion_with_index<D: DriverConfig>(
+    idx_tokens: TokenStream,
+    info: &FieldInfo,
+    is_optional: bool,
+) -> Result<TokenStream> {
     let name = info.ident;
-    let idx_tokens = quote!(#idx);
 
     // Check for unsupported reference types
     if matches!(info.base_type, syn::Type::Reference(_)) {

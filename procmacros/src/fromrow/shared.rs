@@ -13,7 +13,7 @@ use syn::{Field, Result};
 #[allow(dead_code)]
 pub(crate) trait DriverJsonAccessor {
     /// Generate the JSON field accessor for this driver
-    fn json_accessor(idx: usize) -> TokenStream;
+    fn json_accessor(idx: TokenStream) -> TokenStream;
 
     /// Whether this driver can lookup row values by column name.
     fn supports_name_lookup() -> bool {
@@ -93,13 +93,53 @@ fn handle_json_field<D: DriverJsonAccessor>(
                 }
             }
         } else {
-            D::json_accessor(idx)
+            D::json_accessor(quote!(#idx))
         }
     } else {
-        D::json_accessor(idx)
+        D::json_accessor(quote!(#idx))
     };
 
     if let Some(field_name) = name {
+        Ok(quote! {
+            #field_name: #accessor?,
+        })
+    } else {
+        Ok(quote! {
+            #accessor?,
+        })
+    }
+}
+
+/// Generate field assignment using an arbitrary index expression.
+///
+/// This is used for FromDrizzleRow::from_row_at where values are read from
+/// `offset + idx`.
+pub(crate) fn generate_field_assignment_with_index<D: DriverJsonAccessor>(
+    idx_expr: TokenStream,
+    field: &Field,
+    field_name: Option<&syn::Ident>,
+) -> Result<TokenStream> {
+    if has_json_attribute(field) {
+        let accessor = D::json_accessor(idx_expr);
+        if let Some(field_name) = field_name {
+            return Ok(quote! {
+                #field_name: #accessor?,
+            });
+        }
+        return Ok(quote! {
+            #accessor?,
+        });
+    }
+
+    let field_type = &field.ty;
+    let drizzle_row = paths::sqlite::drizzle_row();
+    let accessor = quote! {
+        {
+            <_ as #drizzle_row>::get_column::<#field_type>(row, #idx_expr)
+        }
+    };
+
+    if let Some(field_name) = field_name {
         Ok(quote! {
             #field_name: #accessor?,
         })

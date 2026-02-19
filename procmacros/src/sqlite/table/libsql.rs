@@ -33,6 +33,12 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .map(|(i, info)| generate_field_from_row_for_select(i, info))
         .collect::<Result<Vec<_>>>()?;
 
+    let from_drizzle_select: Vec<_> = field_infos
+        .iter()
+        .enumerate()
+        .map(|(i, info)| generate_field_from_row_for_select_with_index(quote!(offset + #i), info))
+        .collect::<Result<Vec<_>>>()?;
+
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
             type Error = #drizzle_error;
@@ -45,41 +51,15 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
 
-    // Generate FromDrizzleRow impl for SelectModel only when all fields have leaf impls
-    let has_unsupported_fields = field_infos.iter().any(|info| {
-        matches!(
-            info.type_category(),
-            TypeCategory::Enum
-                | TypeCategory::Json
-                | TypeCategory::ArrayString
-                | TypeCategory::ArrayVec
-        )
-    });
+    let field_count = field_infos.len();
+    let from_drizzle_row_impl = quote! {
+        impl drizzle::core::FromDrizzleRow<::libsql::Row> for #select_model_ident {
+            const COLUMN_COUNT: usize = #field_count;
 
-    let from_drizzle_row_impl = if has_unsupported_fields {
-        quote! {}
-    } else {
-        let field_count = field_infos.len();
-        let from_drizzle_row_fields: Vec<_> = field_infos
-            .iter()
-            .enumerate()
-            .map(|(idx, info)| {
-                let name = info.ident;
-                quote! {
-                    #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
-                }
-            })
-            .collect();
-
-        quote! {
-            impl drizzle::core::FromDrizzleRow<::libsql::Row> for #select_model_ident {
-                const COLUMN_COUNT: usize = #field_count;
-
-                fn from_row_at(row: &::libsql::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
-                    Ok(Self {
-                        #(#from_drizzle_row_fields)*
-                    })
-                }
+            fn from_row_at(row: &::libsql::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                Ok(Self {
+                    #(#from_drizzle_select)*
+                })
             }
         }
     };
@@ -99,15 +79,26 @@ fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<To
     let is_optional = syn::parse2::<syn::Type>(select_type)
         .map(|ty| is_option_type(&ty))
         .unwrap_or(info.is_nullable && !info.has_default);
+    generate_field_from_row_impl(quote!(#idx), info, is_optional)
+}
+
+fn generate_field_from_row_for_select_with_index(
+    idx: TokenStream,
+    info: &FieldInfo,
+) -> Result<TokenStream> {
+    let select_type = info.get_select_type();
+    let is_optional = syn::parse2::<syn::Type>(select_type)
+        .map(|ty| is_option_type(&ty))
+        .unwrap_or(info.is_nullable && !info.has_default);
     generate_field_from_row_impl(idx, info, is_optional)
 }
 
 fn generate_field_from_row_impl(
-    idx: usize,
+    idx: TokenStream,
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    let idx = idx as i32;
+    let idx = quote!((#idx) as i32);
     let name = info.ident;
     let base_type = info.base_type;
 
@@ -131,7 +122,7 @@ fn generate_field_from_row_impl(
 }
 
 fn handle_json_field(
-    idx: i32,
+    idx: TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -170,7 +161,7 @@ fn handle_json_field(
 }
 
 fn handle_uuid_field(
-    idx: i32,
+    idx: TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -202,7 +193,7 @@ fn handle_uuid_field(
 }
 
 fn handle_enum_field(
-    idx: i32,
+    idx: TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -234,7 +225,7 @@ fn handle_enum_field(
 }
 
 fn handle_arraystring_field(
-    idx: i32,
+    idx: TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -251,7 +242,7 @@ fn handle_arraystring_field(
 }
 
 fn handle_arrayvec_field(
-    idx: i32,
+    idx: TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -268,7 +259,7 @@ fn handle_arrayvec_field(
 }
 
 fn handle_standard_field(
-    idx: i32,
+    idx: TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,

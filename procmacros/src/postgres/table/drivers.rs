@@ -29,7 +29,7 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 /// Generate field conversion for SELECT model (non-partial).
 ///
 /// The field type in the Select model matches the original table definition.
-fn generate_select_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
+fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> TokenStream {
     let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let base_type = &info.base_type;
@@ -268,7 +268,13 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
     let select_field_inits: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(idx, info)| generate_select_field_conversion(idx, info))
+        .map(|(idx, info)| generate_select_field_conversion(quote!(#idx), info))
+        .collect();
+
+    let from_drizzle_field_inits: Vec<_> = field_infos
+        .iter()
+        .enumerate()
+        .map(|(idx, info)| generate_select_field_conversion(quote!(offset + #idx), info))
         .collect();
 
     let partial_field_inits: Vec<_> = field_infos
@@ -277,39 +283,7 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         .map(|(idx, info)| generate_partial_field_conversion(idx, info))
         .collect();
 
-    // Generate FromDrizzleRow impl for SelectModel only when all fields have leaf impls
-    let has_unsupported_fields = field_infos.iter().any(|info| {
-        let cat = TypeCategory::from_type(&info.base_type);
-        info.is_enum
-            || info.is_pgenum
-            || (info.is_json && cat != TypeCategory::Json)
-            || matches!(
-                cat,
-                TypeCategory::Enum
-                    | TypeCategory::ArrayString
-                    | TypeCategory::ArrayVec
-                    | TypeCategory::GeoPoint
-                    | TypeCategory::GeoRect
-                    | TypeCategory::GeoLineString
-                    | TypeCategory::IpAddr
-                    | TypeCategory::Cidr
-                    | TypeCategory::MacAddr
-                    | TypeCategory::BitVec
-                    | TypeCategory::Unknown
-            )
-    });
-
     let field_count = field_infos.len();
-    let from_drizzle_row_fields: Vec<_> = field_infos
-        .iter()
-        .enumerate()
-        .map(|(idx, info)| {
-            let name = &info.ident;
-            quote! {
-                #name: drizzle::core::FromDrizzleRow::from_row_at(row, offset + #idx)?,
-            }
-        })
-        .collect();
 
     // Generate implementation using drizzle::postgres::Row which re-exports
     // the Row type from whichever driver is active
@@ -335,22 +309,19 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         }
     };
 
-    if has_unsupported_fields {
-        Ok(base_impls)
-    } else {
-        let fdr_impl = quote! {
-            impl drizzle::core::FromDrizzleRow<drizzle::postgres::Row> for #select_model_ident {
-                const COLUMN_COUNT: usize = #field_count;
+    let fdr_impl = quote! {
+        impl drizzle::core::FromDrizzleRow<drizzle::postgres::Row> for #select_model_ident {
+            const COLUMN_COUNT: usize = #field_count;
 
-                fn from_row_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
-                    Ok(Self {
-                        #(#from_drizzle_row_fields)*
-                    })
-                }
+            fn from_row_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                Ok(Self {
+                    #(#from_drizzle_field_inits)*
+                })
             }
-        };
-        Ok(quote! { #base_impls #fdr_impl })
-    }
+        }
+    };
+
+    Ok(quote! { #base_impls #fdr_impl })
 }
 
 /// Fallback when no postgres driver is enabled - returns empty TokenStream
