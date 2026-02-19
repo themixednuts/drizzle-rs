@@ -460,6 +460,8 @@ pub mod rusqlite_setup {
 
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<Drizzle<S>>, S) {
         let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
+        conn.execute_batch("PRAGMA foreign_keys = ON")
+            .expect("Failed to enable foreign keys");
         let schema = S::default();
         let schema_ddl: Vec<_> = schema
             .create_statements()
@@ -495,6 +497,9 @@ pub mod libsql_setup {
             .await
             .expect("build db");
         let conn = db.connect().expect("connect to db");
+        conn.execute("PRAGMA foreign_keys = ON", libsql::params![])
+            .await
+            .expect("Failed to enable foreign keys");
         let schema = S::default();
         let schema_ddl: Vec<_> = schema
             .create_statements()
@@ -530,6 +535,9 @@ pub mod turso_setup {
             .await
             .expect("build db");
         let conn = db.connect().expect("connect to db");
+        conn.execute("PRAGMA foreign_keys = ON", turso::params![])
+            .await
+            .expect("Failed to enable foreign keys");
         let schema = S::default();
         let schema_ddl: Vec<_> = schema
             .create_statements()
