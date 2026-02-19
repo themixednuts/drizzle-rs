@@ -115,9 +115,16 @@ macro_rules! join_using_impl {
             self,
             table: U,
             columns: impl ToSQL<'a, PostgresValue<'a>>,
-        ) -> SelectBuilder<'a, S, SelectJoinSet, U, M, <M as drizzle_core::AfterJoin<R, U>>::NewRow>
+        ) -> SelectBuilder<
+            'a,
+            S,
+            SelectJoinSet,
+            U,
+            <M as drizzle_core::ScopePush<U>>::Out,
+            <M as drizzle_core::AfterJoin<R, U>>::NewRow,
+        >
         where
-            M: drizzle_core::AfterJoin<R, U>,
+            M: drizzle_core::AfterJoin<R, U> + drizzle_core::ScopePush<U>,
         {
             SelectBuilder {
                 sql: self.sql.append(helpers::join_using(table, columns)),
@@ -136,9 +143,16 @@ macro_rules! join_using_impl {
                 self,
                 table: U,
                 columns: impl ToSQL<'a, PostgresValue<'a>>,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, U, M, <M as drizzle_core::AfterJoin<R, U>>::NewRow>
+            ) -> SelectBuilder<
+                'a,
+                S,
+                SelectJoinSet,
+                U,
+                <M as drizzle_core::ScopePush<U>>::Out,
+                <M as drizzle_core::AfterJoin<R, U>>::NewRow,
+            >
             where
-                M: drizzle_core::AfterJoin<R, U>,
+                M: drizzle_core::AfterJoin<R, U> + drizzle_core::ScopePush<U>,
             {
                 SelectBuilder {
                     sql: self.sql.append(helpers::[<$type _join_using>](table, columns)),
