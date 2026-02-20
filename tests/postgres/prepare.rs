@@ -105,6 +105,62 @@ postgres_test!(test_prepared_get_single_row, SimpleSchema, {
     assert_eq!(result.name, "UniqueUser");
 });
 
+postgres_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            => execute
+    );
+
+    let name = simple.name.placeholder("name");
+    let prepared = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, name))
+        .prepare()
+        .into_owned();
+
+    let err = prepared
+        .all::<PgSimpleResult>(drizzle_client!(), [])
+        .unwrap_err();
+    assert!(
+        matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
+        "unexpected error: {err:?}"
+    );
+});
+
+postgres_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            => execute
+    );
+
+    let name = simple.name.placeholder("name");
+    let extra = simple.name.placeholder("extra");
+    let prepared = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, name))
+        .prepare()
+        .into_owned();
+
+    let err = prepared
+        .all::<PgSimpleResult>(
+            drizzle_client!(),
+            [name.bind("Alice"), extra.bind("ignored")],
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
+        "unexpected error: {err:?}"
+    );
+});
+
 postgres_test!(test_prepared_execute_insert, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 

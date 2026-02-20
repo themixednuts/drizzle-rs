@@ -3,6 +3,7 @@ pub use owned::OwnedPreparedStatement;
 
 use crate::prelude::*;
 use crate::{
+    error::DrizzleError,
     param::{Param, ParamBind},
     sql::{SQL, SQLChunk},
     traits::{SQLParam, ToSQL},
@@ -47,39 +48,91 @@ pub(crate) fn bind_values_internal<'a, V, T, P>(
     param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
     param_name_fn: impl Fn(&P) -> Option<&str>,
     param_value_fn: impl Fn(&P) -> Option<&V>,
-) -> impl Iterator<Item = V>
+) -> crate::error::Result<SmallVec<[V; 8]>>
 where
     V: SQLParam + Clone,
     T: SQLParam + Into<V>,
 {
     #[cfg(feature = "profiling")]
     crate::drizzle_profile_scope!("prepared", "bind_values_internal");
-    // Only materialize a named-parameter lookup map when placeholders require it.
-    let needs_named_lookup = params.iter().any(|param| {
-        param_value_fn(param).is_none()
-            && param_name_fn(param)
-                .map(|name| !name.is_empty())
-                .unwrap_or(false)
-    });
-
     let param_binds = param_binds.into_iter();
     let (binds_lower, binds_upper) = param_binds.size_hint();
 
-    let mut param_map = if needs_named_lookup {
-        Some(HashMap::<&str, V>::with_capacity(binds_lower))
-    } else {
-        None
-    };
+    let mut expected_named = HashMap::<&str, usize>::new();
+    let mut expected_positional = 0usize;
+    for param in params {
+        if param_value_fn(param).is_some() {
+            continue;
+        }
+
+        match param_name_fn(param) {
+            Some(name) if !name.is_empty() => {
+                *expected_named.entry(name).or_insert(0) += 1;
+            }
+            _ => expected_positional += 1,
+        }
+    }
+
+    let mut param_map = HashMap::<&str, V>::with_capacity(expected_named.len().max(binds_lower));
 
     let mut positional_params: SmallVec<[V; 8]> =
         SmallVec::with_capacity(binds_upper.unwrap_or(binds_lower));
+
     for bind in param_binds {
         if bind.name.is_empty() {
             positional_params.push(bind.value.into());
-        } else if let Some(param_map) = &mut param_map {
-            param_map.insert(bind.name, bind.value.into());
+        } else if param_map.insert(bind.name, bind.value.into()).is_some() {
+            return Err(DrizzleError::ParameterError(
+                format!("Duplicate parameter binding: '{}'", bind.name).into(),
+            ));
         }
     }
+
+    if positional_params.len() < expected_positional {
+        return Err(DrizzleError::ParameterError(
+            format!(
+                "Missing positional parameter(s): expected {}, got {}",
+                expected_positional,
+                positional_params.len()
+            )
+            .into(),
+        ));
+    }
+    if positional_params.len() > expected_positional {
+        return Err(DrizzleError::ParameterError(
+            format!(
+                "Unexpected positional parameter(s): expected {}, got {}",
+                expected_positional,
+                positional_params.len()
+            )
+            .into(),
+        ));
+    }
+
+    let mut missing_named: SmallVec<[&str; 8]> = expected_named
+        .keys()
+        .filter(|name| !param_map.contains_key(**name))
+        .copied()
+        .collect();
+    if !missing_named.is_empty() {
+        missing_named.sort_unstable();
+        return Err(DrizzleError::ParameterError(
+            format!("Missing named parameter(s): {}", missing_named.join(", ")).into(),
+        ));
+    }
+
+    let mut extra_named: SmallVec<[&str; 8]> = param_map
+        .keys()
+        .filter(|name| !expected_named.contains_key(**name))
+        .copied()
+        .collect();
+    if !extra_named.is_empty() {
+        extra_named.sort_unstable();
+        return Err(DrizzleError::ParameterError(
+            format!("Unexpected named parameter(s): {}", extra_named.join(", ")).into(),
+        ));
+    }
+
     let mut positional_iter = positional_params.into_iter();
 
     let mut bound_params = SmallVec::<[V; 8]>::with_capacity(params.len());
@@ -92,9 +145,7 @@ where
         } else if let Some(name) = param_name_fn(param) {
             // If no internal value, try external binding for named parameters
             if !name.is_empty() {
-                if let Some(param_map) = &param_map
-                    && let Some(value) = param_map.get(name)
-                {
+                if let Some(value) = param_map.get(name) {
                     bound_params.push(value.clone());
                 }
             } else if let Some(value) = positional_iter.next() {
@@ -105,10 +156,7 @@ where
         }
     }
 
-    // Note: We don't add unmatched external parameters as they should only be used
-    // for parameters that have corresponding placeholders in the SQL
-
-    bound_params.into_iter()
+    Ok(bound_params)
 }
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
@@ -117,15 +165,15 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
     pub fn bind<T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
-    ) -> (&str, impl Iterator<Item = V>) {
+    ) -> crate::error::Result<(&str, impl Iterator<Item = V>)> {
         let bound_params = bind_values_internal(
             &self.params,
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref().map(|v| v.as_ref()),
-        );
+        )?;
 
-        (self.sql.as_str(), bound_params)
+        Ok((self.sql.as_str(), bound_params.into_iter()))
     }
 
     /// Returns the fully rendered SQL with placeholders.

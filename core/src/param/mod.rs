@@ -97,3 +97,30 @@ impl<'a, V: SQLParam> ParamBind<'a, V> {
         Self { name: "", value }
     }
 }
+
+/// A typed collection of parameter bindings.
+#[derive(Debug, Clone)]
+pub struct ParamSet<'a, V: SQLParam, const N: usize> {
+    binds: [ParamBind<'a, V>; N],
+}
+
+impl<'a, V: SQLParam, const N: usize> ParamSet<'a, V, N> {
+    pub const fn new(binds: [ParamBind<'a, V>; N]) -> Self {
+        Self { binds }
+    }
+}
+
+impl<'a, V: SQLParam, const N: usize> From<[ParamBind<'a, V>; N]> for ParamSet<'a, V, N> {
+    fn from(value: [ParamBind<'a, V>; N]) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<'a, V: SQLParam, const N: usize> IntoIterator for ParamSet<'a, V, N> {
+    type Item = ParamBind<'a, V>;
+    type IntoIter = core::array::IntoIter<ParamBind<'a, V>, N>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.binds.into_iter()
+    }
+}

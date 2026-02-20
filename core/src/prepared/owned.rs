@@ -40,15 +40,15 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
     pub fn bind<'a, T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
-    ) -> (&str, impl Iterator<Item = V>) {
+    ) -> crate::error::Result<(&str, impl Iterator<Item = V>)> {
         let bound_params = bind_values_internal(
             &self.params,
             param_binds,
             |p| p.placeholder.name,
             |p| p.value.as_ref(), // OwnedParam can store values
-        );
+        )?;
 
-        (self.sql.as_str(), bound_params)
+        Ok((self.sql.as_str(), bound_params.into_iter()))
     }
 
     /// Returns the fully rendered SQL with placeholders.

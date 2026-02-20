@@ -68,7 +68,7 @@ macro_rules! postgres_prepared_sync_impl {
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.execute");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 let (lower, upper) = bound_params.size_hint();
                 let mut params_vec: smallvec::SmallVec<
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
@@ -141,7 +141,7 @@ macro_rules! postgres_prepared_sync_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.all");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.all.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -184,7 +184,7 @@ macro_rules! postgres_prepared_sync_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.get");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.get.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -217,7 +217,7 @@ macro_rules! postgres_prepared_sync_impl {
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_execute");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 let (lower, upper) = bound_params.size_hint();
                 let mut params_vec: smallvec::SmallVec<
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
@@ -291,7 +291,7 @@ macro_rules! postgres_prepared_sync_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_all");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_all.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -334,7 +334,7 @@ macro_rules! postgres_prepared_sync_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_get");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_get.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -371,7 +371,7 @@ macro_rules! postgres_prepared_async_impl {
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.execute");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.execute.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -408,7 +408,7 @@ macro_rules! postgres_prepared_async_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.all");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.all.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -451,7 +451,7 @@ macro_rules! postgres_prepared_async_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.get");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.get.collect");
                 let (lower, upper) = bound_params.size_hint();
@@ -484,7 +484,7 @@ macro_rules! postgres_prepared_async_impl {
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_execute");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!(
                     "postgres.prepared",
@@ -524,7 +524,7 @@ macro_rules! postgres_prepared_async_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_all");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!(
                     "postgres.prepared",
@@ -570,7 +570,7 @@ macro_rules! postgres_prepared_async_impl {
             {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_get");
-                let (sql_str, bound_params) = self.inner.bind(params);
+                let (sql_str, bound_params) = self.inner.bind(params)?;
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!(
                     "postgres.prepared",
