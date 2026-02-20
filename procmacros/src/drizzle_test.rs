@@ -199,9 +199,8 @@ fn generate_rusqlite_test(
                     ($prepared:ident . execute($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.execute($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.execute($conn, __params_vec.clone()) {
+                        let __params_str = stringify!($params);
+                        match $prepared.execute($conn, $params) {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -215,9 +214,8 @@ fn generate_rusqlite_test(
                     ($prepared:ident . all($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.all($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.all($conn, __params_vec.clone()) {
+                        let __params_str = stringify!($params);
+                        match $prepared.all($conn, $params) {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -231,9 +229,8 @@ fn generate_rusqlite_test(
                     ($prepared:ident . get($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.get($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.get($conn, __params_vec.clone()) {
+                        let __params_str = stringify!($params);
+                        match $prepared.get($conn, $params) {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -440,9 +437,8 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                     ($prepared:ident . execute($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.execute($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.execute($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.execute($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -456,9 +452,8 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                     ($prepared:ident . all($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.all($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.all($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.all($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -472,9 +467,8 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                     ($prepared:ident . get($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.get($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.get($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.get($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -683,9 +677,8 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                     ($prepared:ident . execute($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.execute($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.execute($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.execute($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -699,9 +692,8 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                     ($prepared:ident . all($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.all($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.all($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.all($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -715,9 +707,8 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                     ($prepared:ident . get($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.get($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.get($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.get($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -988,9 +979,8 @@ fn generate_postgres_sync_test(
                     ($prepared:ident . execute($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.execute($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.execute($conn, __params_vec.clone()) {
+                        let __params_str = stringify!($params);
+                        match $prepared.execute($conn, $params) {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1004,9 +994,8 @@ fn generate_postgres_sync_test(
                     ($prepared:ident . all($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.all($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.all($conn, __params_vec.clone()) {
+                        let __params_str = stringify!($params);
+                        match $prepared.all($conn, $params) {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1020,9 +1009,8 @@ fn generate_postgres_sync_test(
                     ($prepared:ident . get($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.get($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.get($conn, __params_vec.clone()) {
+                        let __params_str = stringify!($params);
+                        match $prepared.get($conn, $params) {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1238,9 +1226,8 @@ fn generate_tokio_postgres_test(
                     ($prepared:ident . execute($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.execute($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.execute($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.execute($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1254,9 +1241,8 @@ fn generate_tokio_postgres_test(
                     ($prepared:ident . all($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.all($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.all($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.all($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1270,9 +1256,8 @@ fn generate_tokio_postgres_test(
                     ($prepared:ident . get($conn:expr, $params:expr)) => {{
                         let __op_str = stringify!($prepared.get($conn, $params));
                         let __sql_str = $prepared.to_string();
-                        let __params_vec: Vec<_> = ($params).into_iter().collect();
-                        let __params_str = format!("{:?}", __params_vec);
-                        match $prepared.get($conn, __params_vec.clone()).await {
+                        let __params_str = stringify!($params);
+                        match $prepared.get($conn, $params).await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v

@@ -12,6 +12,7 @@ use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
 use tokio_postgres::{Client, Row, types::ToSql};
 
 use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
+
 /// A prepared statement that can be executed multiple times with different parameters.
 ///
 /// This is a wrapper around an owned prepared statement that can be used with the tokio-postgres driver.

@@ -115,6 +115,7 @@ postgres_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
     );
 
     let name = simple.name.placeholder("name");
+    // Passing 0 params to a query with 1 placeholder should fail at bind time
     let prepared = db
         .select((simple.id, simple.name))
         .from(simple)
@@ -123,7 +124,7 @@ postgres_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
         .into_owned();
 
     let err = prepared
-        .all::<PgSimpleResult>(drizzle_client!(), [])
+        .all::<PgSimpleResult, 0>(drizzle_client!(), [])
         .unwrap_err();
     assert!(
         matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
@@ -142,6 +143,8 @@ postgres_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
 
     let name = simple.name.placeholder("name");
     let extra = simple.name.placeholder("extra");
+
+    // Passing 2 params to a query with 1 placeholder should fail at bind time
     let prepared = db
         .select((simple.id, simple.name))
         .from(simple)
@@ -150,7 +153,7 @@ postgres_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
         .into_owned();
 
     let err = prepared
-        .all::<PgSimpleResult>(
+        .all::<PgSimpleResult, 2>(
             drizzle_client!(),
             [name.bind("Alice"), extra.bind("ignored")],
         )

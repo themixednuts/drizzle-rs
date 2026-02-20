@@ -119,13 +119,14 @@ sqlite_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
     );
 
     let name = simple.name.placeholder("name");
+    // Passing 0 params to a query with 1 placeholder should fail at bind time
     let prepared = db
         .select(())
         .from(simple)
         .r#where(eq(simple.name, name))
         .prepare();
 
-    let err = prepared.all::<SelectSimple>(db.conn(), []).unwrap_err();
+    let err = prepared.all::<SelectSimple, 0>(db.conn(), []).unwrap_err();
     assert!(
         matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
         "unexpected error: {err:?}"
@@ -144,6 +145,7 @@ sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
     let name = simple.name.placeholder("name");
     let extra = simple.name.placeholder("extra");
 
+    // Passing 2 params to a query with 1 placeholder should fail at bind time
     let prepared = db
         .select(())
         .from(simple)
@@ -151,7 +153,7 @@ sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
         .prepare();
 
     let err = prepared
-        .all::<SelectSimple>(db.conn(), [name.bind("Alice"), extra.bind("ignored")])
+        .all::<SelectSimple, 2>(db.conn(), [name.bind("Alice"), extra.bind("ignored")])
         .unwrap_err();
     assert!(
         matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
