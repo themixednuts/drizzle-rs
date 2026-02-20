@@ -1,0 +1,72 @@
+error[E0277]: SQL type `drizzle::sqlite::types::Integer` is not compatible with `drizzle::sqlite::types::Text`
+  --> tests/ui/subquery_types_sqlite/fail/tuple_element_type_mismatch.rs:31:13
+   |
+30 |         .r#where(in_subquery(
+   |                  ----------- required by a bound introduced by this call
+31 |             row((left_users.id, left_users.name)),
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |
+   = help: the trait `Compatible<drizzle::sqlite::types::Text>` is not implemented for `drizzle::sqlite::types::Integer`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: the following other types implement trait `Compatible<Rhs>`:
+             `drizzle::sqlite::types::Integer` implements `Compatible<Placeholder>`
+             `drizzle::sqlite::types::Integer` implements `Compatible<drizzle::sqlite::types::Any>`
+             `drizzle::sqlite::types::Integer` implements `Compatible<drizzle::sqlite::types::Numeric>`
+             `drizzle::sqlite::types::Integer` implements `Compatible<drizzle::sqlite::types::Real>`
+             `drizzle::sqlite::types::Integer` implements `Compatible`
+   = note: required for `(drizzle::sqlite::types::Integer, drizzle::sqlite::types::Text)` to implement `Compatible<(drizzle::sqlite::types::Text, drizzle::sqlite::types::Integer)>`
+note: required by a bound in `drizzle::core::expr::in_subquery`
+  --> core/src/expr/set.rs
+   |
+   | pub fn in_subquery<'a, V, E, S>(
+   |        ----------- required by a bound in this function
+...
+   |     E::SQLType: Compatible<S::SQLType>,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `in_subquery`
+
+error[E0277]: SQL type `drizzle::sqlite::types::Text` is not compatible with `drizzle::sqlite::types::Integer`
+  --> tests/ui/subquery_types_sqlite/fail/tuple_element_type_mismatch.rs:31:13
+   |
+30 |         .r#where(in_subquery(
+   |                  ----------- required by a bound introduced by this call
+31 |             row((left_users.id, left_users.name)),
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |
+   = help: the trait `Compatible<drizzle::sqlite::types::Integer>` is not implemented for `drizzle::sqlite::types::Text`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+help: the following other types implement trait `Compatible<Rhs>`
+  --> types/src/sql/coerce.rs
+   |
+   | / impl_reflexive_compat!(
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+...  |
+   | |     crate::postgres::types::Enum
+   | | );
+   | |_^ `drizzle::sqlite::types::Text` implements `Compatible`
+...
+   |   impl Compatible<crate::sqlite::types::Blob> for crate::sqlite::types::Text {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Text` implements `Compatible<drizzle::sqlite::types::Blob>`
+...
+   |   impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Text {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Text` implements `Compatible<drizzle::sqlite::types::Any>`
+...
+   | / impl_placeholder_compat!(
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+...  |
+   | |     crate::sqlite::types::Any
+   | | );
+   | |_^ `drizzle::sqlite::types::Text` implements `Compatible<Placeholder>`
+   = note: required for `(drizzle::sqlite::types::Integer, drizzle::sqlite::types::Text)` to implement `Compatible<(drizzle::sqlite::types::Text, drizzle::sqlite::types::Integer)>`
+note: required by a bound in `drizzle::core::expr::in_subquery`
+  --> core/src/expr/set.rs
+   |
+   | pub fn in_subquery<'a, V, E, S>(
+   |        ----------- required by a bound in this function
+...
+   |     E::SQLType: Compatible<S::SQLType>,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `in_subquery`
+   = note: this error originates in the macro `impl_reflexive_compat` which comes from the expansion of the macro `impl_placeholder_compat` (in Nightly builds, run with -Z macro-backtrace for more info)

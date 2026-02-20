@@ -28,7 +28,7 @@ sqlite_test!(test_one_level_subquery, SimpleSchema, {
     let results: Vec<SubqueryResult> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
-            .r#where(gt(simple.id, min_id_subquery.to_sql()))
+            .r#where(gt(simple.id, min_id_subquery))
             => all
     );
 
@@ -97,3 +97,115 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
     drizzle_assert!(!results.is_empty());
     drizzle_assert!(results.iter().any(|r| r.name == "epsilon"));
 });
+
+// =============================================================================
+// Typed subqueries via Expr on SELECT builders
+// =============================================================================
+
+sqlite_test!(test_typed_scalar_subquery, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // SELECT builders now implement Expr directly with concrete SQLType
+    let min_id = db.select(min(simple.id)).from(simple);
+    let results: Vec<SubqueryResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(gt(simple.id, min_id))
+            => all
+    );
+
+    drizzle_assert_eq!(2, results.len());
+    drizzle_assert!(results.iter().any(|r| r.name == "bob"));
+    drizzle_assert!(results.iter().any(|r| r.name == "charlie"));
+});
+
+sqlite_test!(test_typed_scalar_subquery_max, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(10),
+        InsertSimple::new("bob").with_id(20),
+        InsertSimple::new("charlie").with_id(30),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // Typed subquery with max — should find records where id < max
+    let max_id = db.select(max(simple.id)).from(simple);
+    let results: Vec<SubqueryResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(lt(simple.id, max_id))
+            => all
+    );
+
+    drizzle_assert_eq!(2, results.len());
+    drizzle_assert!(results.iter().any(|r| r.name == "alice"));
+    drizzle_assert!(results.iter().any(|r| r.name == "bob"));
+});
+
+sqlite_test!(test_typed_in_subquery_single_column, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let only_bob_id = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(eq(simple.name, "bob"));
+
+    let results: Vec<SubqueryResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(in_subquery(simple.id, only_bob_id))
+            => all
+    );
+
+    drizzle_assert_eq!(1, results.len());
+    drizzle_assert_eq!("bob", results[0].name);
+});
+
+sqlite_test!(
+    test_typed_in_subquery_multi_column_row_value,
+    SimpleSchema,
+    {
+        let SimpleSchema { simple } = schema;
+
+        let test_data = vec![
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("charlie").with_id(3),
+        ];
+
+        drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+        let bob_row = db
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "bob"));
+
+        let results: Vec<SubqueryResult> = drizzle_exec!(
+            db.select((simple.id, simple.name))
+                .from(simple)
+                .r#where(in_subquery(row((simple.id, simple.name)), bob_row))
+                => all
+        );
+
+        drizzle_assert_eq!(1, results.len());
+        drizzle_assert_eq!("bob", results[0].name);
+    }
+);

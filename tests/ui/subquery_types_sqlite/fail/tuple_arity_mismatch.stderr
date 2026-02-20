@@ -1,0 +1,12 @@
+error[E0271]: type mismatch resolving `<QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)> as Expr<'_, SQLiteValue<'_>>>::SQLType == (_, _)`
+  --> tests/ui/subquery_types_sqlite/fail/tuple_arity_mismatch.rs:28:18
+   |
+28 |           .r#where(in_subquery(
+   |  __________________^
+29 | |             row((left_users.id, left_users.name)),
+30 | |             right_ids,
+31 | |         ));
+   | |_________^ expected `(_, _)`, found `Integer`
+   |
+   = note: expected tuple `(_, _)`
+             found struct `drizzle::sqlite::types::Integer`

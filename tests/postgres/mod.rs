@@ -19,6 +19,7 @@ pub mod migrations;
 pub mod prepare;
 pub mod schema;
 pub mod select;
+pub mod subquery;
 pub mod transaction;
 pub mod type_inference;
 pub mod types;

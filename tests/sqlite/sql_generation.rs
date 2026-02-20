@@ -135,3 +135,91 @@ sqlite_test!(test_sql_mixed_named_positional, SimpleSchema, {
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
 });
+
+sqlite_test!(
+    test_with_subquery_parenthesized_in_comparison,
+    SimpleSchema,
+    {
+        let SimpleSchema { simple } = schema;
+        let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+        let SimpleSchema {
+            simple: subquery_simple,
+        } = SimpleSchema::new();
+
+        struct FilteredIdsTag;
+        impl drizzle::core::Tag for FilteredIdsTag {
+            const NAME: &'static str = "filtered_ids";
+        }
+
+        let filtered_ids = builder
+            .select(subquery_simple.id)
+            .from(subquery_simple)
+            .r#where(gt(subquery_simple.id, 10))
+            .into_cte::<FilteredIdsTag>();
+
+        let with_subquery = builder
+            .with(&filtered_ids)
+            .select(filtered_ids.id)
+            .from(&filtered_ids);
+
+        let sql = db
+            .select(simple.id)
+            .from(simple)
+            .r#where(gt(simple.id, with_subquery))
+            .to_sql()
+            .sql();
+
+        assert!(
+            sql.contains(r#""simple"."id" >(WITH filtered_ids AS"#),
+            "sql: {sql}"
+        );
+    }
+);
+
+sqlite_test!(
+    test_with_subquery_parenthesized_in_set_and_funcs,
+    SimpleSchema,
+    {
+        let SimpleSchema { simple } = schema;
+        let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+        let SimpleSchema {
+            simple: subquery_simple,
+        } = SimpleSchema::new();
+
+        struct FilteredIdsTag;
+        impl drizzle::core::Tag for FilteredIdsTag {
+            const NAME: &'static str = "filtered_ids";
+        }
+
+        let filtered_ids = builder
+            .select(subquery_simple.id)
+            .from(subquery_simple)
+            .r#where(gt(subquery_simple.id, 10))
+            .into_cte::<FilteredIdsTag>();
+
+        let with_subquery = builder
+            .with(&filtered_ids)
+            .select(filtered_ids.id)
+            .from(&filtered_ids);
+        let in_sql = db
+            .select(simple.id)
+            .from(simple)
+            .r#where(in_subquery(simple.id, with_subquery))
+            .to_sql()
+            .sql();
+        assert!(
+            in_sql.contains(r#""simple"."id" IN (WITH filtered_ids AS"#),
+            "sql: {in_sql}"
+        );
+
+        let with_subquery = builder
+            .with(&filtered_ids)
+            .select(filtered_ids.id)
+            .from(&filtered_ids);
+        let func_sql = db.select(avg(with_subquery)).from(simple).to_sql().sql();
+        assert!(
+            func_sql.contains(r#"AVG ((WITH filtered_ids AS"#),
+            "sql: {func_sql}"
+        );
+    }
+);
