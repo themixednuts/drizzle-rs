@@ -354,6 +354,11 @@ impl ValueTypeForDialect<PostgresDialect> for &rust_decimal::Decimal {
 }
 
 #[cfg(feature = "serde")]
+impl ValueTypeForDialect<SQLiteDialect> for serde_json::Value {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "serde")]
 impl ValueTypeForDialect<PostgresDialect> for serde_json::Value {
     type SQLType = drizzle_types::postgres::types::Json;
 }

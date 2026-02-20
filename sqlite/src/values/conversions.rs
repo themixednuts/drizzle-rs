@@ -368,6 +368,22 @@ impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> 
     }
 }
 
+// --- JSON ---
+
+#[cfg(feature = "serde")]
+impl<'a> From<serde_json::Value> for SQLiteValue<'a> {
+    fn from(value: serde_json::Value) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> From<&serde_json::Value> for SQLiteValue<'a> {
+    fn from(value: &serde_json::Value) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
@@ -462,6 +478,22 @@ impl_try_from_sqlite_value!(
 #[cfg(feature = "uuid")]
 impl_try_from_sqlite_value!(Uuid);
 
+#[cfg(feature = "serde")]
+impl TryFrom<SQLiteValue<'_>> for serde_json::Value {
+    type Error = DrizzleError;
+
+    fn try_from(value: SQLiteValue<'_>) -> Result<Self, Self::Error> {
+        match value {
+            SQLiteValue::Text(cow) => serde_json::from_str(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to serde_json::Value", value).into(),
+            )),
+        }
+    }
+}
+
 #[cfg(feature = "bytes")]
 impl_try_from_sqlite_value!(bytes::Bytes, bytes::BytesMut);
 
@@ -525,6 +557,22 @@ impl_try_from_sqlite_value_ref!(
 
 #[cfg(feature = "uuid")]
 impl_try_from_sqlite_value_ref!(Uuid);
+
+#[cfg(feature = "serde")]
+impl TryFrom<&SQLiteValue<'_>> for serde_json::Value {
+    type Error = DrizzleError;
+
+    fn try_from(value: &SQLiteValue<'_>) -> Result<Self, Self::Error> {
+        match value {
+            SQLiteValue::Text(cow) => serde_json::from_str(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to serde_json::Value", value).into(),
+            )),
+        }
+    }
+}
 
 #[cfg(feature = "bytes")]
 impl_try_from_sqlite_value_ref!(bytes::Bytes, bytes::BytesMut);
