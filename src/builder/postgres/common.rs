@@ -92,11 +92,11 @@ where
 impl<'d, 'a, DrizzleRef, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
     for DrizzleBuilder<'d, DrizzleRef, S, T, State>
 where
-    T: ToSQL<'a, PostgresValue<'a>>,
+    T: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
 {
-    type SQLType = drizzle_types::postgres::types::Any;
-    type Nullable = drizzle_core::expr::NonNull;
-    type Aggregate = drizzle_core::expr::Scalar;
+    type SQLType = T::SQLType;
+    type Nullable = T::Nullable;
+    type Aggregate = T::Aggregate;
 }
 
 impl<'d, 'a, DrizzleRef, Schema>

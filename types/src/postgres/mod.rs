@@ -97,6 +97,21 @@ pub mod types {
 
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct BitString;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Line;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LineSegment;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Polygon;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Circle;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Enum;
 }
 
 pub use sql_type::PostgreSQLType;

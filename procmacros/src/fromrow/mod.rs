@@ -6,7 +6,7 @@
 use crate::common::{extract_struct_fields, parse_column_reference};
 use crate::paths::core as core_paths;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::{DeriveInput, Expr, ExprPath, Field, Ident, Meta, Result, Visibility};
 
 fn parse_default_from_table(input: &DeriveInput) -> Result<Option<ExprPath>> {
@@ -67,8 +67,12 @@ fn collect_required_tables(
 ) -> Vec<syn::Path> {
     let mut tables: Vec<syn::Path> = Vec::new();
 
+    fn path_eq(a: &syn::Path, b: &syn::Path) -> bool {
+        a.to_token_stream().to_string() == b.to_token_stream().to_string()
+    }
+
     if let Some(default_table) = default_from
-        && !tables.iter().any(|t| t == &default_table.path)
+        && !tables.iter().any(|t| path_eq(t, &default_table.path))
     {
         tables.push(default_table.path.clone());
     }
@@ -76,12 +80,12 @@ fn collect_required_tables(
     for field in fields {
         if let Some(column_ref) = parse_column_reference(field) {
             if let Some(table_path) = extract_table_from_column_ref(&column_ref)
-                && !tables.iter().any(|t| t == &table_path)
+                && !tables.iter().any(|t| path_eq(t, &table_path))
             {
                 tables.push(table_path);
             }
         } else if let Some(default_table) = default_from
-            && !tables.iter().any(|t| t == &default_table.path)
+            && !tables.iter().any(|t| path_eq(t, &default_table.path))
         {
             tables.push(default_table.path.clone());
         }

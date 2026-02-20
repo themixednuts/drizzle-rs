@@ -1,4 +1,3 @@
-use crate::dialect::DialectTypes;
 use crate::expr::{Expr, NonNull, Scalar};
 use crate::traits::{SQLParam, ToSQL};
 use crate::{Param, SQL};
@@ -42,7 +41,6 @@ impl Placeholder {
     }
 }
 
-// Placeholder as a SQL expression — uses `Any` type so it's compatible with all SQL types.
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Placeholder {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL {
@@ -55,7 +53,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Placeholder {
 }
 
 impl<'a, V: SQLParam + 'a> Expr<'a, V> for Placeholder {
-    type SQLType = <V::DialectMarker as DialectTypes>::Any;
+    type SQLType = crate::types::Placeholder;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }

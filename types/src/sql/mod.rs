@@ -78,8 +78,15 @@ pub trait BooleanLike: DataType {}
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Array<T: DataType>(pub PhantomData<T>);
 
+/// Placeholder marker used for bind parameters before concrete typing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Placeholder;
+
 impl<T: DataType> private::Sealed for Array<T> {}
 impl<T: DataType> DataType for Array<T> {}
+impl private::Sealed for Placeholder {}
+impl DataType for Placeholder {}
+impl Textual for Placeholder {}
 
 // =============================================================================
 // SQLite dialect marker impls
@@ -153,6 +160,11 @@ impl private::Sealed for crate::postgres::types::Point {}
 impl private::Sealed for crate::postgres::types::LineString {}
 impl private::Sealed for crate::postgres::types::Rect {}
 impl private::Sealed for crate::postgres::types::BitString {}
+impl private::Sealed for crate::postgres::types::Line {}
+impl private::Sealed for crate::postgres::types::LineSegment {}
+impl private::Sealed for crate::postgres::types::Polygon {}
+impl private::Sealed for crate::postgres::types::Circle {}
+impl private::Sealed for crate::postgres::types::Enum {}
 
 impl DataType for crate::postgres::types::Int2 {}
 impl DataType for crate::postgres::types::Int4 {}
@@ -183,6 +195,11 @@ impl DataType for crate::postgres::types::Point {}
 impl DataType for crate::postgres::types::LineString {}
 impl DataType for crate::postgres::types::Rect {}
 impl DataType for crate::postgres::types::BitString {}
+impl DataType for crate::postgres::types::Line {}
+impl DataType for crate::postgres::types::LineSegment {}
+impl DataType for crate::postgres::types::Polygon {}
+impl DataType for crate::postgres::types::Circle {}
+impl DataType for crate::postgres::types::Enum {}
 
 impl Numeric for crate::postgres::types::Int2 {}
 impl Numeric for crate::postgres::types::Int4 {}
@@ -201,6 +218,7 @@ impl Floating for crate::postgres::types::Float8 {}
 impl Textual for crate::postgres::types::Varchar {}
 impl Textual for crate::postgres::types::Text {}
 impl Textual for crate::postgres::types::Char {}
+impl Textual for crate::postgres::types::Enum {}
 
 impl Binary for crate::postgres::types::Bytea {}
 

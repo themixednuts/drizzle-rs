@@ -51,7 +51,10 @@ impl<E: crate::row::ExprValueType> crate::row::ExprValueType for AliasedExpr<E> 
     type ValueType = E::ValueType;
 }
 
-impl<E> crate::row::IntoSelectTarget for AliasedExpr<E> {
+impl<E> crate::row::IntoSelectTarget for AliasedExpr<E>
+where
+    E: crate::row::ExprValueType,
+{
     type Marker = crate::row::SelectCols<(AliasedExpr<E>,)>;
 }
 
@@ -236,6 +239,21 @@ impl DefaultCastTypeName for drizzle_types::postgres::types::Rect {
 }
 impl DefaultCastTypeName for drizzle_types::postgres::types::BitString {
     const CAST_TYPE_NAME: &'static str = "BIT VARYING";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Line {
+    const CAST_TYPE_NAME: &'static str = "LINE";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::LineSegment {
+    const CAST_TYPE_NAME: &'static str = "LSEG";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Polygon {
+    const CAST_TYPE_NAME: &'static str = "POLYGON";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Circle {
+    const CAST_TYPE_NAME: &'static str = "CIRCLE";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Enum {
+    const CAST_TYPE_NAME: &'static str = "TEXT";
 }
 
 /// Input accepted by [`cast`].
