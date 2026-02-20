@@ -66,15 +66,10 @@ macro_rules! postgres_prepared_sync_impl {
     ($client:ty, $row:ty, $to_sql:path) => {
         impl<'a> PreparedStatement<'a> {
             /// Runs the prepared statement and returns the number of affected rows
-            pub fn execute(
+            pub fn execute<const N: usize>(
                 &self,
                 client: &mut $client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.execute");
@@ -135,15 +130,10 @@ macro_rules! postgres_prepared_sync_impl {
             }
 
             /// Runs the prepared statement and returns all matching rows
-            pub fn all<T>(
+            pub fn all<T, const N: usize>(
                 &self,
                 client: &mut $client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -178,15 +168,10 @@ macro_rules! postgres_prepared_sync_impl {
             }
 
             /// Runs the prepared statement and returns a single row
-            pub fn get<T>(
+            pub fn get<T, const N: usize>(
                 &self,
                 client: &mut $client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -215,15 +200,10 @@ macro_rules! postgres_prepared_sync_impl {
 
         impl OwnedPreparedStatement {
             /// Runs the prepared statement and returns the number of affected rows
-            pub fn execute<'a>(
+            pub fn execute<'a, const N: usize>(
                 &self,
                 client: &mut $client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_execute");
@@ -285,15 +265,10 @@ macro_rules! postgres_prepared_sync_impl {
             }
 
             /// Runs the prepared statement and returns all matching rows
-            pub fn all<'a, T>(
+            pub fn all<'a, T, const N: usize>(
                 &self,
                 client: &mut $client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -328,15 +303,10 @@ macro_rules! postgres_prepared_sync_impl {
             }
 
             /// Runs the prepared statement and returns a single row
-            pub fn get<'a, T>(
+            pub fn get<'a, T, const N: usize>(
                 &self,
                 client: &mut $client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -369,15 +339,10 @@ macro_rules! postgres_prepared_async_impl {
     ($client:ty, $row:ty, $to_sql:path) => {
         impl<'a> PreparedStatement<'a> {
             /// Runs the prepared statement and returns the number of affected rows
-            pub async fn execute(
+            pub async fn execute<const N: usize>(
                 &self,
                 client: &$client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.execute");
@@ -402,15 +367,10 @@ macro_rules! postgres_prepared_async_impl {
             }
 
             /// Runs the prepared statement and returns all matching rows
-            pub async fn all<T>(
+            pub async fn all<T, const N: usize>(
                 &self,
                 client: &$client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -445,15 +405,10 @@ macro_rules! postgres_prepared_async_impl {
             }
 
             /// Runs the prepared statement and returns a single row
-            pub async fn get<T>(
+            pub async fn get<T, const N: usize>(
                 &self,
                 client: &$client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -482,15 +437,10 @@ macro_rules! postgres_prepared_async_impl {
 
         impl OwnedPreparedStatement {
             /// Runs the prepared statement and returns the number of affected rows
-            pub async fn execute<'a>(
+            pub async fn execute<'a, const N: usize>(
                 &self,
                 client: &$client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_execute");
@@ -518,15 +468,10 @@ macro_rules! postgres_prepared_async_impl {
             }
 
             /// Runs the prepared statement and returns all matching rows
-            pub async fn all<'a, T>(
+            pub async fn all<'a, T, const N: usize>(
                 &self,
                 client: &$client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -564,15 +509,10 @@ macro_rules! postgres_prepared_async_impl {
             }
 
             /// Runs the prepared statement and returns a single row
-            pub async fn get<'a, T>(
+            pub async fn get<'a, T, const N: usize>(
                 &self,
                 client: &$client,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_postgres::values::PostgresValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,

@@ -2,15 +2,13 @@ macro_rules! sqlite_async_prepared_impl {
     ($executor:path, $row:ty, $value:ty) => {
         impl<'a> PreparedStatement<'a> {
             /// Runs the prepared statement and returns the number of affected rows
-            pub async fn execute(
+            pub async fn execute<const N: usize>(
                 &self,
                 conn: &impl $executor,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_sqlite::values::SQLiteValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<
+                    'a,
+                    drizzle_sqlite::values::SQLiteValue<'a>,
+                >; N],
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
@@ -20,15 +18,13 @@ macro_rules! sqlite_async_prepared_impl {
             }
 
             /// Runs the prepared statement and returns all matching rows
-            pub async fn all<T>(
+            pub async fn all<T, const N: usize>(
                 &self,
                 conn: &impl $executor,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_sqlite::values::SQLiteValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<
+                    'a,
+                    drizzle_sqlite::values::SQLiteValue<'a>,
+                >; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -50,15 +46,13 @@ macro_rules! sqlite_async_prepared_impl {
             }
 
             /// Runs the prepared statement and returns a single row
-            pub async fn get<T>(
+            pub async fn get<T, const N: usize>(
                 &self,
                 conn: &impl $executor,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_sqlite::values::SQLiteValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<
+                    'a,
+                    drizzle_sqlite::values::SQLiteValue<'a>,
+                >; N],
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -79,15 +73,13 @@ macro_rules! sqlite_async_prepared_impl {
 
         impl OwnedPreparedStatement {
             /// Runs the prepared statement and returns the number of affected rows
-            pub async fn execute<'a>(
+            pub async fn execute<'a, const N: usize>(
                 &self,
                 conn: &impl $executor,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_sqlite::values::SQLiteValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<
+                    'a,
+                    drizzle_sqlite::values::SQLiteValue<'a>,
+                >; N],
             ) -> drizzle_core::error::Result<u64> {
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
@@ -97,15 +89,13 @@ macro_rules! sqlite_async_prepared_impl {
             }
 
             /// Runs the prepared statement and returns all matching rows
-            pub async fn all<'a, T>(
+            pub async fn all<'a, T, const N: usize>(
                 &self,
                 conn: &impl $executor,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_sqlite::values::SQLiteValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<
+                    'a,
+                    drizzle_sqlite::values::SQLiteValue<'a>,
+                >; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
                 T: for<'r> TryFrom<&'r $row>,
@@ -126,15 +116,13 @@ macro_rules! sqlite_async_prepared_impl {
             }
 
             /// Runs the prepared statement and returns a single row
-            pub async fn get<'a, T>(
+            pub async fn get<'a, T, const N: usize>(
                 &self,
                 conn: &impl $executor,
-                params: impl IntoIterator<
-                    Item = drizzle_core::param::ParamBind<
-                        'a,
-                        drizzle_sqlite::values::SQLiteValue<'a>,
-                    >,
-                >,
+                params: [drizzle_core::param::ParamBind<
+                    'a,
+                    drizzle_sqlite::values::SQLiteValue<'a>,
+                >; N],
             ) -> drizzle_core::error::Result<T>
             where
                 T: for<'r> TryFrom<&'r $row>,

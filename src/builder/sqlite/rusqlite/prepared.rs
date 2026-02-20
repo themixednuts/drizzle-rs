@@ -34,10 +34,10 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
 
 impl<'a> PreparedStatement<'a> {
     /// Runs the prepared statement and returns the number of affected rows
-    pub fn execute(
+    pub fn execute<const N: usize>(
         &self,
         conn: &Connection,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+        params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<usize> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute");
@@ -54,10 +54,10 @@ impl<'a> PreparedStatement<'a> {
     }
 
     /// Runs the prepared statement and returns all matching rows
-    pub fn all<T>(
+    pub fn all<T, const N: usize>(
         &self,
         conn: &Connection,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+        params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<Vec<T>>
     where
         T: for<'r> TryFrom<&'r Row<'r>>,
@@ -83,10 +83,10 @@ impl<'a> PreparedStatement<'a> {
     }
 
     /// Runs the prepared statement and returns a single row
-    pub fn get<T>(
+    pub fn get<T, const N: usize>(
         &self,
         conn: &Connection,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+        params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<T>
     where
         T: for<'r> TryFrom<&'r Row<'r>>,
@@ -134,10 +134,10 @@ impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
 
 impl OwnedPreparedStatement {
     /// Runs the prepared statement and returns the number of affected rows
-    pub fn execute<'a>(
+    pub fn execute<'a, const N: usize>(
         &self,
         conn: &Connection,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+        params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<usize> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute");
@@ -153,10 +153,10 @@ impl OwnedPreparedStatement {
     }
 
     /// Runs the prepared statement and returns all matching rows
-    pub fn all<'a, T>(
+    pub fn all<'a, T, const N: usize>(
         &self,
         conn: &Connection,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+        params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<Vec<T>>
     where
         T: for<'r> TryFrom<&'r Row<'r>>,
@@ -182,10 +182,10 @@ impl OwnedPreparedStatement {
     }
 
     /// Runs the prepared statement and returns a single row
-    pub fn get<'a, T>(
+    pub fn get<'a, T, const N: usize>(
         &self,
         conn: &Connection,
-        params: impl IntoIterator<Item = ParamBind<'a, SQLiteValue<'a>>>,
+        params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<T>
     where
         T: for<'r> TryFrom<&'r Row<'r>>,
@@ -214,6 +214,7 @@ impl std::fmt::Display for OwnedPreparedStatement {
         write!(f, "{}", self.inner)
     }
 }
+
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for PreparedStatement<'a> {
     fn to_sql(&self) -> drizzle_core::sql::SQL<'a, SQLiteValue<'a>> {
         self.inner.to_sql()

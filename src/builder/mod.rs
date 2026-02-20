@@ -14,11 +14,17 @@ macro_rules! drizzle_prepare_impl {
         where
             State: builder::ExecutableState,
         {
-            /// Creates a prepared statement that can be executed multiple times
+            /// Creates a prepared statement from this query builder.
+            ///
+            /// The returned statement can be executed with `.all()`, `.get()`, or
+            /// `.execute()`, each taking a fixed-size array of parameter bindings.
+            /// The array size is inferred from the call site and validated at runtime
+            /// against the actual placeholder count.
             #[inline]
             pub fn prepare(self) -> prepared::PreparedStatement<'b> {
-                let inner = prepare_render(self.to_sql());
-                prepared::PreparedStatement { inner }
+                prepared::PreparedStatement {
+                    inner: prepare_render(self.to_sql()),
+                }
             }
         }
     };

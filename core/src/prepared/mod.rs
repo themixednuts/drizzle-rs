@@ -160,6 +160,26 @@ where
 }
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
+    /// Returns the number of external parameter bindings expected.
+    /// This counts params that need external binding (no pre-set value),
+    /// deduplicating named params since one binding satisfies all uses.
+    pub fn external_param_count(&self) -> usize {
+        let mut named = HashMap::<&str, ()>::new();
+        let mut positional = 0usize;
+        for param in self.params.iter() {
+            if param.value.is_some() {
+                continue;
+            }
+            match param.placeholder.name {
+                Some(name) if !name.is_empty() => {
+                    named.entry(name).or_insert(());
+                }
+                _ => positional += 1,
+            }
+        }
+        named.len() + positional
+    }
+
     /// Bind parameters and return SQL with dialect-appropriate placeholders.
     /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL.
     pub fn bind<T: SQLParam + Into<V>>(
