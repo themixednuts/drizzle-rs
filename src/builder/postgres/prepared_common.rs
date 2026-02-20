@@ -48,6 +48,16 @@ pub(crate) fn postgres_sync_param_type(
         PostgresValue::Rect(_) => Some(Type::BOX),
         #[cfg(feature = "bit-vec")]
         PostgresValue::BitVec(_) => Some(Type::VARBIT),
+        #[cfg(feature = "time")]
+        PostgresValue::TimeDate(_) => Some(Type::DATE),
+        #[cfg(feature = "time")]
+        PostgresValue::TimeTime(_) => Some(Type::TIME),
+        #[cfg(feature = "time")]
+        PostgresValue::TimeTimestamp(_) => Some(Type::TIMESTAMP),
+        #[cfg(feature = "time")]
+        PostgresValue::TimeTimestampTz(_) => Some(Type::TIMESTAMPTZ),
+        #[cfg(feature = "time")]
+        PostgresValue::TimeInterval(_) => Some(Type::INTERVAL),
         PostgresValue::Null | PostgresValue::Enum(_) | PostgresValue::Array(_) => None,
     }
 }

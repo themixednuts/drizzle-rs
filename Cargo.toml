@@ -89,6 +89,7 @@ sha2 = { version = "0.10" }
 cidr = { version = "0.3" }
 geo-types = { version = "0.7" }
 bit-vec = { version = "0.8" }
+time = { version = "0.3", default-features = false, features = ["formatting", "parsing"] }
 
 # CLI-specific dependencies
 colored = { version = "3.0" }
@@ -197,6 +198,7 @@ uuid = [
 
 # PostgreSQL feature flags for optional types
 chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-macros/chrono"]
+time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-macros/time"]
 rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal"]
 cidr = ["drizzle-core/cidr", "drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-core/geo-types", "drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]

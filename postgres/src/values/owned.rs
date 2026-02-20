@@ -10,6 +10,11 @@ use uuid::Uuid;
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 
+#[cfg(feature = "time")]
+use time::{
+    Date as TimeDate, Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime, Time as TimeTime,
+};
+
 #[cfg(feature = "cidr")]
 use cidr::{IpCidr, IpInet};
 
@@ -70,6 +75,23 @@ pub enum OwnedPostgresValue {
     /// INTERVAL values
     #[cfg(feature = "chrono")]
     Interval(Duration),
+
+    // Date and time types (time crate)
+    /// DATE values (time crate)
+    #[cfg(feature = "time")]
+    TimeDate(TimeDate),
+    /// TIME values (time crate)
+    #[cfg(feature = "time")]
+    TimeTime(TimeTime),
+    /// TIMESTAMP values without timezone (time crate)
+    #[cfg(feature = "time")]
+    TimeTimestamp(PrimitiveDateTime),
+    /// TIMESTAMPTZ values with timezone (time crate)
+    #[cfg(feature = "time")]
+    TimeTimestampTz(OffsetDateTime),
+    /// INTERVAL values (time crate)
+    #[cfg(feature = "time")]
+    TimeInterval(TimeDuration),
 
     // Network address types
     /// INET values (host address with optional netmask)
@@ -302,6 +324,56 @@ impl OwnedPostgresValue {
         }
     }
 
+    /// Returns the date value if this is DATE (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_date(&self) -> Option<&TimeDate> {
+        match self {
+            OwnedPostgresValue::TimeDate(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the time value if this is TIME (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_time(&self) -> Option<&TimeTime> {
+        match self {
+            OwnedPostgresValue::TimeTime(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp value if this is TIMESTAMP (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_timestamp(&self) -> Option<&PrimitiveDateTime> {
+        match self {
+            OwnedPostgresValue::TimeTimestamp(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp with timezone value if this is TIMESTAMPTZ (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_timestamp_tz(&self) -> Option<&OffsetDateTime> {
+        match self {
+            OwnedPostgresValue::TimeTimestampTz(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the interval value if this is INTERVAL (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_interval(&self) -> Option<&TimeDuration> {
+        match self {
+            OwnedPostgresValue::TimeInterval(value) => Some(value),
+            _ => None,
+        }
+    }
+
     /// Returns the inet value if this is INET.
     #[inline]
     #[cfg(feature = "cidr")]
@@ -421,6 +493,16 @@ impl OwnedPostgresValue {
             OwnedPostgresValue::TimestampTz(value) => PostgresValue::TimestampTz(*value),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(value) => PostgresValue::Interval(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeDate(value) => PostgresValue::TimeDate(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTime(value) => PostgresValue::TimeTime(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestamp(value) => PostgresValue::TimeTimestamp(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestampTz(value) => PostgresValue::TimeTimestampTz(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeInterval(value) => PostgresValue::TimeInterval(*value),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => PostgresValue::Inet(*value),
             #[cfg(feature = "cidr")]
@@ -476,6 +558,18 @@ impl OwnedPostgresValue {
             OwnedPostgresValue::TimestampTz(value) => T::from_postgres_timestamptz(value),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(value) => T::from_postgres_interval(value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeInterval(value) => {
+                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
+            }
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
@@ -532,6 +626,18 @@ impl OwnedPostgresValue {
             OwnedPostgresValue::TimestampTz(value) => T::from_postgres_timestamptz(*value),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(value) => T::from_postgres_interval(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeInterval(value) => {
+                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
+            }
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]
@@ -591,6 +697,18 @@ impl core::fmt::Display for OwnedPostgresValue {
             OwnedPostgresValue::TimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
+
+            // Date and time types (time crate)
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeDate(date) => date.to_string(),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTime(time) => time.to_string(),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestamp(ts) => ts.to_string(),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestampTz(ts) => ts.to_string(),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeInterval(dur) => format!("{} seconds", dur.whole_seconds()),
 
             // Network address types
             #[cfg(feature = "cidr")]
@@ -683,6 +801,16 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::TimestampTz(ts) => OwnedPostgresValue::TimestampTz(ts),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(dur) => OwnedPostgresValue::Interval(dur),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeDate(v) => OwnedPostgresValue::TimeDate(v),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTime(v) => OwnedPostgresValue::TimeTime(v),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestamp(v) => OwnedPostgresValue::TimeTimestamp(v),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestampTz(v) => OwnedPostgresValue::TimeTimestampTz(v),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeInterval(v) => OwnedPostgresValue::TimeInterval(v),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(net) => OwnedPostgresValue::Inet(net),
             #[cfg(feature = "cidr")]
@@ -739,6 +867,16 @@ impl<'a> From<&PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::TimestampTz(value) => OwnedPostgresValue::TimestampTz(*value),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(value) => OwnedPostgresValue::Interval(*value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeDate(value) => OwnedPostgresValue::TimeDate(*value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTime(value) => OwnedPostgresValue::TimeTime(*value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestamp(value) => OwnedPostgresValue::TimeTimestamp(*value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestampTz(value) => OwnedPostgresValue::TimeTimestampTz(*value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeInterval(value) => OwnedPostgresValue::TimeInterval(*value),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => OwnedPostgresValue::Inet(*value),
             #[cfg(feature = "cidr")]
@@ -796,6 +934,16 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::TimestampTz(ts) => PostgresValue::TimestampTz(ts),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(dur) => PostgresValue::Interval(dur),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeDate(v) => PostgresValue::TimeDate(v),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTime(v) => PostgresValue::TimeTime(v),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestamp(v) => PostgresValue::TimeTimestamp(v),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestampTz(v) => PostgresValue::TimeTimestampTz(v),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeInterval(v) => PostgresValue::TimeInterval(v),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(net) => PostgresValue::Inet(net),
             #[cfg(feature = "cidr")]
@@ -851,6 +999,16 @@ impl<'a> From<&'a OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::TimestampTz(value) => PostgresValue::TimestampTz(*value),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(value) => PostgresValue::Interval(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeDate(value) => PostgresValue::TimeDate(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTime(value) => PostgresValue::TimeTime(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestamp(value) => PostgresValue::TimeTimestamp(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeTimestampTz(value) => PostgresValue::TimeTimestampTz(*value),
+            #[cfg(feature = "time")]
+            OwnedPostgresValue::TimeInterval(value) => PostgresValue::TimeInterval(*value),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => PostgresValue::Inet(*value),
             #[cfg(feature = "cidr")]
@@ -1069,6 +1227,41 @@ impl From<Uuid> for OwnedPostgresValue {
 impl From<serde_json::Value> for OwnedPostgresValue {
     fn from(value: serde_json::Value) -> Self {
         OwnedPostgresValue::Json(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl From<TimeDate> for OwnedPostgresValue {
+    fn from(value: TimeDate) -> Self {
+        OwnedPostgresValue::TimeDate(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl From<TimeTime> for OwnedPostgresValue {
+    fn from(value: TimeTime) -> Self {
+        OwnedPostgresValue::TimeTime(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl From<PrimitiveDateTime> for OwnedPostgresValue {
+    fn from(value: PrimitiveDateTime) -> Self {
+        OwnedPostgresValue::TimeTimestamp(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl From<OffsetDateTime> for OwnedPostgresValue {
+    fn from(value: OffsetDateTime) -> Self {
+        OwnedPostgresValue::TimeTimestampTz(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl From<TimeDuration> for OwnedPostgresValue {
+    fn from(value: TimeDuration) -> Self {
+        OwnedPostgresValue::TimeInterval(value)
     }
 }
 
@@ -1432,6 +1625,80 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayVec<u8, N> {
                 }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl TryFrom<OwnedPostgresValue> for TimeDate {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::TimeDate(date) => Ok(date),
+            OwnedPostgresValue::TimeTimestamp(ts) => Ok(ts.date()),
+            OwnedPostgresValue::TimeTimestampTz(ts) => Ok(ts.date()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::Date", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl TryFrom<OwnedPostgresValue> for TimeTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::TimeTime(time) => Ok(time),
+            OwnedPostgresValue::TimeTimestamp(ts) => Ok(ts.time()),
+            OwnedPostgresValue::TimeTimestampTz(ts) => Ok(ts.time()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::Time", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl TryFrom<OwnedPostgresValue> for PrimitiveDateTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::TimeTimestamp(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::PrimitiveDateTime", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl TryFrom<OwnedPostgresValue> for OffsetDateTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::TimeTimestampTz(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::OffsetDateTime", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl TryFrom<OwnedPostgresValue> for TimeDuration {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::TimeInterval(dur) => Ok(dur),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::Duration", value).into(),
             )),
         }
     }

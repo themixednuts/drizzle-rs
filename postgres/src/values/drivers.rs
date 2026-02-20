@@ -55,6 +55,16 @@ mod postgres_tosql_impl {
                 PostgresValue::TimestampTz(ts) => ts.to_sql(ty, out),
                 #[cfg(feature = "chrono")]
                 PostgresValue::Interval(dur) => dur.to_string().to_sql(ty, out),
+                #[cfg(feature = "time")]
+                PostgresValue::TimeDate(date) => date.to_sql(ty, out),
+                #[cfg(feature = "time")]
+                PostgresValue::TimeTime(time) => time.to_sql(ty, out),
+                #[cfg(feature = "time")]
+                PostgresValue::TimeTimestamp(ts) => ts.to_sql(ty, out),
+                #[cfg(feature = "time")]
+                PostgresValue::TimeTimestampTz(ts) => ts.to_sql(ty, out),
+                #[cfg(feature = "time")]
+                PostgresValue::TimeInterval(dur) => dur.to_string().to_sql(ty, out),
                 #[cfg(feature = "cidr")]
                 PostgresValue::Inet(ip) => ip.to_sql(ty, out),
                 #[cfg(feature = "cidr")]
