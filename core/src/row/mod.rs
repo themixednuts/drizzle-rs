@@ -308,6 +308,46 @@ impl<Row: ?Sized> RowColumnList<Row> for serde_json::Value {
     type Columns = crate::Cons<serde_json::Value, crate::Nil>;
 }
 
+#[cfg(feature = "rust-decimal")]
+impl<Row: ?Sized> RowColumnList<Row> for rust_decimal::Decimal {
+    type Columns = crate::Cons<rust_decimal::Decimal, crate::Nil>;
+}
+
+#[cfg(feature = "chrono")]
+impl<Row: ?Sized> RowColumnList<Row> for chrono::Duration {
+    type Columns = crate::Cons<chrono::Duration, crate::Nil>;
+}
+
+#[cfg(feature = "cidr")]
+impl<Row: ?Sized> RowColumnList<Row> for cidr::IpInet {
+    type Columns = crate::Cons<cidr::IpInet, crate::Nil>;
+}
+
+#[cfg(feature = "cidr")]
+impl<Row: ?Sized> RowColumnList<Row> for cidr::IpCidr {
+    type Columns = crate::Cons<cidr::IpCidr, crate::Nil>;
+}
+
+#[cfg(feature = "geo-types")]
+impl<Row: ?Sized> RowColumnList<Row> for geo_types::Point<f64> {
+    type Columns = crate::Cons<geo_types::Point<f64>, crate::Nil>;
+}
+
+#[cfg(feature = "geo-types")]
+impl<Row: ?Sized> RowColumnList<Row> for geo_types::LineString<f64> {
+    type Columns = crate::Cons<geo_types::LineString<f64>, crate::Nil>;
+}
+
+#[cfg(feature = "geo-types")]
+impl<Row: ?Sized> RowColumnList<Row> for geo_types::Rect<f64> {
+    type Columns = crate::Cons<geo_types::Rect<f64>, crate::Nil>;
+}
+
+#[cfg(feature = "bit-vec")]
+impl<Row: ?Sized> RowColumnList<Row> for bit_vec::BitVec {
+    type Columns = crate::Cons<bit_vec::BitVec, crate::Nil>;
+}
+
 #[cfg(feature = "arrayvec")]
 impl<Row: ?Sized, const N: usize> RowColumnList<Row> for arrayvec::ArrayString<N> {
     type Columns = crate::Cons<arrayvec::ArrayString<N>, crate::Nil>;
@@ -582,6 +622,19 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     }
 }
 
+/// Trait for composite (multi-column) row types that support NULL probing.
+///
+/// Implementing this trait enables `Option<T>` to work as a `FromDrizzleRow`
+/// target, used for LEFT JOIN results where the joined table may be absent
+/// (all columns NULL).
+///
+/// Proc macros generate this for each `SelectModel`. Leaf types (i32, String,
+/// etc.) use concrete `Option<T>` impls instead.
+pub trait NullProbeRow<Row: ?Sized>: FromDrizzleRow<Row> {
+    /// Returns `true` if the first column at `offset` is NULL.
+    fn is_null_at(row: &Row, offset: usize) -> Result<bool, DrizzleError>;
+}
+
 // -- Tuple impls: generic over Row, composing inner impls --
 
 macro_rules! impl_from_drizzle_row_tuple {
@@ -734,6 +787,12 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Boolean 
     type RustType = bool;
 }
 
+#[cfg(feature = "rust-decimal")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Numeric {
+    type RustType = rust_decimal::Decimal;
+}
+
+#[cfg(not(feature = "rust-decimal"))]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Numeric {
     type RustType = crate::prelude::String;
 }
@@ -780,6 +839,51 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Json {
 #[cfg(feature = "serde")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Jsonb {
     type RustType = serde_json::Value;
+}
+
+// -- Feature-gated type marker mappings --
+
+#[cfg(feature = "chrono")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Interval {
+    type RustType = chrono::Duration;
+}
+
+#[cfg(feature = "cidr")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Inet {
+    type RustType = cidr::IpInet;
+}
+
+#[cfg(feature = "cidr")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Cidr {
+    type RustType = cidr::IpCidr;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::MacAddr {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::MacAddr8 {
+    type RustType = crate::prelude::String;
+}
+
+#[cfg(feature = "geo-types")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Point {
+    type RustType = geo_types::Point<f64>;
+}
+
+#[cfg(feature = "geo-types")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::LineString {
+    type RustType = geo_types::LineString<f64>;
+}
+
+#[cfg(feature = "geo-types")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Rect {
+    type RustType = geo_types::Rect<f64>;
+}
+
+#[cfg(feature = "bit-vec")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::BitString {
+    type RustType = bit_vec::BitVec;
 }
 
 // =============================================================================
