@@ -109,6 +109,56 @@ sqlite_test!(test_prepared_get_single_row, SimpleSchema, {
     assert_eq!(result.name, "UniqueUser");
 });
 
+sqlite_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            => execute
+    );
+
+    let name = simple.name.placeholder("name");
+    let prepared = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, name))
+        .prepare();
+
+    let err = prepared.all::<SelectSimple>(db.conn(), []).unwrap_err();
+    assert!(
+        matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
+        "unexpected error: {err:?}"
+    );
+});
+
+sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("Alice")])
+            => execute
+    );
+
+    let name = simple.name.placeholder("name");
+    let extra = simple.name.placeholder("extra");
+
+    let prepared = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, name))
+        .prepare();
+
+    let err = prepared
+        .all::<SelectSimple>(db.conn(), [name.bind("Alice"), extra.bind("ignored")])
+        .unwrap_err();
+    assert!(
+        matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
+        "unexpected error: {err:?}"
+    );
+});
+
 sqlite_test!(test_prepared_execute_insert, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 

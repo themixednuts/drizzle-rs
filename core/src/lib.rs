@@ -74,7 +74,7 @@ pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{BuilderInit, ExecutableState};
 pub use dialect::{Dialect, DialectExt, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
-pub use param::{OwnedParam, Param, ParamBind};
+pub use param::{OwnedParam, Param, ParamBind, ParamSet};
 pub use placeholder::*;
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{

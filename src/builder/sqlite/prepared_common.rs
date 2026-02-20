@@ -12,7 +12,7 @@ macro_rules! sqlite_async_prepared_impl {
                     >,
                 >,
             ) -> drizzle_core::error::Result<u64> {
-                let (sql_str, params) = self.inner.bind(params);
+                let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
 
@@ -34,7 +34,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
-                let (sql_str, params) = self.inner.bind(params);
+                let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
 
@@ -64,7 +64,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
-                let (sql_str, params) = self.inner.bind(params);
+                let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
@@ -89,7 +89,7 @@ macro_rules! sqlite_async_prepared_impl {
                     >,
                 >,
             ) -> drizzle_core::error::Result<u64> {
-                let (sql_str, params) = self.inner.bind(params);
+                let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
 
@@ -111,7 +111,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
-                let (sql_str, params) = self.inner.bind(params);
+                let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
@@ -140,7 +140,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
-                let (sql_str, params) = self.inner.bind(params);
+                let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
                 let mut rows = conn.fetch(sql_str, driver_params).await?;

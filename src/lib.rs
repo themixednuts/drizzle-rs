@@ -116,7 +116,7 @@ pub mod migrations {
 pub mod core {
     /// SQL building blocks.
     pub use drizzle_core::{
-        OrderBy, Param, ParamBind, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
+        OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.
@@ -196,7 +196,7 @@ pub mod sqlite {
         pub use crate::core::ToSQL;
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{
-            OrderBy, Param, ParamBind, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
+            OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
@@ -248,7 +248,7 @@ pub mod postgres {
         pub use crate::core::ToSQL;
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{
-            OrderBy, Param, ParamBind, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
+            OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
