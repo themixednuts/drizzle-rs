@@ -77,6 +77,14 @@ fn set_ops_sqlite_ui() {
     t.compile_fail("tests/ui/set_ops_sqlite/fail/*.rs");
 }
 
+#[cfg(feature = "rusqlite")]
+#[test]
+fn subquery_types_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/subquery_types_sqlite/pass/*.rs");
+    t.compile_fail("tests/ui/subquery_types_sqlite/fail/*.rs");
+}
+
 #[cfg(feature = "postgres")]
 #[test]
 fn set_ops_postgres_ui() {

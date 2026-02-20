@@ -129,6 +129,34 @@ let names: Vec<(String,)> = db
     .all()?;
 ```
 
+### Typed Subqueries
+
+`SELECT` builders are expressions, so you can pass them directly into comparison and set operators.
+
+```rust
+use drizzle::core::expr::{eq, gt, in_subquery, min, row};
+
+let min_id = db.select(min(users.id)).from(users);
+let newer: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where(gt(users.id, min_id))
+    .all()?;
+
+let exact_rows = db
+    .select((users.id, users.name))
+    .from(users)
+    .r#where(eq(users.name, "Alex Smith"));
+
+let matched: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where(in_subquery(row((users.id, users.name)), exact_rows))
+    .all()?;
+```
+
+Breaking change: `.into_scalar()` was removed. Use the typed `SELECT` builder directly.
+
 ### Insert
 
 ```rust
@@ -208,6 +236,43 @@ let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
 ```
 
 > PostgreSQL uses `PostgresTransactionType` (e.g. `ReadCommitted`, `Serializable`) instead.
+
+## Prepared Statements
+
+Typed placeholders are created from columns — wrong bind types fail at compile time.
+
+```rust
+use drizzle::core::expr::eq;
+
+let name = users.name.placeholder("name");
+
+let find = db
+    .select(())
+    .from(users)
+    .r#where(eq(users.name, name))
+    .prepare();
+
+let alice: Vec<SelectUsers> = find.all(db.conn(), [name.bind("Alice")])?;
+let bob: Vec<SelectUsers> = find.all(db.conn(), [name.bind("Bob")])?;
+// name.bind(42) — compile error: Integer is not compatible with Text
+```
+
+Placeholders work in update (and insert) models too:
+
+```rust
+let new_name = users.name.placeholder("new_name");
+let target = users.id.placeholder("target");
+
+let stmt = db
+    .update(users)
+    .set(UpdateUsers::default().with_name(new_name))
+    .r#where(eq(users.id, target))
+    .prepare();
+
+stmt.execute(db.conn(), [new_name.bind("New Name"), target.bind(1)])?;
+```
+
+> Use `.prepare().into_owned()` to store a prepared statement beyond the current borrow scope.
 
 ## Joins
 
