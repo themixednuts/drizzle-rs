@@ -1382,3 +1382,200 @@ sqlite_test!(test_inferred_current_timestamp, SimpleSchema, {
     assert!(result[0].now.contains(' '));
     assert!(result[0].now.contains(':'));
 });
+
+// =============================================================================
+// CASE / WHEN expressions
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct CaseNonNullResult {
+    label: String,
+}
+
+#[derive(Debug, SQLiteFromRow)]
+struct CaseNullableResult {
+    label: Option<String>,
+}
+
+sqlite_test!(test_case_when_with_else, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(10),
+        InsertSimple::new("bob").with_id(25),
+        InsertSimple::new("charlie").with_id(70),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // CASE with ELSE where all branches are NonNull → result is NonNull
+    let results: Vec<CaseNonNullResult> = drizzle_exec!(
+        db.select(alias(
+            case()
+                .when(gt(simple.id, 65), "Senior")
+                .when(gt(simple.id, 18), "Adult")
+                .r#else("Minor"),
+            "label",
+        ))
+        .from(simple)
+        .order_by(asc(simple.id))
+            => all
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].label, "Minor"); // id=10
+    assert_eq!(results[1].label, "Adult"); // id=25
+    assert_eq!(results[2].label, "Senior"); // id=70
+});
+
+sqlite_test!(test_case_when_no_else, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(10),
+        InsertSimple::new("bob").with_id(25),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // Without ELSE, unmatched rows produce NULL → result is always Null
+    let results: Vec<CaseNullableResult> = drizzle_exec!(
+        db.select(alias(
+            case()
+                .when(gt(simple.id, 20), "Big")
+                .end(),
+            "label",
+        ))
+        .from(simple)
+        .order_by(asc(simple.id))
+            => all
+    );
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].label, None); // id=10, no match
+    assert_eq!(results[1].label.as_deref(), Some("Big")); // id=25
+});
+
+// =============================================================================
+// Window functions
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct RowNumberResult {
+    name: String,
+    rn: i64,
+}
+
+sqlite_test!(test_window_row_number, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let results: Vec<RowNumberResult> = drizzle_exec!(
+        db.select((
+            simple.name,
+            alias(
+                row_number().over(window().order_by(asc(simple.id))),
+                "rn",
+            ),
+        ))
+        .from(simple)
+            => all
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alice");
+    assert_eq!(results[0].rn, 1);
+    assert_eq!(results[1].name, "bob");
+    assert_eq!(results[1].rn, 2);
+    assert_eq!(results[2].name, "charlie");
+    assert_eq!(results[2].rn, 3);
+});
+
+#[derive(Debug, SQLiteFromRow)]
+struct RunningSumResult {
+    name: String,
+    running_total: Option<i32>,
+}
+
+sqlite_test!(test_window_sum_over, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(10),
+        InsertSimple::new("bob").with_id(20),
+        InsertSimple::new("charlie").with_id(30),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // Running sum of id ordered by id
+    let results: Vec<RunningSumResult> = drizzle_exec!(
+        db.select((
+            simple.name,
+            alias(
+                sum(simple.id).over(
+                    window()
+                        .order_by(asc(simple.id))
+                        .rows_between(
+                            FrameBound::UnboundedPreceding,
+                            FrameBound::CurrentRow,
+                        )
+                ),
+                "running_total",
+            ),
+        ))
+        .from(simple)
+            => all
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].running_total, Some(10)); // 10
+    assert_eq!(results[1].running_total, Some(30)); // 10+20
+    assert_eq!(results[2].running_total, Some(60)); // 10+20+30
+});
+
+#[derive(Debug, SQLiteFromRow)]
+struct RankResult {
+    name: String,
+    rnk: i64,
+}
+
+sqlite_test!(test_window_dense_rank, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let results: Vec<RankResult> = drizzle_exec!(
+        db.select((
+            simple.name,
+            alias(
+                dense_rank().over(window().order_by(asc(simple.id))),
+                "rnk",
+            ),
+        ))
+        .from(simple)
+        .order_by(asc(simple.id))
+            => all
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alice");
+    assert_eq!(results[0].rnk, 1);
+    assert_eq!(results[1].name, "bob");
+    assert_eq!(results[1].rnk, 2);
+    assert_eq!(results[2].name, "charlie");
+    assert_eq!(results[2].rnk, 3);
+});

@@ -860,6 +860,17 @@ where
     }
 }
 
+impl<'a, S, State, T, M, R> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
+    for SelectBuilder<'a, S, State, T, M, R>
+where
+    State: ExecutableState,
+    M: drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>,
+{
+    type SQLType = <M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType;
+    type Nullable = drizzle_core::expr::Null;
+    type Aggregate = drizzle_core::expr::Scalar;
+}
+
 impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
     /// Sorts the results of a set operation.
     pub fn order_by<TOrderBy>(
