@@ -70,7 +70,7 @@ pub mod tracing;
 pub mod types;
 
 // Re-export key types and traits
-pub use bind::{BindValue, ValueTypeForDialect};
+pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{BuilderInit, ExecutableState};
 pub use dialect::{Dialect, DialectExt, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};

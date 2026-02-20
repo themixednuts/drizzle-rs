@@ -1,5 +1,5 @@
-use crate::bind::BindValue;
-use crate::expr::{Expr, NonNull, Scalar};
+use crate::bind::{BindValue, NullableBindValue};
+use crate::expr::{Expr, NonNull, Null, Nullability, Scalar};
 use crate::param::ParamBind;
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::DataType;
@@ -19,9 +19,9 @@ pub struct Placeholder {
 
 /// A placeholder that carries the expected SQL type at compile time.
 #[derive(Default, Debug, Clone, Hash, Copy, PartialEq, Eq)]
-pub struct TypedPlaceholder<T: DataType> {
+pub struct TypedPlaceholder<T: DataType, N: Nullability = NonNull> {
     inner: Placeholder,
-    _ty: PhantomData<fn() -> T>,
+    _marker: PhantomData<fn() -> (T, N)>,
 }
 
 impl Placeholder {
@@ -41,18 +41,29 @@ impl Placeholder {
     }
 
     /// Creates a typed named placeholder.
-    pub const fn typed<T: DataType>(name: &'static str) -> TypedPlaceholder<T> {
+    pub const fn typed<T: DataType>(name: &'static str) -> TypedPlaceholder<T, NonNull> {
         TypedPlaceholder {
             inner: Self::named(name),
-            _ty: PhantomData,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Creates a typed nullable named placeholder.
+    pub const fn typed_nullable<T: DataType>(name: &'static str) -> TypedPlaceholder<T, Null> {
+        TypedPlaceholder {
+            inner: Self::named(name),
+            _marker: PhantomData,
         }
     }
 }
 
-impl<T: DataType> TypedPlaceholder<T> {
+impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
     /// Creates a typed named placeholder.
     pub const fn named(name: &'static str) -> Self {
-        Placeholder::typed::<T>(name)
+        Self {
+            inner: Placeholder::named(name),
+            _marker: PhantomData,
+        }
     }
 
     /// Binds a value to this placeholder with compile-time SQL type checking.
@@ -78,8 +89,22 @@ impl<T: DataType> TypedPlaceholder<T> {
     }
 }
 
-impl<T: DataType> From<TypedPlaceholder<T>> for Placeholder {
-    fn from(value: TypedPlaceholder<T>) -> Self {
+impl<T: DataType> TypedPlaceholder<T, Null> {
+    /// Binds an optional value to a nullable placeholder.
+    pub fn bind_opt<'a, V, R>(self, value: Option<R>) -> ParamBind<'a, V>
+    where
+        V: SQLParam,
+        Option<R>: NullableBindValue<'a, V, T>,
+    {
+        ParamBind {
+            name: self.inner.name.unwrap_or(""),
+            value: value.into_nullable_bind_value(),
+        }
+    }
+}
+
+impl<T: DataType, N: Nullability> From<TypedPlaceholder<T, N>> for Placeholder {
+    fn from(value: TypedPlaceholder<T, N>) -> Self {
         value.inner
     }
 }
@@ -101,15 +126,15 @@ impl<'a, V: SQLParam + 'a> Expr<'a, V> for Placeholder {
     type Aggregate = Scalar;
 }
 
-impl<'a, V: SQLParam + 'a, T: DataType> ToSQL<'a, V> for TypedPlaceholder<T> {
+impl<'a, V: SQLParam + 'a, T: DataType, N: Nullability> ToSQL<'a, V> for TypedPlaceholder<T, N> {
     fn to_sql(&self) -> SQL<'a, V> {
         self.inner.to_sql()
     }
 }
 
-impl<'a, V: SQLParam + 'a, T: DataType> Expr<'a, V> for TypedPlaceholder<T> {
+impl<'a, V: SQLParam + 'a, T: DataType, N: Nullability> Expr<'a, V> for TypedPlaceholder<T, N> {
     type SQLType = T;
-    type Nullable = NonNull;
+    type Nullable = N;
     type Aggregate = Scalar;
 }
 

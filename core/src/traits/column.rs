@@ -56,7 +56,10 @@ pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     fn placeholder(
         &self,
         name: &'static str,
-    ) -> crate::placeholder::TypedPlaceholder<<Self as Expr<'a, Value>>::SQLType>
+    ) -> crate::placeholder::TypedPlaceholder<
+        <Self as Expr<'a, Value>>::SQLType,
+        <Self as Expr<'a, Value>>::Nullable,
+    >
     where
         Self: Sized,
     {

@@ -1,25 +1,17 @@
-error[E0277]: SQL type `drizzle::sqlite::types::Integer` is not compatible with `drizzle::sqlite::types::Text`
+error[E0271]: type mismatch resolving `<&str as ValueTypeForDialect<SQLiteDialect>>::SQLType == Integer`
   --> tests/ui/raw_sql/fail/typed_param_tag_mismatch.rs:25:34
    |
 25 |         .all(db.conn(), [id.bind("thisisntnumbersoshouldfail")])
-   |                             ---- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |                             ---- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Integer`, found `Text`
    |                             |
    |                             required by a bound introduced by this call
    |
-   = help: the trait `Compatible<drizzle::sqlite::types::Text>` is not implemented for `drizzle::sqlite::types::Integer`
-   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
-   = help: the following other types implement trait `Compatible<Rhs>`:
-             `drizzle::sqlite::types::Integer` implements `Compatible<Placeholder>`
-             `drizzle::sqlite::types::Integer` implements `Compatible<drizzle::sqlite::types::Any>`
-             `drizzle::sqlite::types::Integer` implements `Compatible<drizzle::sqlite::types::Numeric>`
-             `drizzle::sqlite::types::Integer` implements `Compatible<drizzle::sqlite::types::Real>`
-             `drizzle::sqlite::types::Integer` implements `Compatible`
    = note: required for `&str` to implement `drizzle_core::bind::BindValue<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer>`
-note: required by a bound in `TypedPlaceholder::<T>::bind`
+note: required by a bound in `TypedPlaceholder::<T, N>::bind`
   --> core/src/placeholder.rs
    |
    |     pub fn bind<'a, V, R>(self, value: R) -> ParamBind<'a, V>
    |            ---- required by a bound in this associated function
 ...
    |         R: BindValue<'a, V, T>,
-   |            ^^^^^^^^^^^^^^^^^^^ required by this bound in `TypedPlaceholder::<T>::bind`
+   |            ^^^^^^^^^^^^^^^^^^^ required by this bound in `TypedPlaceholder::<T, N>::bind`

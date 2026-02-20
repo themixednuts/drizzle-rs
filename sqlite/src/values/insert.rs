@@ -97,10 +97,10 @@ impl<'a, T> From<Placeholder> for SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
     }
 }
 
-impl<'a, M: drizzle_core::types::DataType, T> From<TypedPlaceholder<M>>
-    for SQLiteInsertValue<'a, SQLiteValue<'a>, T>
+impl<'a, M: drizzle_core::types::DataType, N: drizzle_core::expr::Nullability, T>
+    From<TypedPlaceholder<M, N>> for SQLiteInsertValue<'a, SQLiteValue<'a>, T>
 {
-    fn from(typed: TypedPlaceholder<M>) -> Self {
+    fn from(typed: TypedPlaceholder<M, N>) -> Self {
         Placeholder::from(typed).into()
     }
 }

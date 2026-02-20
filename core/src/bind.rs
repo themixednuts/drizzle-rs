@@ -1,21 +1,26 @@
 use crate::dialect::{PostgresDialect, SQLiteDialect};
 use crate::traits::SQLParam;
-use crate::types::{Compatible, DataType};
+use crate::types::{Assignable, DataType};
 
 /// Maps a Rust value type to its SQL marker for a specific dialect.
 pub trait ValueTypeForDialect<D> {
     type SQLType: DataType;
 }
 
-/// Converts a Rust value into a dialect value while checking SQL marker compatibility.
+/// Converts a Rust value into a dialect value while checking SQL marker assignment.
 pub trait BindValue<'a, V: SQLParam, Expected: DataType>: Sized {
     fn into_bind_value(self) -> V;
+}
+
+/// Converts an optional Rust value into a nullable dialect value.
+pub trait NullableBindValue<'a, V: SQLParam, Expected: DataType>: Sized {
+    fn into_nullable_bind_value(self) -> V;
 }
 
 impl<'a, V, Expected, T> BindValue<'a, V, Expected> for T
 where
     V: SQLParam + From<T>,
-    Expected: DataType + Compatible<<T as ValueTypeForDialect<V::DialectMarker>>::SQLType>,
+    Expected: DataType + Assignable<<T as ValueTypeForDialect<V::DialectMarker>>::SQLType>,
     T: ValueTypeForDialect<V::DialectMarker>,
 {
     fn into_bind_value(self) -> V {
@@ -23,11 +28,15 @@ where
     }
 }
 
-impl<D, T> ValueTypeForDialect<D> for Option<T>
+impl<'a, V, Expected, T> NullableBindValue<'a, V, Expected> for Option<T>
 where
-    T: ValueTypeForDialect<D>,
+    V: SQLParam + From<Option<T>>,
+    Expected: DataType + Assignable<<T as ValueTypeForDialect<V::DialectMarker>>::SQLType>,
+    T: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = T::SQLType;
+    fn into_nullable_bind_value(self) -> V {
+        V::from(self)
+    }
 }
 
 macro_rules! impl_sqlite_integer {
