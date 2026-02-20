@@ -1740,6 +1740,7 @@ version = "0.1.5"
 dependencies = [
  "arrayvec",
  "bytes",
+ "chrono",
  "compact_str",
  "drizzle-core",
  "drizzle-macros",
@@ -1749,10 +1750,12 @@ dependencies = [
  "paste",
  "puffin",
  "rusqlite",
+ "rust_decimal",
  "serde",
  "serde_json",
  "smallvec",
  "thiserror 2.0.18",
+ "time",
  "turso",
  "uuid",
 ]

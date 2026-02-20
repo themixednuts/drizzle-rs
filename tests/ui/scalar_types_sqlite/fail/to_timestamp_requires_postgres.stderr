@@ -4,8 +4,8 @@ error[E0277]: this date/time function is not available for this dialect
 5 |     let _ = to_timestamp(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Integer>("1700000000"));
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
   |
-  = help: the trait `PostgresDateTimeSupport` is not implemented for `drizzle_core::dialect::SQLiteDialect`
-help: the trait `PostgresDateTimeSupport` is implemented for `drizzle_core::dialect::PostgresDialect`
+  = help: the trait `PostgresDateTimeSupport` is not implemented for `SQLiteDialect`
+help: the trait `PostgresDateTimeSupport` is implemented for `PostgresDialect`
  --> core/src/expr/datetime.rs
   |
   | impl PostgresDateTimeSupport for PostgresDialect {}

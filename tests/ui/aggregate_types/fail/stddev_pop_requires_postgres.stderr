@@ -6,7 +6,7 @@ error[E0277]: no statistical aggregate policy for `drizzle::sqlite::types::Integ
   |             |
   |             required by a bound introduced by this call
   |
-  = help: the trait `StatisticalAggregatePolicy<drizzle_core::dialect::SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
+  = help: the trait `StatisticalAggregatePolicy<SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
   = help: the following other types implement trait `StatisticalAggregatePolicy<D>`:
             Float4
             Float8
@@ -29,7 +29,7 @@ error[E0277]: no statistical aggregate policy for `drizzle::sqlite::types::Integ
 5 |     let _ = stddev_pop(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Integer>("1"));
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ stddev/variance result type is not defined for this SQL type/dialect
   |
-  = help: the trait `StatisticalAggregatePolicy<drizzle_core::dialect::SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
+  = help: the trait `StatisticalAggregatePolicy<SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
   = help: the following other types implement trait `StatisticalAggregatePolicy<D>`:
             Float4
             Float8

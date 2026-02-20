@@ -130,6 +130,50 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
+    /// Convert from a DATE value (time crate)
+    #[cfg(feature = "time")]
+    fn from_postgres_time_date(value: time::Date) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert DATE (time) {:?} to target type", value).into(),
+        ))
+    }
+
+    /// Convert from a TIME value (time crate)
+    #[cfg(feature = "time")]
+    fn from_postgres_time_time(value: time::Time) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert TIME (time) {:?} to target type", value).into(),
+        ))
+    }
+
+    /// Convert from a TIMESTAMP value (time crate)
+    #[cfg(feature = "time")]
+    fn from_postgres_time_timestamp(value: time::PrimitiveDateTime) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert TIMESTAMP (time) {:?} to target type", value).into(),
+        ))
+    }
+
+    /// Convert from a TIMESTAMPTZ value (time crate)
+    #[cfg(feature = "time")]
+    fn from_postgres_time_timestamptz(value: time::OffsetDateTime) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!(
+                "cannot convert TIMESTAMPTZ (time) {:?} to target type",
+                value
+            )
+            .into(),
+        ))
+    }
+
+    /// Convert from an INTERVAL value (time crate)
+    #[cfg(feature = "time")]
+    fn from_postgres_time_interval(value: time::Duration) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert INTERVAL (time) {:?} to target type", value).into(),
+        ))
+    }
+
     /// Convert from an INET value
     #[cfg(feature = "cidr")]
     fn from_postgres_inet(value: cidr::IpInet) -> Result<Self, DrizzleError> {
@@ -984,6 +1028,31 @@ impl<T: FromPostgresValue> FromPostgresValue for Option<T> {
     #[cfg(feature = "chrono")]
     fn from_postgres_interval(value: chrono::Duration) -> Result<Self, DrizzleError> {
         T::from_postgres_interval(value).map(Some)
+    }
+
+    #[cfg(feature = "time")]
+    fn from_postgres_time_date(value: time::Date) -> Result<Self, DrizzleError> {
+        T::from_postgres_time_date(value).map(Some)
+    }
+
+    #[cfg(feature = "time")]
+    fn from_postgres_time_time(value: time::Time) -> Result<Self, DrizzleError> {
+        T::from_postgres_time_time(value).map(Some)
+    }
+
+    #[cfg(feature = "time")]
+    fn from_postgres_time_timestamp(value: time::PrimitiveDateTime) -> Result<Self, DrizzleError> {
+        T::from_postgres_time_timestamp(value).map(Some)
+    }
+
+    #[cfg(feature = "time")]
+    fn from_postgres_time_timestamptz(value: time::OffsetDateTime) -> Result<Self, DrizzleError> {
+        T::from_postgres_time_timestamptz(value).map(Some)
+    }
+
+    #[cfg(feature = "time")]
+    fn from_postgres_time_interval(value: time::Duration) -> Result<Self, DrizzleError> {
+        T::from_postgres_time_interval(value).map(Some)
     }
 
     #[cfg(feature = "cidr")]
@@ -3081,6 +3150,55 @@ impl FromPostgresValue for chrono::Duration {
     impl_from_postgres_value_errors!("Duration");
 
     fn from_postgres_interval(value: chrono::Duration) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+// =============================================================================
+// Time crate support (when feature enabled)
+// =============================================================================
+
+#[cfg(feature = "time")]
+impl FromPostgresValue for time::Date {
+    impl_from_postgres_value_errors!("time::Date");
+
+    fn from_postgres_time_date(value: time::Date) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromPostgresValue for time::Time {
+    impl_from_postgres_value_errors!("time::Time");
+
+    fn from_postgres_time_time(value: time::Time) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromPostgresValue for time::PrimitiveDateTime {
+    impl_from_postgres_value_errors!("time::PrimitiveDateTime");
+
+    fn from_postgres_time_timestamp(value: time::PrimitiveDateTime) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromPostgresValue for time::OffsetDateTime {
+    impl_from_postgres_value_errors!("time::OffsetDateTime");
+
+    fn from_postgres_time_timestamptz(value: time::OffsetDateTime) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromPostgresValue for time::Duration {
+    impl_from_postgres_value_errors!("time::Duration");
+
+    fn from_postgres_time_interval(value: time::Duration) -> Result<Self, DrizzleError> {
         Ok(value)
     }
 }

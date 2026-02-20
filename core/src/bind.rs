@@ -353,6 +353,71 @@ impl ValueTypeForDialect<PostgresDialect> for &rust_decimal::Decimal {
     type SQLType = drizzle_types::postgres::types::Numeric;
 }
 
+#[cfg(feature = "chrono")]
+impl ValueTypeForDialect<SQLiteDialect> for chrono::NaiveDate {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "chrono")]
+impl ValueTypeForDialect<SQLiteDialect> for chrono::NaiveTime {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "chrono")]
+impl ValueTypeForDialect<SQLiteDialect> for chrono::NaiveDateTime {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "chrono")]
+impl ValueTypeForDialect<SQLiteDialect> for chrono::DateTime<chrono::FixedOffset> {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "chrono")]
+impl ValueTypeForDialect<SQLiteDialect> for chrono::DateTime<chrono::Utc> {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "chrono")]
+impl ValueTypeForDialect<SQLiteDialect> for chrono::Duration {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<SQLiteDialect> for time::Date {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<SQLiteDialect> for time::Time {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<SQLiteDialect> for time::PrimitiveDateTime {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<SQLiteDialect> for time::OffsetDateTime {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<SQLiteDialect> for time::Duration {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "rust-decimal")]
+impl ValueTypeForDialect<SQLiteDialect> for rust_decimal::Decimal {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
+#[cfg(feature = "rust-decimal")]
+impl ValueTypeForDialect<SQLiteDialect> for &rust_decimal::Decimal {
+    type SQLType = drizzle_types::sqlite::types::Text;
+}
+
 #[cfg(feature = "serde")]
 impl ValueTypeForDialect<SQLiteDialect> for serde_json::Value {
     type SQLType = drizzle_types::sqlite::types::Text;
@@ -496,4 +561,34 @@ impl ValueTypeForDialect<PostgresDialect> for Vec<f64> {
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ValueTypeForDialect<PostgresDialect> for Vec<bool> {
     type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Boolean>;
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "uuid"))]
+impl ValueTypeForDialect<PostgresDialect> for Vec<uuid::Uuid> {
+    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Uuid>;
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
+impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::NaiveDate> {
+    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Date>;
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
+impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::NaiveTime> {
+    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Time>;
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
+impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::NaiveDateTime> {
+    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Timestamp>;
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
+impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::DateTime<chrono::Utc>> {
+    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Timestamptz>;
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "rust-decimal"))]
+impl ValueTypeForDialect<PostgresDialect> for Vec<rust_decimal::Decimal> {
+    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Numeric>;
 }

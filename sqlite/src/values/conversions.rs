@@ -368,6 +368,212 @@ impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> 
     }
 }
 
+// --- Chrono Date/Time Types (stored as ISO-8601 text) ---
+
+#[cfg(feature = "chrono")]
+impl<'a> From<chrono::NaiveDate> for SQLiteValue<'a> {
+    fn from(value: chrono::NaiveDate) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<&chrono::NaiveDate> for SQLiteValue<'a> {
+    fn from(value: &chrono::NaiveDate) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<chrono::NaiveTime> for SQLiteValue<'a> {
+    fn from(value: chrono::NaiveTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<&chrono::NaiveTime> for SQLiteValue<'a> {
+    fn from(value: &chrono::NaiveTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<chrono::NaiveDateTime> for SQLiteValue<'a> {
+    fn from(value: chrono::NaiveDateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<&chrono::NaiveDateTime> for SQLiteValue<'a> {
+    fn from(value: &chrono::NaiveDateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<chrono::DateTime<chrono::FixedOffset>> for SQLiteValue<'a> {
+    fn from(value: chrono::DateTime<chrono::FixedOffset>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<&chrono::DateTime<chrono::FixedOffset>> for SQLiteValue<'a> {
+    fn from(value: &chrono::DateTime<chrono::FixedOffset>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<chrono::DateTime<chrono::Utc>> for SQLiteValue<'a> {
+    fn from(value: chrono::DateTime<chrono::Utc>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<&chrono::DateTime<chrono::Utc>> for SQLiteValue<'a> {
+    fn from(value: &chrono::DateTime<chrono::Utc>) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<chrono::Duration> for SQLiteValue<'a> {
+    fn from(value: chrono::Duration) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<&chrono::Duration> for SQLiteValue<'a> {
+    fn from(value: &chrono::Duration) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+// --- Time crate Date/Time Types (stored as ISO-8601 text) ---
+
+#[cfg(feature = "time")]
+impl<'a> From<time::Date> for SQLiteValue<'a> {
+    fn from(value: time::Date) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&time::Date> for SQLiteValue<'a> {
+    fn from(value: &time::Date) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<time::Time> for SQLiteValue<'a> {
+    fn from(value: time::Time) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&time::Time> for SQLiteValue<'a> {
+    fn from(value: &time::Time) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<time::PrimitiveDateTime> for SQLiteValue<'a> {
+    fn from(value: time::PrimitiveDateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&time::PrimitiveDateTime> for SQLiteValue<'a> {
+    fn from(value: &time::PrimitiveDateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<time::OffsetDateTime> for SQLiteValue<'a> {
+    fn from(value: time::OffsetDateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&time::OffsetDateTime> for SQLiteValue<'a> {
+    fn from(value: &time::OffsetDateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(
+            value
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<time::Duration> for SQLiteValue<'a> {
+    fn from(value: time::Duration) -> Self {
+        SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&time::Duration> for SQLiteValue<'a> {
+    fn from(value: &time::Duration) -> Self {
+        SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
+    }
+}
+
+// --- Decimal (stored as text for lossless round-trip) ---
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> From<rust_decimal::Decimal> for SQLiteValue<'a> {
+    fn from(value: rust_decimal::Decimal) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> From<&rust_decimal::Decimal> for SQLiteValue<'a> {
+    fn from(value: &rust_decimal::Decimal) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
 // --- JSON ---
 
 #[cfg(feature = "serde")]
@@ -478,21 +684,30 @@ impl_try_from_sqlite_value!(
 #[cfg(feature = "uuid")]
 impl_try_from_sqlite_value!(Uuid);
 
-#[cfg(feature = "serde")]
-impl TryFrom<SQLiteValue<'_>> for serde_json::Value {
-    type Error = DrizzleError;
+#[cfg(feature = "chrono")]
+impl_try_from_sqlite_value!(
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::DateTime<chrono::Utc>,
+    chrono::Duration,
+);
 
-    fn try_from(value: SQLiteValue<'_>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Text(cow) => serde_json::from_str(cow.as_ref()).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
-            }),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to serde_json::Value", value).into(),
-            )),
-        }
-    }
-}
+#[cfg(feature = "time")]
+impl_try_from_sqlite_value!(
+    time::Date,
+    time::Time,
+    time::PrimitiveDateTime,
+    time::OffsetDateTime,
+    time::Duration,
+);
+
+#[cfg(feature = "rust-decimal")]
+impl_try_from_sqlite_value!(rust_decimal::Decimal);
+
+#[cfg(feature = "serde")]
+impl_try_from_sqlite_value!(serde_json::Value);
 
 #[cfg(feature = "bytes")]
 impl_try_from_sqlite_value!(bytes::Bytes, bytes::BytesMut);
@@ -558,21 +773,30 @@ impl_try_from_sqlite_value_ref!(
 #[cfg(feature = "uuid")]
 impl_try_from_sqlite_value_ref!(Uuid);
 
-#[cfg(feature = "serde")]
-impl TryFrom<&SQLiteValue<'_>> for serde_json::Value {
-    type Error = DrizzleError;
+#[cfg(feature = "chrono")]
+impl_try_from_sqlite_value_ref!(
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::DateTime<chrono::Utc>,
+    chrono::Duration,
+);
 
-    fn try_from(value: &SQLiteValue<'_>) -> Result<Self, Self::Error> {
-        match value {
-            SQLiteValue::Text(cow) => serde_json::from_str(cow.as_ref()).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
-            }),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to serde_json::Value", value).into(),
-            )),
-        }
-    }
-}
+#[cfg(feature = "time")]
+impl_try_from_sqlite_value_ref!(
+    time::Date,
+    time::Time,
+    time::PrimitiveDateTime,
+    time::OffsetDateTime,
+    time::Duration,
+);
+
+#[cfg(feature = "rust-decimal")]
+impl_try_from_sqlite_value_ref!(rust_decimal::Decimal);
+
+#[cfg(feature = "serde")]
+impl_try_from_sqlite_value_ref!(serde_json::Value);
 
 #[cfg(feature = "bytes")]
 impl_try_from_sqlite_value_ref!(bytes::Bytes, bytes::BytesMut);

@@ -365,6 +365,21 @@ pub mod core {
     pub fn row_column_list() -> TokenStream {
         quote!(drizzle::core::RowColumnList)
     }
+
+    /// Path to the ValueTypeForDialect trait (bind parameter type mapping).
+    pub fn value_type_for_dialect() -> TokenStream {
+        quote!(drizzle::core::ValueTypeForDialect)
+    }
+
+    /// Path to the SQLiteDialect marker type.
+    pub fn sqlite_dialect() -> TokenStream {
+        quote!(drizzle::core::dialect::SQLiteDialect)
+    }
+
+    /// Path to the PostgresDialect marker type.
+    pub fn postgres_dialect() -> TokenStream {
+        quote!(drizzle::core::dialect::PostgresDialect)
+    }
 }
 
 // =============================================================================
@@ -425,6 +440,11 @@ pub mod sqlite {
 
     pub fn column_marker() -> TokenStream {
         quote!(drizzle::sqlite::attrs::ColumnMarker)
+    }
+
+    /// Path to the SQLite types module (Any, Integer, Text, Real, Blob, Numeric).
+    pub fn types() -> TokenStream {
+        quote!(drizzle::sqlite::types)
     }
 }
 
@@ -813,5 +833,15 @@ pub mod postgres {
 
     pub fn column_marker() -> TokenStream {
         quote!(drizzle::postgres::attrs::ColumnMarker)
+    }
+
+    /// Path to the PostgreSQL types module (Int2, Int4, Text, Enum, etc.).
+    pub fn types() -> TokenStream {
+        quote!(drizzle::postgres::types)
+    }
+
+    /// Path to the PostgresEnum trait.
+    pub fn postgres_enum_trait() -> TokenStream {
+        quote!(drizzle::postgres::traits::PostgresEnum)
     }
 }
