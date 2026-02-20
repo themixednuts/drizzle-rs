@@ -848,14 +848,29 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Interval
     type RustType = chrono::Duration;
 }
 
+#[cfg(not(feature = "chrono"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Interval {
+    type RustType = crate::prelude::String;
+}
+
 #[cfg(feature = "cidr")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Inet {
     type RustType = cidr::IpInet;
 }
 
+#[cfg(not(feature = "cidr"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Inet {
+    type RustType = crate::prelude::String;
+}
+
 #[cfg(feature = "cidr")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Cidr {
     type RustType = cidr::IpCidr;
+}
+
+#[cfg(not(feature = "cidr"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Cidr {
+    type RustType = crate::prelude::String;
 }
 
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::MacAddr {
@@ -871,9 +886,19 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Point {
     type RustType = geo_types::Point<f64>;
 }
 
+#[cfg(not(feature = "geo-types"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Point {
+    type RustType = crate::prelude::String;
+}
+
 #[cfg(feature = "geo-types")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::LineString {
     type RustType = geo_types::LineString<f64>;
+}
+
+#[cfg(not(feature = "geo-types"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::LineString {
+    type RustType = crate::prelude::String;
 }
 
 #[cfg(feature = "geo-types")]
@@ -881,9 +906,39 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Rect {
     type RustType = geo_types::Rect<f64>;
 }
 
+#[cfg(not(feature = "geo-types"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Rect {
+    type RustType = crate::prelude::String;
+}
+
 #[cfg(feature = "bit-vec")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::BitString {
     type RustType = bit_vec::BitVec;
+}
+
+#[cfg(not(feature = "bit-vec"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::BitString {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Line {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::LineSegment {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Polygon {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Circle {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Enum {
+    type RustType = crate::prelude::String;
 }
 
 // =============================================================================
@@ -1093,13 +1148,55 @@ pub trait AfterJoin<CurrentRow, JoinedTable> {
     type NewRow;
 }
 
+/// Determines the new row type after a LEFT JOIN.
+pub trait AfterLeftJoin<CurrentRow, JoinedTable> {
+    type NewRow;
+}
+
+/// Determines the new row type after a RIGHT JOIN.
+pub trait AfterRightJoin<CurrentRow, JoinedTable> {
+    type NewRow;
+}
+
+/// Determines the new row type after a FULL JOIN.
+pub trait AfterFullJoin<CurrentRow, JoinedTable> {
+    type NewRow;
+}
+
 /// `SELECT *` + JOIN → `(CurrentRow, JoinedTable::SelectModel)`.
 impl<R, T: HasSelectModel> AfterJoin<R, T> for SelectStar {
     type NewRow = (R, T::SelectModel);
 }
 
+/// `SELECT *` + LEFT JOIN → `(CurrentRow, Option<JoinedTable::SelectModel>)`.
+impl<R, T: HasSelectModel> AfterLeftJoin<R, T> for SelectStar {
+    type NewRow = (R, Option<T::SelectModel>);
+}
+
+/// `SELECT *` + RIGHT JOIN → `(Option<CurrentRow>, JoinedTable::SelectModel)`.
+impl<R, T: HasSelectModel> AfterRightJoin<R, T> for SelectStar {
+    type NewRow = (Option<R>, T::SelectModel);
+}
+
+/// `SELECT *` + FULL JOIN → `(Option<CurrentRow>, Option<JoinedTable::SelectModel>)`.
+impl<R, T: HasSelectModel> AfterFullJoin<R, T> for SelectStar {
+    type NewRow = (Option<R>, Option<T::SelectModel>);
+}
+
 /// Explicit columns + JOIN → R unchanged.
 impl<Cols, R, T> AfterJoin<R, T> for SelectCols<Cols> {
+    type NewRow = R;
+}
+
+impl<Cols, R, T> AfterLeftJoin<R, T> for SelectCols<Cols> {
+    type NewRow = R;
+}
+
+impl<Cols, R, T> AfterRightJoin<R, T> for SelectCols<Cols> {
+    type NewRow = R;
+}
+
+impl<Cols, R, T> AfterFullJoin<R, T> for SelectCols<Cols> {
     type NewRow = R;
 }
 
@@ -1108,14 +1205,59 @@ impl<R, T> AfterJoin<R, T> for SelectExpr {
     type NewRow = R;
 }
 
+impl<R, T> AfterLeftJoin<R, T> for SelectExpr {
+    type NewRow = R;
+}
+
+impl<R, T> AfterRightJoin<R, T> for SelectExpr {
+    type NewRow = R;
+}
+
+impl<R, T> AfterFullJoin<R, T> for SelectExpr {
+    type NewRow = R;
+}
+
 /// Explicit model + JOIN → R unchanged.
 impl<Row, R, T> AfterJoin<R, T> for SelectAs<Row> {
+    type NewRow = R;
+}
+
+impl<Row, R, T> AfterLeftJoin<R, T> for SelectAs<Row> {
+    type NewRow = R;
+}
+
+impl<Row, R, T> AfterRightJoin<R, T> for SelectAs<Row> {
+    type NewRow = R;
+}
+
+impl<Row, R, T> AfterFullJoin<R, T> for SelectAs<Row> {
     type NewRow = R;
 }
 
 impl<M, Scope, R, T> AfterJoin<R, T> for Scoped<M, Scope>
 where
     M: AfterJoin<R, T>,
+{
+    type NewRow = M::NewRow;
+}
+
+impl<M, Scope, R, T> AfterLeftJoin<R, T> for Scoped<M, Scope>
+where
+    M: AfterLeftJoin<R, T>,
+{
+    type NewRow = M::NewRow;
+}
+
+impl<M, Scope, R, T> AfterRightJoin<R, T> for Scoped<M, Scope>
+where
+    M: AfterRightJoin<R, T>,
+{
+    type NewRow = M::NewRow;
+}
+
+impl<M, Scope, R, T> AfterFullJoin<R, T> for Scoped<M, Scope>
+where
+    M: AfterFullJoin<R, T>,
 {
     type NewRow = M::NewRow;
 }

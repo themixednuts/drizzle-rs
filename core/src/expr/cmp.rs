@@ -22,7 +22,7 @@
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::{Compatible, Textual};
+use crate::types::{Compatible, DataType, Textual};
 
 use super::{Expr, NonNull, SQLExpr, Scalar};
 
@@ -44,6 +44,28 @@ where
         right_sql
     };
     left.into_sql().push(operator).append(right_sql)
+}
+
+/// Operand accepted by comparison helpers.
+///
+/// For normal expressions this enforces `Expected: Compatible<Rhs::SQLType>`.
+/// For [`Placeholder`], the SQL type is inferred from `Expected` so placeholders
+/// back-propagate type information from the compared expression.
+pub trait ComparisonOperand<'a, V, Expected>: ToSQL<'a, V>
+where
+    V: SQLParam + 'a,
+    Expected: DataType,
+{
+    type SQLType: DataType;
+}
+
+impl<'a, V, Expected, R> ComparisonOperand<'a, V, Expected> for R
+where
+    V: SQLParam + 'a,
+    Expected: DataType + Compatible<R::SQLType>,
+    R: Expr<'a, V>,
+{
+    type SQLType = R::SQLType;
 }
 
 // =============================================================================
@@ -73,8 +95,7 @@ pub fn eq<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
-    L::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     SQLExpr::new(binary_op(left, Token::EQ, right))
 }
@@ -89,8 +110,7 @@ pub fn neq<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
-    L::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     SQLExpr::new(binary_op(left, Token::NE, right))
 }
@@ -109,8 +129,7 @@ pub fn gt<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
-    L::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     SQLExpr::new(binary_op(left, Token::GT, right))
 }
@@ -125,8 +144,7 @@ pub fn gte<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
-    L::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     SQLExpr::new(binary_op(left, Token::GE, right))
 }
@@ -141,8 +159,7 @@ pub fn lt<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
-    L::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     SQLExpr::new(binary_op(left, Token::LT, right))
 }
@@ -157,8 +174,7 @@ pub fn lte<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
-    L::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     SQLExpr::new(binary_op(left, Token::LE, right))
 }
@@ -187,9 +203,9 @@ pub fn like<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
     L::SQLType: Textual,
-    R::SQLType: Textual,
+    <R as ComparisonOperand<'a, V, L::SQLType>>::SQLType: Textual,
 {
     SQLExpr::new(left.into_sql().push(Token::LIKE).append(pattern.into_sql()))
 }
@@ -204,9 +220,9 @@ pub fn not_like<'a, V, L, R>(
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
-    R: Expr<'a, V>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
     L::SQLType: Textual,
-    R::SQLType: Textual,
+    <R as ComparisonOperand<'a, V, L::SQLType>>::SQLType: Textual,
 {
     SQLExpr::new(
         left.into_sql()
@@ -232,9 +248,8 @@ pub fn between<'a, V, E, L, H>(
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    L: Expr<'a, V>,
-    H: Expr<'a, V>,
-    E::SQLType: Compatible<L::SQLType> + Compatible<H::SQLType>,
+    L: ComparisonOperand<'a, V, E::SQLType>,
+    H: ComparisonOperand<'a, V, E::SQLType>,
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
@@ -258,9 +273,8 @@ pub fn not_between<'a, V, E, L, H>(
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    L: Expr<'a, V>,
-    H: Expr<'a, V>,
-    E::SQLType: Compatible<L::SQLType> + Compatible<H::SQLType>,
+    L: ComparisonOperand<'a, V, E::SQLType>,
+    H: ComparisonOperand<'a, V, E::SQLType>,
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
@@ -339,8 +353,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         other: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
-        Self::SQLType: Compatible<R::SQLType>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
     {
         eq(self, other)
     }
@@ -355,8 +368,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         other: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
-        Self::SQLType: Compatible<R::SQLType>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
     {
         neq(self, other)
     }
@@ -371,8 +383,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         other: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
-        Self::SQLType: Compatible<R::SQLType>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
     {
         gt(self, other)
     }
@@ -387,8 +398,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         other: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
-        Self::SQLType: Compatible<R::SQLType>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
     {
         gte(self, other)
     }
@@ -403,8 +413,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         other: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
-        Self::SQLType: Compatible<R::SQLType>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
     {
         lt(self, other)
     }
@@ -419,8 +428,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         other: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
-        Self::SQLType: Compatible<R::SQLType>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
     {
         lte(self, other)
     }
@@ -435,9 +443,9 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         pattern: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
         Self::SQLType: Textual,
-        R::SQLType: Textual,
+        <R as ComparisonOperand<'a, V, Self::SQLType>>::SQLType: Textual,
     {
         like(self, pattern)
     }
@@ -452,9 +460,9 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         pattern: R,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        R: Expr<'a, V>,
+        R: ComparisonOperand<'a, V, Self::SQLType>,
         Self::SQLType: Textual,
-        R::SQLType: Textual,
+        <R as ComparisonOperand<'a, V, Self::SQLType>>::SQLType: Textual,
     {
         not_like(self, pattern)
     }
@@ -494,9 +502,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         high: H,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        L: Expr<'a, V>,
-        H: Expr<'a, V>,
-        Self::SQLType: Compatible<L::SQLType> + Compatible<H::SQLType>,
+        L: ComparisonOperand<'a, V, Self::SQLType>,
+        H: ComparisonOperand<'a, V, Self::SQLType>,
     {
         between(self, low, high)
     }
@@ -514,9 +521,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         high: H,
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
-        L: Expr<'a, V>,
-        H: Expr<'a, V>,
-        Self::SQLType: Compatible<L::SQLType> + Compatible<H::SQLType>,
+        L: ComparisonOperand<'a, V, Self::SQLType>,
+        H: ComparisonOperand<'a, V, Self::SQLType>,
     {
         not_between(self, low, high)
     }

@@ -9,6 +9,15 @@ pub trait Compatible<Rhs: DataType = Self>: DataType {}
 
 impl<T: DataType> Compatible<T> for T {}
 
+macro_rules! impl_placeholder_compat {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl Compatible<crate::Placeholder> for $ty {}
+            impl Compatible<$ty> for crate::Placeholder {}
+        )+
+    };
+}
+
 // =============================================================================
 // SQLite compatibility
 // =============================================================================
@@ -38,6 +47,15 @@ impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Text {}
 impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Real {}
 impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Blob {}
 impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Numeric {}
+
+impl_placeholder_compat!(
+    crate::sqlite::types::Integer,
+    crate::sqlite::types::Text,
+    crate::sqlite::types::Real,
+    crate::sqlite::types::Blob,
+    crate::sqlite::types::Numeric,
+    crate::sqlite::types::Any
+);
 
 // =============================================================================
 // PostgreSQL compatibility
@@ -158,6 +176,11 @@ impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Point {
 impl Compatible<crate::postgres::types::Any> for crate::postgres::types::LineString {}
 impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Rect {}
 impl Compatible<crate::postgres::types::Any> for crate::postgres::types::BitString {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Line {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::LineSegment {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Polygon {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Circle {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Enum {}
 
 // Inet ↔ Cidr
 impl Compatible<crate::postgres::types::Cidr> for crate::postgres::types::Inet {}
@@ -166,6 +189,14 @@ impl Compatible<crate::postgres::types::Inet> for crate::postgres::types::Cidr {
 // MacAddr ↔ MacAddr8
 impl Compatible<crate::postgres::types::MacAddr8> for crate::postgres::types::MacAddr {}
 impl Compatible<crate::postgres::types::MacAddr> for crate::postgres::types::MacAddr8 {}
+
+// PostgreSQL enum textual compatibility
+impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Enum {}
+impl Compatible<crate::postgres::types::Varchar> for crate::postgres::types::Enum {}
+impl Compatible<crate::postgres::types::Char> for crate::postgres::types::Enum {}
+impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Text {}
+impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Varchar {}
+impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Char {}
 
 // Any ↔ new markers (reverse direction)
 impl Compatible<crate::postgres::types::Interval> for crate::postgres::types::Any {}
@@ -177,3 +208,45 @@ impl Compatible<crate::postgres::types::Point> for crate::postgres::types::Any {
 impl Compatible<crate::postgres::types::LineString> for crate::postgres::types::Any {}
 impl Compatible<crate::postgres::types::Rect> for crate::postgres::types::Any {}
 impl Compatible<crate::postgres::types::BitString> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Line> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::LineSegment> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Polygon> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Circle> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Any {}
+
+impl_placeholder_compat!(
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8,
+    crate::postgres::types::Varchar,
+    crate::postgres::types::Text,
+    crate::postgres::types::Char,
+    crate::postgres::types::Bytea,
+    crate::postgres::types::Boolean,
+    crate::postgres::types::Timestamp,
+    crate::postgres::types::Date,
+    crate::postgres::types::Time,
+    crate::postgres::types::Timetz,
+    crate::postgres::types::Numeric,
+    crate::postgres::types::Timestamptz,
+    crate::postgres::types::Uuid,
+    crate::postgres::types::Json,
+    crate::postgres::types::Jsonb,
+    crate::postgres::types::Interval,
+    crate::postgres::types::Inet,
+    crate::postgres::types::Cidr,
+    crate::postgres::types::MacAddr,
+    crate::postgres::types::MacAddr8,
+    crate::postgres::types::Point,
+    crate::postgres::types::LineString,
+    crate::postgres::types::Rect,
+    crate::postgres::types::BitString,
+    crate::postgres::types::Line,
+    crate::postgres::types::LineSegment,
+    crate::postgres::types::Polygon,
+    crate::postgres::types::Circle,
+    crate::postgres::types::Enum,
+    crate::postgres::types::Any
+);

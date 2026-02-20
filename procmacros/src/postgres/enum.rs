@@ -477,10 +477,10 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         }
 
         // Implement Expr trait for type-safe comparisons
-        // Uses Any type since enums have their own SQL type
+        // Use a dedicated enum marker for stricter compatibility checks.
         // Note: &T impl is handled by blanket impl in drizzle_core
         impl<'a> drizzle::core::expr::Expr<'a, #postgres_value<'a>> for #name {
-            type SQLType = drizzle::postgres::types::Any;
+            type SQLType = drizzle::postgres::types::Enum;
             type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
         }

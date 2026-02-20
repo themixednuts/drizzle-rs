@@ -61,6 +61,38 @@ fn scalar_types_postgres_ui() {
     t.compile_fail("tests/ui/scalar_types_postgres/fail/*.rs");
 }
 
+#[cfg(feature = "postgres")]
+#[test]
+fn join_nullability_postgres_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/join_nullability_postgres/pass/*.rs");
+    t.compile_fail("tests/ui/join_nullability_postgres/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn set_ops_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/set_ops_sqlite/pass/*.rs");
+    t.compile_fail("tests/ui/set_ops_sqlite/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn set_ops_postgres_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/set_ops_postgres/pass/*.rs");
+    t.compile_fail("tests/ui/set_ops_postgres/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn no_widening_postgres_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/no_widening_postgres/pass/*.rs");
+    t.compile_fail("tests/ui/no_widening_postgres/fail/*.rs");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn sqlite_strict_affinity_ui() {

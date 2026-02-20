@@ -60,31 +60,31 @@ pub struct SelectSetOpSet;
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
-        join_impl!(natural, Join::new().natural());
-        join_impl!(natural_left, Join::new().natural().left());
-        join_impl!(left, Join::new().left());
-        join_impl!(left_outer, Join::new().left().outer());
-        join_impl!(natural_left_outer, Join::new().natural().left().outer());
-        join_impl!(natural_right, Join::new().natural().right());
-        join_impl!(right, Join::new().right());
-        join_impl!(right_outer, Join::new().right().outer());
-        join_impl!(natural_right_outer, Join::new().natural().right().outer());
-        join_impl!(natural_full, Join::new().natural().full());
-        join_impl!(full, Join::new().full());
-        join_impl!(full_outer, Join::new().full().outer());
-        join_impl!(natural_full_outer, Join::new().natural().full().outer());
-        join_impl!(inner, Join::new().inner());
-        join_impl!(cross, Join::new().cross());
+        join_impl!(natural, Join::new().natural(), drizzle_core::AfterJoin);
+        join_impl!(natural_left, Join::new().natural().left(), drizzle_core::AfterLeftJoin);
+        join_impl!(left, Join::new().left(), drizzle_core::AfterLeftJoin);
+        join_impl!(left_outer, Join::new().left().outer(), drizzle_core::AfterLeftJoin);
+        join_impl!(natural_left_outer, Join::new().natural().left().outer(), drizzle_core::AfterLeftJoin);
+        join_impl!(natural_right, Join::new().natural().right(), drizzle_core::AfterRightJoin);
+        join_impl!(right, Join::new().right(), drizzle_core::AfterRightJoin);
+        join_impl!(right_outer, Join::new().right().outer(), drizzle_core::AfterRightJoin);
+        join_impl!(natural_right_outer, Join::new().natural().right().outer(), drizzle_core::AfterRightJoin);
+        join_impl!(natural_full, Join::new().natural().full(), drizzle_core::AfterFullJoin);
+        join_impl!(full, Join::new().full(), drizzle_core::AfterFullJoin);
+        join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin);
+        join_impl!(natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin);
+        join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin);
+        join_impl!(cross, Join::new().cross(), drizzle_core::AfterJoin);
     };
-    ($type:ident, $join_expr:expr) => {
+    ($type:ident, $join_expr:expr, $join_trait:path) => {
         paste! {
             #[allow(clippy::type_complexity)]
             pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>
             where
-                M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
             {
                 use drizzle_core::Join;
                 SelectBuilder {
@@ -752,10 +752,13 @@ where
     State: ExecutableState,
 {
     /// Combines this query with another using UNION.
-    pub fn union(
+    pub fn union<OtherState, OtherTable>(
         self,
-        other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
+    where
+        OtherState: ExecutableState,
+    {
         SelectBuilder {
             sql: helpers::union(self.sql, other),
             schema: PhantomData,
@@ -767,10 +770,13 @@ where
     }
 
     /// Combines this query with another using UNION ALL.
-    pub fn union_all(
+    pub fn union_all<OtherState, OtherTable>(
         self,
-        other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
+    where
+        OtherState: ExecutableState,
+    {
         SelectBuilder {
             sql: helpers::union_all(self.sql, other),
             schema: PhantomData,
@@ -782,10 +788,13 @@ where
     }
 
     /// Combines this query with another using INTERSECT.
-    pub fn intersect(
+    pub fn intersect<OtherState, OtherTable>(
         self,
-        other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
+    where
+        OtherState: ExecutableState,
+    {
         SelectBuilder {
             sql: helpers::intersect(self.sql, other),
             schema: PhantomData,
@@ -797,10 +806,13 @@ where
     }
 
     /// Combines this query with another using INTERSECT ALL.
-    pub fn intersect_all(
+    pub fn intersect_all<OtherState, OtherTable>(
         self,
-        other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
+    where
+        OtherState: ExecutableState,
+    {
         SelectBuilder {
             sql: helpers::intersect_all(self.sql, other),
             schema: PhantomData,
@@ -812,10 +824,13 @@ where
     }
 
     /// Combines this query with another using EXCEPT.
-    pub fn except(
+    pub fn except<OtherState, OtherTable>(
         self,
-        other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
+    where
+        OtherState: ExecutableState,
+    {
         SelectBuilder {
             sql: helpers::except(self.sql, other),
             schema: PhantomData,
@@ -827,10 +842,13 @@ where
     }
 
     /// Combines this query with another using EXCEPT ALL.
-    pub fn except_all(
+    pub fn except_all<OtherState, OtherTable>(
         self,
-        other: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
+    where
+        OtherState: ExecutableState,
+    {
         SelectBuilder {
             sql: helpers::except_all(self.sql, other),
             schema: PhantomData,

@@ -76,22 +76,26 @@ pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenSt
         #[cfg(feature = "cidr")]
         PostgreSQLType::MacAddr8 => quote!(drizzle::postgres::types::MacAddr8),
         #[cfg(feature = "geo-types")]
-        PostgreSQLType::Point | PostgreSQLType::Line | PostgreSQLType::Lseg => {
+        PostgreSQLType::Point => {
             quote!(drizzle::postgres::types::Point)
         }
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Line => quote!(drizzle::postgres::types::Line),
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Lseg => quote!(drizzle::postgres::types::LineSegment),
         #[cfg(feature = "geo-types")]
         PostgreSQLType::Box => quote!(drizzle::postgres::types::Rect),
         #[cfg(feature = "geo-types")]
         PostgreSQLType::Path => quote!(drizzle::postgres::types::LineString),
         #[cfg(feature = "geo-types")]
-        PostgreSQLType::Polygon | PostgreSQLType::Circle => {
-            quote!(drizzle::postgres::types::Any)
-        }
+        PostgreSQLType::Polygon => quote!(drizzle::postgres::types::Polygon),
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Circle => quote!(drizzle::postgres::types::Circle),
         #[cfg(feature = "bit-vec")]
         PostgreSQLType::Bit | PostgreSQLType::Varbit => {
             quote!(drizzle::postgres::types::BitString)
         }
-        PostgreSQLType::Enum(_) => quote!(drizzle::postgres::types::Any),
+        PostgreSQLType::Enum(_) => quote!(drizzle::postgres::types::Enum),
     }
 }
 

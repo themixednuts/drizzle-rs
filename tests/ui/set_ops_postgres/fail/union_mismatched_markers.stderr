@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+  --> tests/ui/set_ops_postgres/fail/union_mismatched_markers.rs:25:16
+   |
+25 |         .union(qb.select(right_user.id).from(right_user));
+   |          ----- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `QueryBuilder<'_, Schema, _, _, ..., ...>`, found `QueryBuilder<'_, ..., ..., ..., ..., ...>`
+   |          |
+   |          arguments to this method are incorrect
+   |
+   = note: expected struct `QueryBuilder<'_, Schema, _, _, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>`
+              found struct `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>`
+note: method defined here
+  --> postgres/src/builder/select.rs
+   |
+   |     pub fn union<OtherState, OtherTable>(
+   |            ^^^^^

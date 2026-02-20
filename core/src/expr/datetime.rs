@@ -14,7 +14,7 @@
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{DataType, Numeric, Temporal};
+use crate::types::{DataType, Numeric, Temporal, Textual};
 use crate::{PostgresDialect, SQLiteDialect};
 use drizzle_types::postgres::types::{Timestamp as PgTimestamp, Timestamptz as PgTimestamptz};
 
@@ -225,6 +225,7 @@ where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
     F: Expr<'a, V>,
+    F::SQLType: Textual,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -330,6 +331,7 @@ where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
     P: Expr<'a, V>,
+    P::SQLType: Textual,
     E: Expr<'a, V>,
     E::SQLType: DateTruncPolicy<V::DialectMarker>,
 {
@@ -381,7 +383,7 @@ where
 
 /// AGE - calculates the interval between two timestamps (PostgreSQL).
 ///
-/// Returns Text (interval representation). The result is nullable if either input is nullable.
+/// Returns PostgreSQL INTERVAL. The result is nullable if either input is nullable.
 ///
 /// # Example
 ///
@@ -398,7 +400,7 @@ pub fn age<'a, V, E1, E2>(
 ) -> SQLExpr<
     'a,
     V,
-    <V::DialectMarker as DialectTypes>::Text,
+    drizzle_types::postgres::types::Interval,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
     Scalar,
 >
@@ -454,6 +456,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
     F: Expr<'a, V>,
+    F::SQLType: Textual,
 {
     SQLExpr::new(SQL::func(
         "TO_CHAR",
