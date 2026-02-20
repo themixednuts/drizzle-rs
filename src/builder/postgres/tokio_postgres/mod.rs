@@ -133,16 +133,17 @@
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (db, S { user }) = Drizzle::new(client, S::new());
-//! use drizzle::postgres::params;
+//!
+//! let find_name = user.name.placeholder("find_name");
 //!
 //! let find_user = db
 //!     .select(())
 //!     .from(user)
-//!     .r#where(eq(user.name, Placeholder::named("find_name")))
+//!     .r#where(eq(user.name, find_name))
 //!     .prepare();
 //!
 //! let alice: Vec<SelectUser> = find_user
-//!     .all(db.conn(), params![{find_name: "Alice"}])
+//!     .all(db.conn(), [find_name.bind("Alice")])
 //!     .await?;
 //! # Ok(()) }
 //! ```

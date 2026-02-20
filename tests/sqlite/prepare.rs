@@ -7,7 +7,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_core::SQL;
 use drizzle_macros::sqlite_test;
 
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
@@ -21,11 +20,14 @@ sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
             => execute
     );
 
+    // Create a typed placeholder from the column
+    let name = simple.name.placeholder("name");
+
     // Create a prepared statement with placeholder
     let prepared = db
         .select(simple.name)
         .from(simple)
-        .r#where(and([eq(simple.name, SQL::placeholder("name"))]))
+        .r#where(and([eq(simple.name, name)]))
         .prepare();
 
     #[derive(SQLiteFromRow, Default)]
@@ -34,8 +36,7 @@ sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
     }
 
     // Execute the prepared statement with bound parameter
-    let result: Vec<PartialSimple> =
-        drizzle_exec!(prepared.all(db.conn(), params![{name: "Alice"}]));
+    let result: Vec<PartialSimple> = drizzle_exec!(prepared.all(db.conn(), [name.bind("Alice")]));
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Alice");
@@ -54,11 +55,14 @@ sqlite_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
             => execute
     );
 
+    // Create a typed placeholder from the column
+    let name = simple.name.placeholder("name");
+
     // Create a prepared statement once
     let prepared = db
         .select(simple.name)
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
@@ -68,15 +72,15 @@ sqlite_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
     }
 
     // Execute with different parameter values
-    let alice: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), params![{name: "Alice"}]));
+    let alice: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), [name.bind("Alice")]));
     assert_eq!(alice.len(), 1);
     assert_eq!(alice[0].name, "Alice");
 
-    let bob: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), params![{name: "Bob"}]));
+    let bob: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), [name.bind("Bob")]));
     assert_eq!(bob.len(), 1);
     assert_eq!(bob[0].name, "Bob");
 
-    let charlie: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), params![{name: "Charlie"}]));
+    let charlie: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), [name.bind("Charlie")]));
     assert_eq!(charlie.len(), 1);
     assert_eq!(charlie[0].name, "Charlie");
 });
@@ -90,15 +94,17 @@ sqlite_test!(test_prepared_get_single_row, SimpleSchema, {
             => execute
     );
 
+    // Create a typed placeholder from the column
+    let name = simple.name.placeholder("name");
+
     let prepared = db
         .select(())
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare();
 
     // Use get to retrieve a single row
-    let result: SelectSimple =
-        drizzle_exec!(prepared.get(db.conn(), params![{name: "UniqueUser"}]));
+    let result: SelectSimple = drizzle_exec!(prepared.get(db.conn(), [name.bind("UniqueUser")]));
 
     assert_eq!(result.name, "UniqueUser");
 });
@@ -155,17 +161,19 @@ sqlite_test!(test_prepared_owned_conversion, SimpleSchema, {
             => execute
     );
 
+    // Create a typed placeholder from the column
+    let name = simple.name.placeholder("name");
+
     // Create a prepared statement and convert to owned
     let owned = db
         .select(())
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     // Owned statement can be stored and reused
-    let result: Vec<SelectSimple> =
-        drizzle_exec!(owned.all(db.conn(), params![{name: "OwnedTest"}]));
+    let result: Vec<SelectSimple> = drizzle_exec!(owned.all(db.conn(), [name.bind("OwnedTest")]));
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "OwnedTest");
@@ -192,18 +200,21 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
     }
     let regular_duration = start.elapsed();
 
+    // Create a typed placeholder from the column
+    let name = simple.name.placeholder("name");
+
     // Test prepared statement performance
     let prepared = db
         .select(())
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     let start = std::time::Instant::now();
     for i in 0..100 {
         let _results: Vec<SelectSimple> =
-            drizzle_exec!(prepared.all(db.conn(), params![{name: format!("User{}", i)}]));
+            drizzle_exec!(prepared.all(db.conn(), [name.bind(format!("User{}", i))]));
     }
     let prepared_duration = start.elapsed();
 

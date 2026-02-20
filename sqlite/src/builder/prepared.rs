@@ -221,9 +221,9 @@ mod tests {
     fn test_prepare_render_basic() {
         // Test the basic prepare_render functionality for SQLite
         let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT * FROM users WHERE id = ")
-            .append(SQL::placeholder("user_id"))
+            .append(drizzle_core::Placeholder::named("user_id").to_sql())
             .append(SQL::raw(" AND name = "))
-            .append(SQL::placeholder("user_name"));
+            .append(drizzle_core::Placeholder::named("user_name").to_sql());
 
         let prepared = prepare_render(sql);
 
@@ -251,7 +251,7 @@ mod tests {
     fn test_prepared_statement_display() {
         let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT * FROM users")
             .append(SQL::raw(" WHERE id = "))
-            .append(SQL::placeholder("id"));
+            .append(drizzle_core::Placeholder::named("id").to_sql());
 
         let prepared = prepare_render(sql);
         let display = format!("{}", prepared);
@@ -262,8 +262,8 @@ mod tests {
 
     #[test]
     fn test_owned_conversion_roundtrip() {
-        let sql: SQL<'_, SQLiteValue<'_>> =
-            SQL::raw("SELECT name FROM users WHERE id = ").append(SQL::placeholder("id"));
+        let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT name FROM users WHERE id = ")
+            .append(drizzle_core::Placeholder::named("id").to_sql());
 
         let prepared = prepare_render(sql);
         let core_prepared = PreparedStatement { inner: prepared };

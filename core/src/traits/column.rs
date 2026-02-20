@@ -51,6 +51,17 @@ pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
         None::<fn() -> Self::Type>
     }
+
+    /// Creates a typed named placeholder for this column's SQL type.
+    fn placeholder(
+        &self,
+        name: &'static str,
+    ) -> crate::placeholder::TypedPlaceholder<<Self as Expr<'a, Value>>::SQLType>
+    where
+        Self: Sized,
+    {
+        crate::placeholder::TypedPlaceholder::named(name)
+    }
 }
 
 // Blanket implementation for static references

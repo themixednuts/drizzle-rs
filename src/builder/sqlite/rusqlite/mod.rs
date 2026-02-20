@@ -95,7 +95,7 @@
 //! # Prepared statements
 //!
 //! Build a query once and execute it many times with different parameters.
-//! Use [`Placeholder::named`] for values that change between executions.
+//! Use `column.placeholder("name")` for type-safe bind parameters.
 //!
 //! ```no_run
 //! # use drizzle::sqlite::rusqlite::Drizzle;
@@ -107,17 +107,18 @@
 //! # let conn = ::rusqlite::Connection::open_in_memory()?;
 //! # let (db, S { user, .. }) = Drizzle::new(conn, S::new());
 //! # db.create()?;
-//! use drizzle::sqlite::params;
+//!
+//! let find_name = user.name.placeholder("find_name");
 //!
 //! let find_user = db
 //!     .select(())
 //!     .from(user)
-//!     .r#where(eq(user.name, Placeholder::named("find_name")))
+//!     .r#where(eq(user.name, find_name))
 //!     .prepare();
 //!
 //! // Execute with different bound values each time
-//! let alice: Vec<SelectUser> = find_user.all(db.conn(), params![{find_name: "Alice"}])?;
-//! let bob: Vec<SelectUser> = find_user.all(db.conn(), params![{find_name: "Bob"}])?;
+//! let alice: Vec<SelectUser> = find_user.all(db.conn(), [find_name.bind("Alice")])?;
+//! let bob: Vec<SelectUser> = find_user.all(db.conn(), [find_name.bind("Bob")])?;
 //! # Ok(()) }
 //! ```
 

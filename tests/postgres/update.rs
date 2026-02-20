@@ -188,11 +188,14 @@ postgres_test!(update_no_matching_rows, SimpleSchema, {
 postgres_test!(update_with_placeholders_sql, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
-    let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
+    let new_name = simple.name.placeholder("new_name");
+    let old_name = simple.name.placeholder("old_name");
+
+    let update = UpdateSimple::default().with_name(new_name);
     let stmt = db
         .update(simple)
         .set(update)
-        .r#where(eq(Simple::name, Placeholder::named("old_name")));
+        .r#where(eq(simple.name, old_name));
 
     let sql = stmt.to_sql();
     let sql_string = sql.sql();
@@ -235,17 +238,23 @@ postgres_test!(update_with_placeholders_execute, SimpleSchema, {
             => execute
     );
 
-    let update = UpdateSimple::default().with_name(Placeholder::named("new_name"));
+    let new_name = simple.name.placeholder("new_name");
+    let old_name = simple.name.placeholder("old_name");
+
+    let update = UpdateSimple::default().with_name(new_name);
     let prepared = db
         .update(simple)
         .set(update)
-        .r#where(eq(Simple::name, Placeholder::named("old_name")))
+        .r#where(eq(simple.name, old_name))
         .prepare()
         .into_owned();
 
     let updated = drizzle_exec!(prepared.execute(
         drizzle_client!(),
-        params![{new_name: "updated_name"}, {old_name: "original_name"}]
+        [
+            new_name.bind("updated_name"),
+            old_name.bind("original_name")
+        ]
     ));
     assert_eq!(updated, 1);
 

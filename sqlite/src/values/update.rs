@@ -5,7 +5,7 @@
 
 use crate::prelude::*;
 use drizzle_core::expr::Excluded;
-use drizzle_core::{Placeholder, SQL, SQLColumnInfo, SQLParam};
+use drizzle_core::{Placeholder, SQL, SQLColumnInfo, SQLParam, TypedPlaceholder};
 
 use super::SQLiteValue;
 use super::insert::ValueWrapper;
@@ -57,6 +57,14 @@ impl<'a, T> From<Placeholder> for SQLiteUpdateValue<'a, SQLiteValue<'a>, T> {
         SQLiteUpdateValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
             core::iter::once(chunk).collect(),
         ))
+    }
+}
+
+impl<'a, M: drizzle_core::types::DataType, T> From<TypedPlaceholder<M>>
+    for SQLiteUpdateValue<'a, SQLiteValue<'a>, T>
+{
+    fn from(typed: TypedPlaceholder<M>) -> Self {
+        Placeholder::from(typed).into()
     }
 }
 

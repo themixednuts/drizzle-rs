@@ -116,7 +116,7 @@ pub mod migrations {
 pub mod core {
     /// SQL building blocks.
     pub use drizzle_core::{
-        OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token, asc, desc,
+        OrderBy, Param, ParamBind, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.
@@ -165,7 +165,6 @@ pub mod sqlite {
     pub use drizzle_macros::{
         SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
     };
-    pub use drizzle_sqlite::params;
     pub use drizzle_sqlite::{
         attrs, builder, common, connection, expr, helpers, pragma, traits, types, values,
     };
@@ -197,7 +196,7 @@ pub mod sqlite {
         pub use crate::core::ToSQL;
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{
-            OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token, asc, desc,
+            OrderBy, Param, ParamBind, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
@@ -208,7 +207,6 @@ pub mod sqlite {
         // SQLite types
         pub use drizzle_sqlite::attrs::*;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
-        pub use drizzle_sqlite::params;
         pub use drizzle_sqlite::traits::{
             SQLiteColumn, SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo,
         };
@@ -223,7 +221,6 @@ pub mod postgres {
     pub use drizzle_macros::{
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
-    pub use drizzle_postgres::params;
     pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
@@ -251,7 +248,7 @@ pub mod postgres {
         pub use crate::core::ToSQL;
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{
-            OrderBy, Param, ParamBind, Placeholder, SQL, SQLChunk, Token, asc, desc,
+            OrderBy, Param, ParamBind, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::traits::*;
@@ -263,7 +260,6 @@ pub mod postgres {
         // PostgreSQL types
         pub use drizzle_postgres::attrs::*;
         pub use drizzle_postgres::common::PostgresSchemaType;
-        pub use drizzle_postgres::params;
         pub use drizzle_postgres::traits::{
             PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo,
         };

@@ -99,17 +99,18 @@
 //! # fn main() -> drizzle::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! use drizzle::postgres::params;
+//!
+//! let find_name = user.name.placeholder("find_name");
 //!
 //! let find_user = db
 //!     .select(())
 //!     .from(user)
-//!     .r#where(eq(user.name, Placeholder::named("find_name")))
+//!     .r#where(eq(user.name, find_name))
 //!     .prepare()
 //!     .into_owned();
 //!
 //! let alice: Vec<SelectUser> = find_user
-//!     .all(db.conn_mut(), params![{find_name: "Alice"}])?;
+//!     .all(db.conn_mut(), [find_name.bind("Alice")])?;
 //! # Ok(()) }
 //! ```
 
