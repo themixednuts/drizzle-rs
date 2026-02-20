@@ -210,6 +210,33 @@ impl DefaultCastTypeName for drizzle_types::postgres::types::Jsonb {
 impl DefaultCastTypeName for drizzle_types::postgres::types::Any {
     const CAST_TYPE_NAME: &'static str = "ANY";
 }
+impl DefaultCastTypeName for drizzle_types::postgres::types::Interval {
+    const CAST_TYPE_NAME: &'static str = "INTERVAL";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Inet {
+    const CAST_TYPE_NAME: &'static str = "INET";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Cidr {
+    const CAST_TYPE_NAME: &'static str = "CIDR";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::MacAddr {
+    const CAST_TYPE_NAME: &'static str = "MACADDR";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::MacAddr8 {
+    const CAST_TYPE_NAME: &'static str = "MACADDR8";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Point {
+    const CAST_TYPE_NAME: &'static str = "POINT";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::LineString {
+    const CAST_TYPE_NAME: &'static str = "PATH";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Rect {
+    const CAST_TYPE_NAME: &'static str = "BOX";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::BitString {
+    const CAST_TYPE_NAME: &'static str = "BIT VARYING";
+}
 
 /// Input accepted by [`cast`].
 ///
