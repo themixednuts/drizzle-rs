@@ -19,6 +19,9 @@ use geo_types::{LineString, Point, Rect};
 #[cfg(feature = "bit-vec")]
 use bit_vec::BitVec;
 
+#[cfg(feature = "rust-decimal")]
+use rust_decimal::Decimal;
+
 //------------------------------------------------------------------------------
 // From<T> implementations
 //------------------------------------------------------------------------------
@@ -180,6 +183,20 @@ impl<'a> From<f64> for PostgresValue<'a> {
 impl<'a> From<&'a f64> for PostgresValue<'a> {
     fn from(value: &'a f64) -> Self {
         PostgresValue::DoublePrecision(*value)
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> From<Decimal> for PostgresValue<'a> {
+    fn from(value: Decimal) -> Self {
+        PostgresValue::Numeric(value)
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> From<&'a Decimal> for PostgresValue<'a> {
+    fn from(value: &'a Decimal) -> Self {
+        PostgresValue::Numeric(*value)
     }
 }
 
@@ -832,6 +849,40 @@ impl<'a> TryFrom<PostgresValue<'a>> for f64 {
             PostgresValue::Bigint(i) => Ok(i as f64),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to f64", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> TryFrom<PostgresValue<'a>> for Decimal {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Numeric(d) => Ok(d),
+            PostgresValue::Text(cow) => Decimal::from_str_exact(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse DECIMAL: {}", e).into())
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to Decimal", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> TryFrom<&'a PostgresValue<'a>> for Decimal {
+    type Error = DrizzleError;
+
+    fn try_from(value: &'a PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Numeric(d) => Ok(*d),
+            PostgresValue::Text(cow) => Decimal::from_str_exact(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse DECIMAL: {}", e).into())
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to Decimal", value).into(),
             )),
         }
     }

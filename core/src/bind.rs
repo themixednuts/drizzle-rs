@@ -95,6 +95,16 @@ impl ValueTypeForDialect<PostgresDialect> for f64 {
     type SQLType = drizzle_types::postgres::types::Float8;
 }
 
+#[cfg(feature = "rust-decimal")]
+impl ValueTypeForDialect<PostgresDialect> for rust_decimal::Decimal {
+    type SQLType = drizzle_types::postgres::types::Numeric;
+}
+
+#[cfg(feature = "rust-decimal")]
+impl ValueTypeForDialect<PostgresDialect> for &rust_decimal::Decimal {
+    type SQLType = drizzle_types::postgres::types::Numeric;
+}
+
 impl ValueTypeForDialect<PostgresDialect> for bool {
     type SQLType = drizzle_types::postgres::types::Boolean;
 }

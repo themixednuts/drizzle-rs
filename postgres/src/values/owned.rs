@@ -19,6 +19,9 @@ use geo_types::{LineString, Point, Rect};
 #[cfg(feature = "bit-vec")]
 use bit_vec::BitVec;
 
+#[cfg(feature = "rust-decimal")]
+use rust_decimal::Decimal;
+
 /// Owned version of PostgresValue that doesn't borrow data
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum OwnedPostgresValue {
@@ -32,6 +35,9 @@ pub enum OwnedPostgresValue {
     Real(f32),
     /// DOUBLE PRECISION values (64-bit floating point)
     DoublePrecision(f64),
+    /// NUMERIC/DECIMAL values
+    #[cfg(feature = "rust-decimal")]
+    Numeric(Decimal),
     /// TEXT, VARCHAR, CHAR values (owned)
     Text(String),
     /// BYTEA values (owned binary data)
@@ -184,6 +190,16 @@ impl OwnedPostgresValue {
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
             OwnedPostgresValue::DoublePrecision(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Returns the decimal value if this is NUMERIC.
+    #[inline]
+    #[cfg(feature = "rust-decimal")]
+    pub fn as_decimal(&self) -> Option<&Decimal> {
+        match self {
+            OwnedPostgresValue::Numeric(value) => Some(value),
             _ => None,
         }
     }
@@ -384,6 +400,8 @@ impl OwnedPostgresValue {
             OwnedPostgresValue::Bigint(value) => PostgresValue::Bigint(*value),
             OwnedPostgresValue::Real(value) => PostgresValue::Real(*value),
             OwnedPostgresValue::DoublePrecision(value) => PostgresValue::DoublePrecision(*value),
+            #[cfg(feature = "rust-decimal")]
+            OwnedPostgresValue::Numeric(value) => PostgresValue::Numeric(*value),
             OwnedPostgresValue::Text(value) => PostgresValue::Text(Cow::Borrowed(value)),
             OwnedPostgresValue::Bytea(value) => PostgresValue::Bytea(Cow::Borrowed(value)),
             OwnedPostgresValue::Boolean(value) => PostgresValue::Boolean(*value),
@@ -435,6 +453,11 @@ impl OwnedPostgresValue {
             OwnedPostgresValue::Bigint(value) => T::from_postgres_i64(value),
             OwnedPostgresValue::Real(value) => T::from_postgres_f32(value),
             OwnedPostgresValue::DoublePrecision(value) => T::from_postgres_f64(value),
+            #[cfg(feature = "rust-decimal")]
+            OwnedPostgresValue::Numeric(value) => {
+                let text = value.to_string();
+                T::from_postgres_text(&text)
+            }
             OwnedPostgresValue::Text(value) => T::from_postgres_text(&value),
             OwnedPostgresValue::Bytea(value) => T::from_postgres_bytes(&value),
             #[cfg(feature = "uuid")]
@@ -486,6 +509,11 @@ impl OwnedPostgresValue {
             OwnedPostgresValue::Bigint(value) => T::from_postgres_i64(*value),
             OwnedPostgresValue::Real(value) => T::from_postgres_f32(*value),
             OwnedPostgresValue::DoublePrecision(value) => T::from_postgres_f64(*value),
+            #[cfg(feature = "rust-decimal")]
+            OwnedPostgresValue::Numeric(value) => {
+                let text = value.to_string();
+                T::from_postgres_text(&text)
+            }
             OwnedPostgresValue::Text(value) => T::from_postgres_text(value),
             OwnedPostgresValue::Bytea(value) => T::from_postgres_bytes(value),
             #[cfg(feature = "uuid")]
@@ -537,6 +565,8 @@ impl core::fmt::Display for OwnedPostgresValue {
             OwnedPostgresValue::Bigint(i) => i.to_string(),
             OwnedPostgresValue::Real(r) => r.to_string(),
             OwnedPostgresValue::DoublePrecision(r) => r.to_string(),
+            #[cfg(feature = "rust-decimal")]
+            OwnedPostgresValue::Numeric(d) => d.to_string(),
             OwnedPostgresValue::Text(s) => s.clone(),
             OwnedPostgresValue::Bytea(b) => format!(
                 "\\x{}",
@@ -628,6 +658,8 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::Bigint(i) => OwnedPostgresValue::Bigint(i),
             PostgresValue::Real(r) => OwnedPostgresValue::Real(r),
             PostgresValue::DoublePrecision(r) => OwnedPostgresValue::DoublePrecision(r),
+            #[cfg(feature = "rust-decimal")]
+            PostgresValue::Numeric(d) => OwnedPostgresValue::Numeric(d),
             PostgresValue::Text(cow) => OwnedPostgresValue::Text(cow.into_owned()),
             PostgresValue::Bytea(cow) => OwnedPostgresValue::Bytea(cow.into_owned()),
             PostgresValue::Boolean(b) => OwnedPostgresValue::Boolean(b),
@@ -683,6 +715,8 @@ impl<'a> From<&PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::Bigint(i) => OwnedPostgresValue::Bigint(*i),
             PostgresValue::Real(r) => OwnedPostgresValue::Real(*r),
             PostgresValue::DoublePrecision(r) => OwnedPostgresValue::DoublePrecision(*r),
+            #[cfg(feature = "rust-decimal")]
+            PostgresValue::Numeric(d) => OwnedPostgresValue::Numeric(*d),
             PostgresValue::Text(cow) => OwnedPostgresValue::Text(cow.clone().into_owned()),
             PostgresValue::Bytea(cow) => OwnedPostgresValue::Bytea(cow.clone().into_owned()),
             PostgresValue::Boolean(b) => OwnedPostgresValue::Boolean(*b),
@@ -739,6 +773,8 @@ impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::Bigint(i) => PostgresValue::Bigint(i),
             OwnedPostgresValue::Real(r) => PostgresValue::Real(r),
             OwnedPostgresValue::DoublePrecision(r) => PostgresValue::DoublePrecision(r),
+            #[cfg(feature = "rust-decimal")]
+            OwnedPostgresValue::Numeric(d) => PostgresValue::Numeric(d),
             OwnedPostgresValue::Text(s) => PostgresValue::Text(Cow::Owned(s)),
             OwnedPostgresValue::Bytea(b) => PostgresValue::Bytea(Cow::Owned(b)),
             OwnedPostgresValue::Boolean(b) => PostgresValue::Boolean(b),
@@ -794,6 +830,8 @@ impl<'a> From<&'a OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::Bigint(i) => PostgresValue::Bigint(*i),
             OwnedPostgresValue::Real(r) => PostgresValue::Real(*r),
             OwnedPostgresValue::DoublePrecision(r) => PostgresValue::DoublePrecision(*r),
+            #[cfg(feature = "rust-decimal")]
+            OwnedPostgresValue::Numeric(d) => PostgresValue::Numeric(*d),
             OwnedPostgresValue::Text(s) => PostgresValue::Text(Cow::Borrowed(s)),
             OwnedPostgresValue::Bytea(b) => PostgresValue::Bytea(Cow::Borrowed(b)),
             OwnedPostgresValue::Boolean(b) => PostgresValue::Boolean(*b),
@@ -865,6 +903,20 @@ impl From<f32> for OwnedPostgresValue {
 impl From<f64> for OwnedPostgresValue {
     fn from(value: f64) -> Self {
         OwnedPostgresValue::DoublePrecision(value)
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl From<Decimal> for OwnedPostgresValue {
+    fn from(value: Decimal) -> Self {
+        OwnedPostgresValue::Numeric(value)
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl From<&Decimal> for OwnedPostgresValue {
+    fn from(value: &Decimal) -> Self {
+        OwnedPostgresValue::Numeric(*value)
     }
 }
 

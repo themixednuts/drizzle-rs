@@ -27,6 +27,9 @@ use geo_types::{LineString, Point, Rect};
 #[cfg(feature = "bit-vec")]
 use bit_vec::BitVec;
 
+#[cfg(feature = "rust-decimal")]
+use rust_decimal::Decimal;
+
 use crate::prelude::*;
 
 use crate::traits::{FromPostgresValue, PostgresEnum};
@@ -68,6 +71,9 @@ pub enum PostgresValue<'a> {
     Real(f32),
     /// DOUBLE PRECISION values (64-bit floating point)
     DoublePrecision(f64),
+    /// NUMERIC/DECIMAL values
+    #[cfg(feature = "rust-decimal")]
+    Numeric(Decimal),
     /// TEXT, VARCHAR, CHAR values
     Text(Cow<'a, str>),
     /// BYTEA values (binary data)
@@ -150,6 +156,8 @@ impl<'a> core::fmt::Display for PostgresValue<'a> {
             PostgresValue::Bigint(i) => i.to_string(),
             PostgresValue::Real(r) => r.to_string(),
             PostgresValue::DoublePrecision(r) => r.to_string(),
+            #[cfg(feature = "rust-decimal")]
+            PostgresValue::Numeric(d) => d.to_string(),
             PostgresValue::Text(cow) => cow.to_string(),
             PostgresValue::Bytea(cow) => format!(
                 "\\x{}",
@@ -290,6 +298,16 @@ impl<'a> PostgresValue<'a> {
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
             PostgresValue::DoublePrecision(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Returns the decimal value if this is NUMERIC.
+    #[inline]
+    #[cfg(feature = "rust-decimal")]
+    pub fn as_decimal(&self) -> Option<&Decimal> {
+        match self {
+            PostgresValue::Numeric(value) => Some(value),
             _ => None,
         }
     }
@@ -505,6 +523,11 @@ impl<'a> PostgresValue<'a> {
             PostgresValue::Bigint(value) => T::from_postgres_i64(value),
             PostgresValue::Real(value) => T::from_postgres_f32(value),
             PostgresValue::DoublePrecision(value) => T::from_postgres_f64(value),
+            #[cfg(feature = "rust-decimal")]
+            PostgresValue::Numeric(value) => {
+                let text = value.to_string();
+                T::from_postgres_text(&text)
+            }
             PostgresValue::Text(value) => T::from_postgres_text(&value),
             PostgresValue::Bytea(value) => T::from_postgres_bytes(&value),
             #[cfg(feature = "uuid")]
@@ -554,6 +577,11 @@ impl<'a> PostgresValue<'a> {
             PostgresValue::Bigint(value) => T::from_postgres_i64(*value),
             PostgresValue::Real(value) => T::from_postgres_f32(*value),
             PostgresValue::DoublePrecision(value) => T::from_postgres_f64(*value),
+            #[cfg(feature = "rust-decimal")]
+            PostgresValue::Numeric(value) => {
+                let text = value.to_string();
+                T::from_postgres_text(&text)
+            }
             PostgresValue::Text(value) => T::from_postgres_text(value),
             PostgresValue::Bytea(value) => T::from_postgres_bytes(value),
             #[cfg(feature = "uuid")]
