@@ -1,9 +1,9 @@
 //! Seeder configuration with type-safe builder API.
 
 use crate::generator::{Generator, GeneratorKind};
-use drizzle_core::{
-    Relation, SQLColumn, SQLColumnInfo, SQLSchemaImpl, SQLTableInfo, SchemaHasTable,
-};
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+use drizzle_core::{Relation, SQLColumn, SQLColumnInfo};
+use drizzle_core::{SQLSchemaImpl, SQLTableInfo, SchemaHasTable};
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
