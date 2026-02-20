@@ -246,6 +246,29 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
     }
 }
 
+/// Determine a "probe type" for NULL checking on the first column.
+///
+/// Used by `Option<SelectModel>` to detect LEFT JOIN misses:
+/// read the first column as `Option<ProbeType>` — if `None`, all columns are NULL.
+fn null_probe_type(info: &FieldInfo) -> TokenStream {
+    if info.is_enum || info.is_pgenum {
+        if info.is_enum && is_integer_column(&info.column_type) {
+            quote!(i32)
+        } else {
+            quote!(String)
+        }
+    } else if info.is_json {
+        quote!(::serde_json::Value)
+    } else {
+        let base = &info.base_type;
+        let cat = TypeCategory::from_type(base);
+        match cat {
+            TypeCategory::ArrayString | TypeCategory::ArrayVec => quote!(String),
+            _ => quote!(#base),
+        }
+    }
+}
+
 // =============================================================================
 // Public API
 // =============================================================================
@@ -333,7 +356,24 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
         }
     };
 
-    Ok(quote! { #base_impls #fdr_impl })
+    // Generate NullProbeRow impl for LEFT JOIN support.
+    // Enables `Option<SelectModel>` via blanket impl in drizzle-core.
+    let null_probe_impl = if let Some(first_field) = field_infos.first() {
+        let probe_ty = null_probe_type(first_field);
+        quote! {
+            impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
+                fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
+                    let first_col: Option<#probe_ty> = row.try_get(offset)
+                        .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?;
+                    Ok(first_col.is_none())
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    Ok(quote! { #base_impls #fdr_impl #null_probe_impl })
 }
 
 /// Fallback when no postgres driver is enabled - returns empty TokenStream

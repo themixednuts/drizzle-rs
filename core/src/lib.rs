@@ -76,9 +76,9 @@ pub use placeholder::*;
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
     AfterJoin, DecodeSelectedRef, ExprValueType, FromDrizzleRow, HasSelectModel, IntoSelectTarget,
-    MarkerColumnCountValid, MarkerScopeValidFor, ResolveRow, RowColumnList, SQLTypeToRust,
-    ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables,
-    SelectStar, WrapNullable,
+    MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, ResolveRow, RowColumnList,
+    SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols, SelectExpr,
+    SelectRequiredTables, SelectStar, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
