@@ -1,27 +1,5 @@
 error[E0271]: type mismatch resolving `<SQLiteValue<'_> as SQLParam>::DialectMarker == PostgresDialect`
   --> tests/ui/sqlite_strict_affinity/fail/strict_cast_affinity_mismatch.rs:13:13
    |
-13 |     let _ = cast::<_, _, drizzle::core::types::Int>(user.name, drizzle::sqlite::types::Integer);
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `PostgresDialect`, found `SQLiteDialect`
-
-error[E0277]: the trait bound `drizzle::sqlite::types::Integer: CastTarget<'_, Int, drizzle_core::dialect::SQLiteDialect>` is not satisfied
-  --> tests/ui/sqlite_strict_affinity/fail/strict_cast_affinity_mismatch.rs:13:64
-   |
-13 |     let _ = cast::<_, _, drizzle::core::types::Int>(user.name, drizzle::sqlite::types::Integer);
-   |             ---------------------------------------            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, Int, drizzle_core::dialect::SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
-   |             |
-   |             required by a bound introduced by this call
-   |
-help: the trait `CastTarget<'a, T, D>` is implemented for `&'a str`
-  --> core/src/expr/util.rs
-   |
-   | impl<'a, T: DataType, D> CastTarget<'a, T, D> for &'a str {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-note: required by a bound in `drizzle::core::expr::cast`
-  --> core/src/expr/util.rs
-   |
-   | pub fn cast<'a, V, E, Target>(
-   |        ---- required by a bound in this function
-   |     expr: E,
-   |     target_type: impl CastTarget<'a, Target, V::DialectMarker>,
-   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `cast`
+13 |     let _ = cast::<_, _, drizzle::sqlite::types::Integer>(user.name, drizzle::sqlite::types::Integer);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `PostgresDialect`, found `SQLiteDialect`

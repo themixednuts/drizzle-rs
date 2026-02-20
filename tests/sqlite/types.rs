@@ -21,7 +21,7 @@ fn sqlite_dialect_types_are_distinct_markers_with_cast_mappings() {
     {
     }
 
-    assert_compatible::<sqlite_types::Integer, core_types::BigInt>();
-    assert_compatible::<sqlite_types::Real, core_types::Double>();
-    assert_compatible::<sqlite_types::Blob, core_types::Bytes>();
+    assert_compatible::<sqlite_types::Integer, sqlite_types::Real>();
+    assert_compatible::<sqlite_types::Real, sqlite_types::Integer>();
+    assert_compatible::<sqlite_types::Blob, sqlite_types::Text>();
 }

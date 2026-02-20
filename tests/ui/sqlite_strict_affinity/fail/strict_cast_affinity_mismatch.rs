@@ -10,5 +10,5 @@ struct StrictUser {
 
 fn main() {
     let user = StrictUser::default();
-    let _ = cast::<_, _, drizzle::core::types::Int>(user.name, drizzle::sqlite::types::Integer);
+    let _ = cast::<_, _, drizzle::sqlite::types::Integer>(user.name, drizzle::sqlite::types::Integer);
 }

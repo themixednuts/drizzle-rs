@@ -1,8 +1,8 @@
 error[E0277]: this aggregate is not available for this dialect
- --> tests/ui/aggregate_types_postgres/fail/group_concat_requires_sqlite.rs:6:13
+ --> tests/ui/aggregate_types_postgres/fail/group_concat_requires_sqlite.rs:5:13
   |
-6 |     let _ = group_concat(raw_non_null::<PostgresValue, Text>("'x'"));
-  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
+5 |     let _ = group_concat(raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'x'"));
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
   |
   = help: the trait `SQLiteAggregateSupport` is not implemented for `drizzle_core::dialect::PostgresDialect`
 help: the trait `SQLiteAggregateSupport` is implemented for `drizzle_core::dialect::SQLiteDialect`
@@ -13,7 +13,7 @@ help: the trait `SQLiteAggregateSupport` is implemented for `drizzle_core::diale
 note: required by a bound in `group_concat`
  --> core/src/expr/agg.rs
   |
-  | pub fn group_concat<'a, V, E>(expr: E) -> SQLExpr<'a, V, crate::types::Text, Null, Agg>
+  | pub fn group_concat<'a, V, E>(
   |        ------------ required by a bound in this function
 ...
   |     V::DialectMarker: SQLiteAggregateSupport,

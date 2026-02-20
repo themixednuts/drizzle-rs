@@ -1,8 +1,8 @@
-error[E0277]: the trait bound `Float8: CastTarget<'_, Int, drizzle_core::dialect::PostgresDialect>` is not satisfied
-  --> tests/ui/cast_targets/postgres/fail/marker_target_mismatch.rs:13:63
+error[E0277]: the trait bound `Float8: CastTarget<'_, Int4, drizzle_core::dialect::PostgresDialect>` is not satisfied
+  --> tests/ui/cast_targets/postgres/fail/marker_target_mismatch.rs:13:68
    |
-13 |     let _ = cast::<_, _, drizzle::core::types::Int>(user.age, drizzle::postgres::types::Float8);
-   |             ---------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, Int, drizzle_core::dialect::PostgresDialect>` is not implemented for `Float8`
+13 |     let _ = cast::<_, _, drizzle::postgres::types::Int4>(user.age, drizzle::postgres::types::Float8);
+   |             --------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, Int4, drizzle_core::dialect::PostgresDialect>` is not implemented for `Float8`
    |             |
    |             required by a bound introduced by this call
    |

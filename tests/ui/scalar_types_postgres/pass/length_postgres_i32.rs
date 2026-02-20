@@ -1,5 +1,4 @@
 use drizzle::core::expr::{length, raw_non_null};
-use drizzle::core::types::Text;
 use drizzle::core::ExprValueType;
 use drizzle::postgres::prelude::*;
 
@@ -11,5 +10,5 @@ where
 }
 
 fn main() {
-    let _: i32 = value_type(length(raw_non_null::<PostgresValue, Text>("'hello'")));
+    let _: i32 = value_type(length(raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'hello'")));
 }

@@ -1,5 +1,4 @@
 use drizzle::core::expr::{raw_non_null, strpos};
-use drizzle::core::types::Text;
 use drizzle::core::ExprValueType;
 use drizzle::postgres::prelude::*;
 
@@ -12,7 +11,7 @@ where
 
 fn main() {
     let _: i32 = value_type(strpos(
-        raw_non_null::<PostgresValue, Text>("'hello'"),
-        raw_non_null::<PostgresValue, Text>("'ll'"),
+        raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'hello'"),
+        raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'ll'"),
     ));
 }

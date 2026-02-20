@@ -11,5 +11,5 @@ struct User {
 fn main() {
     let user = User::default();
     let _ =
-        cast::<_, _, drizzle::core::types::Int>(user.age, drizzle_types::sqlite::types::Integer);
+        cast::<_, _, drizzle::postgres::types::Int4>(user.age, drizzle_types::sqlite::types::Integer);
 }
