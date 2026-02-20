@@ -144,6 +144,15 @@ impl private::Sealed for crate::postgres::types::Uuid {}
 impl private::Sealed for crate::postgres::types::Json {}
 impl private::Sealed for crate::postgres::types::Jsonb {}
 impl private::Sealed for crate::postgres::types::Any {}
+impl private::Sealed for crate::postgres::types::Interval {}
+impl private::Sealed for crate::postgres::types::Inet {}
+impl private::Sealed for crate::postgres::types::Cidr {}
+impl private::Sealed for crate::postgres::types::MacAddr {}
+impl private::Sealed for crate::postgres::types::MacAddr8 {}
+impl private::Sealed for crate::postgres::types::Point {}
+impl private::Sealed for crate::postgres::types::LineString {}
+impl private::Sealed for crate::postgres::types::Rect {}
+impl private::Sealed for crate::postgres::types::BitString {}
 
 impl DataType for crate::postgres::types::Int2 {}
 impl DataType for crate::postgres::types::Int4 {}
@@ -165,6 +174,15 @@ impl DataType for crate::postgres::types::Uuid {}
 impl DataType for crate::postgres::types::Json {}
 impl DataType for crate::postgres::types::Jsonb {}
 impl DataType for crate::postgres::types::Any {}
+impl DataType for crate::postgres::types::Interval {}
+impl DataType for crate::postgres::types::Inet {}
+impl DataType for crate::postgres::types::Cidr {}
+impl DataType for crate::postgres::types::MacAddr {}
+impl DataType for crate::postgres::types::MacAddr8 {}
+impl DataType for crate::postgres::types::Point {}
+impl DataType for crate::postgres::types::LineString {}
+impl DataType for crate::postgres::types::Rect {}
+impl DataType for crate::postgres::types::BitString {}
 
 impl Numeric for crate::postgres::types::Int2 {}
 impl Numeric for crate::postgres::types::Int4 {}
@@ -191,5 +209,7 @@ impl Temporal for crate::postgres::types::Timestamp {}
 impl Temporal for crate::postgres::types::Date {}
 impl Temporal for crate::postgres::types::Time {}
 impl Temporal for crate::postgres::types::Timetz {}
+
+impl Temporal for crate::postgres::types::Interval {}
 
 impl BooleanLike for crate::postgres::types::Boolean {}

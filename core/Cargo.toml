@@ -29,6 +29,10 @@ tokio-postgres = { workspace = true, optional = true }
 drizzle-types = { workspace = true }
 arrayvec = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+cidr = { workspace = true, optional = true }
+geo-types = { workspace = true, optional = true }
+bit-vec = { workspace = true, optional = true }
 
 [features]
 default = ["std", "col16"]
@@ -45,6 +49,10 @@ uuid = ["dep:uuid"]
 chrono = ["dep:chrono"]
 arrayvec = ["dep:arrayvec"]
 bytes = ["dep:bytes"]
+rust-decimal = ["dep:rust_decimal"]
+cidr = ["dep:cidr"]
+geo-types = ["dep:geo-types"]
+bit-vec = ["dep:bit-vec"]
 compact-str = []
 
 # Database backends

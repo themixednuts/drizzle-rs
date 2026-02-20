@@ -66,22 +66,31 @@ pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenSt
         #[cfg(feature = "serde")]
         PostgreSQLType::Jsonb => quote!(drizzle::postgres::types::Jsonb),
         #[cfg(feature = "chrono")]
-        PostgreSQLType::Interval => quote!(drizzle::postgres::types::Any),
+        PostgreSQLType::Interval => quote!(drizzle::postgres::types::Interval),
         #[cfg(feature = "cidr")]
-        PostgreSQLType::Inet
-        | PostgreSQLType::Cidr
-        | PostgreSQLType::MacAddr
-        | PostgreSQLType::MacAddr8 => quote!(drizzle::postgres::types::Any),
+        PostgreSQLType::Inet => quote!(drizzle::postgres::types::Inet),
+        #[cfg(feature = "cidr")]
+        PostgreSQLType::Cidr => quote!(drizzle::postgres::types::Cidr),
+        #[cfg(feature = "cidr")]
+        PostgreSQLType::MacAddr => quote!(drizzle::postgres::types::MacAddr),
+        #[cfg(feature = "cidr")]
+        PostgreSQLType::MacAddr8 => quote!(drizzle::postgres::types::MacAddr8),
         #[cfg(feature = "geo-types")]
-        PostgreSQLType::Point
-        | PostgreSQLType::Line
-        | PostgreSQLType::Lseg
-        | PostgreSQLType::Box
-        | PostgreSQLType::Path
-        | PostgreSQLType::Polygon
-        | PostgreSQLType::Circle => quote!(drizzle::postgres::types::Any),
+        PostgreSQLType::Point | PostgreSQLType::Line | PostgreSQLType::Lseg => {
+            quote!(drizzle::postgres::types::Point)
+        }
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Box => quote!(drizzle::postgres::types::Rect),
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Path => quote!(drizzle::postgres::types::LineString),
+        #[cfg(feature = "geo-types")]
+        PostgreSQLType::Polygon | PostgreSQLType::Circle => {
+            quote!(drizzle::postgres::types::Any)
+        }
         #[cfg(feature = "bit-vec")]
-        PostgreSQLType::Bit | PostgreSQLType::Varbit => quote!(drizzle::postgres::types::Any),
+        PostgreSQLType::Bit | PostgreSQLType::Varbit => {
+            quote!(drizzle::postgres::types::BitString)
+        }
         PostgreSQLType::Enum(_) => quote!(drizzle::postgres::types::Any),
     }
 }

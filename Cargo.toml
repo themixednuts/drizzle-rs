@@ -83,8 +83,12 @@ tokio-postgres = { version = "0.7.15", default-features = false, features = [
 heck = { version = "0.5" }
 inquire = { version = "0.7" }
 postgres-types = { version = "0.2" }
+rust_decimal = { version = "1.40" }
 nom = { version = "8.0" }
 sha2 = { version = "0.10" }
+cidr = { version = "0.3" }
+geo-types = { version = "0.7" }
+bit-vec = { version = "0.8" }
 
 # CLI-specific dependencies
 colored = { version = "3.0" }
@@ -109,9 +113,9 @@ trybuild = { version = "1.0" }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }
-geo-types = { version = "0.7", features = ["serde"] }
-cidr = { version = "0.3", features = ["serde"] }
-bit-vec = { version = "0.8" }
+geo-types = { workspace = true, features = ["serde"] }
+cidr = { workspace = true, features = ["serde"] }
+bit-vec = { workspace = true }
 
 [[bench]]
 name = "sqlite"
@@ -192,9 +196,10 @@ uuid = [
 
 # PostgreSQL feature flags for optional types
 chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-macros/chrono"]
-cidr = ["drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
-geo-types = ["drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
-bit-vec = ["drizzle-seed/bit-vec", "drizzle-postgres?/bit-vec", "drizzle-macros/bit-vec"]
+rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal"]
+cidr = ["drizzle-core/cidr", "drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
+geo-types = ["drizzle-core/geo-types", "drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
+bit-vec = ["drizzle-core/bit-vec", "drizzle-seed/bit-vec", "drizzle-postgres?/bit-vec", "drizzle-macros/bit-vec"]
 arrayvec = [
   "dep:arrayvec",
   "drizzle-postgres?/arrayvec",

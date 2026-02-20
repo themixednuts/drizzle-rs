@@ -16,9 +16,10 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true, features = ["serde"] }
-cidr = { version = "0.3", optional = true, features = ["serde"] }
-geo-types = { version = "0.7", optional = true, features = ["serde"] }
-bit-vec = { version = "0.8", optional = true }
+cidr = { workspace = true, optional = true, features = ["serde"] }
+geo-types = { workspace = true, optional = true, features = ["serde"] }
+bit-vec = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
 arrayvec = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 compact_str = { workspace = true, optional = true }
@@ -63,6 +64,13 @@ bit-vec = [
     "dep:bit-vec",
     "postgres?/with-bit-vec-0_8",
     "tokio-postgres?/with-bit-vec-0_8",
+]
+
+rust-decimal = [
+    "dep:rust_decimal",
+    "drizzle-core/rust-decimal",
+    "rust_decimal?/db-postgres",
+    "rust_decimal?/db-tokio-postgres",
 ]
 
 arrayvec = ["dep:arrayvec"]

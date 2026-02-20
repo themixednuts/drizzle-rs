@@ -149,3 +149,31 @@ impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Timesta
 impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Uuid {}
 impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Json {}
 impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Jsonb {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Interval {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Inet {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Cidr {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::MacAddr {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::MacAddr8 {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Point {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::LineString {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Rect {}
+impl Compatible<crate::postgres::types::Any> for crate::postgres::types::BitString {}
+
+// Inet ↔ Cidr
+impl Compatible<crate::postgres::types::Cidr> for crate::postgres::types::Inet {}
+impl Compatible<crate::postgres::types::Inet> for crate::postgres::types::Cidr {}
+
+// MacAddr ↔ MacAddr8
+impl Compatible<crate::postgres::types::MacAddr8> for crate::postgres::types::MacAddr {}
+impl Compatible<crate::postgres::types::MacAddr> for crate::postgres::types::MacAddr8 {}
+
+// Any ↔ new markers (reverse direction)
+impl Compatible<crate::postgres::types::Interval> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Inet> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Cidr> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::MacAddr> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::MacAddr8> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Point> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::LineString> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::Rect> for crate::postgres::types::Any {}
+impl Compatible<crate::postgres::types::BitString> for crate::postgres::types::Any {}
