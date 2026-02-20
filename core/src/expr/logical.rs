@@ -23,6 +23,29 @@ use crate::types::BooleanLike;
 
 use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 
+#[inline]
+fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    value.into_sql().parens_if_subquery()
+}
+
+#[inline]
+fn binary_logical_op<'a, V, L, R>(left: L, token: Token, right: R) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+    L: ToSQL<'a, V>,
+    R: ToSQL<'a, V>,
+{
+    SQL::from(Token::LPAREN)
+        .append(operand_sql(left))
+        .push(token)
+        .append(operand_sql(right))
+        .push(Token::RPAREN)
+}
+
 // =============================================================================
 // NOT
 // =============================================================================
@@ -37,7 +60,7 @@ where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
 {
-    let expr_sql = expr.into_sql();
+    let expr_sql = operand_sql(expr);
     let needs_paren = expr_sql.chunks.len() > 1
         || (expr_sql.chunks.len() == 1
             && !matches!(
@@ -76,13 +99,13 @@ where
     let sql = match iter.next() {
         None => SQL::empty(),
         Some(first) => {
-            let first_sql = first.into_sql();
+            let first_sql = operand_sql(first);
             let Some(second) = iter.next() else {
                 return SQLExpr::new(first_sql);
             };
             let all_conditions = core::iter::once(first_sql)
-                .chain(core::iter::once(second.into_sql()))
-                .chain(iter.map(|c| c.into_sql()));
+                .chain(core::iter::once(operand_sql(second)))
+                .chain(iter.map(operand_sql));
             SQL::from(Token::LPAREN)
                 .append(SQL::join(all_conditions, Token::AND))
                 .push(Token::RPAREN)
@@ -101,13 +124,7 @@ where
     L: ToSQL<'a, V>,
     R: ToSQL<'a, V>,
 {
-    SQLExpr::new(
-        SQL::from(Token::LPAREN)
-            .append(left.into_sql())
-            .push(Token::AND)
-            .append(right.into_sql())
-            .push(Token::RPAREN),
-    )
+    SQLExpr::new(binary_logical_op(left, Token::AND, right))
 }
 
 // =============================================================================
@@ -131,13 +148,13 @@ where
     let sql = match iter.next() {
         None => SQL::empty(),
         Some(first) => {
-            let first_sql = first.into_sql();
+            let first_sql = operand_sql(first);
             let Some(second) = iter.next() else {
                 return SQLExpr::new(first_sql);
             };
             let all_conditions = core::iter::once(first_sql)
-                .chain(core::iter::once(second.into_sql()))
-                .chain(iter.map(|c| c.into_sql()));
+                .chain(core::iter::once(operand_sql(second)))
+                .chain(iter.map(operand_sql));
             SQL::from(Token::LPAREN)
                 .append(SQL::join(all_conditions, Token::OR))
                 .push(Token::RPAREN)
@@ -156,13 +173,7 @@ where
     L: ToSQL<'a, V>,
     R: ToSQL<'a, V>,
 {
-    SQLExpr::new(
-        SQL::from(Token::LPAREN)
-            .append(left.into_sql())
-            .push(Token::OR)
-            .append(right.into_sql())
-            .push(Token::RPAREN),
-    )
+    SQLExpr::new(binary_logical_op(left, Token::OR, right))
 }
 
 // =============================================================================

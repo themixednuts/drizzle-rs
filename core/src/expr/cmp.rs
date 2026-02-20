@@ -36,21 +36,24 @@ where
     L: ToSQL<'a, V>,
     R: ToSQL<'a, V>,
 {
-    let right_sql = right.into_sql();
-    // Wrap subqueries (starting with SELECT) in parentheses
-    let right_sql = if right_sql.is_subquery() {
-        right_sql.parens()
-    } else {
-        right_sql
-    };
-    left.into_sql().push(operator).append(right_sql)
+    let left_sql = operand_sql(left);
+    let right_sql = operand_sql(right);
+
+    left_sql.push(operator).append(right_sql)
+}
+
+#[inline]
+fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    value.into_sql().parens_if_subquery()
 }
 
 /// Operand accepted by comparison helpers.
 ///
-/// For normal expressions this enforces `Expected: Compatible<Rhs::SQLType>`.
-/// For [`Placeholder`], the SQL type is inferred from `Expected` so placeholders
-/// back-propagate type information from the compared expression.
+/// Enforces `Expected: Compatible<Rhs::SQLType>` for any expression-like operand.
 pub trait ComparisonOperand<'a, V, Expected>: ToSQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -207,7 +210,11 @@ where
     L::SQLType: Textual,
     <R as ComparisonOperand<'a, V, L::SQLType>>::SQLType: Textual,
 {
-    SQLExpr::new(left.into_sql().push(Token::LIKE).append(pattern.into_sql()))
+    SQLExpr::new(
+        operand_sql(left)
+            .push(Token::LIKE)
+            .append(operand_sql(pattern)),
+    )
 }
 
 /// NOT LIKE pattern matching.
@@ -225,10 +232,10 @@ where
     <R as ComparisonOperand<'a, V, L::SQLType>>::SQLType: Textual,
 {
     SQLExpr::new(
-        left.into_sql()
+        operand_sql(left)
             .push(Token::NOT)
             .push(Token::LIKE)
-            .append(pattern.into_sql()),
+            .append(operand_sql(pattern)),
     )
 }
 
@@ -253,11 +260,11 @@ where
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
-            .append(expr.into_sql())
+            .append(operand_sql(expr))
             .push(Token::BETWEEN)
-            .append(low.into_sql())
+            .append(operand_sql(low))
             .push(Token::AND)
-            .append(high.into_sql())
+            .append(operand_sql(high))
             .push(Token::RPAREN),
     )
 }
@@ -278,12 +285,12 @@ where
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
-            .append(expr.into_sql())
+            .append(operand_sql(expr))
             .push(Token::NOT)
             .push(Token::BETWEEN)
-            .append(low.into_sql())
+            .append(operand_sql(low))
             .push(Token::AND)
-            .append(high.into_sql())
+            .append(operand_sql(high))
             .push(Token::RPAREN),
     )
 }
@@ -303,7 +310,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(expr.into_sql().push(Token::IS).push(Token::NULL))
+    SQLExpr::new(operand_sql(expr).push(Token::IS).push(Token::NULL))
 }
 
 /// IS NOT NULL check.
@@ -318,7 +325,7 @@ where
     E: Expr<'a, V>,
 {
     SQLExpr::new(
-        expr.into_sql()
+        operand_sql(expr)
             .push(Token::IS)
             .push(Token::NOT)
             .push(Token::NULL),
@@ -565,6 +572,30 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         Self::SQLType: Compatible<R::SQLType>,
     {
         crate::expr::not_in_array(self, values)
+    }
+
+    /// IN subquery check.
+    fn in_subquery<S>(
+        self,
+        subquery: S,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    where
+        S: Expr<'a, V>,
+        Self::SQLType: Compatible<S::SQLType>,
+    {
+        crate::expr::in_subquery(self, subquery)
+    }
+
+    /// NOT IN subquery check.
+    fn not_in_subquery<S>(
+        self,
+        subquery: S,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    where
+        S: Expr<'a, V>,
+        Self::SQLType: Compatible<S::SQLType>,
+    {
+        crate::expr::not_in_subquery(self, subquery)
     }
 }
 

@@ -11,6 +11,19 @@ use crate::types::{ArithmeticOutput, Numeric};
 
 use super::{AggregateKind, Expr, NullOr, Nullability, SQLExpr, Scalar};
 
+#[inline]
+fn binary_op_sql<'a, V, L, R>(left: L, operator: Token, right: R) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+    L: Expr<'a, V>,
+    R: Expr<'a, V>,
+{
+    left.into_sql()
+        .parens_if_subquery()
+        .push(operator)
+        .append(right.into_sql().parens_if_subquery())
+}
+
 // =============================================================================
 // Addition
 // =============================================================================
@@ -28,7 +41,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn add(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.into_sql().push(Token::PLUS).append(rhs.into_sql()))
+        SQLExpr::new(binary_op_sql(self, Token::PLUS, rhs))
     }
 }
 
@@ -49,7 +62,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn sub(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.into_sql().push(Token::MINUS).append(rhs.into_sql()))
+        SQLExpr::new(binary_op_sql(self, Token::MINUS, rhs))
     }
 }
 
@@ -70,7 +83,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn mul(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.into_sql().push(Token::STAR).append(rhs.into_sql()))
+        SQLExpr::new(binary_op_sql(self, Token::STAR, rhs))
     }
 }
 
@@ -91,7 +104,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn div(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.into_sql().push(Token::SLASH).append(rhs.into_sql()))
+        SQLExpr::new(binary_op_sql(self, Token::SLASH, rhs))
     }
 }
 
@@ -112,7 +125,7 @@ where
     type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
 
     fn rem(self, rhs: Rhs) -> Self::Output {
-        SQLExpr::new(self.into_sql().push(Token::REM).append(rhs.into_sql()))
+        SQLExpr::new(binary_op_sql(self, Token::REM, rhs))
     }
 }
 

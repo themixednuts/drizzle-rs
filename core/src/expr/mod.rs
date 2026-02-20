@@ -20,6 +20,7 @@
 //! ```
 
 mod agg;
+mod case;
 mod cmp;
 mod column_ops;
 mod datetime;
@@ -30,10 +31,13 @@ mod ops;
 mod primitives;
 mod set;
 mod string;
+mod subquery;
 mod typed;
 mod util;
+mod window;
 
 pub use agg::*;
+pub use case::*;
 pub use cmp::*;
 #[doc(hidden)]
 pub use column_ops::*;
@@ -43,9 +47,11 @@ pub use math::*;
 pub use null::*;
 pub use set::*;
 pub use string::*;
+pub use subquery::*;
 // ops has only trait impls - no items to re-export
 pub use typed::*;
 pub use util::*;
+pub use window::*;
 
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::DataType;

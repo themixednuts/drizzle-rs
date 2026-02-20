@@ -26,6 +26,14 @@ geo-types = []
 cidr = []
 bit-vec = []
 
+# Column count variants (for tuple SQL type markers)
+col8 = []
+col16 = []
+col32 = []
+col64 = []
+col128 = []
+col200 = []
+
 [dependencies]
 serde = { workspace = true, optional = true, default-features = false, features = [
     "derive",

@@ -109,17 +109,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL with a named placeholder (no value, for prepared statements)
-    #[inline]
-    pub fn placeholder(name: &'static str) -> Self {
-        Self {
-            chunks: smallvec::smallvec![SQLChunk::Param(Param {
-                value: None,
-                placeholder: Placeholder::named(name),
-            })],
-        }
-    }
-
     /// Creates SQL referencing a table
     #[inline]
     pub fn table(table: &'static dyn SQLTableInfo) -> Self {
@@ -140,11 +129,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Subqueries are automatically wrapped in parentheses: NAME((SELECT ...))
     #[inline]
     pub fn func(name: &'static str, args: SQL<'a, V>) -> Self {
-        let args = if args.is_subquery() {
-            args.parens()
-        } else {
-            args
-        };
+        let args = args.parens_if_subquery();
         SQL::raw(name)
             .push(Token::LPAREN)
             .append(args)
@@ -247,10 +232,23 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL::token(Token::LPAREN).append(self).push(Token::RPAREN)
     }
 
-    /// Check if this SQL fragment is a subquery (starts with SELECT)
+    /// Wrap this SQL fragment in parentheses only when it is a subquery.
+    #[inline]
+    pub fn parens_if_subquery(self) -> Self {
+        if self.is_subquery() {
+            self.parens()
+        } else {
+            self
+        }
+    }
+
+    /// Check if this SQL fragment is a subquery (starts with SELECT/WITH).
     #[inline]
     pub fn is_subquery(&self) -> bool {
-        matches!(self.chunks.first(), Some(SQLChunk::Token(Token::SELECT)))
+        matches!(
+            self.chunks.first(),
+            Some(SQLChunk::Token(Token::SELECT | Token::WITH))
+        )
     }
 
     /// Creates an aliased version: self AS "name"
