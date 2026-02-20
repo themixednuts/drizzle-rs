@@ -13,6 +13,7 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![recursion_limit = "512"]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -46,10 +47,13 @@ pub(crate) mod prelude {
     pub use hashbrown::HashMap;
 }
 
+pub mod bind;
 pub mod builder;
 pub mod cte;
 pub mod dialect;
 pub mod error;
+#[macro_use]
+pub mod traits;
 pub mod expr;
 pub mod helpers;
 pub mod join;
@@ -59,15 +63,14 @@ pub mod prepared;
 #[cfg(feature = "profiling")]
 pub mod profiling;
 pub mod relation;
+pub mod row;
 pub mod schema;
 pub mod sql;
 pub mod tracing;
-#[macro_use]
-pub mod traits;
-pub mod row;
 pub mod types;
 
 // Re-export key types and traits
+pub use bind::{BindValue, ValueTypeForDialect};
 pub use builder::{BuilderInit, ExecutableState};
 pub use dialect::{Dialect, DialectExt, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
