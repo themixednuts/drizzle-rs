@@ -121,10 +121,10 @@ impl<'a, T> From<Placeholder> for PostgresInsertValue<'a, PostgresValue<'a>, T> 
     }
 }
 
-impl<'a, M: drizzle_core::types::DataType, T> From<TypedPlaceholder<M>>
-    for PostgresInsertValue<'a, PostgresValue<'a>, T>
+impl<'a, M: drizzle_core::types::DataType, N: drizzle_core::expr::Nullability, T>
+    From<TypedPlaceholder<M, N>> for PostgresInsertValue<'a, PostgresValue<'a>, T>
 {
-    fn from(typed: TypedPlaceholder<M>) -> Self {
+    fn from(typed: TypedPlaceholder<M, N>) -> Self {
         Placeholder::from(typed).into()
     }
 }

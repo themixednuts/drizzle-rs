@@ -1,0 +1,27 @@
+error[E0277]: the trait bound `Option<i32>: drizzle_core::bind::BindValue<'_, _, drizzle::sqlite::types::Integer>` is not satisfied
+  --> tests/ui/raw_sql/fail/nonnull_placeholder_none.rs:23:60
+   |
+23 |     let _rows: Vec<SelectUser> = q.all(db.conn(), [id.bind(None::<i32>)]).unwrap();
+   |                                                       ---- ^^^^^^^^^^^ the trait `drizzle_core::bind::ValueTypeForDialect<_>` is not implemented for `Option<i32>`
+   |                                                       |
+   |                                                       required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `drizzle_core::bind::ValueTypeForDialect<D>`:
+             `&[u8]` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::PostgresDialect>`
+             `&[u8]` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::SQLiteDialect>`
+             `&str` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::PostgresDialect>`
+             `&str` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::SQLiteDialect>`
+             `&uuid::Uuid` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::PostgresDialect>`
+             `&uuid::Uuid` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::SQLiteDialect>`
+             `Arc<Vec<u8>>` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::PostgresDialect>`
+             `Arc<Vec<u8>>` implements `drizzle_core::bind::ValueTypeForDialect<drizzle_core::dialect::SQLiteDialect>`
+           and $N others
+   = note: required for `Option<i32>` to implement `drizzle_core::bind::BindValue<'_, _, drizzle::sqlite::types::Integer>`
+note: required by a bound in `TypedPlaceholder::<T, N>::bind`
+  --> core/src/placeholder.rs
+   |
+   |     pub fn bind<'a, V, R>(self, value: R) -> ParamBind<'a, V>
+   |            ---- required by a bound in this associated function
+...
+   |         R: BindValue<'a, V, T>,
+   |            ^^^^^^^^^^^^^^^^^^^ required by this bound in `TypedPlaceholder::<T, N>::bind`

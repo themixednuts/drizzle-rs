@@ -7,16 +7,73 @@ use super::DataType;
 )]
 pub trait Compatible<Rhs: DataType = Self>: DataType {}
 
+#[diagnostic::on_unimplemented(
+    message = "SQL type `{Self}` is not assignable from `{Rhs}`",
+    label = "this value type cannot be bound to the placeholder/column type",
+    note = "assignment is stricter than comparison compatibility; use a value matching the target SQL marker"
+)]
+pub trait Assignable<Rhs: DataType = Self>: DataType {}
+
 macro_rules! impl_reflexive_compat {
     ($($ty:ty),+ $(,)?) => {
         $(impl Compatible<$ty> for $ty {})+
     };
 }
 
+macro_rules! impl_reflexive_assign {
+    ($($ty:ty),+ $(,)?) => {
+        $(impl Assignable<$ty> for $ty {})+
+    };
+}
+
 impl<T: DataType> Compatible<crate::Array<T>> for crate::Array<T> {}
 impl Compatible<crate::Placeholder> for crate::Placeholder {}
+impl<T: DataType> Assignable<crate::Array<T>> for crate::Array<T> {}
 
 impl_reflexive_compat!(
+    crate::sqlite::types::Integer,
+    crate::sqlite::types::Text,
+    crate::sqlite::types::Real,
+    crate::sqlite::types::Blob,
+    crate::sqlite::types::Numeric,
+    crate::sqlite::types::Any,
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8,
+    crate::postgres::types::Varchar,
+    crate::postgres::types::Text,
+    crate::postgres::types::Char,
+    crate::postgres::types::Bytea,
+    crate::postgres::types::Boolean,
+    crate::postgres::types::Timestamptz,
+    crate::postgres::types::Timestamp,
+    crate::postgres::types::Date,
+    crate::postgres::types::Time,
+    crate::postgres::types::Timetz,
+    crate::postgres::types::Numeric,
+    crate::postgres::types::Uuid,
+    crate::postgres::types::Json,
+    crate::postgres::types::Jsonb,
+    crate::postgres::types::Any,
+    crate::postgres::types::Interval,
+    crate::postgres::types::Inet,
+    crate::postgres::types::Cidr,
+    crate::postgres::types::MacAddr,
+    crate::postgres::types::MacAddr8,
+    crate::postgres::types::Point,
+    crate::postgres::types::LineString,
+    crate::postgres::types::Rect,
+    crate::postgres::types::BitString,
+    crate::postgres::types::Line,
+    crate::postgres::types::LineSegment,
+    crate::postgres::types::Polygon,
+    crate::postgres::types::Circle,
+    crate::postgres::types::Enum
+);
+
+impl_reflexive_assign!(
     crate::sqlite::types::Integer,
     crate::sqlite::types::Text,
     crate::sqlite::types::Real,
@@ -302,6 +359,98 @@ impl_placeholder_compat!(
 );
 
 // =============================================================================
+// Assignment compatibility (bind-time)
+// =============================================================================
+
+// SQLite assignment
+impl Assignable<crate::sqlite::types::Integer> for crate::sqlite::types::Real {}
+impl Assignable<crate::sqlite::types::Integer> for crate::sqlite::types::Numeric {}
+impl Assignable<crate::sqlite::types::Real> for crate::sqlite::types::Numeric {}
+
+impl Assignable<crate::sqlite::types::Integer> for crate::sqlite::types::Any {}
+impl Assignable<crate::sqlite::types::Text> for crate::sqlite::types::Any {}
+impl Assignable<crate::sqlite::types::Real> for crate::sqlite::types::Any {}
+impl Assignable<crate::sqlite::types::Blob> for crate::sqlite::types::Any {}
+impl Assignable<crate::sqlite::types::Numeric> for crate::sqlite::types::Any {}
+
+// PostgreSQL assignment
+// Integer widening: Int2 -> Int4 -> Int8
+impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Int4 {}
+impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Int8 {}
+impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Int8 {}
+
+// Numeric widening and int -> float
+impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Float4 {}
+impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Float4 {}
+impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Float4 {}
+impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Float8 {}
+impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Float8 {}
+impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Float8 {}
+impl Assignable<crate::postgres::types::Float4> for crate::postgres::types::Float8 {}
+
+impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Numeric {}
+impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Numeric {}
+impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Numeric {}
+impl Assignable<crate::postgres::types::Float4> for crate::postgres::types::Numeric {}
+impl Assignable<crate::postgres::types::Float8> for crate::postgres::types::Numeric {}
+
+// Text-family assignment
+impl Assignable<crate::postgres::types::Text> for crate::postgres::types::Varchar {}
+impl Assignable<crate::postgres::types::Char> for crate::postgres::types::Varchar {}
+impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Varchar {}
+
+impl Assignable<crate::postgres::types::Varchar> for crate::postgres::types::Text {}
+impl Assignable<crate::postgres::types::Char> for crate::postgres::types::Text {}
+impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Text {}
+
+impl Assignable<crate::postgres::types::Text> for crate::postgres::types::Char {}
+impl Assignable<crate::postgres::types::Varchar> for crate::postgres::types::Char {}
+impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Char {}
+
+// Temporal and JSON assignment
+impl Assignable<crate::postgres::types::Timestamp> for crate::postgres::types::Timestamptz {}
+impl Assignable<crate::postgres::types::Time> for crate::postgres::types::Timetz {}
+impl Assignable<crate::postgres::types::Json> for crate::postgres::types::Jsonb {}
+
+// Network assignment
+impl Assignable<crate::postgres::types::Inet> for crate::postgres::types::Cidr {}
+
+// Any accepts all concrete PostgreSQL markers
+impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Float4> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Float8> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Varchar> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Text> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Char> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Bytea> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Boolean> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Timestamptz> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Timestamp> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Date> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Time> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Timetz> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Numeric> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Uuid> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Json> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Jsonb> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Interval> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Inet> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Cidr> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::MacAddr> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::MacAddr8> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Point> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::LineString> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Rect> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::BitString> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Line> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::LineSegment> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Polygon> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Circle> for crate::postgres::types::Any {}
+impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Any {}
+
+// =============================================================================
 // Tuple compatibility
 // =============================================================================
 
@@ -457,6 +606,15 @@ macro_rules! impl_tuple_compatible {
     };
 }
 
+macro_rules! impl_tuple_assignable {
+    ($($S:ident),+; $($D:ident),+) => {
+        impl<$($S, $D),+> Assignable<($($S,)+)> for ($($D,)+)
+        where
+            $($S: DataType, $D: DataType + Assignable<$S>,)+
+        {}
+    };
+}
+
 with_dual_col_sizes_8!(impl_tuple_compatible);
 
 #[cfg(any(
@@ -484,3 +642,31 @@ with_dual_col_sizes_128!(impl_tuple_compatible);
 
 #[cfg(feature = "col200")]
 with_dual_col_sizes_200!(impl_tuple_compatible);
+
+with_dual_col_sizes_8!(impl_tuple_assignable);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_dual_col_sizes_16!(impl_tuple_assignable);
+
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_dual_col_sizes_32!(impl_tuple_assignable);
+
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_dual_col_sizes_64!(impl_tuple_assignable);
+
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_dual_col_sizes_128!(impl_tuple_assignable);
+
+#[cfg(feature = "col200")]
+with_dual_col_sizes_200!(impl_tuple_assignable);
