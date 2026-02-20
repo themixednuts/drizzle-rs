@@ -166,13 +166,13 @@ impl<'a> core::fmt::Display for PostgresValue<'a> {
 
             // Date and time types
             #[cfg(feature = "chrono")]
-            PostgresValue::Date(date) => date.format("%Y-%m-%d").to_string(),
+            PostgresValue::Date(date) => date.to_string(),
             #[cfg(feature = "chrono")]
-            PostgresValue::Time(time) => time.format("%H:%M:%S%.f").to_string(),
+            PostgresValue::Time(time) => time.to_string(),
             #[cfg(feature = "chrono")]
-            PostgresValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
+            PostgresValue::Timestamp(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
-            PostgresValue::TimestampTz(ts) => ts.format("%Y-%m-%d %H:%M:%S%.f %:z").to_string(),
+            PostgresValue::TimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
 

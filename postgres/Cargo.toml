@@ -41,6 +41,7 @@ alloc = ["drizzle-core/alloc", "drizzle-types/alloc"]
 
 serde = [
     "dep:serde_json",
+    "serde_json/alloc",
     "dep:serde",
     "postgres?/with-serde_json-1",
     "tokio-postgres?/with-serde_json-1",

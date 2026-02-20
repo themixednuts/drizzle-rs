@@ -238,7 +238,7 @@ impl<'a, const N: usize> From<arrayvec::ArrayString<N>> for SQLiteValue<'a> {
 #[cfg(feature = "arrayvec")]
 impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for SQLiteValue<'a> {
     fn from(value: &arrayvec::ArrayString<N>) -> Self {
-        SQLiteValue::Text(Cow::Owned(value.as_str().to_owned()))
+        SQLiteValue::Text(Cow::Owned(String::from(value.as_str())))
     }
 }
 

@@ -44,7 +44,7 @@ std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std"
 alloc = ["drizzle-types/alloc"]
 
 # Serialization
-serde = ["dep:serde_json", "dep:serde"]
+serde = ["dep:serde_json", "serde_json/alloc", "dep:serde"]
 uuid = ["dep:uuid"]
 chrono = ["dep:chrono"]
 arrayvec = ["dep:arrayvec"]
@@ -54,6 +54,7 @@ cidr = ["dep:cidr"]
 geo-types = ["dep:geo-types"]
 bit-vec = ["dep:bit-vec"]
 compact-str = []
+smallvec-types = []
 
 # Database backends
 sqlite = []

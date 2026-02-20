@@ -552,15 +552,13 @@ impl core::fmt::Display for OwnedPostgresValue {
 
             // Date and time types
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Date(date) => date.format("%Y-%m-%d").to_string(),
+            OwnedPostgresValue::Date(date) => date.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Time(time) => time.format("%H:%M:%S%.f").to_string(),
+            OwnedPostgresValue::Time(time) => time.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
+            OwnedPostgresValue::Timestamp(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::TimestampTz(ts) => {
-                ts.format("%Y-%m-%d %H:%M:%S%.f %:z").to_string()
-            }
+            OwnedPostgresValue::TimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
 
