@@ -32,12 +32,12 @@ pub enum Dialect {
 
     /// PostgreSQL - uses `$1, $2, ...` numbered placeholders
     ///
-    /// Compatible with: tokio-postgres, postgres, sqlx
+    /// Compatible with: tokio-postgres, postgres
     PostgreSQL,
 
     /// MySQL - uses `?` positional placeholders
     ///
-    /// Compatible with: mysql, sqlx
+    /// Compatible with: mysql
     MySQL,
 }
 

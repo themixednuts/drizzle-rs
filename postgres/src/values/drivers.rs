@@ -4,47 +4,6 @@
 use super::PostgresValue;
 
 //------------------------------------------------------------------------------
-// SQLx implementations (when sqlx-postgres feature is enabled)
-//------------------------------------------------------------------------------
-
-#[cfg(feature = "sqlx-postgres")]
-mod sqlx_impls {
-    use super::super::PostgresValue;
-    use sqlx::{Encode, Postgres, Type, postgres::PgArgumentBuffer};
-
-    impl<'a> Type<Postgres> for PostgresValue<'a> {
-        fn type_info() -> sqlx::postgres::PgTypeInfo {
-            // This is a placeholder - in practice you'd need to handle different types
-            <String as Type<Postgres>>::type_info()
-        }
-    }
-
-    impl<'a> Encode<'_, Postgres> for PostgresValue<'a> {
-        fn encode_by_ref(
-            &self,
-            buf: &mut PgArgumentBuffer,
-        ) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync>> {
-            match self {
-                PostgresValue::Null => Ok(sqlx::encode::IsNull::Yes),
-                PostgresValue::Integer(i) => i.encode_by_ref(buf),
-                PostgresValue::Real(f) => f.encode_by_ref(buf),
-                PostgresValue::Text(cow) => cow.as_ref().encode_by_ref(buf),
-                PostgresValue::Bytea(cow) => cow.as_ref().encode_by_ref(buf),
-                PostgresValue::Boolean(b) => b.encode_by_ref(buf),
-                #[cfg(feature = "uuid")]
-                PostgresValue::Uuid(uuid) => uuid.encode_by_ref(buf),
-                #[cfg(feature = "serde")]
-                PostgresValue::Json(json) => json.encode_by_ref(buf),
-                #[cfg(feature = "serde")]
-                PostgresValue::Jsonb(json) => json.encode_by_ref(buf),
-                PostgresValue::Enum(enum_val) => enum_val.variant_name().encode_by_ref(buf),
-                _ => unimplemented!("Encoding not implemented for this PostgresValue variant"),
-            }
-        }
-    }
-}
-
-//------------------------------------------------------------------------------
 // postgres/tokio-postgres ToSql implementations
 // Both crates use the same postgres-types underneath, so we only need one implementation
 //------------------------------------------------------------------------------
