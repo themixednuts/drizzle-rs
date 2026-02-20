@@ -24,7 +24,7 @@ fn main() {
 
     let _: drizzle::Result<Vec<RawRow>> = db
         .select(alias(
-            raw_non_null::<_, drizzle::core::types::Int>("1"),
+            raw_non_null::<_, drizzle::sqlite::types::Integer>("1"),
             "one",
         ))
         .from(user)

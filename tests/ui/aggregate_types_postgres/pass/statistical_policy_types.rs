@@ -1,5 +1,4 @@
 use drizzle::core::expr::{raw_non_null, stddev_pop, stddev_samp, var_pop, var_samp, variance};
-use drizzle::core::types::Int;
 use drizzle::core::ExprValueType;
 use drizzle::postgres::prelude::*;
 
@@ -11,7 +10,7 @@ where
 }
 
 fn main() {
-    let input = raw_non_null::<PostgresValue, Int>("1");
+    let input = raw_non_null::<PostgresValue, drizzle::postgres::types::Int4>("1");
 
     let _: Option<f64> = value_type(stddev_pop(input.clone()));
     let _: Option<f64> = value_type(stddev_samp(input.clone()));

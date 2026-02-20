@@ -1,8 +1,8 @@
-error[E0277]: the trait bound `drizzle_types::sqlite::types::Integer: CastTarget<'_, Int, drizzle_core::dialect::PostgresDialect>` is not satisfied
-  --> tests/ui/cast_targets/postgres/fail/sqlite_marker_in_postgres.rs:14:59
+error[E0277]: the trait bound `drizzle_types::sqlite::types::Integer: CastTarget<'_, Int4, drizzle_core::dialect::PostgresDialect>` is not satisfied
+  --> tests/ui/cast_targets/postgres/fail/sqlite_marker_in_postgres.rs:14:64
    |
-14 |         cast::<_, _, drizzle::core::types::Int>(user.age, drizzle_types::sqlite::types::Integer);
-   |         ---------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, Int, drizzle_core::dialect::PostgresDialect>` is not implemented for `drizzle_types::sqlite::types::Integer`
+14 |         cast::<_, _, drizzle::postgres::types::Int4>(user.age, drizzle_types::sqlite::types::Integer);
+   |         --------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, Int4, drizzle_core::dialect::PostgresDialect>` is not implemented for `drizzle_types::sqlite::types::Integer`
    |         |
    |         required by a bound introduced by this call
    |

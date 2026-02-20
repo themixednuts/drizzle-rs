@@ -1,5 +1,4 @@
 use drizzle::core::expr::{length, raw_non_null};
-use drizzle::core::types::Text;
 use drizzle::core::ExprValueType;
 use drizzle::sqlite::prelude::*;
 
@@ -11,5 +10,5 @@ where
 }
 
 fn main() {
-    let _: i64 = value_type(length(raw_non_null::<SQLiteValue, Text>("'hello'")));
+    let _: i64 = value_type(length(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Text>("'hello'")));
 }

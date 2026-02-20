@@ -16,7 +16,7 @@ struct Schema {
 
 #[derive(SQLiteFromRow)]
 struct SumRow {
-    total: Option<i64>,
+    total: Option<f64>,
 }
 
 fn main() {

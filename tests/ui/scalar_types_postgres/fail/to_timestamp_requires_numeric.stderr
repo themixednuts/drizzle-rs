@@ -1,26 +1,26 @@
-error[E0277]: `drizzle::core::types::Text` is not a numeric SQL type
- --> tests/ui/scalar_types_postgres/fail/to_timestamp_requires_numeric.rs:6:26
+error[E0277]: `drizzle::postgres::types::Text` is not a numeric SQL type
+ --> tests/ui/scalar_types_postgres/fail/to_timestamp_requires_numeric.rs:5:26
   |
-6 |     let _ = to_timestamp(raw_non_null::<PostgresValue, Text>("'1700000000'"));
-  |             ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ arithmetic operations require Int, SmallInt, BigInt, Float, or Double
+5 |     let _ = to_timestamp(raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'1700000000'"));
+  |             ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ arithmetic operations require Int, SmallInt, BigInt, Float, or Double
   |             |
   |             required by a bound introduced by this call
   |
-  = help: the trait `drizzle::core::types::Numeric` is not implemented for `drizzle::core::types::Text`
+  = help: the trait `drizzle::core::types::Numeric` is not implemented for `drizzle::postgres::types::Text`
   = help: the following other types implement trait `drizzle::core::types::Numeric`:
-            Double
-            Float
             Float4
             Float8
-            Int
             Int2
             Int4
             Int8
+            drizzle::ddl::sqlite::types::Any
+            drizzle::ddl::sqlite::types::Integer
+            drizzle::ddl::sqlite::types::Numeric
           and $N others
 note: required by a bound in `to_timestamp`
  --> core/src/expr/datetime.rs
   |
-  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, TimestampTz, E::Nullable, Scalar>
+  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, Scalar>
   |        ------------ required by a bound in this function
 ...
   |     E::SQLType: Numeric,

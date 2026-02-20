@@ -33,13 +33,16 @@ fn postgres_dialect_types_are_distinct_markers_with_cast_mappings() {
     {
     }
 
-    assert_compatible::<postgres_types::Int2, core_types::SmallInt>();
-    assert_compatible::<postgres_types::Int4, core_types::Int>();
-    assert_compatible::<postgres_types::Int8, core_types::BigInt>();
-    assert_compatible::<postgres_types::Float4, core_types::Float>();
-    assert_compatible::<postgres_types::Float8, core_types::Double>();
-    assert_compatible::<postgres_types::Varchar, core_types::VarChar>();
-    assert_compatible::<postgres_types::Bytea, core_types::Bytes>();
-    assert_compatible::<postgres_types::Boolean, core_types::Bool>();
-    assert_compatible::<postgres_types::Timestamptz, core_types::TimestampTz>();
+    // Postgres numeric widening
+    assert_compatible::<postgres_types::Int2, postgres_types::Int4>();
+    assert_compatible::<postgres_types::Int4, postgres_types::Int8>();
+    assert_compatible::<postgres_types::Float4, postgres_types::Float8>();
+    // Cross int/float
+    assert_compatible::<postgres_types::Int4, postgres_types::Float8>();
+    // Numeric compat
+    assert_compatible::<postgres_types::Numeric, postgres_types::Int4>();
+    // Text variants
+    assert_compatible::<postgres_types::Text, postgres_types::Varchar>();
+    // Temporal
+    assert_compatible::<postgres_types::Timestamp, postgres_types::Timestamptz>();
 }

@@ -1,11 +1,11 @@
 error[E0277]: this string function is not available for this dialect
- --> tests/ui/scalar_types_postgres/fail/instr_requires_sqlite.rs:6:13
+ --> tests/ui/scalar_types_postgres/fail/instr_requires_sqlite.rs:5:13
   |
-6 |       let _ = instr(
+5 |       let _ = instr(
   |  _____________^
-7 | |         raw_non_null::<PostgresValue, Text>("'hello'"),
-8 | |         raw_non_null::<PostgresValue, Text>("'ll'"),
-9 | |     );
+6 | |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'hello'"),
+7 | |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'ll'"),
+8 | |     );
   | |_____^ use a dialect-specific alternative
   |
   = help: the trait `SQLiteStringSupport` is not implemented for `drizzle_core::dialect::PostgresDialect`

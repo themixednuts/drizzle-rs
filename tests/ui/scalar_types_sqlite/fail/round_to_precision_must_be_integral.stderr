@@ -1,21 +1,25 @@
-error[E0277]: `drizzle::core::types::Text` is not an integer SQL type
- --> tests/ui/scalar_types_sqlite/fail/round_to_precision_must_be_integral.rs:8:9
+error[E0277]: `drizzle::sqlite::types::Text` is not an integer SQL type
+ --> tests/ui/scalar_types_sqlite/fail/round_to_precision_must_be_integral.rs:7:9
   |
-6 |     let _ = round_to(
+5 |     let _ = round_to(
   |             -------- required by a bound introduced by this call
-7 |         raw_non_null::<SQLiteValue, Double>("1.234"),
-8 |         raw_non_null::<SQLiteValue, Text>("'two'"),
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected SmallInt, Int, or BigInt
+6 |         raw_non_null::<SQLiteValue, drizzle::sqlite::types::Real>("1.234"),
+7 |         raw_non_null::<SQLiteValue, drizzle::sqlite::types::Text>("'two'"),
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected SmallInt, Int, or BigInt
   |
-  = help: the trait `Integral` is not implemented for `drizzle::core::types::Text`
-  = help: the following other types implement trait `Integral`:
-            Int
-            Int2
-            Int4
-            Int8
-            drizzle::core::types::BigInt
-            drizzle::core::types::SmallInt
-            drizzle::sqlite::types::Integer
+  = help: the trait `Integral` is not implemented for `drizzle::sqlite::types::Text`
+help: the following other types implement trait `Integral`
+ --> types/src/sql/mod.rs
+  |
+  | impl Integral for crate::sqlite::types::Integer {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+  | impl Integral for crate::postgres::types::Int2 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int2`
+  | impl Integral for crate::postgres::types::Int4 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int4`
+  | impl Integral for crate::postgres::types::Int8 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int8`
 note: required by a bound in `round_to`
  --> core/src/expr/math.rs
   |

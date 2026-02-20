@@ -1,8 +1,8 @@
 error[E0277]: this date/time function is not available for this dialect
- --> tests/ui/scalar_types_sqlite/fail/to_timestamp_requires_postgres.rs:6:13
+ --> tests/ui/scalar_types_sqlite/fail/to_timestamp_requires_postgres.rs:5:13
   |
-6 |     let _ = to_timestamp(raw_non_null::<SQLiteValue, BigInt>("1700000000"));
-  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
+5 |     let _ = to_timestamp(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Integer>("1700000000"));
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
   |
   = help: the trait `PostgresDateTimeSupport` is not implemented for `drizzle_core::dialect::SQLiteDialect`
 help: the trait `PostgresDateTimeSupport` is implemented for `drizzle_core::dialect::PostgresDialect`
@@ -13,7 +13,7 @@ help: the trait `PostgresDateTimeSupport` is implemented for `drizzle_core::dial
 note: required by a bound in `to_timestamp`
  --> core/src/expr/datetime.rs
   |
-  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, TimestampTz, E::Nullable, Scalar>
+  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, Scalar>
   |        ------------ required by a bound in this function
 ...
   |     V::DialectMarker: PostgresDateTimeSupport,
