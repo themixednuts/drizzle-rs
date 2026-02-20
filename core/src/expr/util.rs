@@ -101,7 +101,9 @@ pub fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
 /// // SELECT TYPEOF(users.age) -- returns "integer"
 /// let age_type = typeof_(users.age);
 /// ```
-pub fn typeof_<'a, V, E>(expr: E) -> SQLExpr<'a, V, crate::types::Text, NonNull, Scalar>
+pub fn typeof_<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
@@ -110,7 +112,9 @@ where
 }
 
 /// Alias for typeof_ (uses Rust raw identifier syntax).
-pub fn r#typeof<'a, V, E>(expr: E) -> SQLExpr<'a, V, crate::types::Text, NonNull, Scalar>
+pub fn r#typeof<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
@@ -127,63 +131,23 @@ pub trait DefaultCastTypeName: DataType {
     const CAST_TYPE_NAME: &'static str;
 }
 
-impl DefaultCastTypeName for crate::types::SmallInt {
-    const CAST_TYPE_NAME: &'static str = "SMALLINT";
-}
-impl DefaultCastTypeName for crate::types::Int {
-    const CAST_TYPE_NAME: &'static str = "INTEGER";
-}
-impl DefaultCastTypeName for crate::types::BigInt {
-    const CAST_TYPE_NAME: &'static str = "BIGINT";
-}
-impl DefaultCastTypeName for crate::types::Float {
-    const CAST_TYPE_NAME: &'static str = "REAL";
-}
-impl DefaultCastTypeName for crate::types::Double {
-    const CAST_TYPE_NAME: &'static str = "DOUBLE PRECISION";
-}
-impl DefaultCastTypeName for crate::types::Text {
-    const CAST_TYPE_NAME: &'static str = "TEXT";
-}
-impl DefaultCastTypeName for crate::types::VarChar {
-    const CAST_TYPE_NAME: &'static str = "VARCHAR";
-}
-impl DefaultCastTypeName for crate::types::Bool {
-    const CAST_TYPE_NAME: &'static str = "BOOLEAN";
-}
-impl DefaultCastTypeName for crate::types::Bytes {
-    const CAST_TYPE_NAME: &'static str = "BLOB";
-}
-impl DefaultCastTypeName for crate::types::Date {
-    const CAST_TYPE_NAME: &'static str = "DATE";
-}
-impl DefaultCastTypeName for crate::types::Time {
-    const CAST_TYPE_NAME: &'static str = "TIME";
-}
-impl DefaultCastTypeName for crate::types::Timestamp {
-    const CAST_TYPE_NAME: &'static str = "TIMESTAMP";
-}
-impl DefaultCastTypeName for crate::types::TimestampTz {
-    const CAST_TYPE_NAME: &'static str = "TIMESTAMPTZ";
-}
-impl DefaultCastTypeName for crate::types::Uuid {
-    const CAST_TYPE_NAME: &'static str = "UUID";
-}
-impl DefaultCastTypeName for crate::types::Json {
-    const CAST_TYPE_NAME: &'static str = "JSON";
-}
-impl DefaultCastTypeName for crate::types::Jsonb {
-    const CAST_TYPE_NAME: &'static str = "JSONB";
-}
-
 impl DefaultCastTypeName for drizzle_types::sqlite::types::Integer {
     const CAST_TYPE_NAME: &'static str = "INTEGER";
+}
+impl DefaultCastTypeName for drizzle_types::sqlite::types::Text {
+    const CAST_TYPE_NAME: &'static str = "TEXT";
 }
 impl DefaultCastTypeName for drizzle_types::sqlite::types::Real {
     const CAST_TYPE_NAME: &'static str = "REAL";
 }
 impl DefaultCastTypeName for drizzle_types::sqlite::types::Blob {
     const CAST_TYPE_NAME: &'static str = "BLOB";
+}
+impl DefaultCastTypeName for drizzle_types::sqlite::types::Numeric {
+    const CAST_TYPE_NAME: &'static str = "NUMERIC";
+}
+impl DefaultCastTypeName for drizzle_types::sqlite::types::Any {
+    const CAST_TYPE_NAME: &'static str = "ANY";
 }
 
 impl DefaultCastTypeName for drizzle_types::postgres::types::Int2 {
@@ -204,6 +168,12 @@ impl DefaultCastTypeName for drizzle_types::postgres::types::Float8 {
 impl DefaultCastTypeName for drizzle_types::postgres::types::Varchar {
     const CAST_TYPE_NAME: &'static str = "VARCHAR";
 }
+impl DefaultCastTypeName for drizzle_types::postgres::types::Text {
+    const CAST_TYPE_NAME: &'static str = "TEXT";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Char {
+    const CAST_TYPE_NAME: &'static str = "CHAR";
+}
 impl DefaultCastTypeName for drizzle_types::postgres::types::Bytea {
     const CAST_TYPE_NAME: &'static str = "BYTEA";
 }
@@ -212,6 +182,33 @@ impl DefaultCastTypeName for drizzle_types::postgres::types::Boolean {
 }
 impl DefaultCastTypeName for drizzle_types::postgres::types::Timestamptz {
     const CAST_TYPE_NAME: &'static str = "TIMESTAMPTZ";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Timestamp {
+    const CAST_TYPE_NAME: &'static str = "TIMESTAMP";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Date {
+    const CAST_TYPE_NAME: &'static str = "DATE";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Time {
+    const CAST_TYPE_NAME: &'static str = "TIME";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Timetz {
+    const CAST_TYPE_NAME: &'static str = "TIMETZ";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Numeric {
+    const CAST_TYPE_NAME: &'static str = "NUMERIC";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Uuid {
+    const CAST_TYPE_NAME: &'static str = "UUID";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Json {
+    const CAST_TYPE_NAME: &'static str = "JSON";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Jsonb {
+    const CAST_TYPE_NAME: &'static str = "JSONB";
+}
+impl DefaultCastTypeName for drizzle_types::postgres::types::Any {
+    const CAST_TYPE_NAME: &'static str = "ANY";
 }
 
 /// Input accepted by [`cast`].
@@ -323,10 +320,17 @@ where
 /// // SELECT users.first_name || ' ' || users.last_name
 /// let full_name = string_concat(string_concat(users.first_name, " "), users.last_name);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn string_concat<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, crate::types::Text, <L::Nullable as NullOr<R::Nullable>>::Output, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as crate::dialect::DialectTypes>::Text,
+    <L::Nullable as NullOr<R::Nullable>>::Output,
+    Scalar,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,

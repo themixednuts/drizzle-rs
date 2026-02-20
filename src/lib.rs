@@ -335,7 +335,7 @@ pub mod mysql {}
 /// }
 /// ```
 ///
-/// Type safety: Bool is not compatible with Int.
+/// Type safety: Blob is not compatible with Integer.
 /// ```compile_fail,E0277
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle::core::expr::eq;
@@ -344,12 +344,12 @@ pub mod mysql {}
 /// struct Config {
 ///     #[column(primary)]
 ///     id: i32,
-///     enabled: bool,
+///     data: Vec<u8>,
 /// }
 ///
 /// fn main() {
 ///     let config = Config::default();
-///     let _ = eq(config.enabled, 42);
+///     let _ = eq(config.data, 42);
 /// }
 /// ```
 ///
@@ -407,21 +407,21 @@ pub mod mysql {}
 /// }
 /// ```
 ///
-/// Type safety: date() rejects non-temporal columns.
+/// Type safety: date() rejects non-temporal columns (Blob).
 /// ```compile_fail,E0277
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle::core::expr::date;
 ///
 /// #[SQLiteTable]
-/// struct User {
+/// struct Data {
 ///     #[column(primary)]
 ///     id: i32,
-///     name: String,
+///     content: Vec<u8>,
 /// }
 ///
 /// fn main() {
-///     let user = User::default();
-///     let _ = date(user.id);
+///     let data = Data::default();
+///     let _ = date(data.content);
 /// }
 /// ```
 ///

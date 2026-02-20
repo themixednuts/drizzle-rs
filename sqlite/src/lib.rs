@@ -43,7 +43,6 @@ pub mod helpers;
 pub mod pragma;
 pub mod traits;
 pub mod types {
-    pub use drizzle_types::sql::*;
     pub use drizzle_types::sqlite::types::*;
 }
 pub mod values;

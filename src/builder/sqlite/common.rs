@@ -287,7 +287,7 @@ impl<'d, 'a, Conn, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,
 {
-    type SQLType = drizzle_core::types::Any;
+    type SQLType = drizzle_types::sqlite::types::Any;
     type Nullable = drizzle_core::expr::NonNull;
     type Aggregate = drizzle_core::expr::Scalar;
 }

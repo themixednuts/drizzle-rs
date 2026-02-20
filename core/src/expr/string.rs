@@ -9,10 +9,15 @@
 //! - `length`: Dialect-aware integer output from text input
 //! - `substr`, `replace`, `instr`: Require `Textual` types
 
+use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{DataType, Text, Textual, VarChar};
+use crate::types::{DataType, Textual};
 use crate::{PostgresDialect, SQLiteDialect};
+use drizzle_types::postgres::types::{
+    Char as PgChar, Int4 as PgInt4, Text as PgText, Varchar as PgVarchar,
+};
+use drizzle_types::sqlite::types::{Integer as SqliteInteger, Text as SqliteText};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
 
@@ -36,21 +41,21 @@ pub trait SQLiteStringSupport {}
 )]
 pub trait PostgresStringSupport {}
 
-impl LengthPolicy<SQLiteDialect> for Text {
-    type Output = drizzle_types::sqlite::types::Integer;
+impl LengthPolicy<SQLiteDialect> for SqliteText {
+    type Output = SqliteInteger;
 }
-impl LengthPolicy<SQLiteDialect> for VarChar {
-    type Output = drizzle_types::sqlite::types::Integer;
-}
-impl LengthPolicy<SQLiteDialect> for crate::types::Any {
-    type Output = drizzle_types::sqlite::types::Integer;
+impl LengthPolicy<SQLiteDialect> for drizzle_types::sqlite::types::Any {
+    type Output = SqliteInteger;
 }
 
-impl LengthPolicy<PostgresDialect> for Text {
-    type Output = drizzle_types::postgres::types::Int4;
+impl LengthPolicy<PostgresDialect> for PgText {
+    type Output = PgInt4;
 }
-impl LengthPolicy<PostgresDialect> for VarChar {
-    type Output = drizzle_types::postgres::types::Int4;
+impl LengthPolicy<PostgresDialect> for PgVarchar {
+    type Output = PgInt4;
+}
+impl LengthPolicy<PostgresDialect> for PgChar {
+    type Output = PgInt4;
 }
 
 impl SQLiteStringSupport for SQLiteDialect {}
@@ -73,7 +78,9 @@ impl PostgresStringSupport for PostgresDialect {}
 /// // ❌ Compile error: Int is not Textual
 /// upper(users.id);
 /// ```
-pub fn upper<'a, V, E>(expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn upper<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -94,7 +101,9 @@ where
 /// // SELECT LOWER(users.email)
 /// let email_lower = lower(users.email);
 /// ```
-pub fn lower<'a, V, E>(expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn lower<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -119,7 +128,9 @@ where
 /// // SELECT TRIM(users.name)
 /// let trimmed = trim(users.name);
 /// ```
-pub fn trim<'a, V, E>(expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn trim<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -131,7 +142,9 @@ where
 /// LTRIM - removes leading whitespace.
 ///
 /// Preserves the nullability of the input expression.
-pub fn ltrim<'a, V, E>(expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn ltrim<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -143,7 +156,9 @@ where
 /// RTRIM - removes trailing whitespace.
 ///
 /// Preserves the nullability of the input expression.
-pub fn rtrim<'a, V, E>(expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn rtrim<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -201,7 +216,7 @@ pub fn substr<'a, V, E, S, L>(
     expr: E,
     start: S,
     len: L,
-) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -236,7 +251,11 @@ where
 /// // SELECT REPLACE(users.email, '@old.com', '@new.com')
 /// let new_email = replace(users.email, "@old.com", "@new.com");
 /// ```
-pub fn replace<'a, V, E, F, T>(expr: E, from: F, to: T) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn replace<'a, V, E, F, T>(
+    expr: E,
+    from: F,
+    to: T,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -341,10 +360,17 @@ where
 /// // SELECT users.first_name || ' ' || users.last_name
 /// let full_name = concat(concat(users.first_name, " "), users.last_name);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn concat<'a, V, E1, E2>(
     expr1: E1,
     expr2: E2,
-) -> SQLExpr<'a, V, Text, <E1::Nullable as NullOr<E2::Nullable>>::Output, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    Scalar,
+>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,

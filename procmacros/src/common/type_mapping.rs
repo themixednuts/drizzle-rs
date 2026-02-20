@@ -18,16 +18,11 @@ use crate::paths::core as core_paths;
 pub fn sqlite_column_type_to_sql_type(column_type: &SQLiteType) -> TokenStream {
     match column_type {
         SQLiteType::Integer => quote!(drizzle::sqlite::types::Integer),
+        SQLiteType::Text => quote!(drizzle::sqlite::types::Text),
         SQLiteType::Real => quote!(drizzle::sqlite::types::Real),
         SQLiteType::Blob => quote!(drizzle::sqlite::types::Blob),
-        SQLiteType::Text => {
-            let types = core_paths::types();
-            quote!(#types::Text)
-        }
-        SQLiteType::Numeric | SQLiteType::Any => {
-            let types = core_paths::types();
-            quote!(#types::Any)
-        }
+        SQLiteType::Numeric => quote!(drizzle::sqlite::types::Numeric),
+        SQLiteType::Any => quote!(drizzle::sqlite::types::Any),
     }
 }
 
@@ -41,8 +36,6 @@ pub fn sqlite_column_type_is_numeric(column_type: &SQLiteType) -> bool {
 
 #[cfg(feature = "postgres")]
 pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenStream {
-    let types = core_paths::types();
-
     match column_type {
         PostgreSQLType::Smallint | PostgreSQLType::Smallserial => {
             quote!(drizzle::postgres::types::Int2)
@@ -55,29 +48,30 @@ pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenSt
         }
         PostgreSQLType::Real => quote!(drizzle::postgres::types::Float4),
         PostgreSQLType::DoublePrecision => quote!(drizzle::postgres::types::Float8),
-        PostgreSQLType::Text | PostgreSQLType::Varchar | PostgreSQLType::Char => {
-            quote!(drizzle::postgres::types::Varchar)
-        }
+        PostgreSQLType::Text => quote!(drizzle::postgres::types::Text),
+        PostgreSQLType::Varchar => quote!(drizzle::postgres::types::Varchar),
+        PostgreSQLType::Char => quote!(drizzle::postgres::types::Char),
         PostgreSQLType::Boolean => quote!(drizzle::postgres::types::Boolean),
         PostgreSQLType::Bytea => quote!(drizzle::postgres::types::Bytea),
         PostgreSQLType::Timestamptz => quote!(drizzle::postgres::types::Timestamptz),
-        PostgreSQLType::Timestamp => quote!(#types::Timestamp),
-        PostgreSQLType::Date => quote!(#types::Date),
-        PostgreSQLType::Time | PostgreSQLType::Timetz => quote!(#types::Time),
-        PostgreSQLType::Numeric => quote!(#types::Any),
+        PostgreSQLType::Timestamp => quote!(drizzle::postgres::types::Timestamp),
+        PostgreSQLType::Date => quote!(drizzle::postgres::types::Date),
+        PostgreSQLType::Time => quote!(drizzle::postgres::types::Time),
+        PostgreSQLType::Timetz => quote!(drizzle::postgres::types::Timetz),
+        PostgreSQLType::Numeric => quote!(drizzle::postgres::types::Numeric),
         #[cfg(feature = "uuid")]
-        PostgreSQLType::Uuid => quote!(#types::Uuid),
+        PostgreSQLType::Uuid => quote!(drizzle::postgres::types::Uuid),
         #[cfg(feature = "serde")]
-        PostgreSQLType::Json => quote!(#types::Json),
+        PostgreSQLType::Json => quote!(drizzle::postgres::types::Json),
         #[cfg(feature = "serde")]
-        PostgreSQLType::Jsonb => quote!(#types::Jsonb),
+        PostgreSQLType::Jsonb => quote!(drizzle::postgres::types::Jsonb),
         #[cfg(feature = "chrono")]
-        PostgreSQLType::Interval => quote!(#types::Any),
+        PostgreSQLType::Interval => quote!(drizzle::postgres::types::Any),
         #[cfg(feature = "cidr")]
         PostgreSQLType::Inet
         | PostgreSQLType::Cidr
         | PostgreSQLType::MacAddr
-        | PostgreSQLType::MacAddr8 => quote!(#types::Any),
+        | PostgreSQLType::MacAddr8 => quote!(drizzle::postgres::types::Any),
         #[cfg(feature = "geo-types")]
         PostgreSQLType::Point
         | PostgreSQLType::Line
@@ -85,10 +79,10 @@ pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenSt
         | PostgreSQLType::Box
         | PostgreSQLType::Path
         | PostgreSQLType::Polygon
-        | PostgreSQLType::Circle => quote!(#types::Any),
+        | PostgreSQLType::Circle => quote!(drizzle::postgres::types::Any),
         #[cfg(feature = "bit-vec")]
-        PostgreSQLType::Bit | PostgreSQLType::Varbit => quote!(#types::Any),
-        PostgreSQLType::Enum(_) => quote!(#types::Any),
+        PostgreSQLType::Bit | PostgreSQLType::Varbit => quote!(drizzle::postgres::types::Any),
+        PostgreSQLType::Enum(_) => quote!(drizzle::postgres::types::Any),
     }
 }
 

@@ -30,6 +30,12 @@ pub mod types {
     pub struct Varchar;
 
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Text;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Char;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct Bytea;
 
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -37,6 +43,33 @@ pub mod types {
 
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct Timestamptz;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Timestamp;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Date;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Time;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Timetz;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Numeric;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Uuid;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Json;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Jsonb;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Any;
 }
 
 pub use sql_type::PostgreSQLType;
