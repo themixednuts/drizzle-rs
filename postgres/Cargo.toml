@@ -22,7 +22,6 @@ bit-vec = { version = "0.8", optional = true }
 arrayvec = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 compact_str = { workspace = true, optional = true }
-# sqlx = { workspace = true, optional = true, default-features = false }
 paste = { workspace = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
@@ -70,8 +69,6 @@ arrayvec = ["dep:arrayvec"]
 smallvec = ["dep:smallvec"]
 compact-str = ["dep:compact_str"]
 bytes = ["dep:bytes"]
-
-# sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/uuid"]
 
 postgres-sync = ["std", "dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
 tokio-postgres = [

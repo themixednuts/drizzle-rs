@@ -53,4 +53,3 @@ turso = ["sqlite"]
 # PostgreSQL driver-specific features
 postgres-sync = ["postgres"]
 tokio-postgres = ["postgres"]
-# sqlx-postgres = ["postgres"]

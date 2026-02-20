@@ -112,12 +112,6 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate table marker const for IDE hover documentation
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
 
-    // #[cfg(feature = "sqlx-postgres")]
-    // let sqlx_impls = sqlx::generate_sqlx_impls(&ctx)?;
-
-    // #[cfg(not(feature = "sqlx-postgres"))]
-    // let sqlx_impls = quote!();
-
     // Generate const DDL entities
     let const_ddl = generate_const_ddl(&ctx, &column_zst_idents)?;
 
@@ -157,9 +151,6 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #driver_impls
         #json_impls
         #const_ddl
-
-        // Database-specific implementations
-        // #sqlx_impls
     };
 
     Ok(expanded)
