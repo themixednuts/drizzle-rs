@@ -34,6 +34,8 @@ mod postgres_tosql_impl {
                 PostgresValue::Bigint(i) => i.to_sql(ty, out),
                 PostgresValue::Real(f) => f.to_sql(ty, out),
                 PostgresValue::DoublePrecision(f) => f.to_sql(ty, out),
+                #[cfg(feature = "rust-decimal")]
+                PostgresValue::Numeric(d) => d.to_sql(ty, out),
                 PostgresValue::Text(cow) => cow.as_ref().to_sql(ty, out),
                 PostgresValue::Bytea(cow) => cow.as_ref().to_sql(ty, out),
                 PostgresValue::Boolean(b) => b.to_sql(ty, out),

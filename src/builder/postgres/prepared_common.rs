@@ -11,6 +11,8 @@ pub(crate) fn postgres_sync_param_type(
         PostgresValue::Bigint(_) => Some(Type::INT8),
         PostgresValue::Real(_) => Some(Type::FLOAT4),
         PostgresValue::DoublePrecision(_) => Some(Type::FLOAT8),
+        #[cfg(feature = "rust-decimal")]
+        PostgresValue::Numeric(_) => Some(Type::NUMERIC),
         PostgresValue::Text(_) => Some(Type::TEXT),
         PostgresValue::Bytea(_) => Some(Type::BYTEA),
         PostgresValue::Boolean(_) => Some(Type::BOOL),
