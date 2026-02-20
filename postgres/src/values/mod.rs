@@ -18,6 +18,11 @@ use uuid::Uuid;
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 
+#[cfg(feature = "time")]
+use time::{
+    Date as TimeDate, Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime, Time as TimeTime,
+};
+
 #[cfg(feature = "cidr")]
 use cidr::{IpCidr, IpInet};
 
@@ -109,6 +114,23 @@ pub enum PostgresValue<'a> {
     #[cfg(feature = "chrono")]
     Interval(Duration),
 
+    // Date and time types (time crate)
+    /// DATE values (time crate)
+    #[cfg(feature = "time")]
+    TimeDate(TimeDate),
+    /// TIME values (time crate)
+    #[cfg(feature = "time")]
+    TimeTime(TimeTime),
+    /// TIMESTAMP values without timezone (time crate)
+    #[cfg(feature = "time")]
+    TimeTimestamp(PrimitiveDateTime),
+    /// TIMESTAMPTZ values with timezone (time crate)
+    #[cfg(feature = "time")]
+    TimeTimestampTz(OffsetDateTime),
+    /// INTERVAL values (time crate)
+    #[cfg(feature = "time")]
+    TimeInterval(TimeDuration),
+
     // Network address types
     /// INET values (host address with optional netmask)
     #[cfg(feature = "cidr")]
@@ -183,6 +205,18 @@ impl<'a> core::fmt::Display for PostgresValue<'a> {
             PostgresValue::TimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
+
+            // Date and time types (time crate)
+            #[cfg(feature = "time")]
+            PostgresValue::TimeDate(date) => date.to_string(),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTime(time) => time.to_string(),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestamp(ts) => ts.to_string(),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestampTz(ts) => ts.to_string(),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeInterval(dur) => format!("{} seconds", dur.whole_seconds()),
 
             // Network address types
             #[cfg(feature = "cidr")]
@@ -499,6 +533,56 @@ impl<'a> PostgresValue<'a> {
         }
     }
 
+    /// Returns the date value if this is DATE (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_date(&self) -> Option<&TimeDate> {
+        match self {
+            PostgresValue::TimeDate(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the time value if this is TIME (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_time(&self) -> Option<&TimeTime> {
+        match self {
+            PostgresValue::TimeTime(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp value if this is TIMESTAMP (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_timestamp(&self) -> Option<&PrimitiveDateTime> {
+        match self {
+            PostgresValue::TimeTimestamp(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp with timezone value if this is TIMESTAMPTZ (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_timestamp_tz(&self) -> Option<&OffsetDateTime> {
+        match self {
+            PostgresValue::TimeTimestampTz(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the interval value if this is INTERVAL (time crate).
+    #[inline]
+    #[cfg(feature = "time")]
+    pub fn as_time_interval(&self) -> Option<&TimeDuration> {
+        match self {
+            PostgresValue::TimeInterval(value) => Some(value),
+            _ => None,
+        }
+    }
+
     /// Returns the array elements if this is an ARRAY.
     #[inline]
     pub fn as_array(&self) -> Option<&[PostgresValue<'a>]> {
@@ -547,6 +631,18 @@ impl<'a> PostgresValue<'a> {
             PostgresValue::TimestampTz(value) => T::from_postgres_timestamptz(value),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(value) => T::from_postgres_interval(value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeInterval(value) => {
+                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
+            }
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
@@ -601,6 +697,18 @@ impl<'a> PostgresValue<'a> {
             PostgresValue::TimestampTz(value) => T::from_postgres_timestamptz(*value),
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(value) => T::from_postgres_interval(*value),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            #[cfg(feature = "time")]
+            PostgresValue::TimeInterval(value) => {
+                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
+            }
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]

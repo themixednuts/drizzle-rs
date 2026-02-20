@@ -393,6 +393,31 @@ impl ValueTypeForDialect<PostgresDialect> for chrono::Duration {
     type SQLType = drizzle_types::postgres::types::Interval;
 }
 
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<PostgresDialect> for time::Date {
+    type SQLType = drizzle_types::postgres::types::Date;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<PostgresDialect> for time::Time {
+    type SQLType = drizzle_types::postgres::types::Time;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<PostgresDialect> for time::PrimitiveDateTime {
+    type SQLType = drizzle_types::postgres::types::Timestamp;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<PostgresDialect> for time::OffsetDateTime {
+    type SQLType = drizzle_types::postgres::types::Timestamptz;
+}
+
+#[cfg(feature = "time")]
+impl ValueTypeForDialect<PostgresDialect> for time::Duration {
+    type SQLType = drizzle_types::postgres::types::Interval;
+}
+
 #[cfg(feature = "cidr")]
 impl ValueTypeForDialect<PostgresDialect> for cidr::IpInet {
     type SQLType = drizzle_types::postgres::types::Inet;

@@ -10,6 +10,11 @@ use uuid::Uuid;
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
+#[cfg(feature = "time")]
+use time::{
+    Date as TimeDate, Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime, Time as TimeTime,
+};
+
 #[cfg(feature = "cidr")]
 use cidr::{IpCidr, IpInet};
 
@@ -571,6 +576,78 @@ impl<'a> From<Duration> for PostgresValue<'a> {
 impl<'a> From<&'a Duration> for PostgresValue<'a> {
     fn from(value: &'a Duration) -> Self {
         PostgresValue::Interval(*value)
+    }
+}
+
+// --- Date/Time Types (time crate) ---
+
+#[cfg(feature = "time")]
+impl<'a> From<TimeDate> for PostgresValue<'a> {
+    fn from(value: TimeDate) -> Self {
+        PostgresValue::TimeDate(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&'a TimeDate> for PostgresValue<'a> {
+    fn from(value: &'a TimeDate) -> Self {
+        PostgresValue::TimeDate(*value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<TimeTime> for PostgresValue<'a> {
+    fn from(value: TimeTime) -> Self {
+        PostgresValue::TimeTime(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&'a TimeTime> for PostgresValue<'a> {
+    fn from(value: &'a TimeTime) -> Self {
+        PostgresValue::TimeTime(*value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<PrimitiveDateTime> for PostgresValue<'a> {
+    fn from(value: PrimitiveDateTime) -> Self {
+        PostgresValue::TimeTimestamp(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&'a PrimitiveDateTime> for PostgresValue<'a> {
+    fn from(value: &'a PrimitiveDateTime) -> Self {
+        PostgresValue::TimeTimestamp(*value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<OffsetDateTime> for PostgresValue<'a> {
+    fn from(value: OffsetDateTime) -> Self {
+        PostgresValue::TimeTimestampTz(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&'a OffsetDateTime> for PostgresValue<'a> {
+    fn from(value: &'a OffsetDateTime) -> Self {
+        PostgresValue::TimeTimestampTz(*value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<TimeDuration> for PostgresValue<'a> {
+    fn from(value: TimeDuration) -> Self {
+        PostgresValue::TimeInterval(value)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> From<&'a TimeDuration> for PostgresValue<'a> {
+    fn from(value: &'a TimeDuration) -> Self {
+        PostgresValue::TimeInterval(*value)
     }
 }
 
@@ -1211,6 +1288,82 @@ impl<'a> TryFrom<PostgresValue<'a>> for Duration {
             PostgresValue::Interval(duration) => Ok(duration),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {:?} to Duration", value).into(),
+            )),
+        }
+    }
+}
+
+// --- Date/Time TryFrom implementations (time crate) ---
+
+#[cfg(feature = "time")]
+impl<'a> TryFrom<PostgresValue<'a>> for TimeDate {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::TimeDate(date) => Ok(date),
+            PostgresValue::TimeTimestamp(ts) => Ok(ts.date()),
+            PostgresValue::TimeTimestampTz(ts) => Ok(ts.date()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::Date", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> TryFrom<PostgresValue<'a>> for TimeTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::TimeTime(time) => Ok(time),
+            PostgresValue::TimeTimestamp(ts) => Ok(ts.time()),
+            PostgresValue::TimeTimestampTz(ts) => Ok(ts.time()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::Time", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> TryFrom<PostgresValue<'a>> for PrimitiveDateTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::TimeTimestamp(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::PrimitiveDateTime", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> TryFrom<PostgresValue<'a>> for OffsetDateTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::TimeTimestampTz(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::OffsetDateTime", value).into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+impl<'a> TryFrom<PostgresValue<'a>> for TimeDuration {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::TimeInterval(dur) => Ok(dur),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {:?} to time::Duration", value).into(),
             )),
         }
     }

@@ -16,6 +16,7 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true, features = ["serde"] }
+time = { workspace = true, optional = true }
 cidr = { workspace = true, optional = true, features = ["serde"] }
 geo-types = { workspace = true, optional = true, features = ["serde"] }
 bit-vec = { workspace = true, optional = true }
@@ -51,6 +52,12 @@ chrono = [
     "dep:chrono",
     "postgres?/with-chrono-0_4",
     "tokio-postgres?/with-chrono-0_4",
+]
+
+time = [
+    "dep:time",
+    "postgres?/with-time-0_3",
+    "tokio-postgres?/with-time-0_3",
 ]
 
 cidr = ["dep:cidr", "postgres?/with-cidr-0_3", "tokio-postgres?/with-cidr-0_3"]
