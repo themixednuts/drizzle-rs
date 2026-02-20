@@ -9,10 +9,15 @@
 //! - `sqrt`, `power`, `log`, `exp`: Require `Numeric` types, return Double
 //! - `mod_`: Modulo operation requiring `Numeric` types
 
+use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{DataType, Double, Integral, Numeric};
+use crate::types::{DataType, Integral, Numeric};
 use crate::{PostgresDialect, SQLiteDialect};
+use drizzle_types::postgres::types::{Float4, Float8, Int2, Int4, Int8, Numeric as PgNumeric};
+use drizzle_types::sqlite::types::{
+    Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
+};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
 
@@ -24,39 +29,33 @@ pub trait RoundingPolicy<D>: Numeric {
     type Output: DataType;
 }
 
-impl RoundingPolicy<SQLiteDialect> for crate::types::SmallInt {
-    type Output = Double;
+impl RoundingPolicy<SQLiteDialect> for SqliteInteger {
+    type Output = SqliteReal;
 }
-impl RoundingPolicy<SQLiteDialect> for crate::types::Int {
-    type Output = Double;
+impl RoundingPolicy<SQLiteDialect> for SqliteReal {
+    type Output = SqliteReal;
 }
-impl RoundingPolicy<SQLiteDialect> for crate::types::BigInt {
-    type Output = Double;
-}
-impl RoundingPolicy<SQLiteDialect> for crate::types::Float {
-    type Output = Double;
-}
-impl RoundingPolicy<SQLiteDialect> for crate::types::Double {
-    type Output = Double;
-}
-impl RoundingPolicy<SQLiteDialect> for crate::types::Any {
-    type Output = Double;
+impl RoundingPolicy<SQLiteDialect> for SqliteNumeric {
+    type Output = SqliteReal;
 }
 
-impl RoundingPolicy<PostgresDialect> for crate::types::SmallInt {
-    type Output = Double;
+impl RoundingPolicy<PostgresDialect> for Int2 {
+    type Output = Float8;
 }
-impl RoundingPolicy<PostgresDialect> for crate::types::Int {
-    type Output = Double;
+impl RoundingPolicy<PostgresDialect> for Int4 {
+    type Output = Float8;
 }
-impl RoundingPolicy<PostgresDialect> for crate::types::BigInt {
-    type Output = Double;
+impl RoundingPolicy<PostgresDialect> for Int8 {
+    type Output = Float8;
 }
-impl RoundingPolicy<PostgresDialect> for crate::types::Float {
-    type Output = Double;
+impl RoundingPolicy<PostgresDialect> for Float4 {
+    type Output = Float8;
 }
-impl RoundingPolicy<PostgresDialect> for crate::types::Double {
-    type Output = Double;
+impl RoundingPolicy<PostgresDialect> for Float8 {
+    type Output = Float8;
+}
+impl RoundingPolicy<PostgresDialect> for PgNumeric {
+    type Output = Float8;
 }
 
 // =============================================================================
@@ -91,7 +90,7 @@ where
 
 /// ROUND - rounds a number to the nearest integer (or specified precision).
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware float type, preserves nullability.
 ///
 /// # Example
 ///
@@ -115,7 +114,7 @@ where
 
 /// ROUND with precision - rounds a number to specified decimal places.
 ///
-/// Returns Double type, preserves nullability of the input expression.
+/// Returns a dialect-aware float type, preserves nullability of the input expression.
 ///
 /// # Example
 ///
@@ -155,7 +154,7 @@ where
 
 /// CEIL / CEILING - rounds a number up to the nearest integer.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware float type, preserves nullability.
 ///
 /// # Example
 ///
@@ -179,7 +178,7 @@ where
 
 /// FLOOR - rounds a number down to the nearest integer.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware float type, preserves nullability.
 ///
 /// # Example
 ///
@@ -203,7 +202,7 @@ where
 
 /// TRUNC - truncates a number towards zero.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware float type, preserves nullability.
 ///
 /// # Example
 ///
@@ -231,7 +230,7 @@ where
 
 /// SQRT - returns the square root of a number.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware double type, preserves nullability.
 ///
 /// # Example
 ///
@@ -241,7 +240,9 @@ where
 /// // SELECT SQRT(users.area)
 /// let root = sqrt(users.area);
 /// ```
-pub fn sqrt<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+pub fn sqrt<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -252,7 +253,7 @@ where
 
 /// POWER - raises a number to a power.
 ///
-/// Returns Double type. The result is nullable if either input is nullable.
+/// Returns a dialect-aware double type. The result is nullable if either input is nullable.
 ///
 /// # Example
 ///
@@ -262,10 +263,17 @@ where
 /// // SELECT POWER(users.base, 2)
 /// let squared = power(users.base, 2);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn power<'a, V, E1, E2>(
     base: E1,
     exponent: E2,
-) -> SQLExpr<'a, V, Double, <E1::Nullable as NullOr<E2::Nullable>>::Output, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    Scalar,
+>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,
@@ -289,7 +297,7 @@ where
 
 /// EXP - returns e raised to the power of the argument.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware double type, preserves nullability.
 ///
 /// # Example
 ///
@@ -299,7 +307,9 @@ where
 /// // SELECT EXP(users.rate)
 /// let exponential = exp(users.rate);
 /// ```
-pub fn exp<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+pub fn exp<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -310,7 +320,7 @@ where
 
 /// LN - returns the natural logarithm of a number.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware double type, preserves nullability.
 ///
 /// # Example
 ///
@@ -320,7 +330,9 @@ where
 /// // SELECT LN(users.value)
 /// let natural_log = ln(users.value);
 /// ```
-pub fn ln<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+pub fn ln<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -331,7 +343,7 @@ where
 
 /// LOG10 - returns the base-10 logarithm of a number.
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware double type, preserves nullability.
 ///
 /// # Example
 ///
@@ -341,7 +353,9 @@ where
 /// // SELECT LOG10(users.value)
 /// let log_base_10 = log10(users.value);
 /// ```
-pub fn log10<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+pub fn log10<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -352,7 +366,7 @@ where
 
 /// LOG - returns the logarithm of a number with a specified base.
 ///
-/// Returns Double type. The result is nullable if either input is nullable.
+/// Returns a dialect-aware double type. The result is nullable if either input is nullable.
 ///
 /// # Example
 ///
@@ -362,10 +376,17 @@ where
 /// // SELECT LOG(2, users.value)
 /// let log_base_2 = log(2, users.value);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn log<'a, V, E1, E2>(
     base: E1,
     value: E2,
-) -> SQLExpr<'a, V, Double, <E1::Nullable as NullOr<E2::Nullable>>::Output, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    Scalar,
+>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,

@@ -9,14 +9,17 @@
 //! - `count`: Works with any type
 //! - `min`, `max`: Work with any type (ordered types in SQL)
 
+use crate::dialect::DialectTypes;
 use crate::sql::SQL;
 use crate::traits::SQLParam;
-use crate::types::{
-    Any, Array, BigInt, Bool, Double, Float, Int, Json, Jsonb, Numeric, SmallInt, Text,
-};
+use crate::types::{Array, Numeric};
 use crate::{PostgresDialect, SQLiteDialect};
-use drizzle_types::postgres::types::{Boolean as PgBoolean, Float4, Float8, Int2, Int4, Int8};
-use drizzle_types::sqlite::types::{Integer as SqliteInteger, Real as SqliteReal};
+use drizzle_types::postgres::types::{
+    Boolean as PgBoolean, Float4, Float8, Int2, Int4, Int8, Numeric as PgNumeric,
+};
+use drizzle_types::sqlite::types::{
+    Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
+};
 
 use super::{Agg, Expr, NonNull, Null, SQLExpr, Scalar};
 
@@ -78,137 +81,76 @@ impl CountPolicy for PostgresDialect {
     type Count = drizzle_types::postgres::types::Int8;
 }
 
-impl AggregatePolicy<SQLiteDialect> for SmallInt {
-    type Sum = SmallInt;
-    type Avg = Double;
-}
-impl AggregatePolicy<SQLiteDialect> for Int {
-    type Sum = Int;
-    type Avg = Double;
-}
-impl AggregatePolicy<SQLiteDialect> for BigInt {
-    type Sum = BigInt;
-    type Avg = Double;
-}
-impl AggregatePolicy<SQLiteDialect> for Float {
-    type Sum = Float;
-    type Avg = Double;
-}
-impl AggregatePolicy<SQLiteDialect> for Double {
-    type Sum = Double;
-    type Avg = Double;
-}
-impl AggregatePolicy<SQLiteDialect> for Any {
-    type Sum = Any;
-    type Avg = Double;
-}
 impl AggregatePolicy<SQLiteDialect> for SqliteInteger {
     type Sum = SqliteInteger;
-    type Avg = Double;
+    type Avg = SqliteReal;
 }
 impl AggregatePolicy<SQLiteDialect> for SqliteReal {
     type Sum = SqliteReal;
-    type Avg = Double;
+    type Avg = SqliteReal;
+}
+impl AggregatePolicy<SQLiteDialect> for SqliteNumeric {
+    type Sum = SqliteNumeric;
+    type Avg = SqliteReal;
+}
+impl AggregatePolicy<SQLiteDialect> for drizzle_types::sqlite::types::Any {
+    type Sum = drizzle_types::sqlite::types::Any;
+    type Avg = SqliteReal;
 }
 
-impl StatisticalAggregatePolicy<PostgresDialect> for SmallInt {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
-}
-impl StatisticalAggregatePolicy<PostgresDialect> for Int {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
-}
-impl StatisticalAggregatePolicy<PostgresDialect> for BigInt {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
-}
-impl StatisticalAggregatePolicy<PostgresDialect> for Float {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
-}
-impl StatisticalAggregatePolicy<PostgresDialect> for Double {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
-}
 impl StatisticalAggregatePolicy<PostgresDialect> for Int2 {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
+    type StddevPop = Float8;
+    type StddevSamp = Float8;
+    type VarPop = Float8;
+    type VarSamp = Float8;
 }
 impl StatisticalAggregatePolicy<PostgresDialect> for Int4 {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
+    type StddevPop = Float8;
+    type StddevSamp = Float8;
+    type VarPop = Float8;
+    type VarSamp = Float8;
 }
 impl StatisticalAggregatePolicy<PostgresDialect> for Int8 {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
+    type StddevPop = Float8;
+    type StddevSamp = Float8;
+    type VarPop = Float8;
+    type VarSamp = Float8;
 }
 impl StatisticalAggregatePolicy<PostgresDialect> for Float4 {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
+    type StddevPop = Float8;
+    type StddevSamp = Float8;
+    type VarPop = Float8;
+    type VarSamp = Float8;
 }
 impl StatisticalAggregatePolicy<PostgresDialect> for Float8 {
-    type StddevPop = Double;
-    type StddevSamp = Double;
-    type VarPop = Double;
-    type VarSamp = Double;
+    type StddevPop = Float8;
+    type StddevSamp = Float8;
+    type VarPop = Float8;
+    type VarSamp = Float8;
+}
+impl StatisticalAggregatePolicy<PostgresDialect> for PgNumeric {
+    type StddevPop = Float8;
+    type StddevSamp = Float8;
+    type VarPop = Float8;
+    type VarSamp = Float8;
 }
 
-impl BooleanAggregatePolicy<PostgresDialect> for Bool {}
 impl BooleanAggregatePolicy<PostgresDialect> for PgBoolean {}
 
 impl PostgresAggregateSupport for PostgresDialect {}
 impl SQLiteAggregateSupport for SQLiteDialect {}
 
-impl AggregatePolicy<PostgresDialect> for SmallInt {
-    type Sum = BigInt;
-    type Avg = Double;
-}
-impl AggregatePolicy<PostgresDialect> for Int {
-    type Sum = BigInt;
-    type Avg = Double;
-}
-impl AggregatePolicy<PostgresDialect> for BigInt {
-    type Sum = BigInt;
-    type Avg = Double;
-}
-impl AggregatePolicy<PostgresDialect> for Float {
-    type Sum = Double;
-    type Avg = Double;
-}
-impl AggregatePolicy<PostgresDialect> for Double {
-    type Sum = Double;
-    type Avg = Double;
-}
 impl AggregatePolicy<PostgresDialect> for Int2 {
     type Sum = Int8;
-    type Avg = Double;
+    type Avg = Float8;
 }
 impl AggregatePolicy<PostgresDialect> for Int4 {
     type Sum = Int8;
-    type Avg = Double;
+    type Avg = Float8;
 }
 impl AggregatePolicy<PostgresDialect> for Int8 {
     type Sum = Int8;
-    type Avg = Double;
+    type Avg = Float8;
 }
 impl AggregatePolicy<PostgresDialect> for Float4 {
     type Sum = Float8;
@@ -217,6 +159,10 @@ impl AggregatePolicy<PostgresDialect> for Float4 {
 impl AggregatePolicy<PostgresDialect> for Float8 {
     type Sum = Float8;
     type Avg = Float8;
+}
+impl AggregatePolicy<PostgresDialect> for PgNumeric {
+    type Sum = PgNumeric;
+    type Avg = PgNumeric;
 }
 
 // =============================================================================
@@ -568,7 +514,9 @@ where
 }
 
 /// BOOL_AND - true if all non-null inputs are true (PostgreSQL).
-pub fn bool_and<'a, V, E>(expr: E) -> SQLExpr<'a, V, Bool, Null, Agg>
+pub fn bool_and<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -579,7 +527,9 @@ where
 }
 
 /// BOOL_OR - true if any non-null input is true (PostgreSQL).
-pub fn bool_or<'a, V, E>(expr: E) -> SQLExpr<'a, V, Bool, Null, Agg>
+pub fn bool_or<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -590,7 +540,9 @@ where
 }
 
 /// JSON_AGG - aggregates values into a JSON array (PostgreSQL).
-pub fn json_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Json, Null, Agg>
+pub fn json_agg<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -600,7 +552,9 @@ where
 }
 
 /// JSONB_AGG - aggregates values into a JSONB array (PostgreSQL).
-pub fn jsonb_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Jsonb, Null, Agg>
+pub fn jsonb_agg<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -626,7 +580,9 @@ where
 /// GROUP_CONCAT - concatenates values into a string (SQLite).
 ///
 /// Returns Text type, nullable.
-pub fn group_concat<'a, V, E>(expr: E) -> SQLExpr<'a, V, crate::types::Text, Null, Agg>
+pub fn group_concat<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteAggregateSupport,
@@ -636,7 +592,10 @@ where
 }
 
 /// STRING_AGG - concatenates text values using a delimiter (PostgreSQL).
-pub fn string_agg<'a, V, E, D>(expr: E, delimiter: D) -> SQLExpr<'a, V, Text, Null, Agg>
+pub fn string_agg<'a, V, E, D>(
+    expr: E,
+    delimiter: D,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,

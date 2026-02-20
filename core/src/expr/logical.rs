@@ -16,9 +16,10 @@
 
 use core::ops::{BitAnd, BitOr, Not};
 
+use crate::dialect::DialectTypes;
 use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::Bool;
+use crate::types::BooleanLike;
 
 use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 
@@ -29,7 +30,9 @@ use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 /// Logical NOT.
 ///
 /// Negates a boolean expression.
-pub fn not<'a, V, E>(expr: E) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn not<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
@@ -60,7 +63,9 @@ where
 ///
 /// Returns a boolean expression that is true if all conditions are true.
 /// Accepts any iterable of items that implement ToSQL.
-pub fn and<'a, V, I, E>(conditions: I) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn and<'a, V, I, E>(
+    conditions: I,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     I: IntoIterator<Item = E>,
@@ -87,7 +92,10 @@ where
 }
 
 /// Logical AND of two expressions.
-pub fn and2<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn and2<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: ToSQL<'a, V>,
@@ -110,7 +118,9 @@ where
 ///
 /// Returns a boolean expression that is true if any condition is true.
 /// Accepts any iterable of items that implement ToSQL.
-pub fn or<'a, V, I, E>(conditions: I) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn or<'a, V, I, E>(
+    conditions: I,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     I: IntoIterator<Item = E>,
@@ -137,7 +147,10 @@ where
 }
 
 /// Logical OR of two expressions.
-pub fn or2<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn or2<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: ToSQL<'a, V>,
@@ -164,13 +177,14 @@ where
 /// let condition = eq(users.active, true);
 /// let negated = !condition;  // NOT "users"."active" = TRUE
 /// ```
-impl<'a, V, N, A> Not for SQLExpr<'a, V, Bool, N, A>
+impl<'a, V, T, N, A> Not for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
+    T: BooleanLike,
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, Bool, NonNull, Scalar>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
 
     fn not(self) -> Self::Output {
         not(self)
@@ -185,14 +199,15 @@ where
 /// let condition = eq(users.active, true) & gt(users.age, 18);
 /// // ("users"."active" = TRUE AND "users"."age" > 18)
 /// ```
-impl<'a, V, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, Bool, N, A>
+impl<'a, V, T, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
+    T: BooleanLike,
     N: Nullability,
     A: AggregateKind,
     Rhs: Expr<'a, V>,
 {
-    type Output = SQLExpr<'a, V, Bool, NonNull, Scalar>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
 
     fn bitand(self, rhs: Rhs) -> Self::Output {
         and2(self, rhs)
@@ -207,14 +222,15 @@ where
 /// let condition = eq(users.role, "admin") | eq(users.role, "moderator");
 /// // ("users"."role" = 'admin' OR "users"."role" = 'moderator')
 /// ```
-impl<'a, V, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, Bool, N, A>
+impl<'a, V, T, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
+    T: BooleanLike,
     N: Nullability,
     A: AggregateKind,
     Rhs: Expr<'a, V>,
 {
-    type Output = SQLExpr<'a, V, Bool, NonNull, Scalar>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
 
     fn bitor(self, rhs: Rhs) -> Self::Output {
         or2(self, rhs)

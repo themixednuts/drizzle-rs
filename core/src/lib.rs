@@ -69,7 +69,7 @@ pub mod types;
 
 // Re-export key types and traits
 pub use builder::{BuilderInit, ExecutableState};
-pub use dialect::{Dialect, DialectExt, PostgresDialect, SQLiteDialect};
+pub use dialect::{Dialect, DialectExt, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind};
 pub use placeholder::*;

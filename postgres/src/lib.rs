@@ -40,7 +40,6 @@ pub mod helpers;
 pub mod traits;
 pub mod types {
     pub use drizzle_types::postgres::types::*;
-    pub use drizzle_types::sql::*;
 }
 pub mod values;
 

@@ -15,10 +15,19 @@ pub mod types {
     pub struct Integer;
 
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Text;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct Real;
 
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct Blob;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Numeric;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct Any;
 }
 
 pub use sql_type::{SQLiteAffinity, SQLiteType};

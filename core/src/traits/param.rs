@@ -14,8 +14,10 @@ pub trait SQLParam: Clone + core::fmt::Debug {
 
     /// Type-level dialect marker for compile-time dispatch.
     ///
-    /// Used by [`crate::row::SQLTypeToRust`] to select dialect-specific type mappings.
-    type DialectMarker;
+    /// Used by [`crate::row::SQLTypeToRust`] to select dialect-specific type mappings
+    /// and by [`crate::dialect::DialectTypes`] to resolve conceptual SQL types to
+    /// dialect-native markers.
+    type DialectMarker: crate::dialect::DialectTypes;
 }
 
 // Implement SQLParam for common types

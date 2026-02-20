@@ -637,28 +637,19 @@ with_col_sizes_200!(impl_from_drizzle_row_tuple);
 // SQLTypeToRust — SQL type marker × dialect → canonical Rust type
 // =============================================================================
 
-/// Maps a SQL type marker to its canonical Rust type for a given dialect.
+/// Maps a dialect-native SQL type marker to its canonical Rust type.
 ///
 /// Parameterized by `D` (a dialect marker such as
 /// [`SQLiteDialect`](crate::dialect::SQLiteDialect) or
 /// [`PostgresDialect`](crate::dialect::PostgresDialect)) so that
 /// type mappings can differ per database.
 ///
-/// ## Universal types
+/// Each dialect's native type markers (e.g., `sqlite::types::Integer`,
+/// `postgres::types::Int4`) implement this trait for their respective dialect.
 ///
-/// `Int`, `Text`, `Bool`, etc. map to the same Rust type on every dialect
-/// via blanket `impl<D> SQLTypeToRust<D>`.
-///
-/// ## Dialect-specific types
-///
-/// `Date`, `Time`, `Timestamp`, `TimestampTz`, `Uuid`, `Json`, `Jsonb`
-/// have per-dialect implementations:
-///
-/// - **SQLite**: Always falls back to `String` without the feature flag,
-///   because SQLite stores these as TEXT.
-/// - **PostgreSQL**: Requires the corresponding feature flag (`chrono`,
-///   `uuid`, `serde`).  Without the flag there is **no impl**, producing
-///   a compile error that guides the user.
+/// Feature-gated types (`chrono`, `uuid`, `serde`) provide mappings when
+/// the feature is enabled. Without the feature there is **no impl**,
+/// producing a compile error that guides the user.
 #[diagnostic::on_unimplemented(
     message = "SQL type `{Self}` has no default Rust mapping for dialect `{D}`",
     label = "use .all_as::<T>() to specify the Rust type explicitly",
@@ -668,30 +659,9 @@ pub trait SQLTypeToRust<D> {
     type RustType;
 }
 
-// -- Universal mappings (same on every dialect) --------------------------------
+// -- Dialect-native mappings ---------------------------------------------------
 
-macro_rules! sql_rust_mapping {
-    ($($sql:ident => $rust:ty),+ $(,)?) => {
-        $(
-            impl<D> SQLTypeToRust<D> for crate::types::$sql {
-                type RustType = $rust;
-            }
-        )+
-    };
-}
-
-sql_rust_mapping! {
-    SmallInt => i16,
-    Int      => i32,
-    BigInt   => i64,
-    Float    => f32,
-    Double   => f64,
-    Text     => crate::prelude::String,
-    VarChar  => crate::prelude::String,
-    Bool     => bool,
-    Bytes    => crate::prelude::Vec<u8>,
-    Any      => crate::prelude::String,
-}
+use crate::dialect::{PostgresDialect, SQLiteDialect};
 
 impl<D, T> SQLTypeToRust<D> for crate::types::Array<T>
 where
@@ -704,12 +674,24 @@ impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Integer {
     type RustType = i64;
 }
 
+impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Text {
+    type RustType = crate::prelude::String;
+}
+
 impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Real {
     type RustType = f64;
 }
 
 impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Blob {
     type RustType = crate::prelude::Vec<u8>;
+}
+
+impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Numeric {
+    type RustType = f64;
+}
+
+impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Any {
+    type RustType = crate::prelude::String;
 }
 
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Int2 {
@@ -736,6 +718,14 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Varchar 
     type RustType = crate::prelude::String;
 }
 
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Text {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Char {
+    type RustType = crate::prelude::String;
+}
+
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Bytea {
     type RustType = crate::prelude::Vec<u8>;
 }
@@ -744,110 +734,52 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Boolean 
     type RustType = bool;
 }
 
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Numeric {
+    type RustType = crate::prelude::String;
+}
+
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Any {
+    type RustType = crate::prelude::String;
+}
+
 #[cfg(feature = "chrono")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamptz {
     type RustType = chrono::DateTime<chrono::Utc>;
 }
 
-// -- SQLite dialect mappings ---------------------------------------------------
-
-#[allow(unused_imports)]
-use crate::dialect::{PostgresDialect, SQLiteDialect};
-
-// JSON: String without serde, serde_json::Value with serde
-#[cfg(feature = "serde")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Json {
-    type RustType = serde_json::Value;
-}
-#[cfg(not(feature = "serde"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Json {
-    type RustType = crate::prelude::String;
-}
-#[cfg(feature = "serde")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Jsonb {
-    type RustType = serde_json::Value;
-}
-#[cfg(not(feature = "serde"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Jsonb {
-    type RustType = crate::prelude::String;
-}
-
-// Temporal: chrono types when enabled, String otherwise (SQLite stores as TEXT)
 #[cfg(feature = "chrono")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Date {
-    type RustType = chrono::NaiveDate;
-}
-#[cfg(not(feature = "chrono"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Date {
-    type RustType = crate::prelude::String;
-}
-#[cfg(feature = "chrono")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Time {
-    type RustType = chrono::NaiveTime;
-}
-#[cfg(not(feature = "chrono"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Time {
-    type RustType = crate::prelude::String;
-}
-#[cfg(feature = "chrono")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Timestamp {
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamp {
     type RustType = chrono::NaiveDateTime;
 }
-#[cfg(not(feature = "chrono"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Timestamp {
-    type RustType = crate::prelude::String;
-}
-#[cfg(feature = "chrono")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::TimestampTz {
-    type RustType = chrono::DateTime<chrono::Utc>;
-}
-#[cfg(not(feature = "chrono"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::TimestampTz {
-    type RustType = crate::prelude::String;
-}
-
-// UUID: uuid::Uuid when enabled, String otherwise (SQLite stores as TEXT)
-#[cfg(feature = "uuid")]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Uuid {
-    type RustType = uuid::Uuid;
-}
-#[cfg(not(feature = "uuid"))]
-impl SQLTypeToRust<SQLiteDialect> for crate::types::Uuid {
-    type RustType = crate::prelude::String;
-}
-
-// -- PostgreSQL dialect mappings -----------------------------------------------
-// No String fallbacks — missing feature → compile error.
-
-#[cfg(feature = "serde")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::Json {
-    type RustType = serde_json::Value;
-}
-#[cfg(feature = "serde")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::Jsonb {
-    type RustType = serde_json::Value;
-}
 
 #[cfg(feature = "chrono")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::Date {
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Date {
     type RustType = chrono::NaiveDate;
 }
+
 #[cfg(feature = "chrono")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::Time {
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Time {
     type RustType = chrono::NaiveTime;
 }
+
 #[cfg(feature = "chrono")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::Timestamp {
-    type RustType = chrono::NaiveDateTime;
-}
-#[cfg(feature = "chrono")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::TimestampTz {
-    type RustType = chrono::DateTime<chrono::Utc>;
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timetz {
+    type RustType = chrono::NaiveTime;
 }
 
 #[cfg(feature = "uuid")]
-impl SQLTypeToRust<PostgresDialect> for crate::types::Uuid {
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Uuid {
     type RustType = uuid::Uuid;
+}
+
+#[cfg(feature = "serde")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Json {
+    type RustType = serde_json::Value;
+}
+
+#[cfg(feature = "serde")]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Jsonb {
+    type RustType = serde_json::Value;
 }
 
 // =============================================================================

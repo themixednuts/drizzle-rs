@@ -65,56 +65,12 @@ pub trait Binary: DataType {}
 )]
 pub trait Temporal: DataType {}
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct SmallInt;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Int;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct BigInt;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Float;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Double;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Text;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct VarChar;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Bool;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Bytes;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Date;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Time;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Timestamp;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct TimestampTz;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Uuid;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Json;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Jsonb;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Any;
+/// Boolean-like SQL types that support logical operations (NOT, AND, OR).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a boolean SQL type",
+    label = "logical operations require a boolean-typed expression"
+)]
+pub trait BooleanLike: DataType {}
 
 /// PostgreSQL-style SQL array type marker.
 ///
@@ -122,107 +78,118 @@ pub struct Any;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Array<T: DataType>(pub PhantomData<T>);
 
-impl private::Sealed for SmallInt {}
-impl private::Sealed for Int {}
-impl private::Sealed for BigInt {}
-impl private::Sealed for Float {}
-impl private::Sealed for Double {}
-impl private::Sealed for Text {}
-impl private::Sealed for VarChar {}
-impl private::Sealed for Bool {}
-impl private::Sealed for Bytes {}
-impl private::Sealed for Date {}
-impl private::Sealed for Time {}
-impl private::Sealed for Timestamp {}
-impl private::Sealed for TimestampTz {}
-impl private::Sealed for Uuid {}
-impl private::Sealed for Json {}
-impl private::Sealed for Jsonb {}
-impl private::Sealed for Any {}
 impl<T: DataType> private::Sealed for Array<T> {}
+impl<T: DataType> DataType for Array<T> {}
+
+// =============================================================================
+// SQLite dialect marker impls
+// =============================================================================
+
 impl private::Sealed for crate::sqlite::types::Integer {}
+impl private::Sealed for crate::sqlite::types::Text {}
 impl private::Sealed for crate::sqlite::types::Real {}
 impl private::Sealed for crate::sqlite::types::Blob {}
+impl private::Sealed for crate::sqlite::types::Numeric {}
+impl private::Sealed for crate::sqlite::types::Any {}
+
+impl DataType for crate::sqlite::types::Integer {}
+impl DataType for crate::sqlite::types::Text {}
+impl DataType for crate::sqlite::types::Real {}
+impl DataType for crate::sqlite::types::Blob {}
+impl DataType for crate::sqlite::types::Numeric {}
+impl DataType for crate::sqlite::types::Any {}
+
+impl Numeric for crate::sqlite::types::Integer {}
+impl Numeric for crate::sqlite::types::Real {}
+impl Numeric for crate::sqlite::types::Numeric {}
+impl Numeric for crate::sqlite::types::Any {}
+
+impl Integral for crate::sqlite::types::Integer {}
+
+impl Floating for crate::sqlite::types::Real {}
+
+impl Textual for crate::sqlite::types::Text {}
+impl Textual for crate::sqlite::types::Any {}
+
+impl Binary for crate::sqlite::types::Blob {}
+
+impl Temporal for crate::sqlite::types::Integer {}
+impl Temporal for crate::sqlite::types::Real {}
+impl Temporal for crate::sqlite::types::Text {}
+impl Temporal for crate::sqlite::types::Numeric {}
+
+impl BooleanLike for crate::sqlite::types::Integer {}
+
+// =============================================================================
+// PostgreSQL dialect marker impls
+// =============================================================================
+
 impl private::Sealed for crate::postgres::types::Int2 {}
 impl private::Sealed for crate::postgres::types::Int4 {}
 impl private::Sealed for crate::postgres::types::Int8 {}
 impl private::Sealed for crate::postgres::types::Float4 {}
 impl private::Sealed for crate::postgres::types::Float8 {}
 impl private::Sealed for crate::postgres::types::Varchar {}
+impl private::Sealed for crate::postgres::types::Text {}
+impl private::Sealed for crate::postgres::types::Char {}
 impl private::Sealed for crate::postgres::types::Bytea {}
 impl private::Sealed for crate::postgres::types::Boolean {}
 impl private::Sealed for crate::postgres::types::Timestamptz {}
+impl private::Sealed for crate::postgres::types::Timestamp {}
+impl private::Sealed for crate::postgres::types::Date {}
+impl private::Sealed for crate::postgres::types::Time {}
+impl private::Sealed for crate::postgres::types::Timetz {}
+impl private::Sealed for crate::postgres::types::Numeric {}
+impl private::Sealed for crate::postgres::types::Uuid {}
+impl private::Sealed for crate::postgres::types::Json {}
+impl private::Sealed for crate::postgres::types::Jsonb {}
+impl private::Sealed for crate::postgres::types::Any {}
 
-impl DataType for SmallInt {}
-impl DataType for Int {}
-impl DataType for BigInt {}
-impl DataType for Float {}
-impl DataType for Double {}
-impl DataType for Text {}
-impl DataType for VarChar {}
-impl DataType for Bool {}
-impl DataType for Bytes {}
-impl DataType for Date {}
-impl DataType for Time {}
-impl DataType for Timestamp {}
-impl DataType for TimestampTz {}
-impl DataType for Uuid {}
-impl DataType for Json {}
-impl DataType for Jsonb {}
-impl DataType for Any {}
-impl<T: DataType> DataType for Array<T> {}
-impl DataType for crate::sqlite::types::Integer {}
-impl DataType for crate::sqlite::types::Real {}
-impl DataType for crate::sqlite::types::Blob {}
 impl DataType for crate::postgres::types::Int2 {}
 impl DataType for crate::postgres::types::Int4 {}
 impl DataType for crate::postgres::types::Int8 {}
 impl DataType for crate::postgres::types::Float4 {}
 impl DataType for crate::postgres::types::Float8 {}
 impl DataType for crate::postgres::types::Varchar {}
+impl DataType for crate::postgres::types::Text {}
+impl DataType for crate::postgres::types::Char {}
 impl DataType for crate::postgres::types::Bytea {}
 impl DataType for crate::postgres::types::Boolean {}
 impl DataType for crate::postgres::types::Timestamptz {}
+impl DataType for crate::postgres::types::Timestamp {}
+impl DataType for crate::postgres::types::Date {}
+impl DataType for crate::postgres::types::Time {}
+impl DataType for crate::postgres::types::Timetz {}
+impl DataType for crate::postgres::types::Numeric {}
+impl DataType for crate::postgres::types::Uuid {}
+impl DataType for crate::postgres::types::Json {}
+impl DataType for crate::postgres::types::Jsonb {}
+impl DataType for crate::postgres::types::Any {}
 
-impl Numeric for SmallInt {}
-impl Numeric for Int {}
-impl Numeric for BigInt {}
-impl Numeric for Float {}
-impl Numeric for Double {}
-impl Numeric for Any {}
-impl Numeric for crate::sqlite::types::Integer {}
-impl Numeric for crate::sqlite::types::Real {}
 impl Numeric for crate::postgres::types::Int2 {}
 impl Numeric for crate::postgres::types::Int4 {}
 impl Numeric for crate::postgres::types::Int8 {}
 impl Numeric for crate::postgres::types::Float4 {}
 impl Numeric for crate::postgres::types::Float8 {}
+impl Numeric for crate::postgres::types::Numeric {}
 
-impl Integral for SmallInt {}
-impl Integral for Int {}
-impl Integral for BigInt {}
-impl Integral for crate::sqlite::types::Integer {}
 impl Integral for crate::postgres::types::Int2 {}
 impl Integral for crate::postgres::types::Int4 {}
 impl Integral for crate::postgres::types::Int8 {}
 
-impl Floating for Float {}
-impl Floating for Double {}
-impl Floating for crate::sqlite::types::Real {}
 impl Floating for crate::postgres::types::Float4 {}
 impl Floating for crate::postgres::types::Float8 {}
 
-impl Textual for Text {}
-impl Textual for VarChar {}
-impl Textual for Any {}
 impl Textual for crate::postgres::types::Varchar {}
+impl Textual for crate::postgres::types::Text {}
+impl Textual for crate::postgres::types::Char {}
 
-impl Binary for Bytes {}
-impl Binary for crate::sqlite::types::Blob {}
 impl Binary for crate::postgres::types::Bytea {}
 
-impl Temporal for Date {}
-impl Temporal for Time {}
-impl Temporal for Timestamp {}
-impl Temporal for TimestampTz {}
 impl Temporal for crate::postgres::types::Timestamptz {}
+impl Temporal for crate::postgres::types::Timestamp {}
+impl Temporal for crate::postgres::types::Date {}
+impl Temporal for crate::postgres::types::Time {}
+impl Temporal for crate::postgres::types::Timetz {}
+
+impl BooleanLike for crate::postgres::types::Boolean {}

@@ -1,8 +1,9 @@
 //! Set operations (IN, NOT IN, EXISTS, NOT EXISTS).
 
+use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::{Bool, Compatible};
+use crate::types::Compatible;
 
 use super::{Expr, NonNull, SQLExpr, Scalar};
 
@@ -14,7 +15,10 @@ use super::{Expr, NonNull, SQLExpr, Scalar};
 ///
 /// Returns true if the expression's value is in the provided array.
 /// Requires the expression type to be compatible with the array element type.
-pub fn in_array<'a, V, E, I, R>(expr: E, values: I) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn in_array<'a, V, E, I, R>(
+    expr: E,
+    values: I,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -46,7 +50,10 @@ where
 ///
 /// Returns true if the expression's value is NOT in the provided array.
 /// Requires the expression type to be compatible with the array element type.
-pub fn not_in_array<'a, V, E, I, R>(expr: E, values: I) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn not_in_array<'a, V, E, I, R>(
+    expr: E,
+    values: I,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -79,7 +86,10 @@ where
 /// IN subquery check.
 ///
 /// Returns true if the expression's value is in the subquery results.
-pub fn in_subquery<'a, V, E, S>(expr: E, subquery: S) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn in_subquery<'a, V, E, S>(
+    expr: E,
+    subquery: S,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
@@ -93,7 +103,10 @@ where
 }
 
 /// NOT IN subquery check.
-pub fn not_in_subquery<'a, V, E, S>(expr: E, subquery: S) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn not_in_subquery<'a, V, E, S>(
+    expr: E,
+    subquery: S,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: ToSQL<'a, V>,
@@ -114,7 +127,9 @@ where
 /// EXISTS subquery check.
 ///
 /// Returns true if the subquery returns any rows.
-pub fn exists<'a, V, S>(subquery: S) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn exists<'a, V, S>(
+    subquery: S,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     S: ToSQL<'a, V>,
@@ -129,7 +144,9 @@ where
 /// NOT EXISTS subquery check.
 ///
 /// Returns true if the subquery returns no rows.
-pub fn not_exists<'a, V, S>(subquery: S) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn not_exists<'a, V, S>(
+    subquery: S,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     S: ToSQL<'a, V>,

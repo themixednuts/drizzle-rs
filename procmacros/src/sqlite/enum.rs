@@ -92,7 +92,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         // Uses Any type since enums can be stored as TEXT or INTEGER
         // Note: &T impl is handled by blanket impl in drizzle_core
         impl<'a> drizzle::core::expr::Expr<'a, #sqlite_value<'a>> for #name {
-            type SQLType = drizzle::core::types::Any;
+            type SQLType = drizzle::sqlite::types::Any;
             type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
         }

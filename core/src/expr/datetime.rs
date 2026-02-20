@@ -11,12 +11,12 @@
 //!
 //! Cross-database functions try to use compatible SQL where possible.
 
+use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{
-    BigInt, DataType, Date, Double, Numeric, Temporal, Text, Time, Timestamp, TimestampTz,
-};
+use crate::types::{DataType, Numeric, Temporal};
 use crate::{PostgresDialect, SQLiteDialect};
+use drizzle_types::postgres::types::{Timestamp as PgTimestamp, Timestamptz as PgTimestamptz};
 
 use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
 
@@ -43,11 +43,11 @@ pub trait DateTruncPolicy<D>: Temporal {
 impl SQLiteDateTimeSupport for SQLiteDialect {}
 impl PostgresDateTimeSupport for PostgresDialect {}
 
-impl DateTruncPolicy<PostgresDialect> for Timestamp {
-    type Output = Timestamp;
+impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
+    type Output = PgTimestamp;
 }
-impl DateTruncPolicy<PostgresDialect> for TimestampTz {
-    type Output = TimestampTz;
+impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
+    type Output = PgTimestamptz;
 }
 
 // =============================================================================
@@ -66,7 +66,8 @@ impl DateTruncPolicy<PostgresDialect> for TimestampTz {
 /// // SELECT CURRENT_DATE
 /// let today = current_date::<SQLiteValue>();
 /// ```
-pub fn current_date<'a, V>() -> SQLExpr<'a, V, Date, super::NonNull, Scalar>
+pub fn current_date<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
 {
@@ -85,7 +86,8 @@ where
 /// // SELECT CURRENT_TIME
 /// let now_time = current_time::<SQLiteValue>();
 /// ```
-pub fn current_time<'a, V>() -> SQLExpr<'a, V, Time, super::NonNull, Scalar>
+pub fn current_time<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
 {
@@ -107,7 +109,8 @@ where
 /// // SELECT CURRENT_TIMESTAMP
 /// let now = current_timestamp::<SQLiteValue>();
 /// ```
-pub fn current_timestamp<'a, V>() -> SQLExpr<'a, V, TimestampTz, super::NonNull, Scalar>
+pub fn current_timestamp<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
 {
@@ -130,7 +133,9 @@ where
 /// // SELECT DATE(users.created_at)
 /// let created_date = date(users.created_at);
 /// ```
-pub fn date<'a, V, E>(expr: E) -> SQLExpr<'a, V, Date, E::Nullable, Scalar>
+pub fn date<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -152,7 +157,9 @@ where
 /// // SELECT TIME(users.created_at)
 /// let created_time = time(users.created_at);
 /// ```
-pub fn time<'a, V, E>(expr: E) -> SQLExpr<'a, V, Time, E::Nullable, Scalar>
+pub fn time<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -174,7 +181,9 @@ where
 /// // SELECT DATETIME(users.created_at)
 /// let dt = datetime(users.created_at);
 /// ```
-pub fn datetime<'a, V, E>(expr: E) -> SQLExpr<'a, V, Timestamp, E::Nullable, Scalar>
+pub fn datetime<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Timestamp, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -208,7 +217,10 @@ where
 /// // SELECT STRFTIME('%Y-%m-%d', users.created_at)
 /// let formatted = strftime("%Y-%m-%d", users.created_at);
 /// ```
-pub fn strftime<'a, V, F, E>(format: F, expr: E) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn strftime<'a, V, F, E>(
+    format: F,
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -224,7 +236,7 @@ where
 
 /// JULIANDAY - converts a temporal expression to Julian day number (SQLite).
 ///
-/// Returns Double type, preserves nullability.
+/// Returns a dialect-aware double type, preserves nullability.
 ///
 /// # Example
 ///
@@ -234,7 +246,9 @@ where
 /// // SELECT JULIANDAY(users.created_at)
 /// let julian = julianday(users.created_at);
 /// ```
-pub fn julianday<'a, V, E>(expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+pub fn julianday<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -246,7 +260,7 @@ where
 
 /// UNIXEPOCH - converts a temporal expression to Unix timestamp (SQLite 3.38+).
 ///
-/// Returns BigInt type (seconds since 1970-01-01), preserves nullability.
+/// Returns a dialect-aware BigInt type (seconds since 1970-01-01), preserves nullability.
 ///
 /// # Example
 ///
@@ -256,7 +270,9 @@ where
 /// // SELECT UNIXEPOCH(users.created_at)
 /// let unix_ts = unixepoch(users.created_at);
 /// ```
-pub fn unixepoch<'a, V, E>(expr: E) -> SQLExpr<'a, V, BigInt, E::Nullable, Scalar>
+pub fn unixepoch<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -280,7 +296,8 @@ where
 /// // SELECT NOW()
 /// let current = now::<PostgresValue>();
 /// ```
-pub fn now<'a, V>() -> SQLExpr<'a, V, TimestampTz, super::NonNull, Scalar>
+pub fn now<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
@@ -327,7 +344,7 @@ where
 
 /// EXTRACT - extracts a component from a temporal expression (PostgreSQL/Standard SQL).
 ///
-/// Returns Double type. Common fields:
+/// Returns a dialect-aware double type. Common fields:
 /// 'year', 'month', 'day', 'hour', 'minute', 'second',
 /// 'dow' (day of week), 'doy' (day of year), 'epoch' (Unix timestamp)
 ///
@@ -341,7 +358,10 @@ where
 /// // SELECT EXTRACT(YEAR FROM users.created_at)
 /// let year = extract("YEAR", users.created_at);
 /// ```
-pub fn extract<'a, 'f, V, E>(field: &'f str, expr: E) -> SQLExpr<'a, V, Double, E::Nullable, Scalar>
+pub fn extract<'a, 'f, V, E>(
+    field: &'f str,
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
 where
     'f: 'a,
     V: SQLParam + 'a,
@@ -371,10 +391,17 @@ where
 /// // SELECT AGE(NOW(), users.created_at)
 /// let user_age = age(now(), users.created_at);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn age<'a, V, E1, E2>(
     timestamp1: E1,
     timestamp2: E2,
-) -> SQLExpr<'a, V, Text, <E1::Nullable as NullOr<E2::Nullable>>::Output, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    Scalar,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
@@ -417,7 +444,10 @@ where
 /// // SELECT TO_CHAR(users.created_at, 'YYYY-MM-DD')
 /// let formatted = to_char(users.created_at, "YYYY-MM-DD");
 /// ```
-pub fn to_char<'a, V, E, F>(expr: E, format: F) -> SQLExpr<'a, V, Text, E::Nullable, Scalar>
+pub fn to_char<'a, V, E, F>(
+    expr: E,
+    format: F,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
@@ -443,7 +473,7 @@ where
 /// // SELECT TO_TIMESTAMP(users.created_unix)
 /// let ts = to_timestamp(users.created_unix);
 /// ```
-pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, TimestampTz, E::Nullable, Scalar>
+pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, Scalar>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,

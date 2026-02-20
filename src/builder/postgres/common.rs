@@ -94,7 +94,7 @@ impl<'d, 'a, DrizzleRef, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue
 where
     T: ToSQL<'a, PostgresValue<'a>>,
 {
-    type SQLType = drizzle_core::types::Any;
+    type SQLType = drizzle_types::postgres::types::Any;
     type Nullable = drizzle_core::expr::NonNull;
     type Aggregate = drizzle_core::expr::Scalar;
 }

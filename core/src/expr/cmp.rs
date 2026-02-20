@@ -19,9 +19,10 @@
 //! - `between`: Requires expr compatible with both bounds
 //! - `is_null`, `is_not_null`: No type constraint (any type can be null-checked)
 
+use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::{Bool, Compatible, Textual};
+use crate::types::{Compatible, Textual};
 
 use super::{Expr, NonNull, SQLExpr, Scalar};
 
@@ -65,7 +66,10 @@ where
 /// // ❌ Compile error: Int cannot be compared with Text
 /// eq(users.id, "hello");
 /// ```
-pub fn eq<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn eq<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -78,7 +82,10 @@ where
 /// Inequality comparison (`<>` or `!=`).
 ///
 /// Requires both operands to have compatible SQL types.
-pub fn neq<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn neq<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -95,7 +102,10 @@ where
 /// Greater-than comparison (`>`).
 ///
 /// Requires both operands to have compatible SQL types.
-pub fn gt<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn gt<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -108,7 +118,10 @@ where
 /// Greater-than-or-equal comparison (`>=`).
 ///
 /// Requires both operands to have compatible SQL types.
-pub fn gte<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn gte<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -121,7 +134,10 @@ where
 /// Less-than comparison (`<`).
 ///
 /// Requires both operands to have compatible SQL types.
-pub fn lt<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn lt<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -134,7 +150,10 @@ where
 /// Less-than-or-equal comparison (`<=`).
 ///
 /// Requires both operands to have compatible SQL types.
-pub fn lte<'a, V, L, R>(left: L, right: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn lte<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -161,7 +180,10 @@ where
 /// // ❌ Compile error: Int is not Textual
 /// like(users.id, "%123%");
 /// ```
-pub fn like<'a, V, L, R>(left: L, pattern: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn like<'a, V, L, R>(
+    left: L,
+    pattern: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -175,7 +197,10 @@ where
 /// NOT LIKE pattern matching.
 ///
 /// Requires both operands to be textual types (TEXT, VARCHAR).
-pub fn not_like<'a, V, L, R>(left: L, pattern: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn not_like<'a, V, L, R>(
+    left: L,
+    pattern: R,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -199,7 +224,11 @@ where
 ///
 /// Checks if expr is between low and high (inclusive).
 /// Requires expr type to be compatible with both bounds.
-pub fn between<'a, V, E, L, H>(expr: E, low: L, high: H) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn between<'a, V, E, L, H>(
+    expr: E,
+    low: L,
+    high: H,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -225,7 +254,7 @@ pub fn not_between<'a, V, E, L, H>(
     expr: E,
     low: L,
     high: H,
-) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -253,7 +282,9 @@ where
 ///
 /// Returns a boolean expression checking if the value is NULL.
 /// Any expression type can be null-checked.
-pub fn is_null<'a, V, E>(expr: E) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn is_null<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -265,7 +296,9 @@ where
 ///
 /// Returns a boolean expression checking if the value is not NULL.
 /// Any expression type can be null-checked.
-pub fn is_not_null<'a, V, E>(expr: E) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+pub fn is_not_null<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -301,7 +334,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.id.eq(42)  // "users"."id" = 42
     /// ```
-    fn eq<R>(self, other: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn eq<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Compatible<R::SQLType>,
@@ -314,7 +350,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.id.ne(42)  // "users"."id" <> 42
     /// ```
-    fn ne<R>(self, other: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn ne<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Compatible<R::SQLType>,
@@ -327,7 +366,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.gt(18)  // "users"."age" > 18
     /// ```
-    fn gt<R>(self, other: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn gt<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Compatible<R::SQLType>,
@@ -340,7 +382,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.ge(18)  // "users"."age" >= 18
     /// ```
-    fn ge<R>(self, other: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn ge<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Compatible<R::SQLType>,
@@ -353,7 +398,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.lt(65)  // "users"."age" < 65
     /// ```
-    fn lt<R>(self, other: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn lt<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Compatible<R::SQLType>,
@@ -366,7 +414,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.le(65)  // "users"."age" <= 65
     /// ```
-    fn le<R>(self, other: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn le<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Compatible<R::SQLType>,
@@ -379,7 +430,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.name.like("%Alice%")  // "users"."name" LIKE '%Alice%'
     /// ```
-    fn like<R>(self, pattern: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn like<R>(
+        self,
+        pattern: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Textual,
@@ -393,7 +447,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.name.not_like("%Bot%")  // "users"."name" NOT LIKE '%Bot%'
     /// ```
-    fn not_like<R>(self, pattern: R) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn not_like<R>(
+        self,
+        pattern: R,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         R: Expr<'a, V>,
         Self::SQLType: Textual,
@@ -408,7 +465,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// users.deleted_at.is_null()  // "users"."deleted_at" IS NULL
     /// ```
     #[allow(clippy::wrong_self_convention)]
-    fn is_null(self) -> SQLExpr<'a, V, Bool, NonNull, Scalar> {
+    fn is_null(self) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar> {
         is_null(self)
     }
 
@@ -418,7 +475,9 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// users.email.is_not_null()  // "users"."email" IS NOT NULL
     /// ```
     #[allow(clippy::wrong_self_convention)]
-    fn is_not_null(self) -> SQLExpr<'a, V, Bool, NonNull, Scalar> {
+    fn is_not_null(
+        self,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar> {
         is_not_null(self)
     }
 
@@ -429,7 +488,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.between(18, 65)  // ("users"."age" BETWEEN 18 AND 65)
     /// ```
-    fn between<L, H>(self, low: L, high: H) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn between<L, H>(
+        self,
+        low: L,
+        high: H,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         L: Expr<'a, V>,
         H: Expr<'a, V>,
@@ -445,7 +508,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.not_between(0, 17)  // ("users"."age" NOT BETWEEN 0 AND 17)
     /// ```
-    fn not_between<L, H>(self, low: L, high: H) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn not_between<L, H>(
+        self,
+        low: L,
+        high: H,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         L: Expr<'a, V>,
         H: Expr<'a, V>,
@@ -462,7 +529,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// users.role.in_array([Role::Admin, Role::Moderator])
     /// // "users"."role" IN ('admin', 'moderator')
     /// ```
-    fn in_array<I, R>(self, values: I) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn in_array<I, R>(
+        self,
+        values: I,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         I: IntoIterator<Item = R>,
         R: Expr<'a, V>,
@@ -479,7 +549,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// users.role.not_in_array([Role::Banned, Role::Suspended])
     /// // "users"."role" NOT IN ('banned', 'suspended')
     /// ```
-    fn not_in_array<I, R>(self, values: I) -> SQLExpr<'a, V, Bool, NonNull, Scalar>
+    fn not_in_array<I, R>(
+        self,
+        values: I,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
     where
         I: IntoIterator<Item = R>,
         R: Expr<'a, V>,

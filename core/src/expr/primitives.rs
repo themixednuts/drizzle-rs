@@ -3,11 +3,11 @@
 //! These implementations allow using Rust literals directly in type-safe
 //! SQL expressions.
 
+use crate::dialect::DialectTypes;
 use crate::prelude::*;
 use crate::traits::SQLParam;
 
 use super::{Expr, NonNull, Null, Nullability, Scalar};
-use crate::types::{BigInt, Bool, Double, Float, Int, SmallInt, Text};
 
 // =============================================================================
 // Integer Types
@@ -18,7 +18,7 @@ where
     V: SQLParam + 'a + From<i8>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = SmallInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -28,7 +28,7 @@ where
     V: SQLParam + 'a + From<i16>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = SmallInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -38,7 +38,7 @@ where
     V: SQLParam + 'a + From<i32>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Int;
+    type SQLType = <V::DialectMarker as DialectTypes>::Int;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -48,7 +48,7 @@ where
     V: SQLParam + 'a + From<i64>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = BigInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -58,7 +58,7 @@ where
     V: SQLParam + 'a + From<isize>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = BigInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -72,7 +72,7 @@ where
     V: SQLParam + 'a + From<u8>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = SmallInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -82,7 +82,7 @@ where
     V: SQLParam + 'a + From<u16>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Int;
+    type SQLType = <V::DialectMarker as DialectTypes>::Int;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -92,7 +92,7 @@ where
     V: SQLParam + 'a + From<u32>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = BigInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -102,7 +102,7 @@ where
     V: SQLParam + 'a + From<u64>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = BigInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -112,7 +112,7 @@ where
     V: SQLParam + 'a + From<usize>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = BigInt;
+    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -126,7 +126,7 @@ where
     V: SQLParam + 'a + From<f32>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Float;
+    type SQLType = <V::DialectMarker as DialectTypes>::Float;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -136,7 +136,7 @@ where
     V: SQLParam + 'a + From<f64>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Double;
+    type SQLType = <V::DialectMarker as DialectTypes>::Double;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -150,7 +150,7 @@ where
     V: SQLParam + 'a + From<bool>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Bool;
+    type SQLType = <V::DialectMarker as DialectTypes>::Bool;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -164,7 +164,7 @@ where
     V: SQLParam + 'a + From<&'a str>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Text;
+    type SQLType = <V::DialectMarker as DialectTypes>::Text;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -174,7 +174,7 @@ where
     V: SQLParam + 'a + From<String>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = Text;
+    type SQLType = <V::DialectMarker as DialectTypes>::Text;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -219,7 +219,7 @@ where
     V: SQLParam + 'a + From<uuid::Uuid>,
     V: Into<Cow<'a, V>>,
 {
-    type SQLType = crate::types::Uuid;
+    type SQLType = <V::DialectMarker as DialectTypes>::Uuid;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -233,7 +233,7 @@ impl<'a, V> Expr<'a, V> for crate::sql::SQL<'a, V>
 where
     V: SQLParam + 'a,
 {
-    type SQLType = crate::types::Any;
+    type SQLType = <V::DialectMarker as DialectTypes>::Any;
     type Nullable = Null;
     type Aggregate = Scalar;
 }
