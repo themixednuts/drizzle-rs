@@ -4,7 +4,8 @@ use super::{OwnedPostgresValue, PostgresValue};
 use crate::prelude::*;
 use core::marker::PhantomData;
 use drizzle_core::{
-    ToSQL, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk, traits::SQLParam,
+    ToSQL, TypedPlaceholder, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk,
+    traits::SQLParam,
 };
 
 #[cfg(feature = "uuid")]
@@ -117,6 +118,14 @@ impl<'a, T> From<Placeholder> for PostgresInsertValue<'a, PostgresValue<'a>, T> 
         PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(
             core::iter::once(chunk).collect(),
         ))
+    }
+}
+
+impl<'a, M: drizzle_core::types::DataType, T> From<TypedPlaceholder<M>>
+    for PostgresInsertValue<'a, PostgresValue<'a>, T>
+{
+    fn from(typed: TypedPlaceholder<M>) -> Self {
+        Placeholder::from(typed).into()
     }
 }
 

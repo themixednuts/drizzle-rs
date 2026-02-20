@@ -1,5 +1,4 @@
 use drizzle::core::expr::{between, eq, like};
-use drizzle::core::Placeholder;
 use drizzle::sqlite::prelude::*;
 use drizzle::sqlite::rusqlite::Drizzle;
 
@@ -19,25 +18,25 @@ fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
 
-    let _: drizzle::Result<Vec<SelectUser>> = db
-        .select(())
-        .from(user)
-        .r#where(eq(user.id, Placeholder::named("id")))
-        .all();
+    let id = user.id.placeholder("id");
+    let pattern = user.name.placeholder("pattern");
+    let low = user.id.placeholder("low");
+    let high = user.id.placeholder("high");
 
-    let _: drizzle::Result<Vec<SelectUser>> = db
-        .select(())
-        .from(user)
-        .r#where(like(user.name, Placeholder::named("pattern")))
-        .all();
+    let by_id = db.select(()).from(user).r#where(eq(user.id, id)).prepare();
+    let _: drizzle::Result<Vec<SelectUser>> = by_id.all(db.conn(), [id.bind(1)]);
 
-    let _: drizzle::Result<Vec<SelectUser>> = db
+    let by_pattern = db
         .select(())
         .from(user)
-        .r#where(between(
-            user.id,
-            Placeholder::named("low"),
-            Placeholder::named("high"),
-        ))
-        .all();
+        .r#where(like(user.name, pattern))
+        .prepare();
+    let _: drizzle::Result<Vec<SelectUser>> = by_pattern.all(db.conn(), [pattern.bind("%a%")]);
+
+    let by_range = db
+        .select(())
+        .from(user)
+        .r#where(between(user.id, low, high))
+        .prepare();
+    let _: drizzle::Result<Vec<SelectUser>> = by_range.all(db.conn(), [low.bind(1), high.bind(10)]);
 }

@@ -8,8 +8,8 @@ use super::insert::ValueWrapper;
 use crate::prelude::*;
 use drizzle_core::expr::Excluded;
 use drizzle_core::{
-    SQLColumnInfo, param::Param, placeholder::Placeholder, sql::SQL, sql::SQLChunk,
-    traits::SQLParam,
+    SQLColumnInfo, TypedPlaceholder, param::Param, placeholder::Placeholder, sql::SQL,
+    sql::SQLChunk, traits::SQLParam,
 };
 
 #[cfg(feature = "uuid")]
@@ -69,6 +69,14 @@ impl<'a, T> From<Placeholder> for PostgresUpdateValue<'a, PostgresValue<'a>, T> 
         PostgresUpdateValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(
             core::iter::once(chunk).collect(),
         ))
+    }
+}
+
+impl<'a, M: drizzle_core::types::DataType, T> From<TypedPlaceholder<M>>
+    for PostgresUpdateValue<'a, PostgresValue<'a>, T>
+{
+    fn from(typed: TypedPlaceholder<M>) -> Self {
+        Placeholder::from(typed).into()
     }
 }
 

@@ -4,9 +4,8 @@ use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, Up
 use drizzle::core::expr::*;
 use drizzle::error::DrizzleError;
 use drizzle::sqlite::connection::SQLiteTransactionType;
-use drizzle_core::SQL;
+use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
-use drizzle_sqlite::params;
 
 sqlite_test!(test_transaction_commit, SimpleSchema, {
     let SimpleSchema { simple } = schema;
@@ -1155,10 +1154,11 @@ sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
     );
 
     // Create an owned prepared statement OUTSIDE the transaction
+    let name = simple.name.placeholder("name");
     let prepared = db
         .select(())
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
@@ -1167,19 +1167,19 @@ sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
         SQLiteTransactionType::Deferred,
         drizzle_tx!(tx, {
             let alice: Vec<SelectSimple> =
-                drizzle_try!(prepared.all(tx.inner(), params![{name: "Alice"}]))?;
+                drizzle_try!(prepared.all(tx.inner(), [name.bind("Alice")]))?;
             assert_eq!(alice.len(), 1);
             assert_eq!(alice[0].name, "Alice");
 
             // Reuse with different params in the same transaction
             let bob: Vec<SelectSimple> =
-                drizzle_try!(prepared.all(tx.inner(), params![{name: "Bob"}]))?;
+                drizzle_try!(prepared.all(tx.inner(), [name.bind("Bob")]))?;
             assert_eq!(bob.len(), 1);
             assert_eq!(bob[0].name, "Bob");
 
             // No match
             let nobody: Vec<SelectSimple> =
-                drizzle_try!(prepared.all(tx.inner(), params![{name: "Nobody"}]))?;
+                drizzle_try!(prepared.all(tx.inner(), [name.bind("Nobody")]))?;
             assert_eq!(nobody.len(), 0);
 
             Ok(())
@@ -1203,10 +1203,11 @@ sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
     );
 
     // Prepared statement created outside everything
+    let name = simple.name.placeholder("name");
     let prepared = db
         .select(())
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
@@ -1223,11 +1224,11 @@ sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
             // Use prepared statement inside a savepoint
             drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
                 let both: Vec<SelectSimple> =
-                    drizzle_try!(prepared.all(tx.inner(), params![{name: "Alice"}]))?;
+                    drizzle_try!(prepared.all(tx.inner(), [name.bind("Alice")]))?;
                 assert_eq!(both.len(), 1);
 
                 let bob: Vec<SelectSimple> =
-                    drizzle_try!(prepared.all(tx.inner(), params![{name: "Bob"}]))?;
+                    drizzle_try!(prepared.all(tx.inner(), [name.bind("Bob")]))?;
                 assert_eq!(bob.len(), 1);
 
                 Ok(())

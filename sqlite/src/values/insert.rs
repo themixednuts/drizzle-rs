@@ -5,7 +5,7 @@
 use core::marker::PhantomData;
 
 use crate::prelude::*;
-use drizzle_core::{Placeholder, SQL, SQLParam};
+use drizzle_core::{Placeholder, SQL, SQLParam, TypedPlaceholder};
 
 use super::{OwnedSQLiteValue, SQLiteValue};
 
@@ -94,6 +94,14 @@ impl<'a, T> From<Placeholder> for SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
         SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(
             core::iter::once(chunk).collect(),
         ))
+    }
+}
+
+impl<'a, M: drizzle_core::types::DataType, T> From<TypedPlaceholder<M>>
+    for SQLiteInsertValue<'a, SQLiteValue<'a>, T>
+{
+    fn from(typed: TypedPlaceholder<M>) -> Self {
+        Placeholder::from(typed).into()
     }
 }
 

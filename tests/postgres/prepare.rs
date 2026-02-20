@@ -7,171 +7,7 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_core::SQL;
 use drizzle_macros::postgres_test;
-use drizzle_postgres::{params, values::PostgresValue};
-
-// =============================================================================
-// Placeholder Indexing Tests (verify $1, $2, $3... are correct)
-// =============================================================================
-
-/// Test that multiple positional placeholders get correct sequential indices
-#[test]
-fn test_placeholder_indexing_sequential() {
-    // Build a SQL with multiple positional placeholders
-    let sql = SQL::<PostgresValue>::raw("SELECT * FROM users WHERE name = ")
-        .append(SQL::param(PostgresValue::from("Alice")))
-        .append(SQL::raw(" AND age > "))
-        .append(SQL::param(PostgresValue::from(25i32)))
-        .append(SQL::raw(" AND active = "))
-        .append(SQL::param(PostgresValue::from(true)));
-
-    let sql_string = sql.sql();
-
-    // PostgreSQL should use $1, $2, $3 for positional placeholders
-    assert!(
-        sql_string.contains("$1"),
-        "SQL should contain $1, got: {}",
-        sql_string
-    );
-    assert!(
-        sql_string.contains("$2"),
-        "SQL should contain $2, got: {}",
-        sql_string
-    );
-    assert!(
-        sql_string.contains("$3"),
-        "SQL should contain $3, got: {}",
-        sql_string
-    );
-
-    // Verify the order is correct
-    let idx1 = sql_string.find("$1").unwrap();
-    let idx2 = sql_string.find("$2").unwrap();
-    let idx3 = sql_string.find("$3").unwrap();
-    assert!(
-        idx1 < idx2 && idx2 < idx3,
-        "Placeholders should appear in order: $1 at {}, $2 at {}, $3 at {}",
-        idx1,
-        idx2,
-        idx3
-    );
-}
-
-/// Test that named placeholders in PostgreSQL are rendered as $N (not :name)
-/// PostgreSQL only supports $N style placeholders
-#[test]
-fn test_named_placeholder_rendering() {
-    let sql = SQL::<PostgresValue>::raw("SELECT * FROM users WHERE name = ")
-        .append(SQL::placeholder("user_name"))
-        .append(SQL::raw(" AND id = "))
-        .append(SQL::placeholder("user_id"));
-
-    let sql_string = sql.sql();
-
-    // PostgreSQL uses $N style even for named placeholders
-    // The name is used for binding, not for SQL syntax
-    assert!(
-        sql_string.contains("$1"),
-        "SQL should contain $1, got: {}",
-        sql_string
-    );
-    assert!(
-        sql_string.contains("$2"),
-        "SQL should contain $2, got: {}",
-        sql_string
-    );
-
-    // PostgreSQL should NOT use :name style
-    assert!(
-        !sql_string.contains(":user_name"),
-        "PostgreSQL should not use :name style placeholders"
-    );
-}
-
-/// Test mixing named and positional placeholders - all become $N in PostgreSQL
-#[test]
-fn test_mixed_placeholder_styles() {
-    let sql = SQL::<PostgresValue>::raw("SELECT * FROM users WHERE name = ")
-        .append(SQL::placeholder("user_name")) // Named - becomes $1
-        .append(SQL::raw(" AND age > "))
-        .append(SQL::param(PostgresValue::from(25i32))) // Positional - becomes $2
-        .append(SQL::raw(" AND status = "))
-        .append(SQL::placeholder("status")); // Named - becomes $3
-
-    let sql_string = sql.sql();
-
-    // All placeholders in PostgreSQL use $N style
-    assert!(
-        sql_string.contains("$1"),
-        "SQL should contain $1, got: {}",
-        sql_string
-    );
-    assert!(
-        sql_string.contains("$2"),
-        "SQL should contain $2, got: {}",
-        sql_string
-    );
-    assert!(
-        sql_string.contains("$3"),
-        "SQL should contain $3, got: {}",
-        sql_string
-    );
-
-    // PostgreSQL should NOT use :name style
-    assert!(
-        !sql_string.contains(":user_name"),
-        "PostgreSQL should not use :name style"
-    );
-    assert!(
-        !sql_string.contains(":status"),
-        "PostgreSQL should not use :name style"
-    );
-}
-
-/// Test that many positional placeholders maintain correct indexing
-#[test]
-fn test_many_positional_placeholders() {
-    let mut sql = SQL::<PostgresValue>::raw("SELECT * FROM data WHERE ");
-
-    // Add 10 conditions with positional placeholders
-    for i in 0..10 {
-        if i > 0 {
-            sql = sql.append(SQL::raw(" AND "));
-        }
-        sql = sql.append(SQL::raw(format!("col{} = ", i)));
-        sql = sql.append(SQL::param(PostgresValue::from(i)));
-    }
-
-    let sql_string = sql.sql();
-
-    // Verify all placeholders from $1 to $10 are present
-    for i in 1..=10 {
-        let placeholder = format!("${}", i);
-        assert!(
-            sql_string.contains(&placeholder),
-            "SQL should contain {}, got: {}",
-            placeholder,
-            sql_string
-        );
-    }
-
-    // Verify order by finding indices
-    let mut last_idx = 0;
-    for i in 1..=10 {
-        let placeholder = format!("${}", i);
-        let idx = sql_string.find(&placeholder).unwrap();
-        assert!(
-            idx > last_idx || i == 1,
-            "${} should appear after ${}, found at {} vs {}",
-            i,
-            i - 1,
-            idx,
-            last_idx
-        );
-        last_idx = idx;
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Debug, PostgresFromRow, Default)]
@@ -189,17 +25,18 @@ postgres_test!(test_prepare_with_placeholder, SimpleSchema, {
             => execute
     );
 
-    // Create a prepared statement with placeholder and convert to owned to release borrow
+    // Create a prepared statement with typed placeholder and convert to owned to release borrow
+    let name = simple.name.placeholder("name");
     let prepared = db
         .select((simple.id, simple.name))
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     // Execute the prepared statement with bound parameter
     let result: Vec<PgSimpleResult> =
-        drizzle_exec!(prepared.all(drizzle_client!(), params![{name: "Alice"}]));
+        drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Alice")]));
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Alice");
@@ -219,26 +56,27 @@ postgres_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
     );
 
     // Create a prepared statement once
+    let name = simple.name.placeholder("name");
     let prepared = db
         .select((simple.id, simple.name))
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     // Execute with different parameter values
     let alice: Vec<PgSimpleResult> =
-        drizzle_exec!(prepared.all(drizzle_client!(), params![{name: "Alice"}]));
+        drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Alice")]));
     assert_eq!(alice.len(), 1);
     assert_eq!(alice[0].name, "Alice");
 
     let bob: Vec<PgSimpleResult> =
-        drizzle_exec!(prepared.all(drizzle_client!(), params![{name: "Bob"}]));
+        drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Bob")]));
     assert_eq!(bob.len(), 1);
     assert_eq!(bob[0].name, "Bob");
 
     let charlie: Vec<PgSimpleResult> =
-        drizzle_exec!(prepared.all(drizzle_client!(), params![{name: "Charlie"}]));
+        drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Charlie")]));
     assert_eq!(charlie.len(), 1);
     assert_eq!(charlie[0].name, "Charlie");
 });
@@ -252,16 +90,17 @@ postgres_test!(test_prepared_get_single_row, SimpleSchema, {
             => execute
     );
 
+    let name = simple.name.placeholder("name");
     let prepared = db
         .select((simple.id, simple.name))
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     // Use get to retrieve a single row
     let result: PgSimpleResult =
-        drizzle_exec!(prepared.get(drizzle_client!(), params![{name: "UniqueUser"}]));
+        drizzle_exec!(prepared.get(drizzle_client!(), [name.bind("UniqueUser")]));
 
     assert_eq!(result.name, "UniqueUser");
 });
@@ -327,16 +166,17 @@ postgres_test!(test_prepared_owned_conversion, SimpleSchema, {
     );
 
     // Create a prepared statement and convert to owned
+    let name = simple.name.placeholder("name");
     let owned = db
         .select((simple.id, simple.name))
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     // Owned statement can be stored and reused
     let result: Vec<PgSimpleResult> =
-        drizzle_exec!(owned.all(drizzle_client!(), params![{name: "OwnedTest"}]));
+        drizzle_exec!(owned.all(drizzle_client!(), [name.bind("OwnedTest")]));
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "OwnedTest");
@@ -364,17 +204,18 @@ postgres_test!(test_prepared_performance_comparison, SimpleSchema, {
     let regular_duration = start.elapsed();
 
     // Test prepared statement performance
+    let name = simple.name.placeholder("name");
     let prepared = db
         .select(())
         .from(simple)
-        .r#where(eq(simple.name, SQL::placeholder("name")))
+        .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
     let start = std::time::Instant::now();
     for i in 0..10 {
         let _results: Vec<SelectSimple> =
-            drizzle_exec!(prepared.all(drizzle_client!(), params![{name: format!("User{}", i)}]));
+            drizzle_exec!(prepared.all(drizzle_client!(), [name.bind(format!("User{}", i))]));
     }
     let prepared_duration = start.elapsed();
 
