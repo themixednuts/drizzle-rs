@@ -173,6 +173,7 @@ libsql = [
 ]
 serde = [
   "dep:serde_json",
+  "serde_json/alloc",
   "dep:serde",
   "drizzle-seed/serde",
   "drizzle-sqlite?/serde",
@@ -210,6 +211,7 @@ arrayvec = [
 compact-str = ["drizzle-core/compact-str", "drizzle-postgres?/compact-str", "drizzle-macros/compact-str"]
 bytes = ["drizzle-core/bytes", "drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-macros/bytes"]
 smallvec-types = [
+  "drizzle-core/smallvec-types",
   "drizzle-postgres?/smallvec",
   "drizzle-sqlite?/smallvec",
   "drizzle-macros/smallvec",

@@ -307,7 +307,7 @@ impl<'a, const N: usize> From<arrayvec::ArrayString<N>> for PostgresValue<'a> {
 #[cfg(feature = "arrayvec")]
 impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for PostgresValue<'a> {
     fn from(value: &arrayvec::ArrayString<N>) -> Self {
-        PostgresValue::Text(Cow::Owned(value.as_str().to_owned()))
+        PostgresValue::Text(Cow::Owned(String::from(value.as_str())))
     }
 }
 
