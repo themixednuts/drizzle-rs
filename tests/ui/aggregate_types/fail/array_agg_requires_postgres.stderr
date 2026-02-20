@@ -4,8 +4,8 @@ error[E0277]: this aggregate is not available for this dialect
 5 |     let _ = array_agg(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Integer>("1"));
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
   |
-  = help: the trait `PostgresAggregateSupport` is not implemented for `drizzle_core::dialect::SQLiteDialect`
-help: the trait `PostgresAggregateSupport` is implemented for `drizzle_core::dialect::PostgresDialect`
+  = help: the trait `PostgresAggregateSupport` is not implemented for `SQLiteDialect`
+help: the trait `PostgresAggregateSupport` is implemented for `PostgresDialect`
  --> core/src/expr/agg.rs
   |
   | impl PostgresAggregateSupport for PostgresDialect {}

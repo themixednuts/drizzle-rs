@@ -642,6 +642,417 @@ impl FromSQLiteValue for uuid::Uuid {
     }
 }
 
+// =============================================================================
+// Chrono date/time types (parse from ISO-8601 text)
+// =============================================================================
+
+#[cfg(feature = "chrono")]
+impl FromSQLiteValue for chrono::NaiveDate {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to NaiveDate".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        value.parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as NaiveDate: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to NaiveDate".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to NaiveDate".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl FromSQLiteValue for chrono::NaiveTime {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to NaiveTime".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        value.parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as NaiveTime: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to NaiveTime".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to NaiveTime".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl FromSQLiteValue for chrono::NaiveDateTime {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to NaiveDateTime".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        value.parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as NaiveDateTime: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to NaiveDateTime".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to NaiveDateTime".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl FromSQLiteValue for chrono::DateTime<chrono::FixedOffset> {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to DateTime<FixedOffset>".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        chrono::DateTime::parse_from_rfc3339(value).map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as DateTime<FixedOffset>: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to DateTime<FixedOffset>".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to DateTime<FixedOffset>".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl FromSQLiteValue for chrono::DateTime<chrono::Utc> {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to DateTime<Utc>".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        value.parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as DateTime<Utc>: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to DateTime<Utc>".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to DateTime<Utc>".into(),
+        ))
+    }
+}
+
+// =============================================================================
+// Time crate date/time types (parse from ISO-8601 text)
+// =============================================================================
+
+#[cfg(feature = "time")]
+impl FromSQLiteValue for time::Date {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to time::Date".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        time::Date::parse(
+            value,
+            &time::format_description::well_known::Iso8601::DEFAULT,
+        )
+        .map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as time::Date: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to time::Date".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to time::Date".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromSQLiteValue for time::Time {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to time::Time".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        time::Time::parse(
+            value,
+            &time::format_description::well_known::Iso8601::DEFAULT,
+        )
+        .map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as time::Time: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to time::Time".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to time::Time".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromSQLiteValue for time::PrimitiveDateTime {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to time::PrimitiveDateTime".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        time::PrimitiveDateTime::parse(
+            value,
+            &time::format_description::well_known::Iso8601::DEFAULT,
+        )
+        .map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as time::PrimitiveDateTime: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to time::PrimitiveDateTime".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to time::PrimitiveDateTime".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromSQLiteValue for time::OffsetDateTime {
+    fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert INTEGER to time::OffsetDateTime".into(),
+        ))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).map_err(
+            |e| {
+                DrizzleError::ConversionError(
+                    format!("cannot parse '{}' as time::OffsetDateTime: {}", value, e).into(),
+                )
+            },
+        )
+    }
+
+    fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert REAL to time::OffsetDateTime".into(),
+        ))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to time::OffsetDateTime".into(),
+        ))
+    }
+}
+
+// =============================================================================
+// Decimal (parse from text)
+// =============================================================================
+
+#[cfg(feature = "rust-decimal")]
+impl FromSQLiteValue for rust_decimal::Decimal {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Ok(rust_decimal::Decimal::from(value))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        value.parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as Decimal: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        rust_decimal::Decimal::try_from(value).map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot convert REAL {} to Decimal: {}", value, e).into(),
+            )
+        })
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to Decimal".into(),
+        ))
+    }
+}
+
+// =============================================================================
+// Duration types
+// =============================================================================
+
+#[cfg(feature = "chrono")]
+impl FromSQLiteValue for chrono::Duration {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Ok(chrono::Duration::seconds(value))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        // Parse seconds from the text representation
+        let secs: i64 = value.trim_end_matches('s').parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as chrono::Duration: {}", value, e).into(),
+            )
+        })?;
+        Ok(chrono::Duration::seconds(secs))
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Ok(chrono::Duration::milliseconds((value * 1000.0) as i64))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to chrono::Duration".into(),
+        ))
+    }
+}
+
+#[cfg(feature = "time")]
+impl FromSQLiteValue for time::Duration {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Ok(time::Duration::seconds(value))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        // Parse seconds from the "Ns" text representation
+        let secs: i64 = value.trim_end_matches('s').parse().map_err(|e| {
+            DrizzleError::ConversionError(
+                format!("cannot parse '{}' as time::Duration: {}", value, e).into(),
+            )
+        })?;
+        Ok(time::Duration::seconds(secs))
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        Ok(time::Duration::seconds_f64(value))
+    }
+
+    fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert BLOB to time::Duration".into(),
+        ))
+    }
+}
+
+// =============================================================================
+// JSON support (serde_json::Value)
+// =============================================================================
+
+#[cfg(feature = "serde")]
+impl FromSQLiteValue for serde_json::Value {
+    fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+        Ok(serde_json::Value::Number(value.into()))
+    }
+
+    fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+        serde_json::from_str(value).map_err(|e| {
+            DrizzleError::ConversionError(format!("cannot parse '{}' as JSON: {}", value, e).into())
+        })
+    }
+
+    fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+        serde_json::Number::from_f64(value)
+            .map(serde_json::Value::Number)
+            .ok_or_else(|| {
+                DrizzleError::ConversionError(
+                    format!("cannot convert non-finite REAL {} to JSON", value).into(),
+                )
+            })
+    }
+
+    fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError> {
+        serde_json::from_slice(value).map_err(|e| {
+            DrizzleError::ConversionError(format!("cannot parse BLOB as JSON: {}", e).into())
+        })
+    }
+}
+
+// =============================================================================
+// ArrayVec/ArrayString support
+// =============================================================================
+
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> FromSQLiteValue for arrayvec::ArrayString<N> {
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {

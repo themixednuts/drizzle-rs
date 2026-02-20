@@ -632,17 +632,15 @@ impl<'a> PostgresValue<'a> {
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(value) => T::from_postgres_interval(value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeDate(value) => T::from_postgres_time_date(value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeTime(value) => T::from_postgres_time_time(value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeTimestamp(value) => T::from_postgres_time_timestamp(value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeInterval(value) => {
-                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
-            }
+            PostgresValue::TimeInterval(value) => T::from_postgres_time_interval(value),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
@@ -698,17 +696,15 @@ impl<'a> PostgresValue<'a> {
             #[cfg(feature = "chrono")]
             PostgresValue::Interval(value) => T::from_postgres_interval(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeDate(value) => T::from_postgres_time_date(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeTime(value) => T::from_postgres_time_time(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeTimestamp(value) => T::from_postgres_time_timestamp(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            PostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeInterval(value) => {
-                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
-            }
+            PostgresValue::TimeInterval(value) => T::from_postgres_time_interval(*value),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]

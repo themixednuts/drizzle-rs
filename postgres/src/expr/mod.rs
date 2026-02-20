@@ -5,6 +5,10 @@
 
 mod array_ops;
 mod ilike;
+mod json_ops;
+mod regex;
 
 pub use array_ops::*;
 pub use ilike::*;
+pub use json_ops::*;
+pub use regex::*;

@@ -1,12 +1,11 @@
-error[E0277]: the trait bound `drizzle::sqlite::types::Real: CastTarget<'_, drizzle::sqlite::types::Integer, drizzle_core::dialect::SQLiteDialect>` is not satisfied
+error[E0277]: the trait bound `drizzle::sqlite::types::Real: CastTarget<'_, drizzle::sqlite::types::Integer, SQLiteDialect>` is not satisfied
   --> tests/ui/cast_targets/sqlite/fail/marker_target_mismatch.rs:13:69
    |
 13 |     let _ = cast::<_, _, drizzle::sqlite::types::Integer>(user.age, drizzle::sqlite::types::Real);
-   |             ---------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |             ---------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, drizzle::sqlite::types::Integer, SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Real`
    |             |
    |             required by a bound introduced by this call
    |
-   = help: the trait `CastTarget<'_, drizzle::sqlite::types::Integer, drizzle_core::dialect::SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Real`
 help: the trait `CastTarget<'a, T, D>` is implemented for `&'a str`
   --> core/src/expr/util.rs
    |

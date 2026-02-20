@@ -559,17 +559,15 @@ impl OwnedPostgresValue {
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(value) => T::from_postgres_interval(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeDate(value) => T::from_postgres_time_date(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeTime(value) => T::from_postgres_time_time(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_time_timestamp(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeInterval(value) => {
-                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
-            }
+            OwnedPostgresValue::TimeInterval(value) => T::from_postgres_time_interval(value),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
@@ -627,17 +625,15 @@ impl OwnedPostgresValue {
             #[cfg(feature = "chrono")]
             OwnedPostgresValue::Interval(value) => T::from_postgres_interval(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeDate(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeDate(value) => T::from_postgres_time_date(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTime(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeTime(value) => T::from_postgres_time_time(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_time_timestamp(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_text(&value.to_string()),
+            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeInterval(value) => {
-                T::from_postgres_text(&format!("{} seconds", value.whole_seconds()))
-            }
+            OwnedPostgresValue::TimeInterval(value) => T::from_postgres_time_interval(*value),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]

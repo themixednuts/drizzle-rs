@@ -831,6 +831,50 @@ impl<'a> From<Vec<bool>> for PostgresValue<'a> {
     }
 }
 
+// --- Extended Array Types ---
+
+#[cfg(feature = "uuid")]
+impl<'a> From<Vec<uuid::Uuid>> for PostgresValue<'a> {
+    fn from(value: Vec<uuid::Uuid>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<Vec<NaiveDate>> for PostgresValue<'a> {
+    fn from(value: Vec<NaiveDate>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<Vec<NaiveTime>> for PostgresValue<'a> {
+    fn from(value: Vec<NaiveTime>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<Vec<NaiveDateTime>> for PostgresValue<'a> {
+    fn from(value: Vec<NaiveDateTime>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl<'a> From<Vec<DateTime<Utc>>> for PostgresValue<'a> {
+    fn from(value: Vec<DateTime<Utc>>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a> From<Vec<Decimal>> for PostgresValue<'a> {
+    fn from(value: Vec<Decimal>) -> Self {
+        PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
+    }
+}
+
 // --- Option Types ---
 impl<'a, T> From<Option<T>> for PostgresValue<'a>
 where

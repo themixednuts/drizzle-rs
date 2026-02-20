@@ -148,6 +148,14 @@ pub mod core {
     #[doc(hidden)]
     pub use drizzle_core::schema::SQLEnumInfo;
 
+    /// Bind parameter type mapping trait.
+    pub use drizzle_core::ValueTypeForDialect;
+
+    /// Dialect markers (SQLiteDialect, PostgresDialect, etc.).
+    pub mod dialect {
+        pub use drizzle_core::dialect::*;
+    }
+
     /// Row inference types and traits.
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,

@@ -6,8 +6,8 @@ error[E0277]: boolean aggregates are not supported for `drizzle::sqlite::types::
   |             |
   |             required by a bound introduced by this call
   |
-  = help: the trait `BooleanAggregatePolicy<drizzle_core::dialect::SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
-help: the trait `BooleanAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is implemented for `drizzle::ddl::postgres::types::Boolean`
+  = help: the trait `BooleanAggregatePolicy<SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
+help: the trait `BooleanAggregatePolicy<PostgresDialect>` is implemented for `drizzle::ddl::postgres::types::Boolean`
  --> core/src/expr/agg.rs
   |
   | impl BooleanAggregatePolicy<PostgresDialect> for PgBoolean {}
@@ -27,8 +27,8 @@ error[E0277]: this aggregate is not available for this dialect
 5 |     let _ = bool_and(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Integer>("1"));
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
   |
-  = help: the trait `PostgresAggregateSupport` is not implemented for `drizzle_core::dialect::SQLiteDialect`
-help: the trait `PostgresAggregateSupport` is implemented for `drizzle_core::dialect::PostgresDialect`
+  = help: the trait `PostgresAggregateSupport` is not implemented for `SQLiteDialect`
+help: the trait `PostgresAggregateSupport` is implemented for `PostgresDialect`
  --> core/src/expr/agg.rs
   |
   | impl PostgresAggregateSupport for PostgresDialect {}
