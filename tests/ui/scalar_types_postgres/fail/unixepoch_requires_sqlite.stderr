@@ -4,8 +4,8 @@ error[E0277]: this date/time function is not available for this dialect
 5 |     let _ = unixepoch(raw_non_null::<PostgresValue, drizzle::postgres::types::Timestamp>("NOW()"));
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
   |
-  = help: the trait `SQLiteDateTimeSupport` is not implemented for `drizzle_core::dialect::PostgresDialect`
-help: the trait `SQLiteDateTimeSupport` is implemented for `drizzle_core::dialect::SQLiteDialect`
+  = help: the trait `SQLiteDateTimeSupport` is not implemented for `PostgresDialect`
+help: the trait `SQLiteDateTimeSupport` is implemented for `SQLiteDialect`
  --> core/src/expr/datetime.rs
   |
   | impl SQLiteDateTimeSupport for SQLiteDialect {}

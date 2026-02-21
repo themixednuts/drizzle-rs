@@ -6,7 +6,7 @@ error[E0277]: DATE_TRUNC output type is not defined for `drizzle::postgres::type
   |             |
   |             required by a bound introduced by this call
   |
-  = help: the trait `DateTruncPolicy<drizzle_core::dialect::PostgresDialect>` is not implemented for `drizzle::postgres::types::Date`
+  = help: the trait `DateTruncPolicy<PostgresDialect>` is not implemented for `drizzle::postgres::types::Date`
 help: the following other types implement trait `DateTruncPolicy<D>`
  --> core/src/expr/datetime.rs
   |
@@ -30,7 +30,7 @@ error[E0277]: DATE_TRUNC output type is not defined for `drizzle::postgres::type
 5 |     let _ = date_trunc("day", raw_non_null::<PostgresValue, drizzle::postgres::types::Date>("CURRENT_DATE"));
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ DATE_TRUNC accepts timestamp/timestamptz and preserves the timestamp flavor
   |
-  = help: the trait `DateTruncPolicy<drizzle_core::dialect::PostgresDialect>` is not implemented for `drizzle::postgres::types::Date`
+  = help: the trait `DateTruncPolicy<PostgresDialect>` is not implemented for `drizzle::postgres::types::Date`
 help: the following other types implement trait `DateTruncPolicy<D>`
  --> core/src/expr/datetime.rs
   |

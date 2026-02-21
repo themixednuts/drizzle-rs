@@ -8,8 +8,8 @@ error[E0277]: this string function is not available for this dialect
 8 | |     );
   | |_____^ use a dialect-specific alternative
   |
-  = help: the trait `SQLiteStringSupport` is not implemented for `drizzle_core::dialect::PostgresDialect`
-help: the trait `SQLiteStringSupport` is implemented for `drizzle_core::dialect::SQLiteDialect`
+  = help: the trait `SQLiteStringSupport` is not implemented for `PostgresDialect`
+help: the trait `SQLiteStringSupport` is implemented for `SQLiteDialect`
  --> core/src/expr/string.rs
   |
   | impl SQLiteStringSupport for SQLiteDialect {}
