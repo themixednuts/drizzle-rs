@@ -1,0 +1,25 @@
+error[E0277]: `drizzle::sqlite::types::Integer` is not a text SQL type
+  --> tests/ui/aggregate_types/fail/group_concat_non_textual.rs:14:26
+   |
+14 |     let _ = group_concat(user.age);
+   |             ------------ ^^^^^^^^ expected Text or VarChar
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Textual` is not implemented for `drizzle::sqlite::types::Integer`
+   = help: the following other types implement trait `Textual`:
+             Placeholder
+             drizzle::ddl::postgres::types::Char
+             drizzle::ddl::postgres::types::Enum
+             drizzle::ddl::postgres::types::Text
+             drizzle::ddl::postgres::types::Varchar
+             drizzle::sqlite::types::Any
+             drizzle::sqlite::types::Text
+note: required by a bound in `group_concat`
+  --> core/src/expr/agg.rs
+   |
+   | pub fn group_concat<'a, V, E>(
+   |        ------------ required by a bound in this function
+...
+   |     E::SQLType: crate::types::Textual,
+   |                 ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `group_concat`
