@@ -451,10 +451,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
     ///     .r#where(and([gt(user.id, 10), eq(user.name, "Alice")]));
     /// ```
     #[inline]
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
+    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R>
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::r#where(condition)),
             schema: PhantomData,
@@ -533,10 +534,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
 impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectJoinSet, T, M, R> {
     /// Adds a WHERE condition after a JOIN
     #[inline]
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
+    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R>
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         SelectBuilder {
             sql: append_sql(self.sql, crate::helpers::r#where(condition)),
             schema: PhantomData,
@@ -650,10 +652,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
 
 impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
     /// Adds a HAVING clause after GROUP BY
-    pub fn having(
-        self,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
+    pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R>
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::having(condition)),
             schema: PhantomData,

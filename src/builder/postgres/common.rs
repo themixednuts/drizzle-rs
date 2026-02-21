@@ -249,17 +249,21 @@ impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     >
 {
     #[inline]
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
         SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -346,17 +350,21 @@ impl<'d, 'a, DrizzleRef, Schema, T, M, R>
         SelectJoinSet,
     >
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'd,
         DrizzleRef,
         Schema,
         SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -810,17 +818,21 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         }
     }
 
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl ToSQL<'b, PostgresValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
         UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -867,17 +879,21 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         UpdateFromSet,
     >
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl ToSQL<'b, PostgresValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
         UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -965,17 +981,21 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 where
     Table: PostgresTable<'b>,
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl ToSQL<'b, PostgresValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
         DeleteBuilder<'b, Schema, DeleteWhereSet, Table>,
         DeleteWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,

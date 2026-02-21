@@ -18,16 +18,17 @@ use core::ops::{BitAnd, BitOr, Not};
 
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, SQLChunk, Token};
-use crate::traits::{SQLParam, ToSQL};
+use crate::traits::SQLParam;
 use crate::types::BooleanLike;
 
 use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 
 #[inline]
-fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
+fn operand_sql<'a, V, E>(value: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanLike,
 {
     value.into_sql().parens_if_subquery()
 }
@@ -36,8 +37,10 @@ where
 fn binary_logical_op<'a, V, L, R>(left: L, token: Token, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
-    R: ToSQL<'a, V>,
+    L: Expr<'a, V>,
+    L::SQLType: BooleanLike,
+    R: Expr<'a, V>,
+    R::SQLType: BooleanLike,
 {
     SQL::from(Token::LPAREN)
         .append(operand_sql(left))
@@ -58,9 +61,10 @@ pub fn not<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
-    E: ToSQL<'a, V>,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanLike,
 {
-    let expr_sql = operand_sql(expr);
+    let expr_sql: SQL<'a, V> = expr.into_sql().parens_if_subquery();
     let needs_paren = expr_sql.chunks.len() > 1
         || (expr_sql.chunks.len() == 1
             && !matches!(
@@ -92,7 +96,8 @@ pub fn and<'a, V, I, E>(
 where
     V: SQLParam + 'a,
     I: IntoIterator<Item = E>,
-    E: ToSQL<'a, V>,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanLike,
 {
     let mut iter = conditions.into_iter();
 
@@ -121,8 +126,10 @@ pub fn and2<'a, V, L, R>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
-    R: ToSQL<'a, V>,
+    L: Expr<'a, V>,
+    L::SQLType: BooleanLike,
+    R: Expr<'a, V>,
+    R::SQLType: BooleanLike,
 {
     SQLExpr::new(binary_logical_op(left, Token::AND, right))
 }
@@ -141,7 +148,8 @@ pub fn or<'a, V, I, E>(
 where
     V: SQLParam + 'a,
     I: IntoIterator<Item = E>,
-    E: ToSQL<'a, V>,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanLike,
 {
     let mut iter = conditions.into_iter();
 
@@ -170,8 +178,10 @@ pub fn or2<'a, V, L, R>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
-    R: ToSQL<'a, V>,
+    L: Expr<'a, V>,
+    L::SQLType: BooleanLike,
+    R: Expr<'a, V>,
+    R::SQLType: BooleanLike,
 {
     SQLExpr::new(binary_logical_op(left, Token::OR, right))
 }
@@ -217,6 +227,7 @@ where
     N: Nullability,
     A: AggregateKind,
     Rhs: Expr<'a, V>,
+    Rhs::SQLType: BooleanLike,
 {
     type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
 
@@ -240,6 +251,7 @@ where
     N: Nullability,
     A: AggregateKind,
     Rhs: Expr<'a, V>,
+    Rhs::SQLType: BooleanLike,
 {
     type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
 

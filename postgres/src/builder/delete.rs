@@ -59,11 +59,12 @@ type ReturningBuilder<'a, S, T, Columns> = DeleteBuilder<
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// Adds a WHERE condition to the query
     #[inline]
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> DeleteBuilder<'a, S, DeleteWhereSet, T> {
-        let where_sql = crate::helpers::r#where(condition.to_sql());
+    pub fn r#where<E>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {
             sql: self.sql.append(where_sql),
             schema: PhantomData,

@@ -227,10 +227,11 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     ///     ]));
     /// ```
     #[inline]
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DeleteBuilder<'a, S, DeleteWhereSet, T> {
+    pub fn r#where<E>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {
             sql: append_sql(self.sql, where_sql),

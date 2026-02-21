@@ -40,16 +40,20 @@ impl<'a, Schema, Table>
         UpdateSetClauseSet,
     >
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+        condition: E,
     ) -> TransactionBuilder<
         'a,
         Schema,
         UpdateBuilder<'a, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         TransactionBuilder {
             transaction: self.transaction,
             builder,

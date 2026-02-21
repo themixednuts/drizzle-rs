@@ -1,4 +1,6 @@
-use crate::{SQL, SQLSchemaType, SQLTable, ToSQL, Token, traits::SQLParam};
+use crate::{
+    SQL, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr, traits::SQLParam, types::BooleanLike,
+};
 
 /// Helper function to create a SELECT statement with the given columns
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
@@ -115,9 +117,11 @@ where
 }
 
 /// Helper function to create a WHERE clause
-pub fn r#where<'a, V>(condition: impl ToSQL<'a, V>) -> SQL<'a, V>
+pub fn r#where<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanLike,
 {
     SQL::from(Token::WHERE).append(&condition)
 }
@@ -136,9 +140,11 @@ where
 }
 
 /// Helper function to create a HAVING clause
-pub fn having<'a, V>(condition: impl ToSQL<'a, V>) -> SQL<'a, V>
+pub fn having<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanLike,
 {
     SQL::from(Token::HAVING).append(&condition)
 }

@@ -1,0 +1,25 @@
+error[E0277]: `drizzle::postgres::types::Text` is not a boolean SQL type
+  --> tests/ui/boolean_enforcement/fail/not_text_input.rs:14:17
+   |
+14 |     let _ = not(user.name);
+   |             --- ^^^^^^^^^ logical operations require a boolean-typed expression
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `BooleanLike` is not implemented for `drizzle::postgres::types::Text`
+help: the following other types implement trait `BooleanLike`
+  --> types/src/sql/mod.rs
+   |
+   | impl BooleanLike for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl BooleanLike for crate::postgres::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean`
+note: required by a bound in `drizzle::core::expr::not`
+  --> core/src/expr/logical.rs
+   |
+   | pub fn not<'a, V, E>(
+   |        --- required by a bound in this function
+...
+   |     E::SQLType: BooleanLike,
+   |                 ^^^^^^^^^^^ required by this bound in `not`

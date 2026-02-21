@@ -112,10 +112,11 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
     /// Adds a WHERE condition and transitions to the WhereSet state
     #[inline]
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
+    pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
             sql: self.sql.append(where_sql),
@@ -153,10 +154,11 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
     /// Adds a WHERE condition after FROM
     #[inline]
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> UpdateBuilder<'a, S, UpdateWhereSet, T> {
+    pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
             sql: self.sql.append(where_sql),
