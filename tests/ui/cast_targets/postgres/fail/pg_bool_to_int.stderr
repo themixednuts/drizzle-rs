@@ -1,0 +1,41 @@
+error[E0277]: SQL type `drizzle::postgres::types::Boolean` is not compatible with `Int4`
+  --> tests/ui/cast_targets/postgres/fail/pg_bool_to_int.rs:14:13
+   |
+14 |     let _ = cast(user.active, drizzle::postgres::types::Int4);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |
+   = help: the trait `Compatible<Int4>` is not implemented for `drizzle::postgres::types::Boolean`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+help: the following other types implement trait `Compatible<Rhs>`
+  --> types/src/sql/coerce.rs
+   |
+   | / impl_reflexive_compat!(
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+...  |
+   | |     crate::postgres::types::Enum
+   | | );
+   | |_^ `drizzle::postgres::types::Boolean` implements `Compatible`
+...
+   |   impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Boolean {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean` implements `Compatible<drizzle::postgres::types::Any>`
+...
+   | / impl_placeholder_compat!(
+   | |     crate::postgres::types::Int2,
+   | |     crate::postgres::types::Int4,
+   | |     crate::postgres::types::Int8,
+...  |
+   | |     crate::postgres::types::Any
+   | | );
+   | |_^ `drizzle::postgres::types::Boolean` implements `Compatible<Placeholder>`
+   = note: required for `()` to implement `CastTypePolicy<PostgresDialect, drizzle::postgres::types::Boolean, Int4>`
+note: required by a bound in `drizzle::core::expr::cast`
+  --> core/src/expr/util.rs
+   |
+   | pub fn cast<'a, V, E, Target>(
+   |        ---- required by a bound in this function
+...
+   |     (): CastTypePolicy<V::DialectMarker, E::SQLType, Target>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `cast`
+   = note: this error originates in the macro `impl_reflexive_compat` which comes from the expansion of the macro `impl_placeholder_compat` (in Nightly builds, run with -Z macro-backtrace for more info)
