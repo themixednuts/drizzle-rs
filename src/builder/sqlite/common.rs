@@ -38,7 +38,11 @@ pub struct DrizzleOnConflictBuilder<'a, 'b, Conn, Schema, Table> {
 
 impl<'a, 'b, Conn, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Conn, Schema, Table> {
     /// Adds a WHERE clause to the conflict target for partial index matching.
-    pub fn r#where(mut self, condition: impl ToSQL<'b, SQLiteValue<'b>>) -> Self {
+    pub fn r#where<E>(mut self, condition: E) -> Self
+    where
+        E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         self.builder = self.builder.r#where(condition);
         self
     }
@@ -406,17 +410,21 @@ impl<'d, 'a, Conn, Schema, T, M, R>
     >
 {
     #[inline]
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'd,
         Conn,
         Schema,
         SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -505,17 +513,21 @@ impl<'d, 'a, Conn, Schema, T, M, R>
         SelectJoinSet,
     >
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'd,
         Conn,
         Schema,
         SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -846,16 +858,20 @@ impl<'a, 'b, Conn, Schema, Table>
     >
 {
     /// Adds WHERE clause after DO UPDATE SET
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl ToSQL<'b, SQLiteValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
-    > {
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder: self.builder.r#where(condition),
@@ -928,17 +944,21 @@ impl<'a, 'b, Conn, Schema, Table>
         UpdateSetClauseSet,
     >
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'b, SQLiteValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
         UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,
@@ -952,17 +972,21 @@ impl<'a, 'b, Conn, Schema, T>
 where
     T: SQLiteTable<'b>,
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'b, SQLiteValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         Conn,
         Schema,
         DeleteBuilder<'b, Schema, DeleteWhereSet, T>,
         DeleteWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder,

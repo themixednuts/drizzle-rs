@@ -8,11 +8,15 @@ impl<'a, S, T> TransactionBuilder<'a, S, DeleteBuilder<'a, S, DeleteInitial, T>,
 where
     T: SQLiteTable<'a>,
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    ) -> TransactionBuilder<'a, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet> {
-        let builder = self.builder.r#where(condition.to_sql());
+        condition: E,
+    ) -> TransactionBuilder<'a, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet>
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         TransactionBuilder {
             transaction: self.transaction,
             builder,

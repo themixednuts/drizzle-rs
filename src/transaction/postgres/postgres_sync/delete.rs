@@ -35,12 +35,15 @@ impl<'a, 'conn, S, T>
 where
     T: PostgresTable<'a>,
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
+        condition: E,
     ) -> TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet>
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
     {
-        let builder = self.builder.r#where(condition.to_sql());
+        let builder = self.builder.r#where(condition);
         TransactionBuilder {
             transaction: self.transaction,
             builder,

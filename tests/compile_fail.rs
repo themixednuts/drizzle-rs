@@ -108,3 +108,11 @@ fn sqlite_strict_affinity_ui() {
     t.pass("tests/ui/sqlite_strict_affinity/pass/*.rs");
     t.compile_fail("tests/ui/sqlite_strict_affinity/fail/*.rs");
 }
+
+#[cfg(feature = "postgres")]
+#[test]
+fn boolean_enforcement_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/boolean_enforcement/pass/*.rs");
+    t.compile_fail("tests/ui/boolean_enforcement/fail/*.rs");
+}

@@ -50,16 +50,20 @@ where
     T: SQLiteTable<'a>,
 {
     #[inline]
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+        condition: E,
     ) -> TransactionBuilder<
         'a,
         Schema,
         SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         TransactionBuilder {
             transaction: self.transaction,
             builder,
@@ -141,16 +145,20 @@ impl<'a, Schema, T, M, R>
 where
     T: SQLiteTable<'a>,
 {
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+        condition: E,
     ) -> TransactionBuilder<
         'a,
         Schema,
         SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
         SelectWhereSet,
-    > {
-        let builder = self.builder.r#where(condition.to_sql());
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.r#where(condition);
         TransactionBuilder {
             transaction: self.transaction,
             builder,

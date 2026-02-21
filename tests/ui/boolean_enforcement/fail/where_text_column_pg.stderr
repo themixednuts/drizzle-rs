@@ -1,0 +1,40 @@
+error[E0603]: function `select` is private
+  --> tests/ui/boolean_enforcement/fail/where_text_column_pg.rs:18:41
+   |
+18 |     let _ = drizzle::postgres::helpers::select(())
+   |                                         ^^^^^^ private function
+   |
+note: the function `select` is defined here
+  --> postgres/src/helpers.rs
+   |
+   |     order_by, select, select_distinct, set, union, union_all, update, r#where,
+   |               ^^^^^^
+help: consider importing this function instead
+   |
+18 -     let _ = drizzle::postgres::helpers::select(())
+18 +     let _ = drizzle_core::helpers::select(())
+   |
+help: import `select` directly
+   |
+18 -     let _ = drizzle::postgres::helpers::select(())
+18 +     let _ = drizzle_core::helpers::select(())
+   |
+
+error[E0599]: no method named `from` found for struct `drizzle::core::SQL<'a, V>` in the current scope
+  --> tests/ui/boolean_enforcement/fail/where_text_column_pg.rs:19:10
+   |
+18 |        let _ = drizzle::postgres::helpers::select(())
+   |   _____________-
+   |  |_____________|
+19 | ||         .from(user)
+   | ||_________-^^^^_____- help: use associated function syntax instead: `drizzle::core::SQL<'_, _>::from(user)`
+   | |          ||
+   | |__________|this is an associated function, not a method
+   |
+   |
+   = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
+note: the candidate is defined in the trait `From`
+  --> $RUST/core/src/convert/mod.rs
+   |
+   |     fn from(value: T) -> Self;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
