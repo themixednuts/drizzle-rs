@@ -1,5 +1,26 @@
-error[E0271]: type mismatch resolving `<SQLiteValue<'_> as SQLParam>::DialectMarker == PostgresDialect`
-  --> tests/ui/sqlite_strict_affinity/fail/strict_cast_affinity_mismatch.rs:13:13
+error[E0277]: cannot cast `drizzle::sqlite::types::Text` to `drizzle::sqlite::types::Integer` for this dialect
+  --> tests/ui/sqlite_strict_affinity/fail/strict_cast_affinity_mismatch.rs:13:20
    |
 13 |     let _ = cast::<_, _, drizzle::sqlite::types::Integer>(user.name, drizzle::sqlite::types::Integer);
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `PostgresDialect`, found `SQLiteDialect`
+   |                    ^ cast target is incompatible with source type
+   |
+   = help: the trait `CastTypePolicy<SQLiteDialect, drizzle::sqlite::types::Text, drizzle::sqlite::types::Integer>` is not implemented for `()`
+   = note: for SQLite strict typing, use a compatible cast target or cast through ANY/raw sql intentionally
+help: the following other types implement trait `CastTypePolicy<D, Source, Target>`
+  --> core/src/expr/util.rs
+   |
+   | / impl<Source: DataType, Target: DataType> CastTypePolicy<PostgresDialect, Source, Target> for () where
+   | |     Source: Compatible<Target>
+   | |______________________________^ `()` implements `CastTypePolicy<PostgresDialect, Source, Target>`
+...
+   | / impl<Source: DataType, Target: DataType> CastTypePolicy<SQLiteDialect, Source, Target> for () where
+   | |     Source: Compatible<Target>
+   | |______________________________^ `()` implements `CastTypePolicy<SQLiteDialect, Source, Target>`
+note: required by a bound in `drizzle::core::expr::cast`
+  --> core/src/expr/util.rs
+   |
+   | pub fn cast<'a, V, E, Target>(
+   |        ---- required by a bound in this function
+...
+   |     (): CastTypePolicy<V::DialectMarker, E::SQLType, Target>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `cast`

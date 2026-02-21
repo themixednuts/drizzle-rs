@@ -273,7 +273,10 @@ pub trait CastTarget<'a, T: DataType, D> {
 )]
 pub trait CastTypePolicy<D, Source: DataType, Target: DataType> {}
 
-impl<Source: DataType, Target: DataType> CastTypePolicy<PostgresDialect, Source, Target> for () {}
+impl<Source: DataType, Target: DataType> CastTypePolicy<PostgresDialect, Source, Target> for () where
+    Source: Compatible<Target>
+{
+}
 
 impl<Source: DataType, Target: DataType> CastTypePolicy<SQLiteDialect, Source, Target> for () where
     Source: Compatible<Target>
