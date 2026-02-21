@@ -587,6 +587,7 @@ where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteAggregateSupport,
     E: Expr<'a, V>,
+    E::SQLType: crate::types::Textual,
 {
     SQLExpr::new(SQL::func("GROUP_CONCAT", expr.into_sql()))
 }
