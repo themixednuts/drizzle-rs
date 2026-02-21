@@ -76,7 +76,14 @@ impl FromDrizzleRow<::turso::Row> for f64 {
 impl FromDrizzleRow<::turso::Row> for f32 {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        Ok(f64::from_row_at(row, offset)? as f32)
+        let v = f64::from_row_at(row, offset)?;
+        let f = v as f32;
+        if v.is_finite() && !f.is_finite() {
+            return Err(DrizzleError::ConversionError(
+                format!("f64 value {} overflows f32", v).into(),
+            ));
+        }
+        Ok(f)
     }
 }
 

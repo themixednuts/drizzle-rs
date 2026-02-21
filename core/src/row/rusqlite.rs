@@ -36,7 +36,14 @@ impl_leaf_rusqlite_via_get!(
 impl<'r> FromDrizzleRow<::rusqlite::Row<'r>> for f32 {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &::rusqlite::Row<'r>, offset: usize) -> Result<Self, DrizzleError> {
-        Ok(row.get::<_, f64>(offset)? as f32)
+        let v = row.get::<_, f64>(offset)?;
+        let f = v as f32;
+        if v.is_finite() && !f.is_finite() {
+            return Err(DrizzleError::ConversionError(
+                format!("f64 value {} overflows f32", v).into(),
+            ));
+        }
+        Ok(f)
     }
 }
 
