@@ -119,18 +119,23 @@ sqlite_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
     );
 
     let name = simple.name.placeholder("name");
-    // Passing 0 params to a query with 1 placeholder should fail at bind time
+    // Passing 0 params to a query with 1 placeholder should fail:
+    // - In debug builds: debug_assert panics on param count mismatch
+    // - In release builds: bind() returns ParameterError
     let prepared = db
         .select(())
         .from(simple)
         .r#where(eq(simple.name, name))
         .prepare();
 
-    let err = prepared.all::<SelectSimple, 0>(db.conn(), []).unwrap_err();
-    assert!(
-        matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
-        "unexpected error: {err:?}"
-    );
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prepared.all::<SelectSimple, 0>(db.conn(), [])
+    }));
+    match result {
+        Err(_) => {} // debug_assert panic — expected in debug builds
+        Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
+        other => panic!("expected param mismatch failure, got: {other:?}"),
+    }
 });
 
 sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
@@ -145,20 +150,23 @@ sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
     let name = simple.name.placeholder("name");
     let extra = simple.name.placeholder("extra");
 
-    // Passing 2 params to a query with 1 placeholder should fail at bind time
+    // Passing 2 params to a query with 1 placeholder should fail:
+    // - In debug builds: debug_assert panics on param count mismatch
+    // - In release builds: bind() returns ParameterError
     let prepared = db
         .select(())
         .from(simple)
         .r#where(eq(simple.name, name))
         .prepare();
 
-    let err = prepared
-        .all::<SelectSimple, 2>(db.conn(), [name.bind("Alice"), extra.bind("ignored")])
-        .unwrap_err();
-    assert!(
-        matches!(err, drizzle::error::DrizzleError::ParameterError(_)),
-        "unexpected error: {err:?}"
-    );
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prepared.all::<SelectSimple, 2>(db.conn(), [name.bind("Alice"), extra.bind("ignored")])
+    }));
+    match result {
+        Err(_) => {} // debug_assert panic — expected in debug builds
+        Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
+        other => panic!("expected param mismatch failure, got: {other:?}"),
+    }
 });
 
 sqlite_test!(test_prepared_execute_insert, SimpleSchema, {
