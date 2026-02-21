@@ -10,6 +10,7 @@ macro_rules! sqlite_async_prepared_impl {
                     drizzle_sqlite::values::SQLiteValue<'a>,
                 >; N],
             ) -> drizzle_core::error::Result<u64> {
+                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
@@ -30,6 +31,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
+                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
@@ -58,6 +60,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
+                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
@@ -81,6 +84,7 @@ macro_rules! sqlite_async_prepared_impl {
                     drizzle_sqlite::values::SQLiteValue<'a>,
                 >; N],
             ) -> drizzle_core::error::Result<u64> {
+                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
@@ -101,6 +105,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
+                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
@@ -128,6 +133,7 @@ macro_rules! sqlite_async_prepared_impl {
                 T: for<'r> TryFrom<&'r $row>,
                 for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
             {
+                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
                 let mut driver_params = Vec::with_capacity(self.inner.params.len());
                 driver_params.extend(params.map(Into::into));
