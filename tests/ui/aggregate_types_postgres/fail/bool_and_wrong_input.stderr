@@ -6,8 +6,8 @@ error[E0277]: boolean aggregates are not supported for `Int4` on this dialect
   |             |
   |             required by a bound introduced by this call
   |
-  = help: the trait `BooleanAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is not implemented for `Int4`
-help: the trait `BooleanAggregatePolicy<drizzle_core::dialect::PostgresDialect>` is implemented for `drizzle::postgres::types::Boolean`
+  = help: the trait `BooleanAggregatePolicy<PostgresDialect>` is not implemented for `Int4`
+help: the trait `BooleanAggregatePolicy<PostgresDialect>` is implemented for `drizzle::postgres::types::Boolean`
  --> core/src/expr/agg.rs
   |
   | impl BooleanAggregatePolicy<PostgresDialect> for PgBoolean {}
