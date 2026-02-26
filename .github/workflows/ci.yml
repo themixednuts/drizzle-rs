@@ -56,44 +56,87 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-features -- -D warnings
 
-  test:
-    name: Test
+  test-sqlite:
+    name: "test::sqlite (${{ matrix.features }})"
     runs-on: ubuntu-latest
     needs: [check-skip, lint]
     if: needs.check-skip.outputs.should_skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - rusqlite
+          - "rusqlite,uuid"
+          - "rusqlite,uuid,serde"
+          - libsql
+          - "libsql,uuid"
+          - "libsql,uuid,serde"
+          - "rusqlite,arrayvec"
+          - "rusqlite,compact-str"
+          - "rusqlite,bytes"
+          - "rusqlite,smallvec-types"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get Rust version
-        id: rust-version
-        run: |
-          RUST_VERSION=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
-          echo "version=$RUST_VERSION" >> $GITHUB_OUTPUT
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ steps.rust-version.outputs.version }}
+
+      - name: Install just
+        uses: taiki-e/install-action@just
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: msrv
+          shared-key: stable
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Start Postgres
-        run: |
-          docker compose up -d postgres
-          sleep 5
-
       - name: Run tests
-        run: cargo test --workspace --features "rusqlite,libsql,postgres-sync,uuid,serde" -- --test-threads=1
+        run: just test::sqlite "${{ matrix.features }}"
 
       - name: Run example
+        if: matrix.features == 'rusqlite,uuid,serde'
         run: cargo run --example rusqlite --features "rusqlite,uuid,serde"
 
-      - name: Stop Postgres
-        run: docker compose down
+  test-pg:
+    name: "test::pg (${{ matrix.features }})"
+    runs-on: ubuntu-latest
+    needs: [check-skip, lint]
+    if: needs.check-skip.outputs.should_skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - postgres-sync
+          - "postgres-sync,uuid"
+          - "postgres-sync,uuid,serde"
+          - tokio-postgres
+          - "tokio-postgres,uuid"
+          - "tokio-postgres,uuid,serde"
+          - "tokio-postgres,arrayvec"
+          - "tokio-postgres,compact-str"
+          - "tokio-postgres,bytes"
+          - "tokio-postgres,smallvec-types"
+          - "tokio-postgres,chrono"
+          - "tokio-postgres,cidr"
+          - "tokio-postgres,geo-types"
+          - "tokio-postgres,bit-vec"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Run tests
+        run: just test::pg "${{ matrix.features }}"
 
   test-turso:
     name: Test (Turso - Experimental)
@@ -104,21 +147,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get Rust version
-        id: rust-version
-        run: |
-          RUST_VERSION=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
-          echo "version=$RUST_VERSION" >> $GITHUB_OUTPUT
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ steps.rust-version.outputs.version }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: msrv
+          shared-key: stable
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run tests
@@ -237,36 +272,6 @@ jobs:
 
       - name: Build
         run: cargo build --all-features
-
-  feature-matrix:
-    name: Feature Matrix (${{ matrix.features }})
-    runs-on: ubuntu-latest
-    needs: [check-skip, lint]
-    if: needs.check-skip.outputs.should_skip != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - "postgres-sync,uuid"
-          - "postgres-sync,uuid,chrono"
-          - "postgres-sync,uuid,time"
-          - "postgres-sync,uuid,chrono,cidr"
-          - "postgres-sync,uuid,geo-types,bit-vec,rust-decimal"
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: feature-matrix
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Check feature combination
-        run: cargo check --workspace --features "${{ matrix.features }}"
 
   msrv:
     name: MSRV Check
