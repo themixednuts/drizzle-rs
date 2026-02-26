@@ -38,7 +38,11 @@ pub struct TransactionOnConflictBuilder<'a, Schema, Table> {
 
 impl<'a, Schema, Table> TransactionOnConflictBuilder<'a, Schema, Table> {
     /// Adds a WHERE clause to the conflict target for partial index matching.
-    pub fn r#where(mut self, condition: impl ToSQL<'a, SQLiteValue<'a>>) -> Self {
+    pub fn r#where<E>(mut self, condition: E) -> Self
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         self.builder = self.builder.r#where(condition);
         self
     }
@@ -210,15 +214,19 @@ impl<'a, Schema, Table>
     >
 {
     /// Adds WHERE clause after DO UPDATE SET
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl ToSQL<'a, SQLiteValue<'a>>,
+        condition: E,
     ) -> TransactionBuilder<
         'a,
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
-    > {
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         TransactionBuilder {
             transaction: self.transaction,
             builder: self.builder.r#where(condition),

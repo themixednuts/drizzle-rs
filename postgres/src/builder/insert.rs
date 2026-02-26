@@ -74,7 +74,11 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
     ///
     /// Note: WHERE is only meaningful for column-based targets, not for
     /// `ON CONFLICT ON CONSTRAINT` targets.
-    pub fn r#where(mut self, condition: impl ToSQL<'a, PostgresValue<'a>>) -> Self {
+    pub fn r#where<E>(mut self, condition: E) -> Self
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         self.target_where = Some(condition.to_sql());
         self
     }
@@ -453,10 +457,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
     /// Adds a WHERE clause to the DO UPDATE SET clause.
     ///
     /// Generates: `ON CONFLICT (col) DO UPDATE SET ... WHERE condition`
-    pub fn r#where(
-        self,
-        condition: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
+    pub fn r#where<E>(self, condition: E) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         let sql = self.sql.push(Token::WHERE).append(condition.to_sql());
         InsertBuilder {
             sql,
