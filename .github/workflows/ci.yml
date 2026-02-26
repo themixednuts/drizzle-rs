@@ -249,6 +249,7 @@ jobs:
         features:
           - "postgres-sync,uuid"
           - "postgres-sync,uuid,chrono"
+          - "postgres-sync,uuid,time"
           - "postgres-sync,uuid,chrono,cidr"
           - "postgres-sync,uuid,geo-types,bit-vec,rust-decimal"
 
