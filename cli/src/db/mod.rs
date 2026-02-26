@@ -3418,13 +3418,13 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         .map(|row| RawSequenceInfo {
             schema: row.get::<_, String>(0),
             name: row.get::<_, String>(1),
-            data_type: row.get::<_, String>(2),
-            start_value: row.get::<_, String>(3),
-            min_value: row.get::<_, String>(4),
-            max_value: row.get::<_, String>(5),
-            increment: row.get::<_, String>(6),
-            cycle: row.get::<_, bool>(7),
-            cache_value: row.get::<_, String>(8),
+            data_type: row.get::<_, Option<String>>(2),
+            start_value: row.get::<_, Option<String>>(3),
+            min_value: row.get::<_, Option<String>>(4),
+            max_value: row.get::<_, Option<String>>(5),
+            increment: row.get::<_, Option<String>>(6),
+            cycle: row.get::<_, Option<bool>>(7),
+            cache_value: row.get::<_, Option<String>>(8),
         })
         .collect();
 
@@ -3728,13 +3728,13 @@ async fn introspect_postgres_async_inner(
         .map(|row| RawSequenceInfo {
             schema: row.get::<_, String>(0),
             name: row.get::<_, String>(1),
-            data_type: row.get::<_, String>(2),
-            start_value: row.get::<_, String>(3),
-            min_value: row.get::<_, String>(4),
-            max_value: row.get::<_, String>(5),
-            increment: row.get::<_, String>(6),
-            cycle: row.get::<_, bool>(7),
-            cache_value: row.get::<_, String>(8),
+            data_type: row.get::<_, Option<String>>(2),
+            start_value: row.get::<_, Option<String>>(3),
+            min_value: row.get::<_, Option<String>>(4),
+            max_value: row.get::<_, Option<String>>(5),
+            increment: row.get::<_, Option<String>>(6),
+            cycle: row.get::<_, Option<bool>>(7),
+            cache_value: row.get::<_, Option<String>>(8),
         })
         .collect();
 

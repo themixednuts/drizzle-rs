@@ -7,8 +7,9 @@ use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, IndexColumn, Policy, PostgresEntity,
     PrimaryKey, Role, Schema, Sequence, Table, UniqueConstraint, View,
 };
-use super::grammar::{is_system_namespace, is_system_role};
+use super::grammar::{is_serial_expression, is_system_namespace, is_system_role};
 use super::snapshot::PostgresSnapshot;
+use std::collections::HashSet;
 
 /// Error type for introspection operations
 #[derive(Debug, Clone)]
@@ -74,17 +75,20 @@ pub struct RawEnumInfo {
 }
 
 /// Raw sequence info
+///
+/// Value columns are `Option` because `pg_sequences` returns NULL when the
+/// current user lacks privilege on the sequence.
 #[derive(Debug, Clone)]
 pub struct RawSequenceInfo {
     pub schema: String,
     pub name: String,
-    pub data_type: String,
-    pub start_value: String,
-    pub min_value: String,
-    pub max_value: String,
-    pub increment: String,
-    pub cycle: bool,
-    pub cache_value: String,
+    pub data_type: Option<String>,
+    pub start_value: Option<String>,
+    pub min_value: Option<String>,
+    pub max_value: Option<String>,
+    pub increment: Option<String>,
+    pub cycle: Option<bool>,
+    pub cache_value: Option<String>,
 }
 
 /// Raw index info
@@ -207,10 +211,51 @@ pub struct IntrospectionResult {
     pub errors: Vec<IntrospectError>,
 }
 
+/// Extract the sequence name from a `nextval('...'::regclass)` expression.
+///
+/// Handles patterns like:
+/// - `nextval('push_creates_id_seq'::regclass)` → `push_creates_id_seq`
+/// - `nextval('public.push_creates_id_seq'::regclass)` → `push_creates_id_seq`
+/// - `nextval('"public"."push_creates_id_seq"'::regclass)` → `push_creates_id_seq`
+fn extract_nextval_sequence(expr: &str) -> Option<String> {
+    let inner = expr
+        .strip_prefix("nextval('")?
+        .strip_suffix("'::regclass)")?;
+    // Take the part after the last '.' (schema separator)
+    let name_part = match inner.rfind('.') {
+        Some(pos) => &inner[pos + 1..],
+        None => inner,
+    };
+    // Strip surrounding quotes
+    let name = name_part.trim_matches('"');
+    if name.is_empty() {
+        return None;
+    }
+    Some(name.to_string())
+}
+
 impl IntrospectionResult {
+    /// Collect (schema, name) pairs for sequences owned by serial/bigserial columns.
+    ///
+    /// These sequences are auto-managed by PostgreSQL and should not appear in the
+    /// snapshot used for diffing — otherwise `push()` would try to DROP them.
+    fn serial_owned_sequences(&self) -> HashSet<(String, String)> {
+        let mut owned = HashSet::new();
+        for col in &self.columns {
+            if let Some(ref default) = col.default
+                && is_serial_expression(default, &col.schema)
+                && let Some(seq_name) = extract_nextval_sequence(default)
+            {
+                owned.insert((col.schema.to_string(), seq_name));
+            }
+        }
+        owned
+    }
+
     /// Convert to a snapshot
     pub fn to_snapshot(&self) -> PostgresSnapshot {
         let mut snapshot = PostgresSnapshot::new();
+        let serial_seqs = self.serial_owned_sequences();
 
         for schema in &self.schemas {
             snapshot.add_entity(PostgresEntity::Schema(schema.clone()));
@@ -219,6 +264,11 @@ impl IntrospectionResult {
             snapshot.add_entity(PostgresEntity::Enum(e.clone()));
         }
         for seq in &self.sequences {
+            // Skip sequences owned by serial/bigserial columns — they are
+            // auto-managed by PostgreSQL and must not appear in the diff.
+            if serial_seqs.contains(&(seq.schema.to_string(), seq.name.to_string())) {
+                continue;
+            }
             snapshot.add_entity(PostgresEntity::Sequence(seq.clone()));
         }
         for role in &self.roles {
@@ -405,12 +455,12 @@ pub fn process_sequences(raw_sequences: &[RawSequenceInfo]) -> Vec<Sequence> {
         .map(|s| Sequence {
             schema: s.schema.clone().into(),
             name: s.name.clone().into(),
-            increment_by: Some(s.increment.clone().into()),
-            min_value: Some(s.min_value.clone().into()),
-            max_value: Some(s.max_value.clone().into()),
-            start_with: Some(s.start_value.clone().into()),
-            cache_size: s.cache_value.parse().ok(),
-            cycle: Some(s.cycle),
+            increment_by: s.increment.clone().map(Into::into),
+            min_value: s.min_value.clone().map(Into::into),
+            max_value: s.max_value.clone().map(Into::into),
+            start_with: s.start_value.clone().map(Into::into),
+            cache_size: s.cache_value.as_deref().and_then(|v| v.parse().ok()),
+            cycle: s.cycle,
         })
         .collect()
 }
@@ -649,21 +699,32 @@ pub mod queries {
     "#;
 
     /// Query to get all sequences
+    ///
+    /// Uses the underlying `pg_sequence` + `pg_class` catalog tables instead
+    /// of the `pg_sequences` convenience view.  The view internally calls
+    /// `pg_sequence_parameters()` which can fail when sequences are being
+    /// dropped concurrently (e.g. during parallel test runs).  Direct
+    /// catalog access is fully MVCC-protected and avoids this issue.
+    ///
+    /// Value columns are nullable because the current user may lack
+    /// privilege on the sequence.
     pub const SEQUENCES_QUERY: &str = r#"
-        SELECT 
-            schemaname AS schema,
-            sequencename AS name,
-            data_type,
-            start_value::text,
-            min_value::text,
-            max_value::text,
-            increment_by::text AS increment,
-            cycle AS cycle,
-            cache_size::text AS cache_value
-        FROM pg_sequences
-        WHERE schemaname NOT LIKE 'pg_%'
-          AND schemaname != 'information_schema'
-        ORDER BY schemaname, sequencename
+        SELECT
+            n.nspname AS schema,
+            c.relname AS name,
+            format_type(s.seqtypid, NULL)::text AS data_type,
+            s.seqstart::text AS start_value,
+            s.seqmin::text AS min_value,
+            s.seqmax::text AS max_value,
+            s.seqincrement::text AS increment,
+            s.seqcycle AS cycle,
+            s.seqcache::text AS cache_value
+        FROM pg_sequence s
+        JOIN pg_class c ON c.oid = s.seqrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname NOT LIKE 'pg_%'
+          AND n.nspname != 'information_schema'
+        ORDER BY n.nspname, c.relname
     "#;
 
     /// Query to get all views
@@ -707,6 +768,33 @@ JOIN pg_am am ON am.oid = idx.relam
 JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
 WHERE ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
+ORDER BY ns.nspname, tbl.relname, idx.relname
+"#;
+
+    /// Schema-filtered variant of [`INDEXES_QUERY`].
+    ///
+    /// `pg_get_indexdef()` calls `relation_open()` which is not
+    /// MVCC-protected and can fail if concurrent DDL drops an index.
+    /// Scoping to specific schemas (`$1::text[]`) avoids encountering
+    /// OIDs from schemas being modified by other sessions.
+    pub const INDEXES_QUERY_FILTERED: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    idx.relname AS name,
+    ix.indisunique AS is_unique,
+    ix.indisprimary AS is_primary,
+    am.amname AS method,
+    array_agg(pg_get_indexdef(ix.indexrelid, s.n, true) ORDER BY s.n) AS columns,
+    pg_get_expr(ix.indpred, ix.indrelid) AS where_clause
+FROM pg_index ix
+JOIN pg_class idx ON idx.oid = ix.indexrelid
+JOIN pg_class tbl ON tbl.oid = ix.indrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+JOIN pg_am am ON am.oid = idx.relam
+JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
+WHERE ns.nspname = ANY($1::text[])
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
 "#;
@@ -791,6 +879,25 @@ JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 WHERE con.contype = 'c'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+ORDER BY ns.nspname, tbl.relname, con.conname
+"#;
+
+    /// Schema-filtered variant of [`CHECKS_QUERY`].
+    ///
+    /// `pg_get_expr()` calls `relation_open()` which is not MVCC-protected.
+    /// Scoping to specific schemas avoids encountering OIDs from
+    /// schemas being modified by other sessions.
+    pub const CHECKS_QUERY_FILTERED: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    con.conname AS name,
+    pg_get_expr(con.conbin, con.conrelid) AS expression
+FROM pg_constraint con
+JOIN pg_class tbl ON tbl.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE con.contype = 'c'
+  AND ns.nspname = ANY($1::text[])
 ORDER BY ns.nspname, tbl.relname, con.conname
 "#;
 
