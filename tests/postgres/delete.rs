@@ -8,13 +8,6 @@ use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
 #[allow(dead_code)]
-#[derive(Debug, PostgresFromRow)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
-
-#[allow(dead_code)]
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow)]
 struct PgComplexResult {
@@ -40,7 +33,7 @@ postgres_test!(delete_single_row, SimpleSchema, {
 
     // Verify deletion
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -63,7 +56,7 @@ postgres_test!(delete_multiple_rows, SimpleSchema, {
 
     // Verify only "other" remains
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "other");
@@ -89,7 +82,7 @@ postgres_test!(delete_with_in_condition, SimpleSchema, {
 
     // Verify correct rows deleted
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -224,7 +217,7 @@ postgres_test!(delete_no_matching_rows, SimpleSchema, {
 
     // Verify data unchanged
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -247,7 +240,7 @@ postgres_test!(delete_all_rows, SimpleSchema, {
 
     // Verify all deleted
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 0);
 });

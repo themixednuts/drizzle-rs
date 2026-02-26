@@ -3,19 +3,14 @@
 use crate::common::schema::sqlite::Role;
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{Complex, ComplexSchema, InsertComplex, UpdateComplex};
-use crate::common::schema::sqlite::{InsertSimple, Simple, SimpleSchema, UpdateSimple};
+use crate::common::schema::sqlite::{
+    InsertSimple, SelectSimple, Simple, SimpleSchema, UpdateSimple,
+};
 #[cfg(all(feature = "serde", feature = "uuid"))]
 use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
-
-#[allow(dead_code)]
-#[derive(Debug, SQLiteFromRow)]
-struct SimpleResult {
-    id: i32,
-    name: String,
-}
 
 #[cfg(feature = "uuid")]
 #[allow(dead_code)]
@@ -44,7 +39,7 @@ sqlite_test!(simple_update, SimpleSchema, {
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
@@ -55,7 +50,7 @@ sqlite_test!(simple_update, SimpleSchema, {
     assert_eq!(results[0].name, "updated");
 
     // Verify original name is gone
-    let old_results: Vec<SimpleResult> = drizzle_exec!(
+    let old_results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original"))
@@ -139,7 +134,7 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
         .r#where(like(Simple::name, "test%"));
     drizzle_exec!(stmt => execute);
 
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
@@ -147,7 +142,7 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
     );
     assert_eq!(results.len(), 2);
 
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "other"))
@@ -212,7 +207,7 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
     drizzle_exec!(stmt => execute);
 
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "Updated"))
@@ -220,7 +215,7 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
     );
     assert_eq!(results.len(), 2);
 
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(in_array(simple.name, ["Bob", "David"]))
@@ -241,7 +236,7 @@ sqlite_test!(update_no_matching_rows, SimpleSchema, {
         .r#where(eq(simple.name, "NonExistent"));
     drizzle_exec!(stmt => execute);
 
-    let results: Vec<SimpleResult> =
+    let results: Vec<SelectSimple> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(results.len(), 1);

@@ -14,14 +14,7 @@ use uuid::Uuid;
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::ComplexSchema;
-use crate::common::schema::sqlite::SimpleSchema;
-
-#[allow(dead_code)]
-#[derive(SQLiteFromRow, Debug)]
-struct SimpleResult {
-    id: i32,
-    name: String,
-}
+use crate::common::schema::sqlite::{SelectSimple, SimpleSchema};
 
 #[cfg(feature = "uuid")]
 #[allow(dead_code)]
@@ -44,7 +37,7 @@ sqlite_test!(simple_insert, SimpleSchema, {
     assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "test"))
@@ -121,7 +114,7 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
     assert_eq!(result, 0); // No rows affected due to conflict
 
     // Verify only one record exists
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "conflict_test"))
@@ -186,6 +179,24 @@ sqlite_test!(on_conflict_do_nothing_no_target_sql, SimpleSchema, {
         stmt.to_sql().sql(),
         r#"INSERT INTO "simple" ("id", "name") VALUES (?, ?) ON CONFLICT DO NOTHING"#
     );
+
+    // Also verify via DB execution: insert then conflict should be silently ignored
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("original").with_id(10)])
+            => execute
+    );
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("duplicate").with_id(10)])
+            .on_conflict_do_nothing()
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 10)) => all
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "original");
 });
 
 sqlite_test!(on_conflict_column_do_nothing_sql, SimpleSchema, {
@@ -201,6 +212,25 @@ sqlite_test!(on_conflict_column_do_nothing_sql, SimpleSchema, {
         stmt.to_sql().sql(),
         r#"INSERT INTO "simple" ("id", "name") VALUES (?, ?) ON CONFLICT ("id") DO NOTHING"#
     );
+
+    // Also verify via DB execution
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("first").with_id(20)])
+            => execute
+    );
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("second").with_id(20)])
+            .on_conflict(simple.id)
+            .do_nothing()
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 20)) => all
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "first");
 });
 
 sqlite_test!(on_conflict_do_update_sql, SimpleSchema, {
@@ -216,6 +246,25 @@ sqlite_test!(on_conflict_do_update_sql, SimpleSchema, {
         stmt.to_sql().sql(),
         r#"INSERT INTO "simple" ("id", "name") VALUES (?, ?) ON CONFLICT ("id") DO UPDATE SET "name" = ?"#
     );
+
+    // Also verify via DB execution
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("before").with_id(30)])
+            => execute
+    );
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("ignored").with_id(30)])
+            .on_conflict(simple.id)
+            .do_update(UpdateSimple::default().with_name("after"))
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 30)) => all
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "after");
 });
 
 sqlite_test!(on_conflict_do_update_where_sql, SimpleSchema, {
@@ -232,6 +281,27 @@ sqlite_test!(on_conflict_do_update_where_sql, SimpleSchema, {
         stmt.to_sql().sql(),
         r#"INSERT INTO "simple" ("id", "name") VALUES (?, ?) ON CONFLICT ("id") DO UPDATE SET "name" = ? WHERE "simple"."id" > ?"#
     );
+
+    // Also verify via DB execution: WHERE condition should gate the update
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("original").with_id(40)])
+            => execute
+    );
+    // Conflict with WHERE id > 0 (true) — should update
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("ignored").with_id(40)])
+            .on_conflict(simple.id)
+            .do_update(UpdateSimple::default().with_name("updated_via_where"))
+            .r#where(gt(simple.id, 0))
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 40)) => all
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "updated_via_where");
 });
 
 sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
@@ -256,7 +326,7 @@ sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
     assert_eq!(result, 1);
 
     // Verify the name was updated
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id, 1))
@@ -280,6 +350,25 @@ sqlite_test!(on_conflict_do_update_excluded_sql, SimpleSchema, {
         stmt.to_sql().sql(),
         r#"INSERT INTO "simple" ("id", "name") VALUES (?, ?) ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name""#
     );
+
+    // Also verify via DB execution: EXCLUDED refers to the proposed insert value
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("old_name").with_id(50)])
+            => execute
+    );
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("new_name").with_id(50)])
+            .on_conflict(simple.id)
+            .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 50)) => all
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "new_name");
 });
 
 sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
@@ -304,7 +393,7 @@ sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
     assert_eq!(result, 1);
 
     // Verify the name was updated to the EXCLUDED value
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.id, 1))

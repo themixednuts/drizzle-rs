@@ -9,13 +9,6 @@ use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
-#[allow(dead_code)]
-#[derive(Debug, PostgresFromRow, Default)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
-
 postgres_test!(test_prepare_with_placeholder, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 
@@ -35,7 +28,7 @@ postgres_test!(test_prepare_with_placeholder, SimpleSchema, {
         .into_owned();
 
     // Execute the prepared statement with bound parameter
-    let result: Vec<PgSimpleResult> =
+    let result: Vec<SelectSimple> =
         drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Alice")]));
 
     assert_eq!(result.len(), 1);
@@ -65,17 +58,16 @@ postgres_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
         .into_owned();
 
     // Execute with different parameter values
-    let alice: Vec<PgSimpleResult> =
+    let alice: Vec<SelectSimple> =
         drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Alice")]));
     assert_eq!(alice.len(), 1);
     assert_eq!(alice[0].name, "Alice");
 
-    let bob: Vec<PgSimpleResult> =
-        drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Bob")]));
+    let bob: Vec<SelectSimple> = drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Bob")]));
     assert_eq!(bob.len(), 1);
     assert_eq!(bob[0].name, "Bob");
 
-    let charlie: Vec<PgSimpleResult> =
+    let charlie: Vec<SelectSimple> =
         drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Charlie")]));
     assert_eq!(charlie.len(), 1);
     assert_eq!(charlie[0].name, "Charlie");
@@ -99,7 +91,7 @@ postgres_test!(test_prepared_get_single_row, SimpleSchema, {
         .into_owned();
 
     // Use get to retrieve a single row
-    let result: PgSimpleResult =
+    let result: SelectSimple =
         drizzle_exec!(prepared.get(drizzle_client!(), [name.bind("UniqueUser")]));
 
     assert_eq!(result.name, "UniqueUser");
@@ -126,7 +118,7 @@ postgres_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
         .into_owned();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prepared.all::<PgSimpleResult, 0>(drizzle_client!(), [])
+        prepared.all::<SelectSimple, 0>(drizzle_client!(), [])
     }));
     match result {
         Err(_) => {} // debug_assert panic — expected in debug builds
@@ -158,7 +150,7 @@ postgres_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
         .into_owned();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prepared.all::<PgSimpleResult, 2>(
+        prepared.all::<SelectSimple, 2>(
             drizzle_client!(),
             [name.bind("Alice"), extra.bind("ignored")],
         )
@@ -185,7 +177,7 @@ postgres_test!(test_prepared_execute_insert, SimpleSchema, {
     drizzle_exec!(prepared.execute(drizzle_client!(), []));
 
     // Verify the insert worked
-    let results: Vec<PgSimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "PreparedInsert"))
@@ -216,7 +208,7 @@ postgres_test!(test_prepared_select_all_no_params, SimpleSchema, {
         .prepare()
         .into_owned();
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(prepared.all(drizzle_client!(), []));
+    let results: Vec<SelectSimple> = drizzle_exec!(prepared.all(drizzle_client!(), []));
 
     assert_eq!(results.len(), 3);
 });
@@ -240,7 +232,7 @@ postgres_test!(test_prepared_owned_conversion, SimpleSchema, {
         .into_owned();
 
     // Owned statement can be stored and reused
-    let result: Vec<PgSimpleResult> =
+    let result: Vec<SelectSimple> =
         drizzle_exec!(owned.all(drizzle_client!(), [name.bind("OwnedTest")]));
 
     assert_eq!(result.len(), 1);
@@ -306,7 +298,7 @@ postgres_test!(test_prepared_insert_multiple_times, SimpleSchema, {
     }
 
     // Verify all inserts worked
-    let results: Vec<PgSimpleResult> =
+    let results: Vec<SelectSimple> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(results.len(), 5);

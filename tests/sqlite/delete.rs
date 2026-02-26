@@ -1,19 +1,12 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{InsertComplex, Role, SimpleComplexSchema};
-use crate::common::schema::sqlite::{InsertSimple, Simple, SimpleSchema};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
-
-#[allow(dead_code)]
-#[derive(SQLiteFromRow, Debug)]
-struct SimpleResult {
-    id: i32,
-    name: String,
-}
 
 #[cfg(feature = "uuid")]
 #[allow(dead_code)]
@@ -39,7 +32,7 @@ sqlite_test!(simple_delete, SimpleSchema, {
     assert_eq!(insert_result, 3);
 
     // Verify initial state
-    let initial_results: Vec<SimpleResult> =
+    let initial_results: Vec<SelectSimple> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     assert_eq!(initial_results.len(), 3);
 
@@ -53,14 +46,14 @@ sqlite_test!(simple_delete, SimpleSchema, {
     assert_eq!(delete_result, 2); // Should delete 2 records
 
     // Verify deletion - should only have "keep_me" left
-    let remaining_results: Vec<SimpleResult> =
+    let remaining_results: Vec<SelectSimple> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
 
     assert_eq!(remaining_results.len(), 1);
     assert_eq!(remaining_results[0].name, "keep_me");
 
     // Verify deleted records are gone
-    let deleted_results: Vec<SimpleResult> = drizzle_exec!(
+    let deleted_results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(Simple::name, "delete_me"))
