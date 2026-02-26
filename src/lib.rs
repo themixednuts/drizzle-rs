@@ -5,6 +5,8 @@
 //! ## Quick Start
 //!
 //! ```rust
+//! # #[cfg(feature = "rusqlite")]
+//! # {
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::rusqlite::Drizzle;
 //!
@@ -32,6 +34,7 @@
 //!
 //! let users: Vec<SelectUser> = db.select(()).from(user).all()?;
 //! # Ok(())
+//! # }
 //! # }
 //! ```
 //!

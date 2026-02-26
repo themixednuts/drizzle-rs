@@ -5,10 +5,15 @@ use drizzle::postgres::sync::Drizzle;
 #[cfg(feature = "postgres-sync")]
 use postgres::{Client, NoTls};
 
+// ---------------------------------------------------------------------------
+// Each test gets its own schema so introspection doesn't see other tests'
+// objects, allowing parallel execution with the full test suite.
+// ---------------------------------------------------------------------------
+
 #[cfg(feature = "postgres-sync")]
-#[PostgresTable(name = "drizzle_push_test_items")]
-struct PushItem {
-    #[column(primary)]
+#[PostgresTable(name = "items", schema = "push_creates_test")]
+struct PushCreates {
+    #[column(serial, primary)]
     id: i32,
     label: String,
     note: Option<String>,
@@ -16,14 +21,44 @@ struct PushItem {
 
 #[cfg(feature = "postgres-sync")]
 #[derive(PostgresSchema)]
-struct PushSchema {
-    push_item: PushItem,
+struct PushCreatesSchema {
+    items: PushCreates,
+}
+
+#[cfg(feature = "postgres-sync")]
+#[PostgresTable(name = "items", schema = "push_idempotent_test")]
+struct PushIdempotent {
+    #[column(serial, primary)]
+    id: i32,
+    label: String,
+    note: Option<String>,
+}
+
+#[cfg(feature = "postgres-sync")]
+#[derive(PostgresSchema)]
+struct PushIdempotentSchema {
+    items: PushIdempotent,
+}
+
+#[cfg(feature = "postgres-sync")]
+#[PostgresTable(name = "items", schema = "push_usable_test")]
+struct PushUsable {
+    #[column(serial, primary)]
+    id: i32,
+    label: String,
+    note: Option<String>,
+}
+
+#[cfg(feature = "postgres-sync")]
+#[derive(PostgresSchema)]
+struct PushUsableSchema {
+    items: PushUsable,
 }
 
 /// Connect to the test database, ensuring Docker is running.
-/// Drops the test table first to start clean.
+/// Creates a fresh schema for isolation.
 #[cfg(feature = "postgres-sync")]
-fn connect_clean() -> Client {
+fn connect(schema_name: &str) -> Client {
     use std::process::Command;
     use std::sync::Once;
     use std::thread;
@@ -57,24 +92,31 @@ fn connect_clean() -> Client {
 
     let mut client = Client::connect(&url, NoTls).expect("connect");
     client
-        .batch_execute("DROP TABLE IF EXISTS \"public\".\"drizzle_push_test_items\" CASCADE")
-        .expect("cleanup before test");
+        .batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE; CREATE SCHEMA \"{}\"",
+            schema_name, schema_name
+        ))
+        .expect("setup test schema");
     client
 }
 
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_push_creates_table() {
-    let client = connect_clean();
-    let (mut db, schema) = Drizzle::new(client, PushSchema::default());
+    let schema_name = "push_creates_test";
+    let client = connect(schema_name);
+    let (mut db, schema) = Drizzle::new(client, PushCreatesSchema::default());
 
     db.push(&schema).expect("push schema");
 
     let count: i64 = db
         .conn_mut()
         .query_one(
-            "SELECT COUNT(*) FROM information_schema.tables \
-             WHERE table_schema = 'public' AND table_name = 'drizzle_push_test_items'",
+            &format!(
+                "SELECT COUNT(*) FROM information_schema.tables \
+                 WHERE table_schema = '{}' AND table_name = 'items'",
+                schema_name
+            ),
             &[],
         )
         .expect("query information_schema")
@@ -83,45 +125,53 @@ fn postgres_sync_push_creates_table() {
 
     // cleanup
     db.conn_mut()
-        .batch_execute("DROP TABLE IF EXISTS \"public\".\"drizzle_push_test_items\" CASCADE")
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
         .unwrap();
 }
 
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_push_is_idempotent() {
-    let client = connect_clean();
-    let (mut db, schema) = Drizzle::new(client, PushSchema::default());
+    let schema_name = "push_idempotent_test";
+    let client = connect(schema_name);
+    let (mut db, schema) = Drizzle::new(client, PushIdempotentSchema::default());
 
     db.push(&schema).expect("first push");
     db.push(&schema).expect("second push should be a no-op");
 
     // cleanup
     db.conn_mut()
-        .batch_execute("DROP TABLE IF EXISTS \"public\".\"drizzle_push_test_items\" CASCADE")
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
         .unwrap();
 }
 
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_push_table_is_usable() {
-    let client = connect_clean();
-    let (mut db, schema) = Drizzle::new(client, PushSchema::default());
+    let schema_name = "push_usable_test";
+    let client = connect(schema_name);
+    let (mut db, schema) = Drizzle::new(client, PushUsableSchema::default());
 
     db.push(&schema).expect("push schema");
 
-    db.conn_mut()
-        .execute(
-            "INSERT INTO drizzle_push_test_items (id, label) VALUES (1, 'hello')",
+    // serial column auto-generates the id — don't hardcode it
+    let id: i32 = db
+        .conn_mut()
+        .query_one(
+            &format!(
+                "INSERT INTO \"{}\".items (label) VALUES ('hello') RETURNING id",
+                schema_name
+            ),
             &[],
         )
-        .expect("insert into pushed table");
+        .expect("insert into pushed table")
+        .get(0);
 
     let label: String = db
         .conn_mut()
         .query_one(
-            "SELECT label FROM drizzle_push_test_items WHERE id = 1",
-            &[],
+            &format!("SELECT label FROM \"{}\".items WHERE id = $1", schema_name),
+            &[&id],
         )
         .expect("select from pushed table")
         .get(0);
@@ -129,6 +179,6 @@ fn postgres_sync_push_table_is_usable() {
 
     // cleanup
     db.conn_mut()
-        .batch_execute("DROP TABLE IF EXISTS \"public\".\"drizzle_push_test_items\" CASCADE")
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
         .unwrap();
 }
