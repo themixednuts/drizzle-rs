@@ -1,7 +1,7 @@
 # Justfile for drizzle-rs development tasks
 # Install just: cargo install just
 
-set windows-shell := ["pwsh", "-NoLogo", "-Command"]
+set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 
 mod test
 

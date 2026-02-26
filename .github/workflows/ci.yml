@@ -56,25 +56,35 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-features -- -D warnings
 
+  test-matrix:
+    name: Test Matrix
+    runs-on: ubuntu-latest
+    needs: [check-skip, lint]
+    if: needs.check-skip.outputs.should_skip != 'true'
+    outputs:
+      sqlite: ${{ steps.matrix.outputs.sqlite }}
+      pg: ${{ steps.matrix.outputs.pg }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Generate matrices
+        id: matrix
+        run: |
+          echo "sqlite=$(just test::sqlite-matrix-json)" >> $GITHUB_OUTPUT
+          echo "pg=$(just test::pg-matrix-json)" >> $GITHUB_OUTPUT
+
   test-sqlite:
     name: "test::sqlite (${{ matrix.features }})"
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
+    needs: [check-skip, test-matrix]
     if: needs.check-skip.outputs.should_skip != 'true'
     strategy:
       fail-fast: false
       matrix:
-        features:
-          - rusqlite
-          - "rusqlite,uuid"
-          - "rusqlite,uuid,serde"
-          - libsql
-          - "libsql,uuid"
-          - "libsql,uuid,serde"
-          - "rusqlite,arrayvec"
-          - "rusqlite,compact-str"
-          - "rusqlite,bytes"
-          - "rusqlite,smallvec-types"
+        features: ${{ fromJson(needs.test-matrix.outputs.sqlite) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,32 +104,18 @@ jobs:
         run: just test::sqlite "${{ matrix.features }}"
 
       - name: Run example
-        if: matrix.features == 'rusqlite,uuid,serde'
+        if: contains(matrix.features, 'uuid')  && startsWith(matrix.features, 'rusqlite')
         run: cargo run --example rusqlite --features "rusqlite,uuid,serde"
 
   test-pg:
     name: "test::pg (${{ matrix.features }})"
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
+    needs: [check-skip, test-matrix]
     if: needs.check-skip.outputs.should_skip != 'true'
     strategy:
       fail-fast: false
       matrix:
-        features:
-          - postgres-sync
-          - "postgres-sync,uuid"
-          - "postgres-sync,uuid,serde"
-          - tokio-postgres
-          - "tokio-postgres,uuid"
-          - "tokio-postgres,uuid,serde"
-          - "tokio-postgres,arrayvec"
-          - "tokio-postgres,compact-str"
-          - "tokio-postgres,bytes"
-          - "tokio-postgres,smallvec-types"
-          - "tokio-postgres,chrono"
-          - "tokio-postgres,cidr"
-          - "tokio-postgres,geo-types"
-          - "tokio-postgres,bit-vec"
+        features: ${{ fromJson(needs.test-matrix.outputs.pg) }}
     steps:
       - uses: actions/checkout@v4
 
