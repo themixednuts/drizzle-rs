@@ -1224,32 +1224,32 @@ sqlite_test!(test_math_sign, SimpleSchema, {
 
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-    // Test SIGN function with negative
-    let result: Vec<MathIntResult> = drizzle_exec!(
+    // Test SIGN function with negative (SIGN returns a float type)
+    let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(sign(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Negative"))
             => all
     );
-    assert_eq!(result[0].result, -1);
+    assert_eq!(result[0].result, -1.0);
 
     // Test SIGN with zero
-    let result: Vec<MathIntResult> = drizzle_exec!(
+    let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(sign(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Zero"))
             => all
     );
-    assert_eq!(result[0].result, 0);
+    assert_eq!(result[0].result, 0.0);
 
     // Test SIGN with positive
-    let result: Vec<MathIntResult> = drizzle_exec!(
+    let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(sign(simple.id), "result"))
             .from(simple)
             .r#where(eq(simple.name, "Positive"))
             => all
     );
-    assert_eq!(result[0].result, 1);
+    assert_eq!(result[0].result, 1.0);
 });
 
 sqlite_test!(test_math_mod, SimpleSchema, {

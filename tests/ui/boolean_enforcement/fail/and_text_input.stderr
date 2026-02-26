@@ -9,7 +9,7 @@ help: the following other types implement trait `BooleanLike`
   --> types/src/sql/mod.rs
    |
    | impl BooleanLike for crate::sqlite::types::Integer {}
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::sqlite::types::Integer`
 ...
    | impl BooleanLike for crate::postgres::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean`

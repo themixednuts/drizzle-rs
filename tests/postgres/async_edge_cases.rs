@@ -7,7 +7,6 @@
 
 use crate::common::schema::postgres::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle::core::expr::*;
-use drizzle::postgres::prelude::*;
 
 #[cfg(feature = "tokio-postgres")]
 mod tokio_postgres_edge_cases {

@@ -445,7 +445,9 @@ where
 /// // SELECT SIGN(users.balance)
 /// let balance_sign = sign(users.balance);
 /// ```
-pub fn sign<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
+pub fn sign<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,

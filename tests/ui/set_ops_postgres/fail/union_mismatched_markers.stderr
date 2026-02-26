@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `drizzle::postgres::builder::QueryBuilder<'_, Schema, drizzle::postgres::builder::SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>: drizzle::postgres::builder::select::IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not satisfied
+error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>: IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not satisfied
   --> tests/ui/set_ops_postgres/fail/union_mismatched_markers.rs:25:16
    |
 25 |         .union(qb.select(right_user.id).from(right_user));
@@ -6,18 +6,18 @@ error[E0277]: the trait bound `drizzle::postgres::builder::QueryBuilder<'_, Sche
    |          |
    |          required by a bound introduced by this call
    |
-help: the trait `IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not implemented for `drizzle::postgres::builder::QueryBuilder<'_, Schema, drizzle::postgres::builder::SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>`
+help: the trait `IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>`
       but trait `IntoSelect<'_, Schema, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>` is implemented for it
   --> postgres/src/builder/select.rs
    |
    | / impl<'a, S, State: ExecutableState, T, M, R> IntoSelect<'a, S, M, R>
    | |     for SelectBuilder<'a, S, State, T, M, R>
    | |____________________________________________^
-note: required by a bound in `drizzle::postgres::builder::select::<impl drizzle::postgres::builder::QueryBuilder<'a, S, State, T, M, R>>::union`
+note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R>>::union`
   --> postgres/src/builder/select.rs
    |
    |     pub fn union(
    |            ----- required by a bound in this associated function
    |         self,
    |         other: impl IntoSelect<'a, S, M, R>,
-   |                     ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::postgres::builder::select::<impl QueryBuilder<'a, S, State, T, M, R>>::union`
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R>>::union`
