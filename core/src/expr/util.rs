@@ -6,7 +6,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
 
-use super::{Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
 
 // =============================================================================
 // ALIAS
@@ -106,10 +106,10 @@ pub fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
 /// ```
 pub fn typeof_<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
-    E: ToSQL<'a, V>,
+    E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("TYPEOF", expr.into_sql()))
 }
@@ -117,10 +117,10 @@ where
 /// Alias for typeof_ (uses Rust raw identifier syntax).
 pub fn r#typeof<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
-    E: ToSQL<'a, V>,
+    E: Expr<'a, V>,
 {
     typeof_(expr)
 }
@@ -377,7 +377,7 @@ pub fn string_concat<'a, V, L, R>(
     V,
     <V::DialectMarker as crate::dialect::DialectTypes>::Text,
     <L::Nullable as NullOr<R::Nullable>>::Output,
-    Scalar,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
@@ -387,6 +387,8 @@ where
     R::SQLType: Textual,
     L::Nullable: NullOr<R::Nullable>,
     R::Nullable: Nullability,
+    L::Aggregate: AggOr<R::Aggregate>,
+    R::Aggregate: AggregateKind,
 {
     super::concat(left, right)
 }

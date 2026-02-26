@@ -12,7 +12,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::Compatible;
 
-use super::{Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr};
 
 // =============================================================================
 // Nullability Combination
@@ -90,7 +90,11 @@ impl NullAnd<Null> for Null {
 /// // ❌ Compile error: Int not compatible with Text
 /// coalesce(users.age, "unknown");
 /// ```
-pub fn coalesce<'a, V, E, D, N>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, N, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn coalesce<'a, V, E, D, N>(
+    expr: E,
+    default: D,
+) -> SQLExpr<'a, V, E::SQLType, N, <E::Aggregate as AggOr<D::Aggregate>>::Output>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -99,6 +103,8 @@ where
     E::SQLType: Compatible<D::SQLType>,
     E::Nullable: NullAnd<D::Nullable, Output = N>,
     D::Nullable: Nullability,
+    E::Aggregate: AggOr<D::Aggregate>,
+    D::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
         "COALESCE",
@@ -121,7 +127,17 @@ where
 /// // COALESCE(users.nickname, users.username, 'Anonymous')
 /// let name = coalesce_many(users.nickname, [users.username, "Anonymous"]);
 /// ```
-pub fn coalesce_many<'a, V, E, I, N>(first: E, rest: I) -> SQLExpr<'a, V, E::SQLType, N, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn coalesce_many<'a, V, E, I, N>(
+    first: E,
+    rest: I,
+) -> SQLExpr<
+    'a,
+    V,
+    E::SQLType,
+    N,
+    <E::Aggregate as AggOr<<I::Item as Expr<'a, V>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -131,6 +147,8 @@ where
     E::SQLType: Compatible<<I::Item as Expr<'a, V>>::SQLType>,
     E::Nullable: NullAnd<<I::Item as Expr<'a, V>>::Nullable, Output = N>,
     <I::Item as Expr<'a, V>>::Nullable: Nullability,
+    E::Aggregate: AggOr<<I::Item as Expr<'a, V>>::Aggregate>,
+    <I::Item as Expr<'a, V>>::Aggregate: AggregateKind,
 {
     let mut sql = first.into_sql();
     for value in rest {
@@ -156,12 +174,18 @@ where
 /// // Returns NULL if status is 'unknown', otherwise returns status
 /// let status = nullif(item.status, "unknown");
 /// ```
-pub fn nullif<'a, V, E1, E2>(expr1: E1, expr2: E2) -> SQLExpr<'a, V, E1::SQLType, Null, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn nullif<'a, V, E1, E2>(
+    expr1: E1,
+    expr2: E2,
+) -> SQLExpr<'a, V, E1::SQLType, Null, <E1::Aggregate as AggOr<E2::Aggregate>>::Output>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,
     E2: Expr<'a, V>,
     E1::SQLType: Compatible<E2::SQLType>,
+    E1::Aggregate: AggOr<E2::Aggregate>,
+    E2::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
         "NULLIF",
@@ -177,7 +201,11 @@ where
 ///
 /// Requires compatible types between the expression and default.
 /// Returns the first argument if not NULL, otherwise returns the second.
-pub fn ifnull<'a, V, E, D, N>(expr: E, default: D) -> SQLExpr<'a, V, E::SQLType, N, Scalar>
+#[allow(clippy::type_complexity)]
+pub fn ifnull<'a, V, E, D, N>(
+    expr: E,
+    default: D,
+) -> SQLExpr<'a, V, E::SQLType, N, <E::Aggregate as AggOr<D::Aggregate>>::Output>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -186,6 +214,8 @@ where
     E::SQLType: Compatible<D::SQLType>,
     E::Nullable: NullAnd<D::Nullable, Output = N>,
     D::Nullable: Nullability,
+    E::Aggregate: AggOr<D::Aggregate>,
+    D::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
         "IFNULL",

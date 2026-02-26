@@ -103,7 +103,7 @@ pub fn row<T>(value: T) -> RowValue<T> {
 pub fn in_array<'a, V, E, I, R>(
     expr: E,
     values: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -121,7 +121,7 @@ where
 pub fn not_in_array<'a, V, E, I, R>(
     expr: E,
     values: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -176,7 +176,7 @@ where
 pub fn in_subquery<'a, V, E, S>(
     expr: E,
     subquery: S,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -194,7 +194,7 @@ where
 pub fn not_in_subquery<'a, V, E, S>(
     expr: E,
     subquery: S,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,

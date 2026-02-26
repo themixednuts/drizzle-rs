@@ -24,7 +24,7 @@ use core::marker::PhantomData;
 
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
-use crate::types::{Compatible, DataType};
+use crate::types::{BooleanLike, Compatible, DataType};
 
 use super::agg::CountPolicy;
 use super::null::NullOr;
@@ -196,6 +196,7 @@ where
     pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg>
     where
         C: Expr<'a, V>,
+        C::SQLType: BooleanLike,
     {
         let sql = self
             .into_sql()

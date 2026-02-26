@@ -12,14 +12,14 @@
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{DataType, Textual};
+use crate::types::{DataType, Integral, Textual};
 use crate::{PostgresDialect, SQLiteDialect};
 use drizzle_types::postgres::types::{
     Char as PgChar, Int4 as PgInt4, Text as PgText, Varchar as PgVarchar,
 };
 use drizzle_types::sqlite::types::{Integer as SqliteInteger, Text as SqliteText};
 
-use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
 
 #[diagnostic::on_unimplemented(
     message = "no length policy for `{Self}` on this dialect",
@@ -80,7 +80,7 @@ impl PostgresStringSupport for PostgresDialect {}
 /// ```
 pub fn upper<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -103,7 +103,7 @@ where
 /// ```
 pub fn lower<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -130,7 +130,7 @@ where
 /// ```
 pub fn trim<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -144,7 +144,7 @@ where
 /// Preserves the nullability of the input expression.
 pub fn ltrim<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -158,7 +158,7 @@ where
 /// Preserves the nullability of the input expression.
 pub fn rtrim<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -186,7 +186,7 @@ where
 #[allow(clippy::type_complexity)]
 pub fn length<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as LengthPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <E::SQLType as LengthPolicy<V::DialectMarker>>::Output, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -212,17 +212,30 @@ where
 /// // SELECT SUBSTR(users.name, 1, 3) -- first 3 characters
 /// let prefix = substr(users.name, 1, 3);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn substr<'a, V, E, S, L>(
     expr: E,
     start: S,
     len: L,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    <<E::Aggregate as AggOr<S::Aggregate>>::Output as AggOr<L::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     S: Expr<'a, V>,
+    S::SQLType: Integral,
+    S::Aggregate: AggregateKind,
     L: Expr<'a, V>,
+    L::SQLType: Integral,
+    L::Aggregate: AggregateKind,
+    E::Aggregate: AggOr<S::Aggregate>,
+    <E::Aggregate as AggOr<S::Aggregate>>::Output: AggOr<L::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "SUBSTR",
@@ -251,19 +264,30 @@ where
 /// // SELECT REPLACE(users.email, '@old.com', '@new.com')
 /// let new_email = replace(users.email, "@old.com", "@new.com");
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn replace<'a, V, E, F, T>(
     expr: E,
     from: F,
     to: T,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    <<E::Aggregate as AggOr<F::Aggregate>>::Output as AggOr<T::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     F: Expr<'a, V>,
     F::SQLType: Textual,
+    F::Aggregate: AggregateKind,
     T: Expr<'a, V>,
     T::SQLType: Textual,
+    T::Aggregate: AggregateKind,
+    E::Aggregate: AggOr<F::Aggregate>,
+    <E::Aggregate as AggOr<F::Aggregate>>::Output: AggOr<T::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REPLACE",
@@ -293,10 +317,17 @@ where
 /// // SELECT INSTR(users.email, '@')
 /// let at_pos = instr(users.email, "@");
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn instr<'a, V, E, S>(
     expr: E,
     search: S,
-) -> SQLExpr<'a, V, drizzle_types::sqlite::types::Integer, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    drizzle_types::sqlite::types::Integer,
+    E::Nullable,
+    <E::Aggregate as AggOr<S::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteStringSupport,
@@ -304,6 +335,8 @@ where
     E::SQLType: Textual,
     S: Expr<'a, V>,
     S::SQLType: Textual,
+    S::Aggregate: AggregateKind,
+    E::Aggregate: AggOr<S::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "INSTR",
@@ -312,10 +345,17 @@ where
 }
 
 /// STRPOS - finds the position of a substring (PostgreSQL).
+#[allow(clippy::type_complexity)]
 pub fn strpos<'a, V, E, S>(
     expr: E,
     search: S,
-) -> SQLExpr<'a, V, drizzle_types::postgres::types::Int4, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    drizzle_types::postgres::types::Int4,
+    E::Nullable,
+    <E::Aggregate as AggOr<S::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresStringSupport,
@@ -323,6 +363,8 @@ where
     E::SQLType: Textual,
     S: Expr<'a, V>,
     S::SQLType: Textual,
+    S::Aggregate: AggregateKind,
+    E::Aggregate: AggOr<S::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "STRPOS",
@@ -369,7 +411,7 @@ pub fn concat<'a, V, E1, E2>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    Scalar,
+    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
@@ -379,6 +421,8 @@ where
     E2::SQLType: Textual,
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
+    E2::Aggregate: AggregateKind,
+    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(
         expr1

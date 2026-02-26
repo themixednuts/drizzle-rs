@@ -19,7 +19,7 @@ use drizzle_types::sqlite::types::{
     Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
 };
 
-use super::{Expr, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggOr, Expr, NullOr, Nullability, SQLExpr};
 
 #[diagnostic::on_unimplemented(
     message = "no rounding policy for `{Self}` on this dialect",
@@ -75,7 +75,7 @@ impl RoundingPolicy<PostgresDialect> for PgNumeric {
 /// // ❌ Compile error: Text is not Numeric
 /// abs(users.name);
 /// ```
-pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, Scalar>
+pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -103,7 +103,13 @@ where
 #[allow(clippy::type_complexity)]
 pub fn round<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -133,7 +139,7 @@ pub fn round_to<'a, V, E, P>(
     V,
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     <E::Nullable as NullOr<P::Nullable>>::Output,
-    Scalar,
+    <E::Aggregate as AggOr<P::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
@@ -143,6 +149,7 @@ where
     P::SQLType: Integral,
     E::Nullable: NullOr<P::Nullable>,
     P::Nullable: Nullability,
+    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "ROUND",
@@ -167,7 +174,13 @@ where
 #[allow(clippy::type_complexity)]
 pub fn ceil<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -191,7 +204,13 @@ where
 #[allow(clippy::type_complexity)]
 pub fn floor<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -215,7 +234,13 @@ where
 #[allow(clippy::type_complexity)]
 pub fn trunc<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output, E::Nullable, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -242,7 +267,7 @@ where
 /// ```
 pub fn sqrt<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -272,7 +297,7 @@ pub fn power<'a, V, E1, E2>(
     V,
     <V::DialectMarker as DialectTypes>::Double,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    Scalar,
+    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
@@ -282,6 +307,7 @@ where
     E2::SQLType: Numeric,
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
+    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "POWER",
@@ -309,7 +335,7 @@ where
 /// ```
 pub fn exp<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -332,7 +358,7 @@ where
 /// ```
 pub fn ln<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -355,7 +381,7 @@ where
 /// ```
 pub fn log10<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -385,7 +411,7 @@ pub fn log<'a, V, E1, E2>(
     V,
     <V::DialectMarker as DialectTypes>::Double,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    Scalar,
+    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
@@ -395,6 +421,7 @@ where
     E2::SQLType: Numeric,
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
+    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "LOG",
@@ -418,7 +445,7 @@ where
 /// // SELECT SIGN(users.balance)
 /// let balance_sign = sign(users.balance);
 /// ```
-pub fn sign<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, Scalar>
+pub fn sign<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -446,7 +473,13 @@ where
 pub fn mod_<'a, V, E1, E2>(
     dividend: E1,
     divisor: E2,
-) -> SQLExpr<'a, V, E1::SQLType, <E1::Nullable as NullOr<E2::Nullable>>::Output, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    E1::SQLType,
+    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,
@@ -455,6 +488,7 @@ where
     E2::SQLType: Numeric,
     E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
+    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(
         dividend

@@ -21,7 +21,7 @@ use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::SQLParam;
 use crate::types::BooleanLike;
 
-use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NonNull, Nullability, SQLExpr};
 
 #[inline]
 fn operand_sql<'a, V, E>(value: E) -> SQL<'a, V>
@@ -58,7 +58,7 @@ where
 /// Negates a boolean expression.
 pub fn not<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -92,7 +92,7 @@ where
 /// Accepts any iterable of items that implement ToSQL.
 pub fn and<'a, V, I, E>(
     conditions: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     I: IntoIterator<Item = E>,
@@ -120,14 +120,22 @@ where
 }
 
 /// Logical AND of two expressions.
+#[allow(clippy::type_complexity)]
 pub fn and2<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
+    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
 {
@@ -144,7 +152,7 @@ where
 /// Accepts any iterable of items that implement ToSQL.
 pub fn or<'a, V, I, E>(
     conditions: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     I: IntoIterator<Item = E>,
@@ -172,14 +180,22 @@ where
 }
 
 /// Logical OR of two expressions.
+#[allow(clippy::type_complexity)]
 pub fn or2<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
+    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
 {
@@ -205,7 +221,7 @@ where
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, A>;
 
     fn not(self) -> Self::Output {
         not(self)
@@ -225,11 +241,17 @@ where
     V: SQLParam + 'a,
     T: BooleanLike,
     N: Nullability,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
 {
-    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn bitand(self, rhs: Rhs) -> Self::Output {
         and2(self, rhs)
@@ -249,11 +271,17 @@ where
     V: SQLParam + 'a,
     T: BooleanLike,
     N: Nullability,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
 {
-    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn bitor(self, rhs: Rhs) -> Self::Output {
         or2(self, rhs)

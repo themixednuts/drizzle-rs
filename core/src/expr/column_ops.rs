@@ -9,7 +9,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{ArithmeticOutput, Numeric};
 
-use super::{Expr, NullOr, Nullability, Scalar};
+use super::{AggOr, AggregateKind, Expr, NullOr, Nullability};
 
 /// Binary operation result for column arithmetic.
 ///
@@ -98,11 +98,13 @@ where
     Rhs::SQLType: Numeric,
     Lhs::Nullable: NullOr<Rhs::Nullable>,
     Rhs::Nullable: Nullability,
+    Lhs::Aggregate: AggOr<Rhs::Aggregate>,
+    Rhs::Aggregate: AggregateKind,
     Op: BinOpToken,
 {
     type SQLType = <Lhs::SQLType as ArithmeticOutput<Rhs::SQLType>>::Output;
     type Nullable = <Lhs::Nullable as NullOr<Rhs::Nullable>>::Output;
-    type Aggregate = Scalar;
+    type Aggregate = <Lhs::Aggregate as AggOr<Rhs::Aggregate>>::Output;
 }
 
 impl<Lhs, Rhs, Op> crate::row::ExprValueType for ColumnBinOp<Lhs, Rhs, Op>
@@ -147,7 +149,7 @@ where
 {
     type SQLType = T::SQLType;
     type Nullable = T::Nullable;
-    type Aggregate = Scalar;
+    type Aggregate = T::Aggregate;
 }
 
 impl<T: crate::row::ExprValueType> crate::row::ExprValueType for ColumnNeg<T> {
