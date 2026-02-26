@@ -216,6 +216,31 @@ impl<Schema> Transaction<Schema> {
         }
     }
 
+    /// Creates a SELECT DISTINCT query builder within the transaction
+    #[cfg(feature = "sqlite")]
+    pub fn select_distinct<'a, 'b, T>(
+        &'a self,
+        query: T,
+    ) -> TransactionBuilder<
+        'a,
+        Schema,
+        SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+        SelectInitial,
+    >
+    where
+        T: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+    {
+        use drizzle_sqlite::builder::QueryBuilder;
+
+        let builder = QueryBuilder::new::<Schema>().select_distinct(query);
+
+        TransactionBuilder {
+            transaction: self,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Creates a DELETE query builder within the transaction
     #[cfg(feature = "sqlite")]
     pub fn delete<'a, T>(
@@ -226,6 +251,23 @@ impl<Schema> Transaction<Schema> {
         T: SQLiteTable<'a>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
+        TransactionBuilder {
+            transaction: self,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Creates a query with CTE (Common Table Expression) within the transaction
+    #[cfg(feature = "sqlite")]
+    pub fn with<'a, C>(
+        &'a self,
+        cte: C,
+    ) -> TransactionBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    where
+        C: builder::CTEDefinition<'a>,
+    {
+        let builder = QueryBuilder::new::<Schema>().with(cte);
         TransactionBuilder {
             transaction: self,
             builder,

@@ -173,6 +173,31 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         }
     }
 
+    /// Creates a SELECT DISTINCT query builder within the transaction
+    pub fn select_distinct<'a, 'b, T>(
+        &'a self,
+        query: T,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+        SelectInitial,
+    >
+    where
+        T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+    {
+        use drizzle_postgres::builder::QueryBuilder;
+
+        let builder = QueryBuilder::new::<Schema>().select_distinct(query);
+
+        TransactionBuilder {
+            transaction: self,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Creates an INSERT query builder within the transaction
     pub fn insert<'a, Table>(
         &'a self,
