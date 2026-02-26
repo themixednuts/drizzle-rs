@@ -117,145 +117,128 @@ pub enum PgTypeCategory {
 impl PgTypeCategory {
     /// Determine the type category for a SQL type string
     pub fn from_sql_type(sql_type: &str) -> Self {
-        let normalized = sql_type.trim().to_lowercase();
+        let s = sql_type.trim().to_lowercase();
 
-        // Serial types (must check before integer)
-        if is_match(&normalized, r"(?:smallserial)(?:\s.*)?") {
+        // Serial types (must check before integer to avoid misclassification)
+        if s.starts_with("smallserial") {
             return Self::SmallSerial;
         }
-        if is_match(&normalized, r"(?:bigserial)(?:\s.*)?") {
+        if s.starts_with("bigserial") {
             return Self::BigSerial;
         }
-        if is_match(&normalized, r"(?:serial)(?:\s.*)?") {
+        if s.starts_with("serial") {
             return Self::Serial;
         }
 
         // Integer types
-        if is_match(&normalized, r"smallint(?:\s*\[\s*\])*") {
+        if s.starts_with("smallint") || s == "int2" {
             return Self::SmallInt;
         }
-        if is_match(&normalized, r"integer(?:\s*\[\s*\])*") {
+        if s.starts_with("integer") || s == "int" || s == "int4" {
             return Self::Integer;
         }
-        if is_match(&normalized, r"bigint(?:\s*\[\s*\])*") {
+        if s.starts_with("bigint") || s == "int8" {
             return Self::BigInt;
         }
 
         // Numeric types
-        if is_match(
-            &normalized,
-            r"(?:numeric|decimal)(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*",
-        ) {
+        if s.starts_with("numeric") || s.starts_with("decimal") {
             return Self::Numeric;
         }
-        if is_match(&normalized, r"real(?:\s*\[\s*\])*") {
+        if s.starts_with("real") || s == "float4" {
             return Self::Real;
         }
-        if is_match(&normalized, r"(?:double|double precision)(?:\s*\[\s*\])*") {
+        if s.starts_with("double") {
             return Self::DoublePrecision;
         }
 
         // Boolean
-        if is_match(&normalized, r"boolean(?:\s*\[\s*\])*") {
+        if s.starts_with("boolean") || s == "bool" {
             return Self::Boolean;
         }
 
-        // String types
-        if is_match(
-            &normalized,
-            r"(?:char|character)(?:\(\d+\))?(?:\s*\[\s*\])*",
-        ) {
-            return Self::Char;
-        }
-        if is_match(
-            &normalized,
-            r"(?:varchar|character varying)(?:\(\d+\))?(?:\s*\[\s*\])*",
-        ) {
+        // String types (varchar/character varying before char/character)
+        if s.starts_with("varchar") || s.starts_with("character varying") {
             return Self::Varchar;
         }
-        if is_match(&normalized, r"text(?:\s*\[\s*\])*") {
+        if s.starts_with("char") || s.starts_with("character") {
+            return Self::Char;
+        }
+        if s.starts_with("text") {
             return Self::Text;
         }
 
-        // JSON types
-        if is_match(&normalized, r"jsonb(?:\s*\[\s*\])*") {
+        // JSON types (jsonb before json)
+        if s.starts_with("jsonb") {
             return Self::Jsonb;
         }
-        if is_match(&normalized, r"json(?:\s*\[\s*\])*") {
+        if s.starts_with("json") {
             return Self::Json;
         }
 
-        // Time/Date types
-        if is_match(&normalized, r"time(?:\(\d+\))?\s+with time zone(?:\[\])*") {
-            return Self::TimeTz;
-        }
-        if is_match(&normalized, r"time(?:\(\d+\))?(?:\[\])*") {
-            return Self::Time;
-        }
-        if is_match(
-            &normalized,
-            r"timestamp(?:\s)?(?:\(\d+\))?\s+with time zone(?:\[\])*",
-        ) {
+        // Time/Date types (with time zone variants before base)
+        if s.starts_with("timestamp") && s.contains("with time zone") {
             return Self::TimestampTz;
         }
-        if is_match(&normalized, r"timestamp(?:\s)?(?:\(\d+\))?(?:\[\])*") {
+        if s.starts_with("timestamp") {
             return Self::Timestamp;
         }
-        if is_match(&normalized, r"date(?:\s*\[\s*\])*") {
+        if s.starts_with("time") && s.contains("with time zone") {
+            return Self::TimeTz;
+        }
+        if s.starts_with("time") {
+            return Self::Time;
+        }
+        if s.starts_with("date") {
             return Self::Date;
         }
 
         // Other types
-        if is_match(&normalized, r"uuid(?:\s*\[\s*\])*") {
+        if s.starts_with("uuid") {
             return Self::Uuid;
         }
-        if is_match(
-            &normalized,
-            r"interval(\s+(year|month|day|hour|minute|second)(\s+to\s+(month|day|hour|minute|second))?)?(?:\(\d+\))?(?:\s*\[\s*\])*",
-        ) {
+        if s.starts_with("interval") {
             return Self::Interval;
         }
-        if is_match(&normalized, r"inet(?:\(\d+\))?(?:\[\])?") {
+        if s.starts_with("inet") {
             return Self::Inet;
         }
-        if is_match(&normalized, r"cidr(?:\(\d+\))?(?:\[\])?") {
+        if s.starts_with("cidr") {
             return Self::Cidr;
         }
-        if is_match(&normalized, r"macaddr(?:\s*\[\s*\])*") {
-            return Self::MacAddr;
-        }
-        if is_match(&normalized, r"macaddr8(?:\s*\[\s*\])*") {
+        // macaddr8 before macaddr
+        if s.starts_with("macaddr8") {
             return Self::MacAddr8;
+        }
+        if s.starts_with("macaddr") {
+            return Self::MacAddr;
         }
 
         // Vector types
-        if is_match(&normalized, r"vector(?:\(\d+\))?(?:\s*\[\s*\])*") {
+        if s.starts_with("vector") {
             return Self::Vector;
         }
-        if is_match(&normalized, r"halfvec(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*") {
+        if s.starts_with("halfvec") {
             return Self::HalfVec;
         }
-        if is_match(
-            &normalized,
-            r"sparsevec(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*",
-        ) {
+        if s.starts_with("sparsevec") {
             return Self::SparseVec;
         }
 
         // Bit type
-        if is_match(&normalized, r"bit(?:\(\d+(?:,\d+)?\))?(?:\s*\[\s*\])*") {
+        if s.starts_with("bit") {
             return Self::Bit;
         }
 
         // Geometric types
-        if is_match(&normalized, r"point(?:\s*\[\s*\])*") {
+        if s.starts_with("geometry") {
+            return Self::Geometry;
+        }
+        if s.starts_with("point") {
             return Self::Point;
         }
-        if is_match(&normalized, r"line(?:\s*\[\s*\])*") {
+        if s.starts_with("line") {
             return Self::Line;
-        }
-        if is_match(&normalized, r"geometry\(point(?:,\d+)?\)(?:\[\s*\])*") {
-            return Self::Geometry;
         }
 
         Self::Custom
@@ -304,86 +287,6 @@ impl PgTypeCategory {
     pub const fn is_serial(&self) -> bool {
         matches!(self, Self::Serial | Self::SmallSerial | Self::BigSerial)
     }
-}
-
-/// Simple pattern matching helper (basic implementation without regex dependency)
-fn is_match(s: &str, _pattern: &str) -> bool {
-    // Simplified matching - in production, use regex crate
-    // For now, we do basic string checks
-    let s = s.trim();
-
-    // Handle common cases directly
-    if s.starts_with("smallint") {
-        return true;
-    }
-    if s.starts_with("integer") || s == "int" {
-        return true;
-    }
-    if s.starts_with("bigint") {
-        return true;
-    }
-    if s.starts_with("numeric") || s.starts_with("decimal") {
-        return true;
-    }
-    if s.starts_with("real") {
-        return true;
-    }
-    if s.starts_with("double") {
-        return true;
-    }
-    if s.starts_with("boolean") || s == "bool" {
-        return true;
-    }
-    if s.starts_with("char") || s.starts_with("character") {
-        return true;
-    }
-    if s.starts_with("varchar") || s.starts_with("character varying") {
-        return true;
-    }
-    if s.starts_with("text") {
-        return true;
-    }
-    if s.starts_with("json") {
-        return true;
-    }
-    if s.starts_with("time") {
-        return true;
-    }
-    if s.starts_with("timestamp") {
-        return true;
-    }
-    if s.starts_with("date") {
-        return true;
-    }
-    if s.starts_with("uuid") {
-        return true;
-    }
-    if s.starts_with("interval") {
-        return true;
-    }
-    if s.starts_with("inet") {
-        return true;
-    }
-    if s.starts_with("cidr") {
-        return true;
-    }
-    if s.starts_with("macaddr") {
-        return true;
-    }
-    if s.starts_with("vector") || s.starts_with("halfvec") || s.starts_with("sparsevec") {
-        return true;
-    }
-    if s.starts_with("bit") {
-        return true;
-    }
-    if s.starts_with("point") || s.starts_with("line") || s.starts_with("geometry") {
-        return true;
-    }
-    if s.starts_with("serial") || s.starts_with("smallserial") || s.starts_with("bigserial") {
-        return true;
-    }
-
-    false
 }
 
 // =============================================================================
@@ -435,6 +338,27 @@ pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
     (expr.starts_with(&format!("nextval('{}", schema_prefix))
         || expr.starts_with(&format!("nextval('\"{}", schema_prefix)))
         && (expr.ends_with("_seq'::regclass)") || expr.ends_with("_seq\"'::regclass)"))
+}
+
+/// Extract the sequence name from a `nextval('...'::regclass)` expression.
+///
+/// Returns just the sequence name (without schema prefix or quotes):
+/// - `nextval('users_id_seq'::regclass)` → `users_id_seq`
+/// - `nextval('public.users_id_seq'::regclass)` → `users_id_seq`
+/// - `nextval('"myschema"."users_id_seq"'::regclass)` → `users_id_seq`
+pub fn extract_nextval_sequence(expr: &str) -> Option<String> {
+    let inner = expr
+        .strip_prefix("nextval('")?
+        .strip_suffix("'::regclass)")?;
+    let name_part = match inner.rfind('.') {
+        Some(pos) => &inner[pos + 1..],
+        None => inner,
+    };
+    let name = name_part.trim_matches('"');
+    if name.is_empty() {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 // =============================================================================
@@ -627,5 +551,129 @@ mod tests {
         assert_eq!(IdentityDefaults::max_for("smallint"), "32767");
         assert_eq!(IdentityDefaults::max_for("integer"), "2147483647");
         assert_eq!(IdentityDefaults::max_for("bigint"), "9223372036854775807");
+    }
+
+    #[test]
+    fn test_from_sql_type_serial_vs_integer() {
+        // These must NOT be classified as serial
+        assert_eq!(
+            PgTypeCategory::from_sql_type("integer"),
+            PgTypeCategory::Integer
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("int"),
+            PgTypeCategory::Integer
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("int4"),
+            PgTypeCategory::Integer
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("bigint"),
+            PgTypeCategory::BigInt
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("int8"),
+            PgTypeCategory::BigInt
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("smallint"),
+            PgTypeCategory::SmallInt
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("int2"),
+            PgTypeCategory::SmallInt
+        );
+
+        // These must be serial
+        assert_eq!(
+            PgTypeCategory::from_sql_type("serial"),
+            PgTypeCategory::Serial
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("SERIAL"),
+            PgTypeCategory::Serial
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("bigserial"),
+            PgTypeCategory::BigSerial
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("smallserial"),
+            PgTypeCategory::SmallSerial
+        );
+
+        assert!(PgTypeCategory::Serial.is_serial());
+        assert!(PgTypeCategory::BigSerial.is_serial());
+        assert!(PgTypeCategory::SmallSerial.is_serial());
+        assert!(!PgTypeCategory::Integer.is_serial());
+        assert!(!PgTypeCategory::BigInt.is_serial());
+    }
+
+    #[test]
+    fn test_from_sql_type_common() {
+        assert_eq!(PgTypeCategory::from_sql_type("text"), PgTypeCategory::Text);
+        assert_eq!(
+            PgTypeCategory::from_sql_type("varchar(255)"),
+            PgTypeCategory::Varchar
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("boolean"),
+            PgTypeCategory::Boolean
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("bool"),
+            PgTypeCategory::Boolean
+        );
+        assert_eq!(PgTypeCategory::from_sql_type("uuid"), PgTypeCategory::Uuid);
+        assert_eq!(
+            PgTypeCategory::from_sql_type("jsonb"),
+            PgTypeCategory::Jsonb
+        );
+        assert_eq!(PgTypeCategory::from_sql_type("json"), PgTypeCategory::Json);
+        assert_eq!(
+            PgTypeCategory::from_sql_type("timestamp with time zone"),
+            PgTypeCategory::TimestampTz
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("timestamp"),
+            PgTypeCategory::Timestamp
+        );
+        assert_eq!(PgTypeCategory::from_sql_type("date"), PgTypeCategory::Date);
+        assert_eq!(
+            PgTypeCategory::from_sql_type("numeric(10,2)"),
+            PgTypeCategory::Numeric
+        );
+        assert_eq!(PgTypeCategory::from_sql_type("real"), PgTypeCategory::Real);
+        assert_eq!(
+            PgTypeCategory::from_sql_type("double precision"),
+            PgTypeCategory::DoublePrecision
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("macaddr8"),
+            PgTypeCategory::MacAddr8
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("macaddr"),
+            PgTypeCategory::MacAddr
+        );
+    }
+
+    #[test]
+    fn test_extract_nextval_sequence() {
+        assert_eq!(
+            extract_nextval_sequence("nextval('users_id_seq'::regclass)"),
+            Some("users_id_seq".to_string())
+        );
+        assert_eq!(
+            extract_nextval_sequence("nextval('public.users_id_seq'::regclass)"),
+            Some("users_id_seq".to_string())
+        );
+        assert_eq!(
+            extract_nextval_sequence("nextval('\"myschema\".\"users_id_seq\"'::regclass)"),
+            Some("users_id_seq".to_string())
+        );
+        assert_eq!(extract_nextval_sequence("not_a_nextval"), None);
+        assert_eq!(extract_nextval_sequence("nextval(''::regclass)"), None);
     }
 }
