@@ -408,15 +408,15 @@ fn build_postgres_column(
         not_null: !field.is_nullable(),
         default: field.default_value().map(Cow::Owned),
         generated: None,
-        identity: if is_serial || is_identity {
+        // Only set identity for explicit GENERATED AS IDENTITY columns.
+        // Serial columns use the SERIAL pseudo-type which implies its own
+        // sequence via DEFAULT nextval(...); combining it with GENERATED AS
+        // IDENTITY is invalid in PostgreSQL.
+        identity: if is_identity {
             Some(Identity {
                 name: format!("{}_{}_seq", table_name, col_name).into(),
                 schema: Some(schema_name.to_string().into()),
-                type_: if is_identity {
-                    IdentityType::Always
-                } else {
-                    IdentityType::ByDefault
-                },
+                type_: IdentityType::Always,
                 increment: None,
                 min_value: None,
                 max_value: None,

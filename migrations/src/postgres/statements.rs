@@ -1052,8 +1052,12 @@ impl PostgresGenerator {
                     // Note: Adding generated column requires drop + add (recreate_column)
                 }
 
-                // Handle identity change
-                if diff.contains_key("identity") {
+                // Handle identity change (skip for serial types — SERIAL
+                // already implies DEFAULT nextval(...) and cannot be combined
+                // with GENERATED AS IDENTITY).
+                if diff.contains_key("identity")
+                    && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial()
+                {
                     if let Some(id) = &to.identity {
                         use super::ddl::IdentityType;
                         let type_str = match id.type_ {
@@ -1259,13 +1263,19 @@ impl PostgresGenerator {
             ));
         }
 
+        // Only emit GENERATED AS IDENTITY for non-serial types. SERIAL
+        // already implies DEFAULT nextval(...) and combining the two is
+        // invalid in PostgreSQL.
         if let Some(id) = &col.identity {
-            use super::ddl::IdentityType;
-            let type_str = match id.type_ {
-                IdentityType::Always => "ALWAYS",
-                IdentityType::ByDefault => "BY DEFAULT",
-            };
-            def.push_str(&format!(" GENERATED {} AS IDENTITY", type_str));
+            use super::grammar::PgTypeCategory;
+            if !PgTypeCategory::from_sql_type(&col.sql_type).is_serial() {
+                use super::ddl::IdentityType;
+                let type_str = match id.type_ {
+                    IdentityType::Always => "ALWAYS",
+                    IdentityType::ByDefault => "BY DEFAULT",
+                };
+                def.push_str(&format!(" GENERATED {} AS IDENTITY", type_str));
+            }
         }
 
         def

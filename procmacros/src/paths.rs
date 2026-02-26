@@ -647,6 +647,10 @@ pub mod migrations {
             quote!(drizzle::ddl::postgres::ddl::ColumnDef)
         }
 
+        pub fn sequence() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::Sequence)
+        }
+
         pub fn identity() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::Identity)
         }

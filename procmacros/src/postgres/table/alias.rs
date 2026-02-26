@@ -110,6 +110,11 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                     <#original_field_type as PostgresColumnInfo>::is_generated_identity(&ORIGINAL_FIELD)
                 }
 
+                fn is_identity_always(&self) -> bool {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as PostgresColumnInfo>::is_identity_always(&ORIGINAL_FIELD)
+                }
+
                 fn postgres_type(&self) -> &'static str {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                     <#original_field_type as PostgresColumnInfo>::postgres_type(&ORIGINAL_FIELD)

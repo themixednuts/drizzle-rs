@@ -5,7 +5,7 @@ use crate::common::{
 };
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
-use crate::postgres::field::{FieldInfo, PostgreSQLType};
+use crate::postgres::field::{FieldInfo, IdentityMode, PostgreSQLType};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -64,6 +64,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             _is_serial,
             _is_bigserial,
             is_generated_identity,
+            is_identity_always,
             has_default,
         ) = (
             field_info.is_primary,
@@ -75,6 +76,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             ),
             matches!(field_info.column_type, PostgreSQLType::Bigserial),
             field_info.is_generated_identity,
+            !matches!(field_info.identity_mode, Some(IdentityMode::ByDefault)),
             field_info.has_default || field_info.default_fn.is_some(),
         );
 
@@ -367,6 +369,9 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 fn is_generated_identity(&self) -> bool {
                     <Self as PostgresColumn<'_>>::GENERATED_IDENTITY
                 }
+                fn is_identity_always(&self) -> bool {
+                    <Self as PostgresColumn<'_>>::IDENTITY_ALWAYS
+                }
                 fn postgres_type(&self) -> &'static str {
                     #col_type
                 }
@@ -392,6 +397,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 const SERIAL: bool = #is_serial_expr;
                 const BIGSERIAL: bool = #is_bigserial_expr;
                 const GENERATED_IDENTITY: bool = #is_generated_identity;
+                const IDENTITY_ALWAYS: bool = #is_identity_always;
             }
 
             impl #column_of<#struct_ident> for #zst_ident {}
