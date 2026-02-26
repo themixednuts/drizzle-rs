@@ -40,7 +40,11 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table>
 {
     /// Adds a WHERE clause to the conflict target for partial index matching.
-    pub fn r#where(mut self, condition: impl ToSQL<'b, PostgresValue<'b>>) -> Self {
+    pub fn r#where<E>(mut self, condition: E) -> Self
+    where
+        E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         self.builder = self.builder.r#where(condition);
         self
     }
@@ -1062,16 +1066,20 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     >
 {
     /// Adds WHERE clause after DO UPDATE SET
-    pub fn r#where(
+    pub fn r#where<E>(
         self,
-        condition: impl ToSQL<'b, PostgresValue<'b>>,
+        condition: E,
     ) -> DrizzleBuilder<
         'a,
         DrizzleRef,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
-    > {
+    >
+    where
+        E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder: self.builder.r#where(condition),
