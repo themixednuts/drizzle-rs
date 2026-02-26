@@ -13,7 +13,7 @@ help: the trait `PostgresDateTimeSupport` is implemented for `PostgresDialect`
 note: required by a bound in `to_timestamp`
  --> core/src/expr/datetime.rs
   |
-  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, Scalar>
+  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate>
   |        ------------ required by a bound in this function
 ...
   |     V::DialectMarker: PostgresDateTimeSupport,

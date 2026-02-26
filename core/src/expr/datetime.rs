@@ -43,11 +43,11 @@ pub trait DateTruncPolicy<D>: Temporal {
 impl SQLiteDateTimeSupport for SQLiteDialect {}
 impl PostgresDateTimeSupport for PostgresDialect {}
 
-impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
-    type Output = PgTimestamp;
-}
 impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
     type Output = PgTimestamptz;
+}
+impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
+    type Output = PgTimestamp;
 }
 
 // =============================================================================
