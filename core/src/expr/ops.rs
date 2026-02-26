@@ -9,7 +9,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{ArithmeticOutput, Numeric};
 
-use super::{AggregateKind, Expr, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
 
 #[inline]
 fn binary_op_sql<'a, V, L, R>(left: L, operator: Token, right: R) -> SQL<'a, V>
@@ -33,12 +33,18 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType>,
     N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
 {
-    type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        T::Output,
+        <N as NullOr<Rhs::Nullable>>::Output,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn add(self, rhs: Rhs) -> Self::Output {
         SQLExpr::new(binary_op_sql(self, Token::PLUS, rhs))
@@ -54,12 +60,18 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType>,
     N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
 {
-    type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        T::Output,
+        <N as NullOr<Rhs::Nullable>>::Output,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn sub(self, rhs: Rhs) -> Self::Output {
         SQLExpr::new(binary_op_sql(self, Token::MINUS, rhs))
@@ -75,12 +87,18 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType>,
     N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
 {
-    type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        T::Output,
+        <N as NullOr<Rhs::Nullable>>::Output,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn mul(self, rhs: Rhs) -> Self::Output {
         SQLExpr::new(binary_op_sql(self, Token::STAR, rhs))
@@ -96,12 +114,18 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType>,
     N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
 {
-    type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        T::Output,
+        <N as NullOr<Rhs::Nullable>>::Output,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn div(self, rhs: Rhs) -> Self::Output {
         SQLExpr::new(binary_op_sql(self, Token::SLASH, rhs))
@@ -117,12 +141,18 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType>,
     N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggregateKind,
+    A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
 {
-    type Output = SQLExpr<'a, V, T::Output, <N as NullOr<Rhs::Nullable>>::Output, Scalar>;
+    type Output = SQLExpr<
+        'a,
+        V,
+        T::Output,
+        <N as NullOr<Rhs::Nullable>>::Output,
+        <A as AggOr<Rhs::Aggregate>>::Output,
+    >;
 
     fn rem(self, rhs: Rhs) -> Self::Output {
         SQLExpr::new(binary_op_sql(self, Token::REM, rhs))
@@ -140,7 +170,7 @@ where
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, T, N, Scalar>;
+    type Output = SQLExpr<'a, V, T, N, A>;
 
     fn neg(self) -> Self::Output {
         SQLExpr::new(SQL::from(Token::MINUS).append(self.into_sql().parens()))

@@ -25,10 +25,10 @@ use core::marker::PhantomData;
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{Compatible, DataType};
+use crate::types::{BooleanLike, Compatible, DataType};
 
 use super::null::NullOr;
-use super::{Expr, Null, Nullability, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, Null, Nullability, SQLExpr};
 
 // =============================================================================
 // Entry Point
@@ -64,10 +64,17 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
     /// case().when(gt(users.age, 65), "Senior")
     /// // Type T = Text, Nullability N = NonNull (from &str literal)
     /// ```
-    pub fn when<C, R>(self, condition: C, result: R) -> CaseBuilder<'a, V, R::SQLType, R::Nullable>
+    #[allow(clippy::type_complexity)]
+    pub fn when<C, R>(
+        self,
+        condition: C,
+        result: R,
+    ) -> CaseBuilder<'a, V, R::SQLType, R::Nullable, <C::Aggregate as AggOr<R::Aggregate>>::Output>
     where
         C: Expr<'a, V>,
         R: Expr<'a, V>,
+        C::SQLType: BooleanLike,
+        C::Aggregate: AggOr<R::Aggregate>,
     {
         let sql = self
             .sql
@@ -90,32 +97,45 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
 /// Builder state after at least one WHEN branch has been added.
 ///
 /// The result type `T` and accumulated nullability `N` are tracked.
-pub struct CaseBuilder<'a, V: SQLParam, T: DataType, N: Nullability> {
+pub struct CaseBuilder<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> {
     sql: SQL<'a, V>,
-    _marker: PhantomData<(V, T, N)>,
+    _marker: PhantomData<(V, T, N, A)>,
 }
 
-impl<'a, V, T, N> CaseBuilder<'a, V, T, N>
+impl<'a, V, T, N, A> CaseBuilder<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
     T: DataType,
     N: Nullability,
+    A: AggregateKind,
 {
     /// Add another WHEN branch.
     ///
     /// The result type must be compatible with the type established by the
     /// first branch. Nullability is accumulated via `NullOr`.
+    #[allow(clippy::type_complexity)]
     pub fn when<C, R>(
         self,
         condition: C,
         result: R,
-    ) -> CaseBuilder<'a, V, T, <N as NullOr<R::Nullable>>::Output>
+    ) -> CaseBuilder<
+        'a,
+        V,
+        T,
+        <N as NullOr<R::Nullable>>::Output,
+        <<A as AggOr<C::Aggregate>>::Output as AggOr<R::Aggregate>>::Output,
+    >
     where
         C: Expr<'a, V>,
         R: Expr<'a, V>,
+        C::SQLType: BooleanLike,
         T: Compatible<R::SQLType>,
         N: NullOr<R::Nullable>,
         R::Nullable: Nullability,
+        A: AggOr<C::Aggregate>,
+        <A as AggOr<C::Aggregate>>::Output: AggOr<R::Aggregate>,
+        C::Aggregate: AggregateKind,
+        R::Aggregate: AggregateKind,
     {
         let sql = self
             .sql
@@ -134,7 +154,7 @@ where
     ///
     /// Without ELSE, unmatched rows produce NULL, so the result is always
     /// `Null` regardless of branch nullability.
-    pub fn end(self) -> SQLExpr<'a, V, T, Null, Scalar> {
+    pub fn end(self) -> SQLExpr<'a, V, T, Null, A> {
         let sql = self.sql.push(Token::END);
         SQLExpr::new(sql)
     }
@@ -143,15 +163,18 @@ where
     ///
     /// The ELSE value must have a compatible type. Nullability is the
     /// combination of all branch nullabilities and the default's nullability.
+    #[allow(clippy::type_complexity)]
     pub fn r#else<D>(
         self,
         default: D,
-    ) -> SQLExpr<'a, V, T, <N as NullOr<D::Nullable>>::Output, Scalar>
+    ) -> SQLExpr<'a, V, T, <N as NullOr<D::Nullable>>::Output, <A as AggOr<D::Aggregate>>::Output>
     where
         D: Expr<'a, V>,
         T: Compatible<D::SQLType>,
         N: NullOr<D::Nullable>,
         D::Nullable: Nullability,
+        A: AggOr<D::Aggregate>,
+        D::Aggregate: AggregateKind,
     {
         let sql = self
             .sql

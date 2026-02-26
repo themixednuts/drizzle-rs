@@ -24,7 +24,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
 
-use super::{Expr, NonNull, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NonNull, SQLExpr};
 
 // =============================================================================
 // Internal Helper
@@ -60,6 +60,7 @@ where
     Expected: DataType,
 {
     type SQLType: DataType;
+    type Aggregate: AggregateKind;
 }
 
 impl<'a, V, Expected, R> ComparisonOperand<'a, V, Expected> for R
@@ -69,6 +70,7 @@ where
     R: Expr<'a, V>,
 {
     type SQLType = R::SQLType;
+    type Aggregate = R::Aggregate;
 }
 
 // =============================================================================
@@ -91,14 +93,22 @@ where
 /// // ❌ Compile error: Int cannot be compared with Text
 /// eq(users.id, "hello");
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn eq<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::EQ, right))
 }
@@ -106,14 +116,22 @@ where
 /// Inequality comparison (`<>` or `!=`).
 ///
 /// Requires both operands to have compatible SQL types.
+#[allow(clippy::type_complexity)]
 pub fn neq<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::NE, right))
 }
@@ -125,14 +143,22 @@ where
 /// Greater-than comparison (`>`).
 ///
 /// Requires both operands to have compatible SQL types.
+#[allow(clippy::type_complexity)]
 pub fn gt<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::GT, right))
 }
@@ -140,14 +166,22 @@ where
 /// Greater-than-or-equal comparison (`>=`).
 ///
 /// Requires both operands to have compatible SQL types.
+#[allow(clippy::type_complexity)]
 pub fn gte<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::GE, right))
 }
@@ -155,14 +189,22 @@ where
 /// Less-than comparison (`<`).
 ///
 /// Requires both operands to have compatible SQL types.
+#[allow(clippy::type_complexity)]
 pub fn lt<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::LT, right))
 }
@@ -170,14 +212,22 @@ where
 /// Less-than-or-equal comparison (`<=`).
 ///
 /// Requires both operands to have compatible SQL types.
+#[allow(clippy::type_complexity)]
 pub fn lte<'a, V, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::LE, right))
 }
@@ -199,16 +249,24 @@ where
 /// // ❌ Compile error: Int is not Textual
 /// like(users.id, "%123%");
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn like<'a, V, L, R>(
     left: L,
     pattern: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
     L::SQLType: Textual,
     <R as ComparisonOperand<'a, V, L::SQLType>>::SQLType: Textual,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(
         operand_sql(left)
@@ -220,16 +278,24 @@ where
 /// NOT LIKE pattern matching.
 ///
 /// Requires both operands to be textual types (TEXT, VARCHAR).
+#[allow(clippy::type_complexity)]
 pub fn not_like<'a, V, L, R>(
     left: L,
     pattern: R,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L::SQLType>,
     L::SQLType: Textual,
     <R as ComparisonOperand<'a, V, L::SQLType>>::SQLType: Textual,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
 {
     SQLExpr::new(
         operand_sql(left)
@@ -247,16 +313,26 @@ where
 ///
 /// Checks if expr is between low and high (inclusive).
 /// Requires expr type to be compatible with both bounds.
+#[allow(clippy::type_complexity)]
 pub fn between<'a, V, E, L, H>(
     expr: E,
     low: L,
     high: H,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <<E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>>::Output as AggOr<<H as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     L: ComparisonOperand<'a, V, E::SQLType>,
     H: ComparisonOperand<'a, V, E::SQLType>,
+    E::Aggregate: AggOr<<L as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>,
+    <E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>>::Output:
+        AggOr<<H as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>,
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
@@ -272,16 +348,26 @@ where
 /// NOT BETWEEN comparison.
 ///
 /// Requires expr type to be compatible with both bounds.
+#[allow(clippy::type_complexity)]
 pub fn not_between<'a, V, E, L, H>(
     expr: E,
     low: L,
     high: H,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <<E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>>::Output as AggOr<<H as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     L: ComparisonOperand<'a, V, E::SQLType>,
     H: ComparisonOperand<'a, V, E::SQLType>,
+    E::Aggregate: AggOr<<L as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>,
+    <E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>>::Output:
+        AggOr<<H as ComparisonOperand<'a, V, E::SQLType>>::Aggregate>,
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
@@ -305,7 +391,7 @@ where
 /// Any expression type can be null-checked.
 pub fn is_null<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -319,7 +405,7 @@ where
 /// Any expression type can be null-checked.
 pub fn is_not_null<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -355,12 +441,23 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.id.eq(42)  // "users"."id" = 42
     /// ```
+    #[allow(clippy::type_complexity)]
     fn eq<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         eq(self, other)
     }
@@ -370,12 +467,23 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.id.ne(42)  // "users"."id" <> 42
     /// ```
+    #[allow(clippy::type_complexity)]
     fn ne<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         neq(self, other)
     }
@@ -385,12 +493,23 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.gt(18)  // "users"."age" > 18
     /// ```
+    #[allow(clippy::type_complexity)]
     fn gt<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         gt(self, other)
     }
@@ -400,12 +519,23 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.ge(18)  // "users"."age" >= 18
     /// ```
+    #[allow(clippy::type_complexity)]
     fn ge<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         gte(self, other)
     }
@@ -415,12 +545,23 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.lt(65)  // "users"."age" < 65
     /// ```
+    #[allow(clippy::type_complexity)]
     fn lt<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         lt(self, other)
     }
@@ -430,12 +571,23 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.le(65)  // "users"."age" <= 65
     /// ```
+    #[allow(clippy::type_complexity)]
     fn le<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         lte(self, other)
     }
@@ -445,14 +597,25 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.name.like("%Alice%")  // "users"."name" LIKE '%Alice%'
     /// ```
+    #[allow(clippy::type_complexity)]
     fn like<R>(
         self,
         pattern: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
         Self::SQLType: Textual,
         <R as ComparisonOperand<'a, V, Self::SQLType>>::SQLType: Textual,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         like(self, pattern)
     }
@@ -462,14 +625,25 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.name.not_like("%Bot%")  // "users"."name" NOT LIKE '%Bot%'
     /// ```
+    #[allow(clippy::type_complexity)]
     fn not_like<R>(
         self,
         pattern: R,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         R: ComparisonOperand<'a, V, Self::SQLType>,
         Self::SQLType: Textual,
         <R as ComparisonOperand<'a, V, Self::SQLType>>::SQLType: Textual,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         not_like(self, pattern)
     }
@@ -480,7 +654,9 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// users.deleted_at.is_null()  // "users"."deleted_at" IS NULL
     /// ```
     #[allow(clippy::wrong_self_convention)]
-    fn is_null(self) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar> {
+    fn is_null(
+        self,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
         is_null(self)
     }
 
@@ -492,7 +668,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     #[allow(clippy::wrong_self_convention)]
     fn is_not_null(
         self,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar> {
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
         is_not_null(self)
     }
 
@@ -503,14 +679,31 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.between(18, 65)  // ("users"."age" BETWEEN 18 AND 65)
     /// ```
+    #[allow(clippy::type_complexity)]
     fn between<L, H>(
         self,
         low: L,
         high: H,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <<Self::Aggregate as AggOr<
+            <L as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output as AggOr<
+            <H as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         L: ComparisonOperand<'a, V, Self::SQLType>,
         H: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<L as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
+        <Self::Aggregate as AggOr<
+            <L as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output:
+            AggOr<<H as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         between(self, low, high)
     }
@@ -522,14 +715,31 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// ```ignore
     /// users.age.not_between(0, 17)  // ("users"."age" NOT BETWEEN 0 AND 17)
     /// ```
+    #[allow(clippy::type_complexity)]
     fn not_between<L, H>(
         self,
         low: L,
         high: H,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <<Self::Aggregate as AggOr<
+            <L as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output as AggOr<
+            <H as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
     where
         L: ComparisonOperand<'a, V, Self::SQLType>,
         H: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<L as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
+        <Self::Aggregate as AggOr<
+            <L as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output:
+            AggOr<<H as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
     {
         not_between(self, low, high)
     }
@@ -545,7 +755,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     fn in_array<I, R>(
         self,
         values: I,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
     where
         I: IntoIterator<Item = R>,
         R: Expr<'a, V>,
@@ -565,7 +775,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     fn not_in_array<I, R>(
         self,
         values: I,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
     where
         I: IntoIterator<Item = R>,
         R: Expr<'a, V>,
@@ -578,7 +788,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     fn in_subquery<S>(
         self,
         subquery: S,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
     where
         S: Expr<'a, V>,
         Self::SQLType: Compatible<S::SQLType>,
@@ -590,7 +800,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     fn not_in_subquery<S>(
         self,
         subquery: S,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
     where
         S: Expr<'a, V>,
         Self::SQLType: Compatible<S::SQLType>,
