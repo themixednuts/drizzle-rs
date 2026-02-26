@@ -128,9 +128,7 @@ sqlite_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
         .r#where(eq(simple.name, name))
         .prepare();
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prepared.all::<SelectSimple, 0>(db.conn(), [])
-    }));
+    let result = drizzle_catch_unwind!(prepared.all::<SelectSimple, 0>(db.conn(), []));
     match result {
         Err(_) => {} // debug_assert panic — expected in debug builds
         Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
@@ -159,9 +157,9 @@ sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
         .r#where(eq(simple.name, name))
         .prepare();
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prepared.all::<SelectSimple, 2>(db.conn(), [name.bind("Alice"), extra.bind("ignored")])
-    }));
+    let result = drizzle_catch_unwind!(
+        prepared.all::<SelectSimple, 2>(db.conn(), [name.bind("Alice"), extra.bind("ignored")],)
+    );
     match result {
         Err(_) => {} // debug_assert panic — expected in debug builds
         Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds

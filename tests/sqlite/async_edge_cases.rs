@@ -6,7 +6,6 @@
 #![cfg(any(feature = "libsql", feature = "turso"))]
 
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
-use drizzle::sqlite::prelude::*;
 
 // ============================================================================
 // libsql async edge cases

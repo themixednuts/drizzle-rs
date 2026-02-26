@@ -304,7 +304,7 @@ impl core::fmt::Display for OwnedPreparedStatement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use drizzle_core::{SQL, prepared::prepare_render};
+    use drizzle_core::{SQL, ToSQL, prepared::prepare_render};
 
     #[test]
     fn test_prepare_render_basic() {
