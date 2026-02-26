@@ -11,38 +11,68 @@
 //!
 //! The simplest way to run migrations is using the `migrate()` method on your Drizzle instance:
 //!
-//! ```ignore
-//! use drizzle::sqlite::rusqlite::Drizzle;
-//! use drizzle_migrations::{migrations, MigrationSet};
+//! ```rust
+//! use drizzle_migrations::{Migration, MigrationSet};
 //! use drizzle_types::Dialect;
 //!
 //! // Embed migrations at compile time
-//! const MIGRATIONS: &[Migration] = migrations![
-//!     ("0000_init", include_str!("../drizzle/0000_init/migration.sql")),
-//!     ("0001_users", include_str!("../drizzle/0001_users/migration.sql")),
+//! let migrations = drizzle_migrations::migrations![
+//!     ("0000_init", "CREATE TABLE users (id INTEGER PRIMARY KEY);"),
+//!     ("0001_posts", "CREATE TABLE posts (id INTEGER PRIMARY KEY);"),
 //! ];
 //!
-//! fn main() -> drizzle::Result<()> {
-//!     let conn = rusqlite::Connection::open("./dev.db")?;
-//!     let (mut db, _) = Drizzle::new(conn, ());
-//!
-//!     let set = MigrationSet::new(MIGRATIONS.iter().cloned(), Dialect::SQLite);
-//!     db.migrate(&set)?;
-//!
-//!     Ok(())
-//! }
+//! let set = MigrationSet::new(migrations, Dialect::SQLite);
+//! // Then: db.migrate(&set)?;
 //! ```
 //!
 //! ## Loading from Filesystem
 //!
 //! During development, load migrations from the migrations directory:
 //!
-//! ```ignore
+//! ```rust,no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use drizzle_migrations::MigrationSet;
 //! use drizzle_types::Dialect;
 //!
 //! let set = MigrationSet::from_dir("./drizzle", Dialect::SQLite)?;
-//! db.migrate(&set)?;
+//! # let _ = set;
+//! // db.migrate(&set)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Programmatic Migration Generation (No CLI)
+//!
+//! Diff two schema snapshots and get SQL statements directly — no files, no CLI:
+//!
+//! ```rust
+//! use drizzle_migrations::{Snapshot, generate};
+//!
+//! let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
+//! let current = Snapshot::empty(drizzle_types::Dialect::SQLite);
+//! let statements = generate(&prev, &current).unwrap();
+//! assert!(statements.is_empty());
+//! ```
+//!
+//! ## Introspect & Push (per-driver)
+//!
+//! Each driver on the `drizzle` crate provides `introspect()` to capture a live
+//! database as a [`Snapshot`], and `push()` to diff it against a Rust schema:
+//!
+//! ```rust,no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use drizzle_migrations::{Snapshot, generate};
+//!
+//! // db.introspect() returns a Snapshot from the live database.
+//! // db.push(&schema) composes introspect + generate in one call.
+//! // Both are available on all 5 drivers (rusqlite, libsql, turso, postgres, tokio-postgres).
+//!
+//! // Equivalent to what push() does internally:
+//! let live = Snapshot::empty(drizzle_types::Dialect::SQLite);
+//! let desired = Snapshot::empty(drizzle_types::Dialect::SQLite);
+//! let sql = generate(&live, &desired)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # CLI Usage
