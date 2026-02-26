@@ -303,4 +303,7 @@ pub enum MigrationError {
 
     #[error("Snapshot error: {0}")]
     SnapshotError(String),
+
+    #[error("Dialect mismatch: cannot diff snapshots from different dialects")]
+    DialectMismatch,
 }

@@ -64,6 +64,7 @@
 //! ```
 
 pub mod collection;
+pub mod generate;
 pub mod journal;
 pub mod migrator;
 pub mod parser;
@@ -108,3 +109,6 @@ pub use serde_json;
 
 // Schema types
 pub use schema::{Schema, Snapshot};
+
+// Programmatic migration generation
+pub use generate::generate;
