@@ -8,6 +8,7 @@ pub mod r#enum;
 pub mod expr;
 pub mod foreign_keys;
 pub mod fromrow;
+pub mod group_by;
 pub mod index;
 pub mod insert;
 pub mod joins;
