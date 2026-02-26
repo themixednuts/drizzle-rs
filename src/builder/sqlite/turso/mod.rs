@@ -558,16 +558,27 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Ok(drizzle_migrations::schema::Snapshot::Sqlite(snapshot))
     }
 
-    /// Introspect the live database, diff against the desired schema, and return
-    /// the SQL statements needed to bring the database in sync.
+    /// Introspect the live database, diff against the desired schema, and
+    /// execute the SQL statements needed to bring the database in sync.
+    ///
+    /// This is a no-op if the database already matches.
     pub async fn push<S: drizzle_migrations::Schema>(
         &self,
         schema: &S,
-    ) -> drizzle_core::error::Result<Vec<String>> {
+    ) -> drizzle_core::error::Result<()> {
         let live = self.introspect().await?;
         let desired = schema.to_snapshot();
-        drizzle_migrations::generate(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+        let stmts = drizzle_migrations::generate(&live, &desired)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        for stmt in stmts {
+            if !stmt.trim().is_empty() {
+                self.conn
+                    .execute(&stmt, ())
+                    .await
+                    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            }
+        }
+        Ok(())
     }
 }
 

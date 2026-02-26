@@ -726,19 +726,24 @@ impl<Schema> Drizzle<Schema> {
         Ok(drizzle_migrations::schema::Snapshot::Postgres(snap))
     }
 
-    /// Diff the live database against a schema and return the SQL statements
-    /// needed to bring the database in sync.
+    /// Introspect the live database, diff against the desired schema, and
+    /// execute the SQL statements needed to bring the database in sync.
     ///
-    /// This composes [`introspect`](Self::introspect) with
-    /// [`drizzle_migrations::generate`] — no files are read or written.
+    /// This is a no-op if the database already matches.
     pub fn push<S: drizzle_migrations::Schema>(
         &mut self,
         schema: &S,
-    ) -> drizzle_core::error::Result<Vec<String>> {
+    ) -> drizzle_core::error::Result<()> {
         let live = self.introspect()?;
         let desired = schema.to_snapshot();
-        drizzle_migrations::generate(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+        let stmts = drizzle_migrations::generate(&live, &desired)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        for stmt in stmts {
+            if !stmt.trim().is_empty() {
+                self.client.execute(&*stmt, &[])?;
+            }
+        }
+        Ok(())
     }
 }
 

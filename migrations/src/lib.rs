@@ -57,20 +57,21 @@
 //! ## Introspect & Push (per-driver)
 //!
 //! Each driver on the `drizzle` crate provides `introspect()` to capture a live
-//! database as a [`Snapshot`], and `push()` to diff it against a Rust schema:
+//! database as a [`Snapshot`], and `push()` to diff and apply changes in one call:
 //!
 //! ```rust,no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use drizzle_migrations::{Snapshot, generate};
 //!
 //! // db.introspect() returns a Snapshot from the live database.
-//! // db.push(&schema) composes introspect + generate in one call.
+//! // db.push(&schema) introspects, diffs, and executes the resulting SQL.
 //! // Both are available on all 5 drivers (rusqlite, libsql, turso, postgres, tokio-postgres).
 //!
-//! // Equivalent to what push() does internally:
+//! // push() is equivalent to introspect + generate + execute:
 //! let live = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let desired = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let sql = generate(&live, &desired)?;
+//! // ... then execute each statement against the database
 //! # Ok(())
 //! # }
 //! ```
