@@ -190,7 +190,7 @@ impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
     Table: PostgresTable<'a>,
 {
-    /// Inserts a single row and transitions to ValuesSet state
+    /// Specifies a single row to insert. Shorthand for `.values([row])`.
     #[inline]
     pub fn value<T>(
         self,
@@ -199,7 +199,7 @@ where
         self.values([value])
     }
 
-    /// Sets values to insert and transitions to ValuesSet state
+    /// Specifies multiple rows to insert.
     #[inline]
     pub fn values<I, T>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where

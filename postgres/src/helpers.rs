@@ -81,6 +81,7 @@ where
 // USING clause versions of JOIN functions (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
+/// Creates a JOIN ... USING clause, matching rows where the named columns are equal.
 pub fn join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -91,6 +92,7 @@ where
     join_using_internal(table, Join::new(), columns)
 }
 
+/// Creates an INNER JOIN ... USING clause.
 pub fn inner_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -101,6 +103,7 @@ where
     join_using_internal(table, Join::new().inner(), columns)
 }
 
+/// Creates a LEFT JOIN ... USING clause.
 pub fn left_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -111,6 +114,7 @@ where
     join_using_internal(table, Join::new().left(), columns)
 }
 
+/// Creates a LEFT OUTER JOIN ... USING clause.
 pub fn left_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -121,6 +125,7 @@ where
     join_using_internal(table, Join::new().left().outer(), columns)
 }
 
+/// Creates a RIGHT JOIN ... USING clause.
 pub fn right_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -131,6 +136,7 @@ where
     join_using_internal(table, Join::new().right(), columns)
 }
 
+/// Creates a RIGHT OUTER JOIN ... USING clause.
 pub fn right_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -141,6 +147,7 @@ where
     join_using_internal(table, Join::new().right().outer(), columns)
 }
 
+/// Creates a FULL JOIN ... USING clause.
 pub fn full_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -151,6 +158,7 @@ where
     join_using_internal(table, Join::new().full(), columns)
 }
 
+/// Creates a FULL OUTER JOIN ... USING clause.
 pub fn full_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -172,8 +180,8 @@ where
     SQL::from_iter([Token::INSERT, Token::INTO]).append(&table)
 }
 
-/// Helper function to create VALUES clause for INSERT with pattern validation
-/// All rows must have the same column pattern (enforced by type parameter)
+/// Creates a VALUES clause for INSERT statements.
+/// All rows must declare the same set of columns.
 pub(crate) fn values<'a, Table, T>(
     rows: impl IntoIterator<Item = Table::Insert<T>>,
 ) -> SQL<'a, PostgresValue<'a>>
@@ -241,15 +249,15 @@ pub(crate) fn for_key_share<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::KEY, Token::SHARE])
 }
 
-/// Helper function to create a FOR UPDATE OF table clause
-/// Note: Uses UNQUALIFIED table name per drizzle-orm beta-12 fix (#4950)
+/// Helper function to create a FOR UPDATE OF table clause.
+/// Uses unqualified table name as required by PostgreSQL.
 pub(crate) fn for_update_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::UPDATE, Token::OF])
         .append(SQL::ident(String::from(table_name)))
 }
 
-/// Helper function to create a FOR SHARE OF table clause
-/// Note: Uses UNQUALIFIED table name per drizzle-orm beta-12 fix (#4950)
+/// Helper function to create a FOR SHARE OF table clause.
+/// Uses unqualified table name as required by PostgreSQL.
 pub(crate) fn for_share_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::SHARE, Token::OF])
         .append(SQL::ident(String::from(table_name)))

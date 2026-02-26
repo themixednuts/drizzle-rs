@@ -1,7 +1,7 @@
-//! Update value types for PostgreSQL
+//! Update value types for PostgreSQL.
 //!
-//! Mirrors the `PostgresInsertValue` pattern but simplified for UPDATE operations.
-//! All UPDATE fields are optional (Skip = don't include in SET clause).
+//! Each field in an UPDATE operation can be skipped (left unchanged),
+//! set to NULL, or set to a value or expression.
 
 use super::PostgresValue;
 use super::insert::ValueWrapper;

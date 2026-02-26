@@ -8,10 +8,12 @@ use crate::prelude::*;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 
+/// Wraps a value with the SQLite `json()` function, validating and returning JSON text.
 pub fn json<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
     SQL::func("json", value.to_sql())
 }
 
+/// Wraps a value with the SQLite `jsonb()` function, validating and returning JSON in binary format.
 pub fn jsonb<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
     SQL::func("jsonb", value.to_sql())
 }
