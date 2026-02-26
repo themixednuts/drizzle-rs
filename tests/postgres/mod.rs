@@ -15,6 +15,7 @@ pub mod fromrow;
 pub mod index;
 pub mod insert;
 pub mod joins;
+pub mod migrations;
 pub mod prepare;
 pub mod schema;
 pub mod select;
