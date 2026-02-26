@@ -7,7 +7,12 @@
 #   just test::pg                                    — PostgreSQL with default features
 #   just test::pg "postgres-sync,tokio-postgres,uuid" — PostgreSQL with custom features
 
-set windows-shell := ["pwsh", "-NoLogo", "-Command"]
+set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
+
+# Additive features shared across all SQLite drivers
+_sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types"
+# Additive features shared across all PostgreSQL drivers
+_pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,cidr,geo-types,bit-vec"
 
 # Run all test matrixes (SQLite + PostgreSQL)
 default: sqlite-matrix pg-matrix
@@ -37,81 +42,47 @@ pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
     cargo test --features "{{features}}" {{ARGS}}
 
 # ---------------------------------------------------------------------------
-# Full matrixes
+# Full matrixes — bare driver + all additive features per driver
 # ---------------------------------------------------------------------------
 
-# Run full SQLite matrix (core drivers + extension types)
-sqlite-matrix: _sqlite-matrix-core _sqlite-matrix-ext
-
-# Run full PostgreSQL matrix (core drivers + extension types)
-pg-matrix: _pg-matrix-core _pg-matrix-ext
-
-# ---------------------------------------------------------------------------
-# SQLite matrix internals
-# ---------------------------------------------------------------------------
-
-_sqlite-matrix-core:
+# Run full SQLite matrix
+sqlite-matrix:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "=== SQLite core matrix ==="
-    # rusqlite combos
-    cargo clippy --features rusqlite -- -D warnings
-    cargo clippy --features rusqlite,uuid -- -D warnings
-    cargo clippy --features rusqlite,uuid,serde -- -D warnings
+    echo "=== SQLite matrix ==="
+    # rusqlite: bare then full
     cargo test --lib --tests --features rusqlite
-    cargo test --lib --tests --features rusqlite,uuid
-    cargo test --lib --tests --features rusqlite,uuid,serde
-    # libsql combos (single-threaded)
-    cargo clippy --features libsql -- -D warnings
-    cargo clippy --features libsql,uuid -- -D warnings
-    cargo clippy --features libsql,uuid,serde -- -D warnings
+    cargo test --lib --tests --features "rusqlite,{{_sqlite-ext}}"
+    # libsql: bare then full (single-threaded)
     cargo test --lib --tests --features libsql -- --test-threads=1
-    cargo test --lib --tests --features libsql,uuid -- --test-threads=1
-    cargo test --lib --tests --features libsql,uuid,serde -- --test-threads=1
+    cargo test --lib --tests --features "libsql,{{_sqlite-ext}}" -- --test-threads=1
 
-_sqlite-matrix-ext:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "=== SQLite ext matrix ==="
-    for feat in arrayvec compact-str bytes smallvec-types; do
-        cargo clippy --features "rusqlite,$feat" -- -D warnings
-        cargo test --lib --tests --features "rusqlite,$feat"
-    done
-
-# ---------------------------------------------------------------------------
-# PostgreSQL matrix internals
-# ---------------------------------------------------------------------------
-
-_pg-matrix-core:
+# Run full PostgreSQL matrix
+pg-matrix:
     #!/usr/bin/env bash
     set -euo pipefail
     docker compose up -d postgres
     echo "Waiting for PostgreSQL to be ready..."
     docker compose exec -T postgres sh -c 'until pg_isready -U postgres -d drizzle_test; do sleep 1; done'
     echo "PostgreSQL is ready!"
-    echo "=== PostgreSQL core matrix ==="
-    # postgres-sync combos
-    cargo clippy --features postgres-sync -- -D warnings
-    cargo clippy --features postgres-sync,uuid -- -D warnings
-    cargo clippy --features postgres-sync,uuid,serde -- -D warnings
+    echo "=== PostgreSQL matrix ==="
+    # postgres-sync: bare then full
     cargo test --lib --tests --features postgres-sync
-    cargo test --lib --tests --features postgres-sync,uuid
-    cargo test --lib --tests --features postgres-sync,uuid,serde
-    # tokio-postgres combos
-    cargo clippy --features tokio-postgres -- -D warnings
-    cargo clippy --features tokio-postgres,uuid -- -D warnings
-    cargo clippy --features tokio-postgres,uuid,serde -- -D warnings
+    cargo test --lib --tests --features "postgres-sync,{{_pg-ext}}"
+    # tokio-postgres: bare then full
     cargo test --lib --tests --features tokio-postgres
-    cargo test --lib --tests --features tokio-postgres,uuid
-    cargo test --lib --tests --features tokio-postgres,uuid,serde
+    cargo test --lib --tests --features "tokio-postgres,{{_pg-ext}}"
 
-_pg-matrix-ext:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    docker compose up -d postgres
-    docker compose exec -T postgres sh -c 'until pg_isready -U postgres -d drizzle_test; do sleep 1; done'
-    echo "=== PostgreSQL ext matrix ==="
-    for feat in arrayvec compact-str bytes smallvec-types chrono cidr geo-types bit-vec; do
-        cargo clippy --features "tokio-postgres,$feat" -- -D warnings
-        cargo test --lib --tests --features "tokio-postgres,$feat"
-    done
+# ---------------------------------------------------------------------------
+# CI helpers — output feature matrices as JSON for GitHub Actions
+# ---------------------------------------------------------------------------
+
+# Output SQLite feature matrix as JSON array
+[no-exit-message]
+sqlite-matrix-json:
+    @echo '["rusqlite","rusqlite,{{_sqlite-ext}}","libsql","libsql,{{_sqlite-ext}}"]'
+
+# Output PostgreSQL feature matrix as JSON array
+[no-exit-message]
+pg-matrix-json:
+    @echo '["postgres-sync","postgres-sync,{{_pg-ext}}","tokio-postgres","tokio-postgres,{{_pg-ext}}"]'
