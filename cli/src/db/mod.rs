@@ -3343,10 +3343,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         introspect::{
             RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
             RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
-            RawUniqueInfo, RawViewInfo, process_check_constraints, process_columns, process_enums,
-            process_foreign_keys, process_indexes, process_policies, process_primary_keys,
-            process_roles, process_sequences, process_tables, process_unique_constraints,
-            process_views,
+            RawUniqueInfo, RawViewInfo, parse_index_columns, pg_action_code_to_string,
+            process_check_constraints, process_columns, process_enums, process_foreign_keys,
+            process_indexes, process_policies, process_primary_keys, process_roles,
+            process_sequences, process_tables, process_unique_constraints, process_views, queries,
         },
     };
 
@@ -3357,10 +3357,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Schemas
     let raw_schemas: Vec<RawSchemaInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::SCHEMAS_QUERY,
-            &[],
-        )
+        .query(queries::SCHEMAS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query schemas: {}", e)))?
         .into_iter()
         .map(|row| RawSchemaInfo {
@@ -3370,10 +3367,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Tables
     let raw_tables: Vec<RawTableInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::TABLES_QUERY,
-            &[],
-        )
+        .query(queries::TABLES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?
         .into_iter()
         .map(|row| RawTableInfo {
@@ -3385,10 +3379,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Columns
     let raw_columns: Vec<RawColumnInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::COLUMNS_QUERY,
-            &[],
-        )
+        .query(queries::COLUMNS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?
         .into_iter()
         .map(|row| RawColumnInfo {
@@ -3409,10 +3400,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Enums
     let raw_enums: Vec<RawEnumInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::ENUMS_QUERY,
-            &[],
-        )
+        .query(queries::ENUMS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query enums: {}", e)))?
         .into_iter()
         .map(|row| RawEnumInfo {
@@ -3424,7 +3412,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Sequences
     let raw_sequences: Vec<RawSequenceInfo> = client
-        .query(POSTGRES_SEQUENCES_QUERY, &[])
+        .query(queries::SEQUENCES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
         .into_iter()
         .map(|row| RawSequenceInfo {
@@ -3442,10 +3430,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Views
     let raw_views: Vec<RawViewInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::VIEWS_QUERY,
-            &[],
-        )
+        .query(queries::VIEWS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
         .into_iter()
         .map(|row| RawViewInfo {
@@ -3456,9 +3441,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Indexes (custom query; drizzle_migrations provides processing types but not SQL)
+    // Indexes
     let raw_indexes: Vec<RawIndexInfo> = client
-        .query(POSTGRES_INDEXES_QUERY, &[])
+        .query(queries::INDEXES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query indexes: {}", e)))?
         .into_iter()
         .map(|row| {
@@ -3470,7 +3455,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
                 is_unique: row.get::<_, bool>(3),
                 is_primary: row.get::<_, bool>(4),
                 method: row.get::<_, String>(5),
-                columns: parse_postgres_index_columns(cols),
+                columns: parse_index_columns(cols),
                 where_clause: row.get::<_, Option<String>>(7),
                 concurrent: false,
             }
@@ -3479,7 +3464,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Foreign keys
     let raw_fks: Vec<RawForeignKeyInfo> = client
-        .query(POSTGRES_FOREIGN_KEYS_QUERY, &[])
+        .query(queries::FOREIGN_KEYS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query foreign keys: {}", e)))?
         .into_iter()
         .map(|row| RawForeignKeyInfo {
@@ -3490,14 +3475,14 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
             schema_to: row.get::<_, String>(4),
             table_to: row.get::<_, String>(5),
             columns_to: row.get::<_, Vec<String>>(6),
-            on_update: pg_action_code_to_string(row.get::<_, String>(7)),
-            on_delete: pg_action_code_to_string(row.get::<_, String>(8)),
+            on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
+            on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
         })
         .collect();
 
     // Primary keys
     let raw_pks: Vec<RawPrimaryKeyInfo> = client
-        .query(POSTGRES_PRIMARY_KEYS_QUERY, &[])
+        .query(queries::PRIMARY_KEYS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query primary keys: {}", e)))?
         .into_iter()
         .map(|row| RawPrimaryKeyInfo {
@@ -3510,7 +3495,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Unique constraints
     let raw_uniques: Vec<RawUniqueInfo> = client
-        .query(POSTGRES_UNIQUES_QUERY, &[])
+        .query(queries::UNIQUES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query unique constraints: {}", e)))?
         .into_iter()
         .map(|row| RawUniqueInfo {
@@ -3524,7 +3509,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Check constraints
     let raw_checks: Vec<RawCheckInfo> = client
-        .query(POSTGRES_CHECKS_QUERY, &[])
+        .query(queries::CHECKS_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query check constraints: {}", e)))?
         .into_iter()
         .map(|row| RawCheckInfo {
@@ -3535,9 +3520,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Roles (optional but useful for snapshot parity)
+    // Roles
     let raw_roles: Vec<RawRoleInfo> = client
-        .query(POSTGRES_ROLES_QUERY, &[])
+        .query(queries::ROLES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query roles: {}", e)))?
         .into_iter()
         .map(|row| RawRoleInfo {
@@ -3550,7 +3535,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Policies
     let raw_policies: Vec<RawPolicyInfo> = client
-        .query(POSTGRES_POLICIES_QUERY, &[])
+        .query(queries::POLICIES_QUERY, &[])
         .map_err(|e| CliError::Other(format!("Failed to query policies: {}", e)))?
         .into_iter()
         .map(|row| RawPolicyInfo {
@@ -3657,10 +3642,10 @@ async fn introspect_postgres_async_inner(
         introspect::{
             RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
             RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
-            RawUniqueInfo, RawViewInfo, process_check_constraints, process_columns, process_enums,
-            process_foreign_keys, process_indexes, process_policies, process_primary_keys,
-            process_roles, process_sequences, process_tables, process_unique_constraints,
-            process_views,
+            RawUniqueInfo, RawViewInfo, parse_index_columns, pg_action_code_to_string,
+            process_check_constraints, process_columns, process_enums, process_foreign_keys,
+            process_indexes, process_policies, process_primary_keys, process_roles,
+            process_sequences, process_tables, process_unique_constraints, process_views, queries,
         },
     };
 
@@ -3681,10 +3666,7 @@ async fn introspect_postgres_async_inner(
     });
 
     let raw_schemas: Vec<RawSchemaInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::SCHEMAS_QUERY,
-            &[],
-        )
+        .query(queries::SCHEMAS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query schemas: {}", e)))?
         .into_iter()
@@ -3694,10 +3676,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_tables: Vec<RawTableInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::TABLES_QUERY,
-            &[],
-        )
+        .query(queries::TABLES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?
         .into_iter()
@@ -3709,10 +3688,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_columns: Vec<RawColumnInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::COLUMNS_QUERY,
-            &[],
-        )
+        .query(queries::COLUMNS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?
         .into_iter()
@@ -3733,10 +3709,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_enums: Vec<RawEnumInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::ENUMS_QUERY,
-            &[],
-        )
+        .query(queries::ENUMS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query enums: {}", e)))?
         .into_iter()
@@ -3748,7 +3721,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_sequences: Vec<RawSequenceInfo> = client
-        .query(POSTGRES_SEQUENCES_QUERY, &[])
+        .query(queries::SEQUENCES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
         .into_iter()
@@ -3766,10 +3739,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_views: Vec<RawViewInfo> = client
-        .query(
-            drizzle_migrations::postgres::introspect::queries::VIEWS_QUERY,
-            &[],
-        )
+        .query(queries::VIEWS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
         .into_iter()
@@ -3782,7 +3752,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_indexes: Vec<RawIndexInfo> = client
-        .query(POSTGRES_INDEXES_QUERY, &[])
+        .query(queries::INDEXES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query indexes: {}", e)))?
         .into_iter()
@@ -3795,7 +3765,7 @@ async fn introspect_postgres_async_inner(
                 is_unique: row.get::<_, bool>(3),
                 is_primary: row.get::<_, bool>(4),
                 method: row.get::<_, String>(5),
-                columns: parse_postgres_index_columns(cols),
+                columns: parse_index_columns(cols),
                 where_clause: row.get::<_, Option<String>>(7),
                 concurrent: false,
             }
@@ -3803,7 +3773,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_fks: Vec<RawForeignKeyInfo> = client
-        .query(POSTGRES_FOREIGN_KEYS_QUERY, &[])
+        .query(queries::FOREIGN_KEYS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query foreign keys: {}", e)))?
         .into_iter()
@@ -3815,13 +3785,13 @@ async fn introspect_postgres_async_inner(
             schema_to: row.get::<_, String>(4),
             table_to: row.get::<_, String>(5),
             columns_to: row.get::<_, Vec<String>>(6),
-            on_update: pg_action_code_to_string(row.get::<_, String>(7)),
-            on_delete: pg_action_code_to_string(row.get::<_, String>(8)),
+            on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
+            on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
         })
         .collect();
 
     let raw_pks: Vec<RawPrimaryKeyInfo> = client
-        .query(POSTGRES_PRIMARY_KEYS_QUERY, &[])
+        .query(queries::PRIMARY_KEYS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query primary keys: {}", e)))?
         .into_iter()
@@ -3834,7 +3804,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_uniques: Vec<RawUniqueInfo> = client
-        .query(POSTGRES_UNIQUES_QUERY, &[])
+        .query(queries::UNIQUES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query unique constraints: {}", e)))?
         .into_iter()
@@ -3848,7 +3818,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_checks: Vec<RawCheckInfo> = client
-        .query(POSTGRES_CHECKS_QUERY, &[])
+        .query(queries::CHECKS_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query check constraints: {}", e)))?
         .into_iter()
@@ -3861,7 +3831,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_roles: Vec<RawRoleInfo> = client
-        .query(POSTGRES_ROLES_QUERY, &[])
+        .query(queries::ROLES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query roles: {}", e)))?
         .into_iter()
@@ -3874,7 +3844,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_policies: Vec<RawPolicyInfo> = client
-        .query(POSTGRES_POLICIES_QUERY, &[])
+        .query(queries::POLICIES_QUERY, &[])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query policies: {}", e)))?
         .into_iter()
@@ -3956,232 +3926,11 @@ async fn introspect_postgres_async_inner(
     })
 }
 
-// =============================================================================
-// PostgreSQL Introspection Queries (CLI-side)
-// =============================================================================
-
 /// Minimal schema list for snapshot
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 #[derive(Debug, Clone)]
 struct RawSchemaInfo {
     name: String,
-}
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_INDEXES_QUERY: &str = r#"
-SELECT
-    ns.nspname AS schema,
-    tbl.relname AS table,
-    idx.relname AS name,
-    ix.indisunique AS is_unique,
-    ix.indisprimary AS is_primary,
-    am.amname AS method,
-    array_agg(pg_get_indexdef(ix.indexrelid, s.n, true) ORDER BY s.n) AS columns,
-    pg_get_expr(ix.indpred, ix.indrelid) AS where_clause
-FROM pg_index ix
-JOIN pg_class idx ON idx.oid = ix.indexrelid
-JOIN pg_class tbl ON tbl.oid = ix.indrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-JOIN pg_am am ON am.oid = idx.relam
-JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
-WHERE ns.nspname NOT LIKE 'pg_%'
-  AND ns.nspname <> 'information_schema'
-GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
-ORDER BY ns.nspname, tbl.relname, idx.relname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_SEQUENCES_QUERY: &str = r#"
-SELECT
-    schemaname AS schema,
-    sequencename AS name,
-    data_type::text AS data_type,
-    start_value::text,
-    min_value::text,
-    max_value::text,
-    increment_by::text AS increment,
-    cycle AS cycle,
-    cache_size::text AS cache_value
-FROM pg_sequences
-WHERE schemaname NOT LIKE 'pg_%'
-  AND schemaname != 'information_schema'
-ORDER BY schemaname, sequencename
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_FOREIGN_KEYS_QUERY: &str = r#"
-SELECT
-    ns.nspname AS schema,
-    tbl.relname AS table,
-    con.conname AS name,
-    array_agg(src.attname ORDER BY s.ord) AS columns,
-    ns_to.nspname AS schema_to,
-    tbl_to.relname AS table_to,
-    array_agg(dst.attname ORDER BY s.ord) AS columns_to,
-    con.confupdtype::text AS on_update,
-    con.confdeltype::text AS on_delete
-FROM pg_constraint con
-JOIN pg_class tbl ON tbl.oid = con.conrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-JOIN pg_class tbl_to ON tbl_to.oid = con.confrelid
-JOIN pg_namespace ns_to ON ns_to.oid = tbl_to.relnamespace
-JOIN unnest(con.conkey) WITH ORDINALITY AS s(attnum, ord) ON TRUE
-JOIN pg_attribute src ON src.attrelid = tbl.oid AND src.attnum = s.attnum
-JOIN unnest(con.confkey) WITH ORDINALITY AS r(attnum, ord) ON r.ord = s.ord
-JOIN pg_attribute dst ON dst.attrelid = tbl_to.oid AND dst.attnum = r.attnum
-WHERE con.contype = 'f'
-  AND ns.nspname NOT LIKE 'pg_%'
-  AND ns.nspname <> 'information_schema'
-GROUP BY ns.nspname, tbl.relname, con.conname, ns_to.nspname, tbl_to.relname, con.confupdtype, con.confdeltype
-ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_PRIMARY_KEYS_QUERY: &str = r#"
-SELECT
-    ns.nspname AS schema,
-    tbl.relname AS table,
-    con.conname AS name,
-    array_agg(att.attname ORDER BY s.ord) AS columns
-FROM pg_constraint con
-JOIN pg_class tbl ON tbl.oid = con.conrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-JOIN unnest(con.conkey) WITH ORDINALITY AS s(attnum, ord) ON TRUE
-JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
-WHERE con.contype = 'p'
-  AND ns.nspname NOT LIKE 'pg_%'
-  AND ns.nspname <> 'information_schema'
-GROUP BY ns.nspname, tbl.relname, con.conname
-ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_UNIQUES_QUERY: &str = r#"
-SELECT
-    ns.nspname AS schema,
-    tbl.relname AS table,
-    con.conname AS name,
-    array_agg(att.attname ORDER BY s.ord) AS columns,
-    FALSE AS nulls_not_distinct
-FROM pg_constraint con
-JOIN pg_class tbl ON tbl.oid = con.conrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-JOIN unnest(con.conkey) WITH ORDINALITY AS s(attnum, ord) ON TRUE
-JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
-WHERE con.contype = 'u'
-  AND ns.nspname NOT LIKE 'pg_%'
-  AND ns.nspname <> 'information_schema'
-GROUP BY ns.nspname, tbl.relname, con.conname
-ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_CHECKS_QUERY: &str = r#"
-SELECT
-    ns.nspname AS schema,
-    tbl.relname AS table,
-    con.conname AS name,
-    pg_get_expr(con.conbin, con.conrelid) AS expression
-FROM pg_constraint con
-JOIN pg_class tbl ON tbl.oid = con.conrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-WHERE con.contype = 'c'
-  AND ns.nspname NOT LIKE 'pg_%'
-  AND ns.nspname <> 'information_schema'
-ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_ROLES_QUERY: &str = r#"
-SELECT
-    rolname AS name,
-    rolcreatedb AS create_db,
-    rolcreaterole AS create_role,
-    rolinherit AS inherit
-FROM pg_roles
-ORDER BY rolname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-const POSTGRES_POLICIES_QUERY: &str = r#"
-SELECT
-    schemaname AS schema,
-    tablename AS table,
-    policyname AS name,
-    upper(permissive) AS as_clause,
-    upper(cmd) AS for_clause,
-    roles AS to,
-    qual AS using,
-    with_check AS with_check
-FROM pg_policies
-WHERE schemaname NOT LIKE 'pg_%'
-  AND schemaname <> 'information_schema'
-ORDER BY schemaname, tablename, policyname
-"#;
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-fn pg_action_code_to_string(code: String) -> String {
-    match code.as_str() {
-        "a" => "NO ACTION",
-        "r" => "RESTRICT",
-        "c" => "CASCADE",
-        "n" => "SET NULL",
-        "d" => "SET DEFAULT",
-        _ => "NO ACTION",
-    }
-    .to_string()
-}
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-fn parse_postgres_index_columns(
-    cols: Vec<String>,
-) -> Vec<drizzle_migrations::postgres::introspect::RawIndexColumnInfo> {
-    use drizzle_migrations::postgres::introspect::RawIndexColumnInfo;
-    cols.into_iter()
-        .map(|c| {
-            let trimmed = c.trim().to_string();
-            let upper = trimmed.to_uppercase();
-
-            let asc = !upper.contains(" DESC");
-            let nulls_first = upper.contains(" NULLS FIRST");
-
-            // Strip sort/nulls directives for opclass parsing / expression detection.
-            let mut core = trimmed.clone();
-            for token in [" ASC", " DESC", " NULLS FIRST", " NULLS LAST"] {
-                if let Some(pos) = core.to_uppercase().find(token) {
-                    core.truncate(pos);
-                    break;
-                }
-            }
-            let core = core.trim().to_string();
-
-            // Heuristic: treat as expression if it contains parentheses or spaces.
-            let is_expression = core.contains('(')
-                || core.contains(')')
-                || core.contains(' ')
-                || core.contains("::");
-
-            // Heuristic opclass parsing: split whitespace and take second token if it looks like opclass.
-            let mut opclass: Option<String> = None;
-            let mut name = core.clone();
-            let parts: Vec<&str> = core.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let second = parts[1];
-                if !matches!(second.to_uppercase().as_str(), "ASC" | "DESC" | "NULLS") {
-                    opclass = Some(second.to_string());
-                    name = parts[0].to_string();
-                }
-            }
-
-            RawIndexColumnInfo {
-                name,
-                is_expression,
-                asc,
-                nulls_first,
-                opclass,
-            }
-        })
-        .collect()
 }
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
