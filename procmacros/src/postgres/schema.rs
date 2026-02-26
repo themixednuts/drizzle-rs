@@ -90,6 +90,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let mig_pg_table = mig_paths::postgres::table();
     let mig_pg_column = mig_paths::postgres::column();
     let mig_pg_identity = mig_paths::postgres::identity();
+    let mig_pg_sequence = mig_paths::postgres::sequence();
     let mig_pg_index = mig_paths::postgres::index();
     let mig_pg_index_column = mig_paths::postgres::index_column();
     let mig_pg_primary_key = mig_paths::postgres::primary_key();
@@ -180,11 +181,10 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 type MigUniqueConstraint = #mig_pg_unique_constraint;
                 type MigEnum = #mig_pg_enum;
                 type MigView = #mig_pg_view;
+                type MigSequence = #mig_pg_sequence;
 
                 let mut snapshot = MigSnapshot::new();
-
-                // Add public schema entity
-                snapshot.add_entity(MigEntity::Schema(MigSchema::new("public")));
+                let mut seen_schemas = ::std::collections::HashSet::new();
 
                 // Iterate through all schema fields and add DDL entities
                 #(
@@ -193,6 +193,10 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                             // Add table entity
                             let table_name = #sql_table_info::name(table_info);
                             let table_schema = #sql_table_info::schema(table_info).unwrap_or("public");
+                            // Add schema entity if not already added
+                            if seen_schemas.insert(table_schema) {
+                                snapshot.add_entity(MigEntity::Schema(MigSchema::new(table_schema)));
+                            }
                             snapshot.add_entity(MigEntity::Table(MigTable::new(table_schema, table_name)));
 
                             // Add column entities using PostgresTableInfo::postgres_columns
@@ -210,14 +214,17 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                     column = column.not_null();
                                 }
 
-                                // Handle identity/serial columns
-                                if col.is_generated_identity() || col.is_serial() || col.is_bigserial() {
+                                // Handle identity columns (NOT serial — serial uses
+                                // the SERIAL pseudo-type which implies its own sequence
+                                // via DEFAULT nextval(...); combining it with GENERATED
+                                // AS IDENTITY is invalid in PostgreSQL).
+                                if col.is_generated_identity() {
                                     let seq_name = ::std::format!("{}_{}_seq", table_name, col.name());
-                                    let identity = if col.is_generated_identity() {
-                                        MigIdentity::always(seq_name).schema(table_schema)
+                                    let identity = if col.is_identity_always() {
+                                        MigIdentity::always(seq_name)
                                     } else {
-                                        MigIdentity::by_default(seq_name).schema(table_schema)
-                                    };
+                                        MigIdentity::by_default(seq_name)
+                                    }.schema(table_schema);
                                     column = column.identity(identity);
                                 }
 

@@ -458,6 +458,19 @@ impl<Schema> Drizzle<Schema> {
     pub fn introspect(
         &mut self,
     ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
+        self.introspect_impl(None)
+    }
+
+    /// Inner introspection with optional schema filter.
+    ///
+    /// When `schema_filter` is `Some`, queries that use `pg_get_indexdef()` or
+    /// `pg_get_expr()` are scoped to those schemas.  These functions call
+    /// `relation_open()` which is not MVCC-protected and can fail when
+    /// concurrent DDL drops objects in other schemas.
+    fn introspect_impl(
+        &mut self,
+        schema_filter: Option<&[String]>,
+    ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
         use drizzle_migrations::postgres::introspect::{
             RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
             RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
@@ -562,24 +575,30 @@ impl<Schema> Drizzle<Schema> {
             })
             .collect();
 
-        // Indexes
-        let raw_indexes: Vec<RawIndexInfo> = self
-            .client
-            .query(queries::INDEXES_QUERY, &[])
-            .map_err(|e| err("Failed to query indexes", e))?
-            .into_iter()
-            .map(|row| RawIndexInfo {
-                schema: row.get(0),
-                table: row.get(1),
-                name: row.get(2),
-                is_unique: row.get(3),
-                is_primary: row.get(4),
-                method: row.get(5),
-                columns: parse_index_columns(row.get(6)),
-                where_clause: row.get(7),
-                concurrent: false,
-            })
-            .collect();
+        // Indexes — use schema-filtered variant when available to avoid
+        // pg_get_indexdef() failures from concurrent DDL in other schemas.
+        let raw_indexes: Vec<RawIndexInfo> = if let Some(schemas) = schema_filter {
+            self.client
+                .query(queries::INDEXES_QUERY_FILTERED, &[&schemas])
+                .map_err(|e| err("Failed to query indexes", e))?
+        } else {
+            self.client
+                .query(queries::INDEXES_QUERY, &[])
+                .map_err(|e| err("Failed to query indexes", e))?
+        }
+        .into_iter()
+        .map(|row| RawIndexInfo {
+            schema: row.get(0),
+            table: row.get(1),
+            name: row.get(2),
+            is_unique: row.get(3),
+            is_primary: row.get(4),
+            method: row.get(5),
+            columns: parse_index_columns(row.get(6)),
+            where_clause: row.get(7),
+            concurrent: false,
+        })
+        .collect();
 
         // Foreign keys
         let raw_fks: Vec<RawForeignKeyInfo> = self
@@ -629,19 +648,24 @@ impl<Schema> Drizzle<Schema> {
             })
             .collect();
 
-        // Check constraints
-        let raw_checks: Vec<RawCheckInfo> = self
-            .client
-            .query(queries::CHECKS_QUERY, &[])
-            .map_err(|e| err("Failed to query check constraints", e))?
-            .into_iter()
-            .map(|row| RawCheckInfo {
-                schema: row.get(0),
-                table: row.get(1),
-                name: row.get(2),
-                expression: row.get(3),
-            })
-            .collect();
+        // Check constraints — use schema-filtered variant when available.
+        let raw_checks: Vec<RawCheckInfo> = if let Some(schemas) = schema_filter {
+            self.client
+                .query(queries::CHECKS_QUERY_FILTERED, &[&schemas])
+                .map_err(|e| err("Failed to query check constraints", e))?
+        } else {
+            self.client
+                .query(queries::CHECKS_QUERY, &[])
+                .map_err(|e| err("Failed to query check constraints", e))?
+        }
+        .into_iter()
+        .map(|row| RawCheckInfo {
+            schema: row.get(0),
+            table: row.get(1),
+            name: row.get(2),
+            expression: row.get(3),
+        })
+        .collect();
 
         // Roles
         let raw_roles: Vec<RawRoleInfo> = self
@@ -734,8 +758,40 @@ impl<Schema> Drizzle<Schema> {
         &mut self,
         schema: &S,
     ) -> drizzle_core::error::Result<()> {
-        let live = self.introspect()?;
         let desired = schema.to_snapshot();
+        // Extract the set of schema names from the desired snapshot so we
+        // can scope the introspection queries that use `pg_get_indexdef()` /
+        // `pg_get_expr()` to only our schemas.  These functions call
+        // `relation_open()` which is not MVCC-protected and will fail if a
+        // concurrent session drops objects via `DROP SCHEMA ... CASCADE`.
+        let target_schemas: Vec<String> = match &desired {
+            drizzle_migrations::schema::Snapshot::Postgres(pg) => {
+                pg.table_names().into_iter().map(|(s, _)| s).collect()
+            }
+            _ => Vec::new(),
+        };
+        let live = self.introspect_impl(if target_schemas.is_empty() {
+            None
+        } else {
+            Some(&target_schemas)
+        })?;
+        // Normalize the live snapshot for push comparison:
+        // - Scope to only desired tables (no DROP for unmanaged tables)
+        // - Filter serial-owned sequences
+        // - Normalize int4+nextval → SERIAL, strip ordinal_position
+        let live = match (live, &desired) {
+            (
+                drizzle_migrations::schema::Snapshot::Postgres(pg),
+                drizzle_migrations::schema::Snapshot::Postgres(desired_pg),
+            ) => {
+                let tables = desired_pg.table_names();
+                let mut scoped = pg.scoped_to_tables(&tables);
+                scoped.filter_serial_sequences();
+                scoped.normalize_columns_for_push();
+                drizzle_migrations::schema::Snapshot::Postgres(scoped)
+            }
+            (other, _) => other,
+        };
         let stmts = drizzle_migrations::generate(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         for stmt in stmts {
