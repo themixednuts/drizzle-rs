@@ -478,6 +478,312 @@ impl<Schema> Drizzle<Schema> {
     }
 }
 
+impl<Schema> Drizzle<Schema> {
+    /// Introspect the connected PostgreSQL database and return a [`Snapshot`](drizzle_migrations::schema::Snapshot).
+    ///
+    /// Queries the `pg_catalog` and `information_schema` to extract tables, columns,
+    /// indexes, foreign keys, primary keys, unique/check constraints, enums, sequences,
+    /// views, roles, and policies.
+    pub async fn introspect(
+        &self,
+    ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
+        use drizzle_migrations::postgres::introspect::{
+            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
+            RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
+            RawUniqueInfo, RawViewInfo, parse_index_columns, pg_action_code_to_string,
+            process_check_constraints, process_columns, process_enums, process_foreign_keys,
+            process_indexes, process_policies, process_primary_keys, process_roles,
+            process_sequences, process_tables, process_unique_constraints, process_views, queries,
+        };
+        use drizzle_migrations::postgres::{PostgresDDL, ddl::Schema as PgSchema};
+
+        let err = |msg: &str, e: tokio_postgres::Error| -> DrizzleError {
+            DrizzleError::Other(format!("{msg}: {e}").into())
+        };
+
+        // Schemas
+        let schemas: Vec<PgSchema> = self
+            .client
+            .query(queries::SCHEMAS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query schemas", e))?
+            .into_iter()
+            .map(|row| PgSchema::new(row.get::<_, String>(0)))
+            .collect();
+
+        // Tables
+        let raw_tables: Vec<RawTableInfo> = self
+            .client
+            .query(queries::TABLES_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query tables", e))?
+            .into_iter()
+            .map(|row| RawTableInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                is_rls_enabled: row.get(2),
+            })
+            .collect();
+
+        // Columns
+        let raw_columns: Vec<RawColumnInfo> = self
+            .client
+            .query(queries::COLUMNS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query columns", e))?
+            .into_iter()
+            .map(|row| RawColumnInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                column_type: row.get(3),
+                type_schema: row.get(4),
+                not_null: row.get(5),
+                default_value: row.get(6),
+                is_identity: row.get(7),
+                identity_type: row.get(8),
+                is_generated: row.get(9),
+                generated_expression: row.get(10),
+                ordinal_position: row.get(11),
+            })
+            .collect();
+
+        // Enums
+        let raw_enums: Vec<RawEnumInfo> = self
+            .client
+            .query(queries::ENUMS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query enums", e))?
+            .into_iter()
+            .map(|row| RawEnumInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                values: row.get(2),
+            })
+            .collect();
+
+        // Sequences
+        let raw_sequences: Vec<RawSequenceInfo> = self
+            .client
+            .query(queries::SEQUENCES_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query sequences", e))?
+            .into_iter()
+            .map(|row| RawSequenceInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                data_type: row.get(2),
+                start_value: row.get(3),
+                min_value: row.get(4),
+                max_value: row.get(5),
+                increment: row.get(6),
+                cycle: row.get(7),
+                cache_value: row.get(8),
+            })
+            .collect();
+
+        // Views
+        let raw_views: Vec<RawViewInfo> = self
+            .client
+            .query(queries::VIEWS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query views", e))?
+            .into_iter()
+            .map(|row| RawViewInfo {
+                schema: row.get(0),
+                name: row.get(1),
+                definition: row.get(2),
+                is_materialized: row.get(3),
+            })
+            .collect();
+
+        // Indexes
+        let raw_indexes: Vec<RawIndexInfo> = self
+            .client
+            .query(queries::INDEXES_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query indexes", e))?
+            .into_iter()
+            .map(|row| RawIndexInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                is_unique: row.get(3),
+                is_primary: row.get(4),
+                method: row.get(5),
+                columns: parse_index_columns(row.get(6)),
+                where_clause: row.get(7),
+                concurrent: false,
+            })
+            .collect();
+
+        // Foreign keys
+        let raw_fks: Vec<RawForeignKeyInfo> = self
+            .client
+            .query(queries::FOREIGN_KEYS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query foreign keys", e))?
+            .into_iter()
+            .map(|row| RawForeignKeyInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                columns: row.get(3),
+                schema_to: row.get(4),
+                table_to: row.get(5),
+                columns_to: row.get(6),
+                on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
+                on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            })
+            .collect();
+
+        // Primary keys
+        let raw_pks: Vec<RawPrimaryKeyInfo> = self
+            .client
+            .query(queries::PRIMARY_KEYS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query primary keys", e))?
+            .into_iter()
+            .map(|row| RawPrimaryKeyInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                columns: row.get(3),
+            })
+            .collect();
+
+        // Unique constraints
+        let raw_uniques: Vec<RawUniqueInfo> = self
+            .client
+            .query(queries::UNIQUES_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query unique constraints", e))?
+            .into_iter()
+            .map(|row| RawUniqueInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                columns: row.get(3),
+                nulls_not_distinct: row.get(4),
+            })
+            .collect();
+
+        // Check constraints
+        let raw_checks: Vec<RawCheckInfo> = self
+            .client
+            .query(queries::CHECKS_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query check constraints", e))?
+            .into_iter()
+            .map(|row| RawCheckInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                expression: row.get(3),
+            })
+            .collect();
+
+        // Roles
+        let raw_roles: Vec<RawRoleInfo> = self
+            .client
+            .query(queries::ROLES_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query roles", e))?
+            .into_iter()
+            .map(|row| RawRoleInfo {
+                name: row.get(0),
+                create_db: row.get(1),
+                create_role: row.get(2),
+                inherit: row.get(3),
+            })
+            .collect();
+
+        // Policies
+        let raw_policies: Vec<RawPolicyInfo> = self
+            .client
+            .query(queries::POLICIES_QUERY, &[])
+            .await
+            .map_err(|e| err("Failed to query policies", e))?
+            .into_iter()
+            .map(|row| RawPolicyInfo {
+                schema: row.get(0),
+                table: row.get(1),
+                name: row.get(2),
+                as_clause: row.get(3),
+                for_clause: row.get(4),
+                to: row.get(5),
+                using: row.get(6),
+                with_check: row.get(7),
+            })
+            .collect();
+
+        // Process raw → DDL entities
+        let mut ddl = PostgresDDL::new();
+        for s in schemas {
+            ddl.schemas.push(s);
+        }
+        for e in process_enums(&raw_enums) {
+            ddl.enums.push(e);
+        }
+        for s in process_sequences(&raw_sequences) {
+            ddl.sequences.push(s);
+        }
+        for r in process_roles(&raw_roles) {
+            ddl.roles.push(r);
+        }
+        for p in process_policies(&raw_policies) {
+            ddl.policies.push(p);
+        }
+        for t in process_tables(&raw_tables) {
+            ddl.tables.push(t);
+        }
+        for c in process_columns(&raw_columns) {
+            ddl.columns.push(c);
+        }
+        for i in process_indexes(&raw_indexes) {
+            ddl.indexes.push(i);
+        }
+        for fk in process_foreign_keys(&raw_fks) {
+            ddl.fks.push(fk);
+        }
+        for pk in process_primary_keys(&raw_pks) {
+            ddl.pks.push(pk);
+        }
+        for u in process_unique_constraints(&raw_uniques) {
+            ddl.uniques.push(u);
+        }
+        for c in process_check_constraints(&raw_checks) {
+            ddl.checks.push(c);
+        }
+        for v in process_views(&raw_views) {
+            ddl.views.push(v);
+        }
+
+        // Build snapshot
+        let mut snap = drizzle_migrations::postgres::PostgresSnapshot::new();
+        for entity in ddl.to_entities() {
+            snap.add_entity(entity);
+        }
+
+        Ok(drizzle_migrations::schema::Snapshot::Postgres(snap))
+    }
+
+    /// Diff the live database against a schema and return the SQL statements
+    /// needed to bring the database in sync.
+    ///
+    /// This composes [`introspect`](Self::introspect) with
+    /// [`drizzle_migrations::generate`] — no files are read or written.
+    pub async fn push<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+    ) -> drizzle_core::error::Result<Vec<String>> {
+        let live = self.introspect().await?;
+        let desired = schema.to_snapshot();
+        drizzle_migrations::generate(&live, &desired)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+    }
+}
+
 impl<'a, 'b, S, Schema, State, Table>
     DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table>, State>
 where
