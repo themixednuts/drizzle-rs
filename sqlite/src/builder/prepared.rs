@@ -259,7 +259,7 @@ impl core::fmt::Display for OwnedPreparedStatement {
 mod tests {
     use super::*;
     use crate::values::SQLiteValue;
-    use drizzle_core::{SQL, prepared::prepare_render};
+    use drizzle_core::{SQL, ToSQL, prepared::prepare_render};
 
     #[test]
     fn test_prepare_render_basic() {
