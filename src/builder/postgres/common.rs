@@ -888,6 +888,24 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     >
 {
     #[inline]
+    pub fn value<T>(
+        self,
+        value: Table::Insert<T>,
+    ) -> DrizzleBuilder<
+        'a,
+        DrizzleRef,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: PostgresTable<'b>,
+        Table::Insert<T>: SQLModel<'b, PostgresValue<'b>>,
+    {
+        self.values([value])
+    }
+
+    #[inline]
     pub fn values<T>(
         self,
         values: impl IntoIterator<Item = Table::Insert<T>>,
