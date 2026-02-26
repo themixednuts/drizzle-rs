@@ -17,6 +17,32 @@ pub trait Tag {
     const NAME: &'static str;
 }
 
+/// Define a [`Tag`] in one line.
+///
+/// ```
+/// # use drizzle_core::tag;
+/// tag!(UsersAlias, "u");
+///
+/// let u = UsersAlias; // zero-sized, used as a type parameter
+/// assert_eq!(<UsersAlias as drizzle_core::Tag>::NAME, "u");
+/// ```
+///
+/// Visibility is supported:
+///
+/// ```
+/// # use drizzle_core::tag;
+/// tag!(pub MyTag, "my_tag");
+/// ```
+#[macro_export]
+macro_rules! tag {
+    ($vis:vis $name:ident, $sql_name:expr) => {
+        $vis struct $name;
+        impl $crate::Tag for $name {
+            const NAME: &'static str = $sql_name;
+        }
+    };
+}
+
 /// Generic typed wrapper that binds a value to a compile-time [`Tag`].
 #[derive(Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Tagged<T, Name: Tag> {
