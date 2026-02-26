@@ -324,32 +324,33 @@ postgres_test!(test_math_sign, SimpleSchema, {
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
     // id - 2: gives [-1, 0, 1] for ids [1, 2, 3]
+    // PostgreSQL SIGN() returns numeric, so we use f64
     // SIGN(-1) = -1
-    let result: Vec<MathIntResult> = drizzle_exec!(
+    let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(sign(simple.id - 2), "result"))
             .from(simple)
             .r#where(eq(simple.name, "A"))
             => all
     );
-    assert_eq!(result[0].result, -1);
+    assert_eq!(result[0].result, -1.0);
 
     // SIGN(0) = 0
-    let result: Vec<MathIntResult> = drizzle_exec!(
+    let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(sign(simple.id - 2), "result"))
             .from(simple)
             .r#where(eq(simple.name, "B"))
             => all
     );
-    assert_eq!(result[0].result, 0);
+    assert_eq!(result[0].result, 0.0);
 
     // SIGN(1) = 1
-    let result: Vec<MathIntResult> = drizzle_exec!(
+    let result: Vec<MathFloatResult> = drizzle_exec!(
         db.select(alias(sign(simple.id - 2), "result"))
             .from(simple)
             .r#where(eq(simple.name, "C"))
             => all
     );
-    assert_eq!(result[0].result, 1);
+    assert_eq!(result[0].result, 1.0);
 });
 
 postgres_test!(test_math_mod, SimpleSchema, {
