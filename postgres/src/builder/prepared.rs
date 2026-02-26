@@ -26,35 +26,65 @@ use crate::values::{OwnedPostgresValue, PostgresValue};
 ///
 /// ## Basic Usage
 ///
-/// ```rust,ignore
-/// use drizzle_postgres::builder::QueryBuilder;
-/// use drizzle_macros::{PostgresTable, PostgresSchema};
-/// use drizzle_core::{ToSQL, SQL, expr::eq};
-///
-/// #[PostgresTable(name = "users")]
-/// struct User {
-///     #[column(serial, primary)]
-///     id: i32,
-///     name: String,
-/// }
-///
-/// #[derive(PostgresSchema)]
-/// struct Schema {
-///     user: User,
-/// }
-///
-/// let builder = QueryBuilder::new::<Schema>();
-/// let Schema { user } = Schema::new();
-///
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// # use drizzle::postgres::prelude::*;
+/// # use drizzle::postgres::builder::QueryBuilder;
+/// # use drizzle::core::expr::eq;
+/// #
+/// # #[PostgresTable(name = "users")]
+/// # struct User {
+/// #     #[column(serial, primary)]
+/// #     id: i32,
+/// #     name: String,
+/// # }
+/// #
+/// # #[derive(PostgresSchema)]
+/// # struct Schema {
+/// #     user: User,
+/// # }
+/// #
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
 /// // Build query with a placeholder
 /// let query = builder
 ///     .select(user.name)
 ///     .from(user)
-///     .r#where(eq(user.id, user.id.placeholder("id")));
+///     .r#where(eq(user.id, Placeholder::anonymous()));
 ///
-/// // Convert to prepared statement
-/// let prepared = query.prepare();
-/// println!("SQL: {}", prepared);  // SELECT "users"."name" FROM "users" WHERE "users"."id" = :id
+/// // Convert to SQL
+/// let sql = query.to_sql();
+/// println!("SQL: {}", sql.sql());
 /// ```
 ///
 /// ## Lifetime Management
@@ -80,12 +110,44 @@ impl<'a> PreparedStatement<'a> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// # use drizzle_postgres::builder::PreparedStatement;
+    /// ```rust,no_run
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # fn example(prepared: drizzle::postgres::builder::prepared::PreparedStatement<'_>) {
     /// // Convert borrowed to owned for long-term storage
-    /// let owned = prepared_statement.into_owned();
+    /// let owned = prepared.into_owned();
     ///
     /// // Now `owned` can be stored without lifetime constraints
+    /// # }
     /// ```
     pub fn into_owned(&self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
@@ -121,37 +183,63 @@ impl<'a> PreparedStatement<'a> {
 ///
 /// ## Examples
 ///
-/// ```rust,ignore
-/// use drizzle_postgres::builder::{QueryBuilder, PreparedStatement, OwnedPreparedStatement};
-/// use drizzle_macros::{PostgresTable, PostgresSchema};
-/// use drizzle_core::{ToSQL, SQL};
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// # use drizzle::postgres::prelude::*;
+/// # use drizzle::postgres::builder::QueryBuilder;
+/// #
+/// # #[PostgresTable(name = "users")]
+/// # struct User {
+/// #     #[column(serial, primary)]
+/// #     id: i32,
+/// #     name: String,
+/// # }
+/// #
+/// # #[derive(PostgresSchema)]
+/// # struct Schema {
+/// #     user: User,
+/// # }
+/// #
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// // Create a query and convert to SQL
+/// let query = builder.select(user.name).from(user);
+/// let sql = query.to_sql();
 ///
-/// #[PostgresTable(name = "users")]
-/// struct User {
-///     #[column(serial, primary)]
-///     id: i32,
-///     name: String,
-/// }
-///
-/// #[derive(PostgresSchema)]
-/// struct Schema {
-///     user: User,
-/// }
-///
-/// let builder = QueryBuilder::new::<Schema>();
-/// let Schema { user } = Schema::new();
-///
-/// // Create a prepared statement and convert to owned
-/// let prepared = builder
-///     .select(user.name)
-///     .from(user)
-///     .prepare();
-///
-/// let owned: OwnedPreparedStatement = prepared.into_owned();
-///
+/// // In practice, the driver creates a PreparedStatement from the SQL
+/// // let prepared = driver.prepare(sql)?;
+/// // let owned: OwnedPreparedStatement = prepared.into_owned();
 /// // Owned can be stored in a HashMap for reuse
-/// // let mut cache: HashMap<String, OwnedPreparedStatement> = HashMap::new();
-/// // cache.insert("select_user_name".to_string(), owned);
 /// ```
 ///
 /// ## Conversion

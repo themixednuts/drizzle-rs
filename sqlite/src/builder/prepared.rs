@@ -26,36 +26,50 @@ use crate::values::{OwnedSQLiteValue, SQLiteValue};
 ///
 /// ## Basic Usage
 ///
-/// ```rust,ignore
-/// use drizzle_sqlite::builder::QueryBuilder;
-/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::{ToSQL, expr::eq};
-///
-/// #[SQLiteTable(name = "users")]
-/// struct User {
-///     #[integer(primary)]
-///     id: i32,
-///     #[text]
-///     name: String,
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// struct Schema {
-///     user: User,
-/// }
-///
-/// let builder = QueryBuilder::new::<Schema>();
-/// let Schema { user } = Schema::new();
-///
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod sqlite {
+/// #         pub use drizzle_sqlite::*;
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// # use drizzle::sqlite::prelude::*;
+/// # use drizzle::sqlite::builder::QueryBuilder;
+/// # use drizzle::core::expr::eq;
+/// #
+/// # #[SQLiteTable(name = "users")]
+/// # struct User {
+/// #     #[column(primary)]
+/// #     id: i32,
+/// #     name: String,
+/// # }
+/// #
+/// # #[derive(SQLiteSchema)]
+/// # struct Schema {
+/// #     user: User,
+/// # }
+/// #
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
 /// // Build query that will become a prepared statement
 /// let query = builder
 ///     .select(user.name)
 ///     .from(user)
-///     .r#where(eq(user.id, drizzle_core::Placeholder::anonymous()));
+///     .r#where(eq(user.id, Placeholder::anonymous()));
 ///
-/// // Convert to prepared statement (this would typically be done by the driver)
+/// // Convert to SQL
 /// let sql = query.to_sql();
-/// println!("SQL: {}", sql.sql());  // "SELECT "users"."name" FROM "users" WHERE "users"."id" = ?"
+/// println!("SQL: {}", sql.sql());
 /// ```
 ///
 /// ## Lifetime Management
@@ -81,13 +95,29 @@ impl<'a> PreparedStatement<'a> {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
-    /// # use drizzle_sqlite::builder::PreparedStatement;
-    /// # let prepared_statement: PreparedStatement = todo!(); // Would come from driver
+    /// ```rust,no_run
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # fn example(prepared: drizzle::sqlite::builder::prepared::PreparedStatement<'_>) {
     /// // Convert borrowed to owned for long-term storage
-    /// let owned = prepared_statement.into_owned();
+    /// let owned = prepared.into_owned();
     ///
     /// // Now `owned` can be stored without lifetime constraints
+    /// # }
     /// ```
     pub fn into_owned(&self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
@@ -123,16 +153,30 @@ impl<'a> PreparedStatement<'a> {
 ///
 /// ## Examples
 ///
-/// ```rust,ignore
-/// use drizzle_sqlite::builder::{QueryBuilder, PreparedStatement, OwnedPreparedStatement};
-/// use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// use drizzle_core::ToSQL;
+/// ```rust,no_run
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod sqlite {
+/// #         pub use drizzle_sqlite::*;
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::sqlite::builder::QueryBuilder;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct User {
-///     #[integer(primary)]
+///     #[column(primary)]
 ///     id: i32,
-///     #[text]
 ///     name: String,
 /// }
 ///
@@ -144,11 +188,11 @@ impl<'a> PreparedStatement<'a> {
 /// let builder = QueryBuilder::new::<Schema>();
 /// let Schema { user } = Schema::new();
 ///
-/// // Create a prepared statement and convert to owned
+/// // Create a query and convert to SQL
 /// let query = builder.select(user.name).from(user);
 /// let sql = query.to_sql();
 ///
-/// // In practice, this conversion would be handled by the database driver
+/// // In practice, the driver creates a PreparedStatement from the SQL
 /// // let prepared: PreparedStatement = driver.prepare(sql)?;
 /// // let owned: OwnedPreparedStatement = prepared.into_owned();
 /// ```
