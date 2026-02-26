@@ -1,0 +1,8 @@
+error[E0599]: no method named `over` found for struct `SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>` in the current scope
+  --> tests/ui/aggregate_propagation/fail/over_result_cannot_over_again.rs:14:44
+   |
+14 |     let _ = sum(item.price).over(window()).over(window());
+   |                                            ^^^^ method not found in `SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>`
+   |
+   = note: the method was found for
+           - `SQLExpr<'a, V, T, N, Agg>`

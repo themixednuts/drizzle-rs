@@ -1,0 +1,61 @@
+error[E0277]: `drizzle::postgres::types::Text` is not an integer SQL type
+ --> tests/ui/scalar_types_postgres/fail/substr_text_position.rs:8:9
+  |
+6 |     let _ = substr(
+  |             ------ required by a bound introduced by this call
+7 |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'hello'"),
+8 |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'one'"),
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected SmallInt, Int, or BigInt
+  |
+  = help: the trait `Integral` is not implemented for `drizzle::postgres::types::Text`
+help: the following other types implement trait `Integral`
+ --> types/src/sql/mod.rs
+  |
+  | impl Integral for crate::sqlite::types::Integer {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+  | impl Integral for crate::postgres::types::Int2 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int2`
+  | impl Integral for crate::postgres::types::Int4 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int4`
+  | impl Integral for crate::postgres::types::Int8 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int8`
+note: required by a bound in `substr`
+ --> core/src/expr/string.rs
+  |
+  | pub fn substr<'a, V, E, S, L>(
+  |        ------ required by a bound in this function
+...
+  |     S::SQLType: Integral,
+  |                 ^^^^^^^^ required by this bound in `substr`
+
+error[E0277]: `drizzle::postgres::types::Text` is not an integer SQL type
+ --> tests/ui/scalar_types_postgres/fail/substr_text_position.rs:9:9
+  |
+6 |     let _ = substr(
+  |             ------ required by a bound introduced by this call
+...
+9 |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'two'"),
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected SmallInt, Int, or BigInt
+  |
+  = help: the trait `Integral` is not implemented for `drizzle::postgres::types::Text`
+help: the following other types implement trait `Integral`
+ --> types/src/sql/mod.rs
+  |
+  | impl Integral for crate::sqlite::types::Integer {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+  | impl Integral for crate::postgres::types::Int2 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int2`
+  | impl Integral for crate::postgres::types::Int4 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int4`
+  | impl Integral for crate::postgres::types::Int8 {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int8`
+note: required by a bound in `substr`
+ --> core/src/expr/string.rs
+  |
+  | pub fn substr<'a, V, E, S, L>(
+  |        ------ required by a bound in this function
+...
+  |     L::SQLType: Integral,
+  |                 ^^^^^^^^ required by this bound in `substr`

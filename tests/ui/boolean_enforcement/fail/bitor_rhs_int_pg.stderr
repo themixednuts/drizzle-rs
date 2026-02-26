@@ -1,0 +1,16 @@
+error[E0277]: `Int4` is not a boolean SQL type
+  --> tests/ui/boolean_enforcement/fail/bitor_rhs_int_pg.rs:15:35
+   |
+15 |     let _ = eq(user.active, true) | user.age;
+   |                                   ^ logical operations require a boolean-typed expression
+   |
+   = help: the trait `BooleanLike` is not implemented for `Int4`
+help: the following other types implement trait `BooleanLike`
+  --> types/src/sql/mod.rs
+   |
+   | impl BooleanLike for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl BooleanLike for crate::postgres::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean`
+   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Boolean>` to implement `BitOr<UserAge>`

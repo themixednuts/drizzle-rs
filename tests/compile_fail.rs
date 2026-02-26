@@ -71,6 +71,14 @@ fn join_nullability_postgres_ui() {
 
 #[cfg(feature = "rusqlite")]
 #[test]
+fn join_nullability_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/join_nullability_sqlite/pass/*.rs");
+    t.compile_fail("tests/ui/join_nullability_sqlite/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
 fn set_ops_sqlite_ui() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/set_ops_sqlite/pass/*.rs");
@@ -119,7 +127,24 @@ fn boolean_enforcement_ui() {
 
 #[cfg(feature = "rusqlite")]
 #[test]
+fn boolean_enforcement_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/boolean_enforcement_sqlite/pass/*.rs");
+    t.compile_fail("tests/ui/boolean_enforcement_sqlite/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
 fn aggregate_propagation_ui() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/aggregate_propagation/pass/*.rs");
+    t.compile_fail("tests/ui/aggregate_propagation/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn aggregate_propagation_postgres_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/aggregate_propagation_postgres/pass/*.rs");
+    t.compile_fail("tests/ui/aggregate_propagation_postgres/fail/*.rs");
 }
