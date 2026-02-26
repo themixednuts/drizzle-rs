@@ -69,7 +69,12 @@ pub trait PostgresAggregateSupport {}
 )]
 pub trait SQLiteAggregateSupport {}
 
+#[diagnostic::on_unimplemented(
+    message = "no COUNT return type defined for this dialect",
+    label = "COUNT result type is not configured for this dialect marker"
+)]
 pub trait CountPolicy {
+    /// The integer type returned by COUNT (e.g. Integer on SQLite, Int8 on PostgreSQL).
     type Count: crate::types::DataType;
 }
 

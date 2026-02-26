@@ -1,6 +1,17 @@
 use super::Numeric;
 
+/// Maps the left-hand numeric type to the result type of an arithmetic
+/// operation (`+`, `-`, `*`, `/`, `%`).
+///
+/// The output preserves the left operand's type width: e.g. `Int4 + Int4 → Int4`.
+/// This is a dialect-independent trait because arithmetic output rules are the
+/// same across SQLite and PostgreSQL in this codebase.
+#[diagnostic::on_unimplemented(
+    message = "arithmetic between `{Self}` and `{Rhs}` is not supported",
+    label = "both operands must be Numeric (Int, BigInt, Float, Double, etc.)"
+)]
 pub trait ArithmeticOutput<Rhs: Numeric = Self>: Numeric {
+    /// The resulting SQL type of the arithmetic expression.
     type Output: Numeric;
 }
 
