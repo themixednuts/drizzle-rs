@@ -29,7 +29,7 @@ pub use insert::{
 };
 pub use select::{
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
-    SelectOrderSet, SelectWhereSet,
+    SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 pub use update::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet};
 

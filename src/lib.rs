@@ -84,6 +84,10 @@ mod macros;
 #[doc(hidden)]
 pub(crate) use drizzle_builder_join_impl;
 #[doc(hidden)]
+pub(crate) use drizzle_pg_builder_join_impl;
+#[doc(hidden)]
+pub(crate) use drizzle_pg_builder_join_using_impl;
+#[doc(hidden)]
 pub(crate) use transaction_builder_join_impl;
 
 /// Result type for drizzle operations.

@@ -684,6 +684,18 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
             row: PhantomData,
         }
     }
+
+    /// Adds a LIMIT clause after GROUP BY
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
+        SelectBuilder {
+            sql: append_sql(self.sql, helpers::limit(limit)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+        }
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -755,15 +767,12 @@ where
     State: ExecutableState,
 {
     /// Combines this query with another using UNION.
-    pub fn union<OtherState, OtherTable>(
+    pub fn union(
         self,
-        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
-    where
-        OtherState: ExecutableState,
-    {
+        other: impl IntoSelect<'a, S, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
-            sql: helpers::union(self.sql, other),
+            sql: helpers::union(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -773,15 +782,12 @@ where
     }
 
     /// Combines this query with another using UNION ALL.
-    pub fn union_all<OtherState, OtherTable>(
+    pub fn union_all(
         self,
-        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
-    where
-        OtherState: ExecutableState,
-    {
+        other: impl IntoSelect<'a, S, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
-            sql: helpers::union_all(self.sql, other),
+            sql: helpers::union_all(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -791,15 +797,12 @@ where
     }
 
     /// Combines this query with another using INTERSECT.
-    pub fn intersect<OtherState, OtherTable>(
+    pub fn intersect(
         self,
-        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
-    where
-        OtherState: ExecutableState,
-    {
+        other: impl IntoSelect<'a, S, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
-            sql: helpers::intersect(self.sql, other),
+            sql: helpers::intersect(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -809,15 +812,12 @@ where
     }
 
     /// Combines this query with another using INTERSECT ALL.
-    pub fn intersect_all<OtherState, OtherTable>(
+    pub fn intersect_all(
         self,
-        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
-    where
-        OtherState: ExecutableState,
-    {
+        other: impl IntoSelect<'a, S, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
-            sql: helpers::intersect_all(self.sql, other),
+            sql: helpers::intersect_all(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -827,15 +827,12 @@ where
     }
 
     /// Combines this query with another using EXCEPT.
-    pub fn except<OtherState, OtherTable>(
+    pub fn except(
         self,
-        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
-    where
-        OtherState: ExecutableState,
-    {
+        other: impl IntoSelect<'a, S, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
-            sql: helpers::except(self.sql, other),
+            sql: helpers::except(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -845,15 +842,12 @@ where
     }
 
     /// Combines this query with another using EXCEPT ALL.
-    pub fn except_all<OtherState, OtherTable>(
+    pub fn except_all(
         self,
-        other: SelectBuilder<'a, S, OtherState, OtherTable, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R>
-    where
-        OtherState: ExecutableState,
-    {
+        other: impl IntoSelect<'a, S, M, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
         SelectBuilder {
-            sql: helpers::except_all(self.sql, other),
+            sql: helpers::except_all(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -872,6 +866,28 @@ where
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+//------------------------------------------------------------------------------
+// IntoSelect conversion trait
+//------------------------------------------------------------------------------
+
+/// Conversion trait for types that can become a SelectBuilder.
+/// Used by set operations to accept both raw SelectBuilder and DrizzleBuilder.
+pub trait IntoSelect<'a, S, M, R> {
+    type State: ExecutableState;
+    type Table;
+    fn into_select(self) -> SelectBuilder<'a, S, Self::State, Self::Table, M, R>;
+}
+
+impl<'a, S, State: ExecutableState, T, M, R> IntoSelect<'a, S, M, R>
+    for SelectBuilder<'a, S, State, T, M, R>
+{
+    type State = State;
+    type Table = T;
+    fn into_select(self) -> Self {
+        self
+    }
 }
 
 impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
