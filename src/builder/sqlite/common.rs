@@ -1040,6 +1040,24 @@ impl<'a, 'b, Conn, Schema, Table>
     DrizzleBuilder<'a, Conn, Schema, InsertBuilder<'b, Schema, InsertInitial, Table>, InsertInitial>
 {
     #[inline]
+    pub fn value<T>(
+        self,
+        value: Table::Insert<T>,
+    ) -> DrizzleBuilder<
+        'a,
+        Conn,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: SQLiteTable<'b>,
+        Table::Insert<T>: SQLModel<'b, SQLiteValue<'b>>,
+    {
+        self.values([value])
+    }
+
+    #[inline]
     pub fn values<T>(
         self,
         values: impl IntoIterator<Item = Table::Insert<T>>,

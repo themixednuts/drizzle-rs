@@ -186,6 +186,15 @@ impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
     Table: PostgresTable<'a>,
 {
+    /// Inserts a single row and transitions to ValuesSet state
+    #[inline]
+    pub fn value<T>(
+        self,
+        value: Table::Insert<T>,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table> {
+        self.values([value])
+    }
+
     /// Sets values to insert and transitions to ValuesSet state
     #[inline]
     pub fn values<I, T>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>

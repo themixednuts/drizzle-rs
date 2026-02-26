@@ -81,6 +81,23 @@ impl<'a, Schema, Table>
     TransactionBuilder<'a, Schema, InsertBuilder<'a, Schema, InsertInitial, Table>, InsertInitial>
 {
     #[inline]
+    pub fn value<T>(
+        self,
+        value: Table::Insert<T>,
+    ) -> TransactionBuilder<
+        'a,
+        Schema,
+        InsertBuilder<'a, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: SQLiteTable<'a>,
+        Table::Insert<T>: SQLModel<'a, SQLiteValue<'a>>,
+    {
+        self.values([value])
+    }
+
+    #[inline]
     pub fn values<T>(
         self,
         values: impl IntoIterator<Item = Table::Insert<T>>,
