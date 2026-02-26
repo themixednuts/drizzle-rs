@@ -9,6 +9,8 @@ A type-safe SQL query builder / ORM-ish layer for Rust, inspired by Drizzle ORM.
 
 ### 1. Install
 
+Add the library and install the CLI:
+
 ```toml
 [dependencies]
 drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
@@ -22,11 +24,12 @@ cargo install drizzle-cli --git https://github.com/themixednuts/drizzle-rs --loc
 ### 2. Initialize & configure
 
 ```bash
-drizzle init -d sqlite    # creates drizzle.config.toml
+drizzle init --dialect sqlite
 ```
 
+This creates `drizzle.config.toml`. Point it at your schema and database:
+
 ```toml
-# drizzle.config.toml
 dialect = "sqlite"
 schema = "src/schema.rs"
 out = "./drizzle"
@@ -37,7 +40,7 @@ url = "./dev.db"
 
 ### 3. Define your schema
 
-**New project** — write your schema in `src/schema.rs`. Each `#[SQLiteTable]` generates `Select*`, `Insert*`, and `Update*` companion types.
+Write your schema in `src/schema.rs`. Each `#[SQLiteTable]` generates `Select*`, `Insert*`, `Update*`, and `PartialSelect*` companion types.
 
 ```rust
 use drizzle::sqlite::prelude::*;
@@ -68,31 +71,18 @@ pub struct Schema {
 }
 ```
 
-**Interactive wizard** — build a schema step-by-step with guided prompts:
+Alternatively, use `drizzle new` for an interactive schema builder, or `drizzle introspect` to reverse-engineer a schema from an existing database.
+
+### 4. Migrate
 
 ```bash
-drizzle new                   # interactive schema builder
-drizzle new --json            # read schema definition from stdin as JSON
-drizzle new --json --from schema.json   # read JSON from a file
-drizzle new --export-json schema.json   # export schema as JSON after building
-drizzle new --schema-help     # print the expected JSON shape and exit
+drizzle generate              # diff schema → SQL migration files
+drizzle generate --name init  # name the migration
+drizzle migrate               # apply pending migrations
+drizzle push                  # skip migration files, apply schema diff directly
 ```
 
-**Existing database** — pull the schema from a live database instead:
-
-```bash
-drizzle introspect            # generates a schema snapshot from the database
-drizzle introspect --init     # also initializes migration metadata as a baseline
-```
-
-> `drizzle pull` is an alias for `introspect`. Use `--tablesFilter` to include/exclude tables by glob pattern.
-
-### 4. Generate & apply migrations
-
-```bash
-drizzle generate    # diff schema → SQL migration files
-drizzle migrate     # apply pending migrations
-```
+> `push` is useful during development. Use `generate` + `migrate` for production.
 
 ### 5. Connect & query
 
@@ -105,13 +95,84 @@ let (db, Schema { users, posts }) = Drizzle::new(conn, Schema::new());
 
 > See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
 
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `drizzle init` | Create a new `drizzle.config.toml` |
+| `drizzle new` | Interactive schema builder (`--json` for JSON input) |
+| `drizzle generate` | Diff schema and emit SQL migration files (`--custom` for an empty migration) |
+| `drizzle migrate` | Apply pending migrations (`--plan` to preview, `--safe` to verify first) |
+| `drizzle push` | Apply schema diff directly without migration files (`--explain` for dry run) |
+| `drizzle introspect` | Reverse-engineer schema from a live database (`--init` to baseline) |
+| `drizzle status` | Show which migrations have been applied |
+| `drizzle check` | Validate your config file |
+| `drizzle export` | Print the schema as raw SQL (`--sql file.sql` to write to file) |
+| `drizzle up` | Upgrade migration snapshots to the latest format |
+
+> `drizzle pull` is an alias for `introspect`. All commands accept `-c <path>` to use a custom config file and `--db <name>` for multi-database configs.
+
+## Generated Models
+
+Each `#[SQLiteTable]` (or `#[PostgresTable]`) generates four companion types from your struct. Given:
+
+```rust
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary, autoincrement)]
+    pub id: i64,
+    pub name: String,
+    pub email: Option<String>,
+    pub age: i64,
+}
+```
+
+| Model | Purpose | Fields |
+|-------|---------|--------|
+| `SelectUsers` | Query results | Matches the table columns exactly |
+| `InsertUsers` | Insert rows | `new(name, age)` requires non-default fields; `with_email(...)` for optional ones |
+| `UpdateUsers` | Update rows | `default()` starts empty; `with_age(27)` sets fields to update |
+| `PartialSelectUsers` | Selective columns | All fields `Option<T>`; `with_name()` picks which columns to include |
+
+### Insert models
+
+`new()` takes only the required fields (columns without a default or autoincrement). Chain `with_*` methods for optional fields:
+
+```rust
+InsertUsers::new("Alex Smith", 26i64)
+    .with_email("alex@example.com")
+```
+
+### Update models
+
+Start from `default()` and set only the fields you want to change. The query won't compile unless at least one field is set:
+
+```rust
+UpdateUsers::default()
+    .with_age(27)
+    .with_email("new@example.com")
+```
+
+### Partial select models
+
+Pick specific columns to return. Unselected fields come back as `None`:
+
+```rust
+let partial: Vec<PartialSelectUsers> = db
+    .select(PartialSelectUsers::default().with_name().with_email())
+    .from(users)
+    .all()?;
+```
+
 ## CRUD
+
+```rust
+use drizzle::core::expr::{eq, gt, in_subquery, min, row};
+```
 
 ### Select
 
 ```rust
-use drizzle::core::expr::eq;
-
 // All rows
 let all: Vec<SelectUsers> = db.select(()).from(users).all()?;
 
@@ -129,13 +190,9 @@ let names: Vec<(String,)> = db
     .all()?;
 ```
 
-### Typed Subqueries
-
-`SELECT` builders are expressions, so you can pass them directly into comparison and set operators.
+`SELECT` builders are expressions — pass them directly into comparisons and set operators:
 
 ```rust
-use drizzle::core::expr::{eq, gt, in_subquery, min, row};
-
 let min_id = db.select(min(users.id)).from(users);
 let newer: Vec<SelectUsers> = db
     .select(())
@@ -155,11 +212,15 @@ let matched: Vec<SelectUsers> = db
     .all()?;
 ```
 
-Breaking change: `.into_scalar()` was removed. Use the typed `SELECT` builder directly.
-
 ### Insert
 
 ```rust
+// Single row
+db.insert(users)
+    .value(InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"))
+    .execute()?;
+
+// Multiple rows
 db.insert(users)
     .values([
         InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"),
@@ -171,8 +232,6 @@ db.insert(users)
 ### Update
 
 ```rust
-use drizzle::core::expr::eq;
-
 db.update(users)
     .set(UpdateUsers::default().with_age(27))
     .r#where(eq(users.id, 1))
@@ -182,8 +241,6 @@ db.update(users)
 ### Delete
 
 ```rust
-use drizzle::core::expr::eq;
-
 db.delete(users)
     .r#where(eq(users.id, 1))
     .execute()?;
@@ -198,7 +255,7 @@ use drizzle::sqlite::connection::SQLiteTransactionType;
 
 db.transaction(SQLiteTransactionType::Deferred, |tx| {
     tx.insert(users)
-        .values([InsertUsers::new("Alice", 28i64)])
+        .value(InsertUsers::new("Alice", 28i64))
         .execute()?;
 
     let all: Vec<SelectUsers> = tx.select(()).from(users).all()?;
@@ -210,24 +267,25 @@ db.transaction(SQLiteTransactionType::Deferred, |tx| {
 Savepoints nest inside transactions — a failed savepoint rolls back without aborting the outer transaction:
 
 ```rust
+use drizzle::sqlite::connection::SQLiteTransactionType;
 use drizzle::core::error::DrizzleError;
 
 let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
     tx.insert(users)
-        .values([InsertUsers::new("Alice", 28i64)])
+        .value(InsertUsers::new("Alice", 28i64))
         .execute()?;
 
     // This savepoint fails and rolls back, but the outer transaction continues
     let _ = tx.savepoint(|stx| {
         stx.insert(users)
-            .values([InsertUsers::new("Bad Data", -1i64)])
+            .value(InsertUsers::new("Bad Data", -1i64))
             .execute()?;
         Err(DrizzleError::Other("rollback this part".into()))
     });
 
     // Alice is still inserted
     tx.insert(users)
-        .values([InsertUsers::new("Bob", 32i64)])
+        .value(InsertUsers::new("Bob", 32i64))
         .execute()?;
 
     let all: Vec<SelectUsers> = tx.select(()).from(users).all()?;
@@ -239,7 +297,7 @@ let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
 
 ## Prepared Statements
 
-Typed placeholders are created from columns — wrong bind types fail at compile time.
+Placeholders are created from columns — wrong bind types fail at compile time.
 
 ```rust
 use drizzle::core::expr::eq;
@@ -310,18 +368,15 @@ let rows: Vec<UserWithPost> = db
     .all()?;
 ```
 
-## Typed Aliases (`Tag`)
+## Aliases
 
-Use a `Tag` to create compile-time-safe aliases for self-joins, CTEs, and
-typed `Select` models.
+Use a `Tag` to create compile-time-safe aliases for self-joins and CTEs.
+The `tag!` macro defines one in a single line:
 
 ```rust
 use drizzle::sqlite::prelude::*;
 
-struct U;
-impl drizzle::core::Tag for U {
-    const NAME: &'static str = "u";
-}
+tag!(U, "u");
 
 let u = Users::alias::<U>();
 let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
@@ -330,10 +385,9 @@ let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 Aliases are tag-driven (`alias::<Tag>()` / `into_cte::<Tag>()`) and always use
 the compile-time name from `Tag::NAME`.
 
-## Dialect Type Markers
+## Cast Targets
 
-`core::types` stays the canonical type system, and each dialect exposes
-marker values for cast targets.
+Each dialect provides cast target markers for use with `cast()`:
 
 ```rust
 use drizzle::core::expr::cast;
@@ -361,7 +415,7 @@ let rows: Vec<SelectUsers> = db
 
 ## PostgreSQL
 
-Use the same `schema.rs` pattern as SQLite, but with Postgres macros.
+Same pattern as SQLite, but with Postgres macros.
 
 ```rust
 // schema.rs
@@ -396,7 +450,7 @@ fn main() -> drizzle::Result<()> {
     db.create()?;
 
     db.insert(accounts)
-        .values([InsertAccounts::new("Acme")])
+        .value(InsertAccounts::new("Acme"))
         .execute()?;
 
     let rows: Vec<SelectAccounts> = db.select(()).from(accounts).all()?;
@@ -406,6 +460,31 @@ fn main() -> drizzle::Result<()> {
 ```
 
 > For async, use `drizzle::postgres::tokio::Drizzle` with `tokio_postgres::connect`.
+
+## Runtime Migrations
+
+Apply migrations at startup without the CLI. Load your migration folder into a `MigrationSet` and call `db.migrate()`.
+
+```rust
+use drizzle::migrations::MigrationSet;
+use drizzle::Dialect;
+
+let migrations = MigrationSet::from_dir("./drizzle", Dialect::Sqlite)?;
+db.migrate(&migrations)?;
+```
+
+`migrate` creates the internal bookkeeping table on first run and skips migrations that have already been applied.
+
+### Push
+
+For development, `push` skips migration files entirely — it introspects the live database, diffs it against your schema, and applies the changes directly.
+
+```rust
+let schema = Schema::new();
+db.push(&schema)?;
+```
+
+> `push` is intended for rapid iteration. Use `migrate` with versioned migration files for production deployments.
 
 ## License
 
