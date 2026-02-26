@@ -759,15 +759,11 @@ impl<Schema> Drizzle<Schema> {
         schema: &S,
     ) -> drizzle_core::error::Result<()> {
         let desired = schema.to_snapshot();
-        // Extract the set of schema names from the desired snapshot so we
-        // can scope the introspection queries that use `pg_get_indexdef()` /
-        // `pg_get_expr()` to only our schemas.  These functions call
-        // `relation_open()` which is not MVCC-protected and will fail if a
-        // concurrent session drops objects via `DROP SCHEMA ... CASCADE`.
+        // Scope introspection to only our schemas. pg_get_indexdef() /
+        // pg_get_expr() call relation_open() which is not MVCC-protected
+        // and will fail if a concurrent session drops objects.
         let target_schemas: Vec<String> = match &desired {
-            drizzle_migrations::schema::Snapshot::Postgres(pg) => {
-                pg.table_names().into_iter().map(|(s, _)| s).collect()
-            }
+            drizzle_migrations::schema::Snapshot::Postgres(pg) => pg.schema_names(),
             _ => Vec::new(),
         };
         let live = self.introspect_impl(if target_schemas.is_empty() {
@@ -775,20 +771,12 @@ impl<Schema> Drizzle<Schema> {
         } else {
             Some(&target_schemas)
         })?;
-        // Normalize the live snapshot for push comparison:
-        // - Scope to only desired tables (no DROP for unmanaged tables)
-        // - Filter serial-owned sequences
-        // - Normalize int4+nextval → SERIAL, strip ordinal_position
         let live = match (live, &desired) {
             (
-                drizzle_migrations::schema::Snapshot::Postgres(pg),
+                drizzle_migrations::schema::Snapshot::Postgres(live_pg),
                 drizzle_migrations::schema::Snapshot::Postgres(desired_pg),
             ) => {
-                let tables = desired_pg.table_names();
-                let mut scoped = pg.scoped_to_tables(&tables);
-                scoped.filter_serial_sequences();
-                scoped.normalize_columns_for_push();
-                drizzle_migrations::schema::Snapshot::Postgres(scoped)
+                drizzle_migrations::schema::Snapshot::Postgres(live_pg.prepare_for_push(desired_pg))
             }
             (other, _) => other,
         };

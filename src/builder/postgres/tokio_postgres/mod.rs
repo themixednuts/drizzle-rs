@@ -804,9 +804,7 @@ impl<Schema> Drizzle<Schema> {
     ) -> drizzle_core::error::Result<()> {
         let desired = schema.to_snapshot();
         let target_schemas: Vec<String> = match &desired {
-            drizzle_migrations::schema::Snapshot::Postgres(pg) => {
-                pg.table_names().into_iter().map(|(s, _)| s).collect()
-            }
+            drizzle_migrations::schema::Snapshot::Postgres(pg) => pg.schema_names(),
             _ => Vec::new(),
         };
         let live = self
@@ -816,20 +814,12 @@ impl<Schema> Drizzle<Schema> {
                 Some(&target_schemas)
             })
             .await?;
-        // Normalize the live snapshot for push comparison:
-        // - Scope to only desired tables (no DROP for unmanaged tables)
-        // - Filter serial-owned sequences
-        // - Normalize int4+nextval → SERIAL, strip ordinal_position
         let live = match (live, &desired) {
             (
-                drizzle_migrations::schema::Snapshot::Postgres(pg),
+                drizzle_migrations::schema::Snapshot::Postgres(live_pg),
                 drizzle_migrations::schema::Snapshot::Postgres(desired_pg),
             ) => {
-                let tables = desired_pg.table_names();
-                let mut scoped = pg.scoped_to_tables(&tables);
-                scoped.filter_serial_sequences();
-                scoped.normalize_columns_for_push();
-                drizzle_migrations::schema::Snapshot::Postgres(scoped)
+                drizzle_migrations::schema::Snapshot::Postgres(live_pg.prepare_for_push(desired_pg))
             }
             (other, _) => other,
         };

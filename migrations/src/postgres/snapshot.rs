@@ -1,7 +1,7 @@
 //! PostgreSQL snapshot types matching drizzle-kit format
 
 use crate::postgres::ddl::PostgresEntity;
-use crate::postgres::grammar::is_serial_expression;
+use crate::postgres::grammar::{extract_nextval_sequence, is_serial_expression};
 use crate::version::{ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -161,18 +161,8 @@ impl PostgresSnapshot {
                 if let PostgresEntity::Column(c) = e {
                     let default = c.default.as_deref()?;
                     if is_serial_expression(default, &c.schema) {
-                        // Extract seq name from nextval('...'::regclass)
-                        let inner = default
-                            .strip_prefix("nextval('")?
-                            .strip_suffix("'::regclass)")?;
-                        let name_part = match inner.rfind('.') {
-                            Some(pos) => &inner[pos + 1..],
-                            None => inner,
-                        };
-                        let name = name_part.trim_matches('"');
-                        if !name.is_empty() {
-                            return Some((c.schema.to_string(), name.to_string()));
-                        }
+                        let name = extract_nextval_sequence(default)?;
+                        return Some((c.schema.to_string(), name));
                     }
                 }
                 None
@@ -236,6 +226,33 @@ impl PostgresSnapshot {
         tables
     }
 
+    /// Extract the unique schema names referenced by tables in this snapshot.
+    pub fn schema_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .table_names()
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Prepare a live (introspected) snapshot for push comparison against `desired`.
+    ///
+    /// Combines three normalization steps into a single call:
+    /// 1. Scope to only tables present in `desired` (avoids DROP for unmanaged tables)
+    /// 2. Filter serial-owned sequences (they're auto-managed by PostgreSQL)
+    /// 3. Normalize columns (int4+nextval→SERIAL, strip ordinal_position)
+    pub fn prepare_for_push(&self, desired: &Self) -> Self {
+        let tables = desired.table_names();
+        let mut scoped = self.scoped_to_tables(&tables);
+        scoped.filter_serial_sequences();
+        scoped.normalize_columns_for_push();
+        scoped
+    }
+
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -285,7 +302,37 @@ pub struct PostgresSnapshotV7 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::ddl::{Schema, Table};
+    use crate::postgres::ddl::{Column, Schema, Sequence, Table};
+
+    fn make_table(schema: &str, name: &str) -> PostgresEntity {
+        PostgresEntity::Table(Table {
+            schema: schema.to_string().into(),
+            name: name.to_string().into(),
+            is_rls_enabled: None,
+        })
+    }
+
+    fn make_column(schema: &str, table: &str, name: &str, sql_type: &str) -> Column {
+        Column::new(
+            schema.to_string(),
+            table.to_string(),
+            name.to_string(),
+            sql_type.to_string(),
+        )
+    }
+
+    fn make_sequence(schema: &str, name: &str) -> PostgresEntity {
+        PostgresEntity::Sequence(Sequence {
+            schema: schema.to_string().into(),
+            name: name.to_string().into(),
+            increment_by: None,
+            min_value: None,
+            max_value: None,
+            start_with: None,
+            cache_size: None,
+            cycle: None,
+        })
+    }
 
     #[test]
     fn test_new_snapshot() {
@@ -312,5 +359,215 @@ mod tests {
         snapshot.add_entity(PostgresEntity::Table(table));
 
         assert_eq!(snapshot.ddl.len(), 2);
+    }
+
+    #[test]
+    fn test_schema_names() {
+        let mut snap = PostgresSnapshot::new();
+        snap.add_entity(make_table("public", "users"));
+        snap.add_entity(make_table("auth", "sessions"));
+        snap.add_entity(make_table("public", "posts"));
+
+        let names = snap.schema_names();
+        assert_eq!(names, vec!["auth", "public"]);
+    }
+
+    #[test]
+    fn test_schema_names_empty() {
+        let snap = PostgresSnapshot::new();
+        assert!(snap.schema_names().is_empty());
+    }
+
+    #[test]
+    fn test_filter_serial_sequences() {
+        let mut snap = PostgresSnapshot::new();
+        snap.add_entity(make_table("public", "users"));
+        // Serial column with nextval default
+        let mut col = make_column("public", "users", "id", "int4");
+        col.default = Some("nextval('users_id_seq'::regclass)".into());
+        snap.add_entity(PostgresEntity::Column(col));
+        // The auto-created sequence
+        snap.add_entity(make_sequence("public", "users_id_seq"));
+        // An unrelated sequence that should survive
+        snap.add_entity(make_sequence("public", "custom_seq"));
+
+        snap.filter_serial_sequences();
+
+        let seq_names: Vec<&str> = snap
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Sequence(s) = e {
+                    Some(s.name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(seq_names, vec!["custom_seq"]);
+    }
+
+    #[test]
+    fn test_normalize_columns_for_push() {
+        let mut snap = PostgresSnapshot::new();
+        // int4 + nextval → should become SERIAL
+        let mut col = make_column("public", "users", "id", "int4");
+        col.default = Some("nextval('users_id_seq'::regclass)".into());
+        col.ordinal_position = Some(1);
+        col.type_schema = Some("pg_catalog".into());
+        snap.add_entity(PostgresEntity::Column(col));
+
+        // bigint + nextval → BIGSERIAL
+        let mut col2 = make_column("public", "users", "big_id", "bigint");
+        col2.default = Some("nextval('users_big_id_seq'::regclass)".into());
+        snap.add_entity(PostgresEntity::Column(col2));
+
+        // Regular column — should be untouched (except ordinal/type_schema)
+        let mut col3 = make_column("public", "users", "name", "text");
+        col3.ordinal_position = Some(3);
+        snap.add_entity(PostgresEntity::Column(col3));
+
+        snap.normalize_columns_for_push();
+
+        let columns: Vec<&Column> = snap
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Column(c) = e {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // id: int4+nextval → SERIAL, no default, no ordinal, no type_schema
+        assert_eq!(columns[0].sql_type.as_ref(), "SERIAL");
+        assert!(columns[0].default.is_none());
+        assert!(columns[0].ordinal_position.is_none());
+        assert!(columns[0].type_schema.is_none());
+
+        // big_id: bigint+nextval → BIGSERIAL
+        assert_eq!(columns[1].sql_type.as_ref(), "BIGSERIAL");
+        assert!(columns[1].default.is_none());
+
+        // name: unchanged type, ordinal stripped
+        assert_eq!(columns[2].sql_type.as_ref(), "text");
+        assert!(columns[2].ordinal_position.is_none());
+    }
+
+    #[test]
+    fn test_prepare_for_push() {
+        // Live snapshot has extra tables/sequences
+        let mut live = PostgresSnapshot::new();
+        live.add_entity(PostgresEntity::Schema(Schema::new("public")));
+        live.add_entity(make_table("public", "users"));
+        live.add_entity(make_table("public", "unmanaged"));
+        let mut col = make_column("public", "users", "id", "int4");
+        col.default = Some("nextval('users_id_seq'::regclass)".into());
+        col.ordinal_position = Some(1);
+        col.type_schema = Some("pg_catalog".into());
+        live.add_entity(PostgresEntity::Column(col));
+        live.add_entity(make_sequence("public", "users_id_seq"));
+
+        // Desired only has "users"
+        let mut desired = PostgresSnapshot::new();
+        desired.add_entity(make_table("public", "users"));
+
+        let result = live.prepare_for_push(&desired);
+
+        // "unmanaged" table should be filtered out
+        let table_names: Vec<&str> = result
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Table(t) = e {
+                    Some(t.name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(table_names, vec!["users"]);
+
+        // Serial sequence should be filtered
+        let seq_count = result
+            .ddl
+            .iter()
+            .filter(|e| matches!(e, PostgresEntity::Sequence(_)))
+            .count();
+        assert_eq!(seq_count, 0);
+
+        // Column should be normalized to SERIAL
+        let col = result
+            .ddl
+            .iter()
+            .find_map(|e| {
+                if let PostgresEntity::Column(c) = e {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(col.sql_type.as_ref(), "SERIAL");
+        assert!(col.default.is_none());
+        assert!(col.ordinal_position.is_none());
+        assert!(col.type_schema.is_none());
+    }
+
+    #[test]
+    fn test_scoped_to_tables_keeps_relevant_entities() {
+        let mut snap = PostgresSnapshot::new();
+        snap.add_entity(PostgresEntity::Schema(Schema::new("public")));
+        snap.add_entity(PostgresEntity::Schema(Schema::new("other")));
+        snap.add_entity(make_table("public", "users"));
+        snap.add_entity(make_table("other", "logs"));
+        snap.add_entity(make_sequence("public", "my_seq"));
+        snap.add_entity(make_sequence("other", "other_seq"));
+
+        let tables: HashSet<(String, String)> =
+            [("public".to_string(), "users".to_string())].into();
+        let scoped = snap.scoped_to_tables(&tables);
+
+        // Only "public" schema, "users" table, and "public" sequence
+        let schemas: Vec<&str> = scoped
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Schema(s) = e {
+                    Some(s.name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(schemas, vec!["public"]);
+
+        let tables: Vec<&str> = scoped
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Table(t) = e {
+                    Some(t.name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(tables, vec!["users"]);
+
+        let seqs: Vec<&str> = scoped
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Sequence(s) = e {
+                    Some(s.name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(seqs, vec!["my_seq"]);
     }
 }

@@ -7,7 +7,9 @@ use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, IndexColumn, Policy, PostgresEntity,
     PrimaryKey, Role, Schema, Sequence, Table, UniqueConstraint, View,
 };
-use super::grammar::{is_serial_expression, is_system_namespace, is_system_role};
+use super::grammar::{
+    extract_nextval_sequence, is_serial_expression, is_system_namespace, is_system_role,
+};
 use super::snapshot::PostgresSnapshot;
 use std::collections::HashSet;
 
@@ -209,29 +211,6 @@ pub struct IntrospectionResult {
     pub views: Vec<View>,
     pub policies: Vec<Policy>,
     pub errors: Vec<IntrospectError>,
-}
-
-/// Extract the sequence name from a `nextval('...'::regclass)` expression.
-///
-/// Handles patterns like:
-/// - `nextval('push_creates_id_seq'::regclass)` → `push_creates_id_seq`
-/// - `nextval('public.push_creates_id_seq'::regclass)` → `push_creates_id_seq`
-/// - `nextval('"public"."push_creates_id_seq"'::regclass)` → `push_creates_id_seq`
-fn extract_nextval_sequence(expr: &str) -> Option<String> {
-    let inner = expr
-        .strip_prefix("nextval('")?
-        .strip_suffix("'::regclass)")?;
-    // Take the part after the last '.' (schema separator)
-    let name_part = match inner.rfind('.') {
-        Some(pos) => &inner[pos + 1..],
-        None => inner,
-    };
-    // Strip surrounding quotes
-    let name = name_part.trim_matches('"');
-    if name.is_empty() {
-        return None;
-    }
-    Some(name.to_string())
 }
 
 impl IntrospectionResult {
