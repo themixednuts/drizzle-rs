@@ -10,12 +10,6 @@ use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
-
-#[derive(Debug, PostgresFromRow)]
 struct PgCountResult {
     count: i64,
 }
@@ -76,7 +70,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .from(simple)
         .r#where(eq(simple.name, "beta"));
 
-    let where_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let where_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
@@ -88,7 +82,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .order_by([asc(simple.name)])
         .limit(2);
 
-    let ordered_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let ordered_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
@@ -102,7 +96,7 @@ postgres_test!(simple_select_with_conditions, SimpleSchema, {
         .limit(2)
         .offset(2);
 
-    let offset_results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let offset_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
@@ -123,6 +117,11 @@ postgres_test!(select_all_columns, SimpleSchema, {
         sql,
         r#"SELECT "simple"."id", "simple"."name" FROM "simple""#
     );
+
+    // Also verify via DB execution
+    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "test");
 });
 
 postgres_test!(select_with_where, SimpleSchema, {
@@ -144,7 +143,7 @@ postgres_test!(select_with_where, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."name" = $1"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 });
@@ -173,7 +172,7 @@ postgres_test!(select_with_order_by, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alpha");
     assert_eq!(results[1].name, "beta");
@@ -199,7 +198,7 @@ postgres_test!(select_with_limit, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" LIMIT 2"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 });
 
@@ -229,7 +228,7 @@ postgres_test!(select_with_offset, SimpleSchema, {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
     );
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
     // After ordering: four, one, three, two - offset 1 skips "four"
     assert_eq!(results[0].name, "one");
@@ -246,7 +245,7 @@ postgres_test!(cte_after_join, SimpleSchema, {
     ];
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-    let results: Vec<PgSimpleResult> = {
+    let results: Vec<SelectSimple> = {
         struct SimpleTag;
         impl drizzle::core::Tag for SimpleTag {
             const NAME: &'static str = "simple_alias";
@@ -291,7 +290,7 @@ postgres_test!(cte_after_order_limit_offset, SimpleSchema, {
     ];
     drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-    let results: Vec<PgSimpleResult> = {
+    let results: Vec<SelectSimple> = {
         struct PagedSimpleTag;
         impl drizzle::core::Tag for PagedSimpleTag {
             const NAME: &'static str = "paged_simple";
@@ -394,7 +393,7 @@ postgres_test!(select_with_in_array, SimpleSchema, {
     // Should have PostgreSQL numbered placeholders
     assert!(sql.contains("$1"));
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3);
 });
 
@@ -418,7 +417,7 @@ postgres_test!(select_with_like_pattern, SimpleSchema, {
     assert!(sql.contains("LIKE"));
     assert!(sql.contains("$1"));
 
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 });
 

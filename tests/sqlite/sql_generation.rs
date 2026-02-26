@@ -16,6 +16,17 @@ sqlite_test!(test_simple_select_all_sql_generation, SimpleSchema, {
         sql.sql(),
         r#"SELECT "simple"."id", "simple"."name" FROM "simple""#
     );
+
+    // Also verify via DB execution
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("alice").with_id(1), InsertSimple::new("bob").with_id(2)])
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "alice");
+    assert_eq!(results[1].name, "bob");
 });
 
 #[cfg(feature = "uuid")]
@@ -53,6 +64,21 @@ sqlite_test!(test_select_all_with_where_clause, SimpleSchema, {
     let params: Vec<_> = sql.params().collect();
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Text("test".into()));
+
+    // Also verify via DB execution
+    drizzle_exec!(
+        db.insert(simple)
+            .values([
+                InsertSimple::new("test").with_id(1),
+                InsertSimple::new("other").with_id(2),
+            ])
+            => execute
+    );
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select(()).from(simple).r#where(eq(Simple::name, "test")) => all
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "test");
 });
 
 sqlite_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
@@ -68,6 +94,20 @@ sqlite_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
     let expected = r#"SELECT "simple"."id", "simple"."name" FROM "simple""#;
     assert_eq!(select_all_sql, expected);
     assert_eq!(select_specific_sql, expected);
+
+    // Also verify both produce identical DB results
+    drizzle_exec!(
+        db.insert(simple)
+            .values([InsertSimple::new("alice").with_id(1)])
+            => execute
+    );
+    let all_results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    let specific_results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name)).from(simple) => all
+    );
+    assert_eq!(all_results.len(), specific_results.len());
+    assert_eq!(all_results[0].id, specific_results[0].id);
+    assert_eq!(all_results[0].name, specific_results[0].name);
 });
 
 sqlite_test!(test_sql_macro, SimpleSchema, {

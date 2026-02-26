@@ -11,13 +11,6 @@ use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
-#[allow(dead_code)]
-#[derive(Debug, PostgresFromRow)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
-
 #[derive(Debug, PostgresFromRow)]
 #[from(SimpleView)]
 struct PgSimpleViewResult {
@@ -107,7 +100,7 @@ postgres_test!(schema_simple_works, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
@@ -289,7 +282,7 @@ postgres_test!(schema_multiple_inserts, SimpleSchema, {
     drizzle_exec!(stmt => execute);
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
 });

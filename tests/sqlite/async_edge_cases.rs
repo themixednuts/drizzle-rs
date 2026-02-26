@@ -5,15 +5,8 @@
 
 #![cfg(any(feature = "libsql", feature = "turso"))]
 
-use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle::sqlite::prelude::*;
-
-#[allow(dead_code)]
-#[derive(Debug, SQLiteFromRow)]
-struct SimpleResult {
-    id: i32,
-    name: String,
-}
 
 // ============================================================================
 // libsql async edge cases
@@ -38,7 +31,7 @@ mod libsql_edge_cases {
 
         // Wrap a query in a generous timeout - should complete well before
         let result = timeout(Duration::from_secs(5), async {
-            let results: Vec<SimpleResult> = db
+            let results: Vec<SelectSimple> = db
                 .select((simple.id, simple.name))
                 .from(simple)
                 .all()
@@ -58,7 +51,7 @@ mod libsql_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -83,7 +76,7 @@ mod libsql_edge_cases {
         // Start a select, then drop the future via select!
         tokio::select! {
             results = async {
-                let r: Vec<SimpleResult> = db.select((simple.id, simple.name))
+                let r: Vec<SelectSimple> = db.select((simple.id, simple.name))
                     .from(simple)
                     .all()
                     .await
@@ -98,7 +91,7 @@ mod libsql_edge_cases {
         }
 
         // Connection should still be usable
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -127,7 +120,7 @@ mod libsql_edge_cases {
         assert!(result.is_err());
 
         // Connection should still be usable after catching the panic
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -156,7 +149,7 @@ mod libsql_edge_cases {
             .unwrap();
 
         // Verify both records exist
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -171,7 +164,7 @@ mod libsql_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -195,7 +188,7 @@ mod libsql_edge_cases {
                 .unwrap();
         }
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -211,7 +204,7 @@ mod libsql_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
@@ -245,7 +238,7 @@ mod libsql_edge_cases {
         handle.await.unwrap();
 
         // Original db is still usable
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -273,7 +266,7 @@ mod libsql_edge_cases {
         // Clone and select from a spawned task
         let db_clone = db.db.clone();
         let handle = tokio::spawn(async move {
-            let results: Vec<SimpleResult> = db_clone
+            let results: Vec<SelectSimple> = db_clone
                 .select((simple.id, simple.name))
                 .from(simple)
                 .all()
@@ -286,7 +279,7 @@ mod libsql_edge_cases {
         assert_eq!(count, 5);
 
         // Original handle still works
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -322,7 +315,7 @@ mod libsql_edge_cases {
 
         assert!(result.is_ok());
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -354,7 +347,7 @@ mod turso_edge_cases {
             .unwrap();
 
         let result = timeout(Duration::from_secs(5), async {
-            let results: Vec<SimpleResult> = db
+            let results: Vec<SelectSimple> = db
                 .select((simple.id, simple.name))
                 .from(simple)
                 .all()
@@ -374,7 +367,7 @@ mod turso_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -397,7 +390,7 @@ mod turso_edge_cases {
 
         tokio::select! {
             results = async {
-                let r: Vec<SimpleResult> = db.select((simple.id, simple.name))
+                let r: Vec<SelectSimple> = db.select((simple.id, simple.name))
                     .from(simple)
                     .all()
                     .await
@@ -411,7 +404,7 @@ mod turso_edge_cases {
             }
         }
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -438,7 +431,7 @@ mod turso_edge_cases {
 
         assert!(result.is_err());
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -461,7 +454,7 @@ mod turso_edge_cases {
                 .unwrap();
         }
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -476,7 +469,7 @@ mod turso_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
@@ -510,7 +503,7 @@ mod turso_edge_cases {
         handle.await.unwrap();
 
         // Original db is still usable
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -538,7 +531,7 @@ mod turso_edge_cases {
         // Clone and select from a spawned task
         let db_clone = db.db.clone();
         let handle = tokio::spawn(async move {
-            let results: Vec<SimpleResult> = db_clone
+            let results: Vec<SelectSimple> = db_clone
                 .select((simple.id, simple.name))
                 .from(simple)
                 .all()
@@ -551,7 +544,7 @@ mod turso_edge_cases {
         assert_eq!(count, 5);
 
         // Original handle still works
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -590,7 +583,7 @@ mod turso_edge_cases {
         handle.await.unwrap();
 
         // Original db sees the committed data
-        let results: Vec<SimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()

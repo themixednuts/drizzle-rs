@@ -3,7 +3,7 @@
 use crate::common::schema::sqlite::InsertComplex;
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::Role;
-use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
 #[cfg(feature = "serde")]
 use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 
@@ -13,13 +13,6 @@ use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::ComplexSchema;
-
-#[allow(dead_code)]
-#[derive(Debug, SQLiteFromRow)]
-struct SimpleResult {
-    id: i32,
-    name: String,
-}
 
 #[cfg(feature = "uuid")]
 #[allow(dead_code)]
@@ -50,7 +43,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .r#where(eq(simple.name, "beta"));
 
     // Test WHERE condition
-    let where_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let where_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
@@ -61,7 +54,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .order_by([asc(simple.name)])
         .limit(2);
     // Test ORDER BY with LIMIT
-    let ordered_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let ordered_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
@@ -75,7 +68,7 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
         .offset(2);
 
     // Test LIMIT with OFFSET
-    let offset_results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let offset_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");

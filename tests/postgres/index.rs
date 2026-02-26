@@ -10,13 +10,6 @@ use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
-#[allow(dead_code)]
-#[derive(Debug, PostgresFromRow)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
-
 // Test queries that would benefit from indexes
 postgres_test!(query_by_name_column, SimpleSchema, {
     let SimpleSchema { simple } = schema;
@@ -33,7 +26,7 @@ postgres_test!(query_by_name_column, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Bob"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -87,7 +80,7 @@ postgres_test!(query_large_dataset, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "User_025"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "User_025");

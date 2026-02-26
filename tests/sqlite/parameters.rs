@@ -2,7 +2,7 @@
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::{ComplexSchema, InsertComplex, Role, UpdateComplex};
-use crate::common::schema::sqlite::{InsertSimple, SimpleSchema, UpdateSimple};
+use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 use drizzle_macros::sqlite_test;
@@ -42,13 +42,6 @@ sqlite_test!(
     test_insert_with_placeholders_execute_and_retrieve,
     SimpleSchema,
     {
-        #[allow(dead_code)]
-        #[derive(SQLiteFromRow, Debug)]
-        struct SimpleResult {
-            id: i32,
-            name: String,
-        }
-
         let SimpleSchema { simple } = schema;
 
         // Create a typed placeholder from the column
@@ -66,7 +59,7 @@ sqlite_test!(
         assert_eq!(row_count, 1, "Should have inserted one row");
 
         // Retrieve the data to verify it was inserted correctly
-        let results: Vec<SimpleResult> = drizzle_exec!(
+        let results: Vec<SelectSimple> = drizzle_exec!(
             db.select((simple.id, simple.name))
                 .from(simple)
                 .r#where(eq(simple.name, "Alice"))
@@ -179,13 +172,6 @@ sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
 });
 
 sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
-    #[allow(dead_code)]
-    #[derive(SQLiteFromRow, Debug)]
-    struct SimpleResult {
-        id: i32,
-        name: String,
-    }
-
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -218,7 +204,7 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
     drizzle_assert_eq!(1, update_count, "Should have updated one row");
 
     // Verify the new name exists
-    let results: Vec<SimpleResult> = drizzle_exec!(
+    let results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated_name"))
@@ -228,7 +214,7 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
     assert_eq!(results[0].name, "updated_name");
 
     // Verify the original name is gone
-    let old_results: Vec<SimpleResult> = drizzle_exec!(
+    let old_results: Vec<SelectSimple> = drizzle_exec!(
         db.select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "original_name"))

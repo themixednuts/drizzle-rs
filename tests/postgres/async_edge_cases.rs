@@ -5,16 +5,9 @@
 
 #![cfg(feature = "tokio-postgres")]
 
-use crate::common::schema::postgres::{InsertSimple, SimpleSchema};
+use crate::common::schema::postgres::{InsertSimple, SelectSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-
-#[allow(dead_code)]
-#[derive(Debug, PostgresFromRow)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
 
 #[cfg(feature = "tokio-postgres")]
 mod tokio_postgres_edge_cases {
@@ -33,7 +26,7 @@ mod tokio_postgres_edge_cases {
             .unwrap();
 
         let result = timeout(Duration::from_secs(5), async {
-            let results: Vec<PgSimpleResult> = db
+            let results: Vec<SelectSimple> = db
                 .select((simple.id, simple.name))
                 .from(simple)
                 .all()
@@ -53,7 +46,7 @@ mod tokio_postgres_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -76,7 +69,7 @@ mod tokio_postgres_edge_cases {
 
         tokio::select! {
             results = async {
-                let r: Vec<PgSimpleResult> = db.select((simple.id, simple.name))
+                let r: Vec<SelectSimple> = db.select((simple.id, simple.name))
                     .from(simple)
                     .all()
                     .await
@@ -91,7 +84,7 @@ mod tokio_postgres_edge_cases {
         }
 
         // Connection should still be usable
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -120,7 +113,7 @@ mod tokio_postgres_edge_cases {
         assert!(result.is_err());
 
         // Connection should still be usable after catching the panic
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -144,7 +137,7 @@ mod tokio_postgres_edge_cases {
                 .unwrap();
         }
 
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -160,7 +153,7 @@ mod tokio_postgres_edge_cases {
             .await
             .unwrap();
 
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .r#where(eq(simple.name, "updated"))
@@ -194,7 +187,7 @@ mod tokio_postgres_edge_cases {
         handle.await.unwrap();
 
         // Original db is still usable
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -222,7 +215,7 @@ mod tokio_postgres_edge_cases {
         // Clone and select from a spawned task
         let db_clone = db.db.clone();
         let handle = tokio::spawn(async move {
-            let results: Vec<PgSimpleResult> = db_clone
+            let results: Vec<SelectSimple> = db_clone
                 .select((simple.id, simple.name))
                 .from(simple)
                 .all()
@@ -235,7 +228,7 @@ mod tokio_postgres_edge_cases {
         assert_eq!(count, 5);
 
         // Original handle still works
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -280,7 +273,7 @@ mod tokio_postgres_edge_cases {
         );
 
         // Original data should still be intact
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()
@@ -328,7 +321,7 @@ mod tokio_postgres_edge_cases {
 
         assert!(result.is_ok());
 
-        let results: Vec<PgSimpleResult> = db
+        let results: Vec<SelectSimple> = db
             .select((simple.id, simple.name))
             .from(simple)
             .all()

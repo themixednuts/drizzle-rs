@@ -8,13 +8,6 @@ use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 
 #[allow(dead_code)]
-#[derive(Debug, PostgresFromRow)]
-struct PgSimpleResult {
-    id: i32,
-    name: String,
-}
-
-#[allow(dead_code)]
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow)]
 struct PgComplexResult {
@@ -37,7 +30,7 @@ postgres_test!(condition_eq, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Alice"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -55,7 +48,7 @@ postgres_test!(condition_neq, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(neq(simple.name, "Alice"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -108,7 +101,7 @@ postgres_test!(condition_in_array, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -130,7 +123,7 @@ postgres_test!(condition_not_in_array, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(not_in_array(simple.name, ["Alice"]));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -200,7 +193,7 @@ postgres_test!(condition_like, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(like(simple.name, "test%"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
 
     // Contains match
@@ -208,7 +201,7 @@ postgres_test!(condition_like, SimpleSchema, {
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(like(simple.name, "%o%"));
-    let results: Vec<PgSimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3); // test_one, test_two, other all contain 'o'
 });
 
