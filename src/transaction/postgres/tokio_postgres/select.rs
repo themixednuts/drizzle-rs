@@ -2,10 +2,13 @@
 
 use crate::transaction::postgres::tokio_postgres::TransactionBuilder;
 use drizzle_core::ToSQL;
+use drizzle_core::traits::SQLTable;
 use drizzle_postgres::builder::{
-    SelectFromSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet,
-    SelectWhereSet, select::SelectBuilder,
+    CTEView, ExecutableState, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet,
+    SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    select::{AsCteState, IntoSelect, SelectBuilder},
 };
+use drizzle_postgres::common::PostgresSchemaType;
 use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
@@ -114,6 +117,24 @@ impl<'a, 'conn, Schema, T, M, R>
         TOrderBy: drizzle_core::ToSQL<'a, PostgresValue<'a>>,
     {
         let builder = self.builder.order_by(expressions);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn group_by(
+        self,
+        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
+        SelectGroupSet,
+    > {
+        let builder = self.builder.group_by(expressions);
         TransactionBuilder {
             transaction: self.transaction,
             builder,
@@ -241,6 +262,24 @@ impl<'a, 'conn, Schema, T, M, R>
         SelectWhereSet,
     >
 {
+    pub fn group_by(
+        self,
+        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
+        SelectGroupSet,
+    > {
+        let builder = self.builder.group_by(expressions);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
     pub fn limit(
         self,
         limit: usize,
@@ -273,6 +312,81 @@ impl<'a, 'conn, Schema, T, M, R>
         TOrderBy: drizzle_core::ToSQL<'a, PostgresValue<'a>>,
     {
         let builder = self.builder.order_by(expressions);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Post-GROUP BY State on TransactionBuilder
+//------------------------------------------------------------------------------
+
+impl<'a, 'conn, Schema, T, M, R>
+    TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
+        SelectGroupSet,
+    >
+{
+    pub fn having<E>(
+        self,
+        condition: E,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
+        SelectGroupSet,
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        let builder = self.builder.having(condition);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn order_by<TOrderBy>(
+        self,
+        expressions: TOrderBy,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
+        SelectOrderSet,
+    >
+    where
+        TOrderBy: drizzle_core::ToSQL<'a, PostgresValue<'a>>,
+    {
+        let builder = self.builder.order_by(expressions);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn limit(
+        self,
+        limit: usize,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
+        SelectLimitSet,
+    > {
+        let builder = self.builder.limit(limit);
         TransactionBuilder {
             transaction: self.transaction,
             builder,
@@ -334,5 +448,210 @@ impl<'a, 'conn, Schema, T, M, R>
             builder,
             _phantom: PhantomData,
         }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Set operations on TransactionBuilder
+//------------------------------------------------------------------------------
+
+impl<'a, 'conn, Schema, State, T, M, R>
+    TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+where
+    State: ExecutableState,
+{
+    pub fn union(
+        self,
+        other: impl IntoSelect<'a, Schema, M, R>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    > {
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder: self.builder.union(other),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn union_all(
+        self,
+        other: impl IntoSelect<'a, Schema, M, R>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    > {
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder: self.builder.union_all(other),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn intersect(
+        self,
+        other: impl IntoSelect<'a, Schema, M, R>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    > {
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder: self.builder.intersect(other),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn intersect_all(
+        self,
+        other: impl IntoSelect<'a, Schema, M, R>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    > {
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder: self.builder.intersect_all(other),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn except(
+        self,
+        other: impl IntoSelect<'a, Schema, M, R>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    > {
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder: self.builder.except(other),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn except_all(
+        self,
+        other: impl IntoSelect<'a, Schema, M, R>,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    > {
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder: self.builder.except_all(other),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Post-SetOp state on TransactionBuilder
+//------------------------------------------------------------------------------
+
+impl<'a, 'conn, Schema, T, M, R>
+    TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectSetOpSet,
+    >
+{
+    pub fn order_by<TOrderBy>(
+        self,
+        expressions: TOrderBy,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
+        SelectOrderSet,
+    >
+    where
+        TOrderBy: drizzle_core::ToSQL<'a, PostgresValue<'a>>,
+    {
+        let builder = self.builder.order_by(expressions);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn limit(
+        self,
+        limit: usize,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
+        SelectLimitSet,
+    > {
+        let builder = self.builder.limit(limit);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn offset(
+        self,
+        offset: usize,
+    ) -> TransactionBuilder<
+        'a,
+        'conn,
+        Schema,
+        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
+        SelectOffsetSet,
+    > {
+        let builder = self.builder.offset(offset);
+        TransactionBuilder {
+            transaction: self.transaction,
+            builder,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// into_cte on TransactionBuilder
+//------------------------------------------------------------------------------
+
+impl<'a, 'conn, Schema, State, T, M, R>
+    TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+where
+    State: AsCteState,
+    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+{
+    #[inline]
+    pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
+        self,
+    ) -> CTEView<
+        'a,
+        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased<Tag>,
+        SelectBuilder<'a, Schema, State, T, M, R>,
+    > {
+        self.builder.into_cte::<Tag>()
     }
 }
