@@ -33,36 +33,15 @@ struct NamePair {
     name2: String,
 }
 
-struct AliasS;
-impl drizzle::core::Tag for AliasS {
-    const NAME: &'static str = "s";
-}
-
-struct AliasSimple;
-impl drizzle::core::Tag for AliasSimple {
-    const NAME: &'static str = "s_alias";
-}
+tag!(AliasS, "s");
+tag!(AliasSimple, "s_alias");
 
 #[cfg(feature = "uuid")]
-struct AliasC1;
+tag!(AliasC1, "c1");
 #[cfg(feature = "uuid")]
-impl drizzle::core::Tag for AliasC1 {
-    const NAME: &'static str = "c1";
-}
-
+tag!(AliasC2, "c2");
 #[cfg(feature = "uuid")]
-struct AliasC2;
-#[cfg(feature = "uuid")]
-impl drizzle::core::Tag for AliasC2 {
-    const NAME: &'static str = "c2";
-}
-
-#[cfg(feature = "uuid")]
-struct AliasU;
-#[cfg(feature = "uuid")]
-impl drizzle::core::Tag for AliasU {
-    const NAME: &'static str = "u";
-}
+tag!(AliasU, "u");
 
 #[cfg(feature = "uuid")]
 struct AliasP;

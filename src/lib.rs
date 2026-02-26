@@ -211,6 +211,7 @@ pub mod sqlite {
             OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
+        pub use drizzle_core::tag;
         pub use drizzle_core::traits::*;
         // SQLite macros
         pub use drizzle_macros::{
@@ -263,6 +264,7 @@ pub mod postgres {
             OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
+        pub use drizzle_core::tag;
         pub use drizzle_core::traits::*;
         // PostgreSQL macros
         pub use drizzle_macros::{
