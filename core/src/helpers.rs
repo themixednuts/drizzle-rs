@@ -26,8 +26,8 @@ where
     L: ToSQL<'a, Value>,
     R: ToSQL<'a, Value>,
 {
-    let left = left.to_sql().parens();
-    let right = right.to_sql().parens();
+    let left = left.to_sql();
+    let right = right.to_sql();
     let op_sql = if all {
         SQL::from(op).push(Token::ALL)
     } else {

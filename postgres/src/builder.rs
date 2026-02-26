@@ -34,7 +34,7 @@ pub use refresh::{
 };
 pub use select::{
     SelectForSet, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
-    SelectOffsetSet, SelectOrderSet, SelectWhereSet,
+    SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 pub use update::{
     UpdateFromSet, UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
