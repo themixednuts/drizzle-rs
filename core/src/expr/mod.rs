@@ -112,6 +112,38 @@ impl private::Sealed for Agg {}
 impl AggregateKind for Scalar {}
 impl AggregateKind for Agg {}
 
+/// Combine aggregate kinds: if either input is Agg, output is Agg.
+///
+/// This follows SQL's aggregate propagation semantics: an expression
+/// derived from any aggregate sub-expression is itself aggregate
+/// (e.g. `SUM(x) + 5` is aggregate, not scalar).
+///
+/// # Truth Table
+///
+/// | Left | Right | Output |
+/// |------|-------|--------|
+/// | Scalar | Scalar | Scalar |
+/// | Scalar | Agg | Agg |
+/// | Agg | Scalar | Agg |
+/// | Agg | Agg | Agg |
+pub trait AggOr<Rhs: AggregateKind>: AggregateKind {
+    /// The resulting aggregate kind.
+    type Output: AggregateKind;
+}
+
+impl AggOr<Scalar> for Scalar {
+    type Output = Scalar;
+}
+impl AggOr<Agg> for Scalar {
+    type Output = Agg;
+}
+impl AggOr<Scalar> for Agg {
+    type Output = Agg;
+}
+impl AggOr<Agg> for Agg {
+    type Output = Agg;
+}
+
 // =============================================================================
 // Core Expression Trait
 // =============================================================================
