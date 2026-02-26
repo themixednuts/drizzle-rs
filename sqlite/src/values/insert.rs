@@ -9,7 +9,7 @@ use drizzle_core::{Placeholder, SQL, SQLParam, TypedPlaceholder};
 
 use super::{OwnedSQLiteValue, SQLiteValue};
 
-/// Wrapper for SQL with type information
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct ValueWrapper<'a, V: SQLParam, T> {
     pub value: SQL<'a, V>,

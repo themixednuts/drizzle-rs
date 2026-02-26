@@ -42,8 +42,8 @@ drizzle_core::impl_join_helpers!(
     sql_type: SQL<'a, SQLiteValue<'a>>,
 );
 
-/// Helper function to create VALUES clause for INSERT with pattern validation
-/// All rows must have the same column pattern (enforced by type parameter)
+/// Creates a VALUES clause for INSERT statements.
+/// All rows must declare the same set of columns.
 pub(crate) fn values<'a, Table, T>(
     rows: impl IntoIterator<Item = Table::Insert<T>>,
 ) -> SQL<'a, SQLiteValue<'a>>

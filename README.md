@@ -1,6 +1,6 @@
 # Drizzle RS
 
-A type-safe SQL query builder / ORM-ish layer for Rust, inspired by Drizzle ORM.
+A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 
 > [!WARNING]
 > This project is still evolving. Expect breaking changes.
@@ -40,7 +40,7 @@ url = "./dev.db"
 
 ### 3. Define your schema
 
-Write your schema in `src/schema.rs`. Each `#[SQLiteTable]` generates `Select*`, `Insert*`, `Update*`, and `PartialSelect*` companion types.
+Write your schema in `src/schema.rs`. Each `#[SQLiteTable]` generates companion types for selecting, inserting, updating, and partial queries (see [Generated Models](#generated-models)).
 
 ```rust
 use drizzle::sqlite::prelude::*;
@@ -330,7 +330,7 @@ let stmt = db
 stmt.execute(db.conn(), [new_name.bind("New Name"), target.bind(1)])?;
 ```
 
-> Use `.prepare().into_owned()` to store a prepared statement beyond the current borrow scope.
+> Use `.prepare().into_owned()` to convert a prepared statement into a self-contained value that can be stored or moved freely.
 
 ## Joins
 
@@ -382,8 +382,8 @@ let u = Users::alias::<U>();
 let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 ```
 
-Aliases are tag-driven (`alias::<Tag>()` / `into_cte::<Tag>()`) and always use
-the compile-time name from `Tag::NAME`.
+Every alias or CTE is created through a `Tag` type (`alias::<Tag>()` / `into_cte::<Tag>()`),
+which embeds its SQL name at compile time.
 
 ## Cast Targets
 

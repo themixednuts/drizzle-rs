@@ -89,6 +89,9 @@ impl<'a> QueryBuilder<'a> {
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
+    /// Begins a SELECT query with the specified columns.
+    ///
+    /// Pass individual columns, tuples of columns, or `()` to select all columns.
     pub fn select<T>(
         &self,
         columns: T,
@@ -128,7 +131,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
-    /// Begins a SELECT DISTINCT ON query with the specified columns.
+    /// Begins a SELECT DISTINCT ON query (PostgreSQL-specific).
+    ///
+    /// Returns one row per distinct combination of the `on` columns.
+    /// Use with `order_by` to control which row is kept for each group.
     pub fn select_distinct_on<On, Columns>(
         &self,
         on: On,
@@ -151,6 +157,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
+    /// Begins a SELECT query with the specified columns after a CTE.
     pub fn select<T>(
         &self,
         columns: T,
@@ -306,6 +313,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
+    /// Begins an INSERT query for the specified table.
     pub fn insert<Table>(
         &self,
         table: Table,
@@ -325,6 +333,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
+    /// Begins an UPDATE query for the specified table.
     pub fn update<Table>(
         &self,
         table: Table,
@@ -344,6 +353,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
+    /// Begins a DELETE query for the specified table.
     pub fn delete<Table>(
         &self,
         table: Table,
@@ -363,6 +373,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
+    /// Starts a WITH (CTE) clause. Chain additional `.with()` calls to add more CTEs.
     pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         C: CTEDefinition<'a>,

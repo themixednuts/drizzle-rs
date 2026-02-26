@@ -15,7 +15,7 @@ use uuid::Uuid;
 // InsertValue Definition - SQL-based value for inserts
 //------------------------------------------------------------------------------
 
-/// Wrapper for SQL with type information
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct ValueWrapper<'a, V: SQLParam, T> {
     pub value: SQL<'a, V>,
