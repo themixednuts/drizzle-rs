@@ -116,3 +116,10 @@ fn boolean_enforcement_ui() {
     t.pass("tests/ui/boolean_enforcement/pass/*.rs");
     t.compile_fail("tests/ui/boolean_enforcement/fail/*.rs");
 }
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn aggregate_propagation_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/aggregate_propagation/pass/*.rs");
+}
