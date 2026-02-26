@@ -11,11 +11,11 @@ error[E0277]: DATE_TRUNC output type is not defined for `drizzle::sqlite::types:
 help: the following other types implement trait `DateTruncPolicy<D>`
  --> core/src/expr/datetime.rs
   |
-  | impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamp`
-...
   | impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamptz`
+...
+  | impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamp`
 note: required by a bound in `date_trunc`
  --> core/src/expr/datetime.rs
   |
@@ -64,8 +64,8 @@ error[E0277]: DATE_TRUNC output type is not defined for `drizzle::sqlite::types:
 help: the following other types implement trait `DateTruncPolicy<D>`
  --> core/src/expr/datetime.rs
   |
-  | impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamp`
-...
   | impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamptz`
+...
+  | impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamp`

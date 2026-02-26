@@ -48,10 +48,10 @@ impl LengthPolicy<SQLiteDialect> for drizzle_types::sqlite::types::Any {
     type Output = SqliteInteger;
 }
 
-impl LengthPolicy<PostgresDialect> for PgText {
+impl LengthPolicy<PostgresDialect> for PgVarchar {
     type Output = PgInt4;
 }
-impl LengthPolicy<PostgresDialect> for PgVarchar {
+impl LengthPolicy<PostgresDialect> for PgText {
     type Output = PgInt4;
 }
 impl LengthPolicy<PostgresDialect> for PgChar {
