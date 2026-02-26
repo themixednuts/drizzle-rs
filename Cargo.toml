@@ -246,14 +246,14 @@ postgres-sync = [
   "postgres",
   "dep:postgres",
   "drizzle-postgres?/postgres-sync",
-  "drizzle-macros/postgres",
+  "drizzle-macros/postgres-sync",
 ]
 tokio-postgres = [
   "postgres",
   "dep:tokio-postgres",
   "dep:tokio",
   "drizzle-postgres?/tokio-postgres",
-  "drizzle-macros/postgres",
+  "drizzle-macros/tokio-postgres",
 ]
 
 [dependencies]
