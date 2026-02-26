@@ -668,7 +668,7 @@ pub mod queries {
 
     /// Query to get all views
     pub const VIEWS_QUERY: &str = r#"
-        SELECT 
+        SELECT
             schemaname AS schema,
             viewname AS name,
             definition,
@@ -677,7 +677,7 @@ pub mod queries {
         WHERE schemaname NOT LIKE 'pg_%'
           AND schemaname != 'information_schema'
         UNION ALL
-        SELECT 
+        SELECT
             schemaname AS schema,
             matviewname AS name,
             definition,
@@ -687,6 +687,211 @@ pub mod queries {
           AND schemaname != 'information_schema'
         ORDER BY schema, name
     "#;
+
+    /// Query to get all indexes
+    pub const INDEXES_QUERY: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    idx.relname AS name,
+    ix.indisunique AS is_unique,
+    ix.indisprimary AS is_primary,
+    am.amname AS method,
+    array_agg(pg_get_indexdef(ix.indexrelid, s.n, true) ORDER BY s.n) AS columns,
+    pg_get_expr(ix.indpred, ix.indrelid) AS where_clause
+FROM pg_index ix
+JOIN pg_class idx ON idx.oid = ix.indexrelid
+JOIN pg_class tbl ON tbl.oid = ix.indrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+JOIN pg_am am ON am.oid = idx.relam
+JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
+WHERE ns.nspname NOT LIKE 'pg_%'
+  AND ns.nspname <> 'information_schema'
+GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
+ORDER BY ns.nspname, tbl.relname, idx.relname
+"#;
+
+    /// Query to get all foreign keys
+    pub const FOREIGN_KEYS_QUERY: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    con.conname AS name,
+    array_agg(src.attname ORDER BY s.ord) AS columns,
+    ns_to.nspname AS schema_to,
+    tbl_to.relname AS table_to,
+    array_agg(dst.attname ORDER BY s.ord) AS columns_to,
+    con.confupdtype::text AS on_update,
+    con.confdeltype::text AS on_delete
+FROM pg_constraint con
+JOIN pg_class tbl ON tbl.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+JOIN pg_class tbl_to ON tbl_to.oid = con.confrelid
+JOIN pg_namespace ns_to ON ns_to.oid = tbl_to.relnamespace
+JOIN unnest(con.conkey) WITH ORDINALITY AS s(attnum, ord) ON TRUE
+JOIN pg_attribute src ON src.attrelid = tbl.oid AND src.attnum = s.attnum
+JOIN unnest(con.confkey) WITH ORDINALITY AS r(attnum, ord) ON r.ord = s.ord
+JOIN pg_attribute dst ON dst.attrelid = tbl_to.oid AND dst.attnum = r.attnum
+WHERE con.contype = 'f'
+  AND ns.nspname NOT LIKE 'pg_%'
+  AND ns.nspname <> 'information_schema'
+GROUP BY ns.nspname, tbl.relname, con.conname, ns_to.nspname, tbl_to.relname, con.confupdtype, con.confdeltype
+ORDER BY ns.nspname, tbl.relname, con.conname
+"#;
+
+    /// Query to get all primary keys
+    pub const PRIMARY_KEYS_QUERY: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    con.conname AS name,
+    array_agg(att.attname ORDER BY s.ord) AS columns
+FROM pg_constraint con
+JOIN pg_class tbl ON tbl.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+JOIN unnest(con.conkey) WITH ORDINALITY AS s(attnum, ord) ON TRUE
+JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
+WHERE con.contype = 'p'
+  AND ns.nspname NOT LIKE 'pg_%'
+  AND ns.nspname <> 'information_schema'
+GROUP BY ns.nspname, tbl.relname, con.conname
+ORDER BY ns.nspname, tbl.relname, con.conname
+"#;
+
+    /// Query to get all unique constraints
+    pub const UNIQUES_QUERY: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    con.conname AS name,
+    array_agg(att.attname ORDER BY s.ord) AS columns,
+    FALSE AS nulls_not_distinct
+FROM pg_constraint con
+JOIN pg_class tbl ON tbl.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+JOIN unnest(con.conkey) WITH ORDINALITY AS s(attnum, ord) ON TRUE
+JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
+WHERE con.contype = 'u'
+  AND ns.nspname NOT LIKE 'pg_%'
+  AND ns.nspname <> 'information_schema'
+GROUP BY ns.nspname, tbl.relname, con.conname
+ORDER BY ns.nspname, tbl.relname, con.conname
+"#;
+
+    /// Query to get all check constraints
+    pub const CHECKS_QUERY: &str = r#"
+SELECT
+    ns.nspname AS schema,
+    tbl.relname AS table,
+    con.conname AS name,
+    pg_get_expr(con.conbin, con.conrelid) AS expression
+FROM pg_constraint con
+JOIN pg_class tbl ON tbl.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE con.contype = 'c'
+  AND ns.nspname NOT LIKE 'pg_%'
+  AND ns.nspname <> 'information_schema'
+ORDER BY ns.nspname, tbl.relname, con.conname
+"#;
+
+    /// Query to get all roles
+    pub const ROLES_QUERY: &str = r#"
+SELECT
+    rolname AS name,
+    rolcreatedb AS create_db,
+    rolcreaterole AS create_role,
+    rolinherit AS inherit
+FROM pg_roles
+ORDER BY rolname
+"#;
+
+    /// Query to get all policies
+    pub const POLICIES_QUERY: &str = r#"
+SELECT
+    schemaname AS schema,
+    tablename AS table,
+    policyname AS name,
+    upper(permissive) AS as_clause,
+    upper(cmd) AS for_clause,
+    roles AS to,
+    qual AS using,
+    with_check AS with_check
+FROM pg_policies
+WHERE schemaname NOT LIKE 'pg_%'
+  AND schemaname <> 'information_schema'
+ORDER BY schemaname, tablename, policyname
+"#;
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/// Convert PostgreSQL foreign key action codes to human-readable strings.
+///
+/// PostgreSQL stores FK actions as single-character codes in `pg_constraint`.
+pub fn pg_action_code_to_string(code: &str) -> String {
+    match code {
+        "a" => "NO ACTION",
+        "r" => "RESTRICT",
+        "c" => "CASCADE",
+        "n" => "SET NULL",
+        "d" => "SET DEFAULT",
+        _ => "NO ACTION",
+    }
+    .to_string()
+}
+
+/// Parse raw index column strings from `pg_get_indexdef` into `RawIndexColumnInfo`.
+///
+/// Each string is a single column expression like `"name"`, `"name DESC"`,
+/// `"lower(name)"`, or `"name text_pattern_ops"`.
+pub fn parse_index_columns(cols: Vec<String>) -> Vec<RawIndexColumnInfo> {
+    cols.into_iter()
+        .map(|c| {
+            let trimmed = c.trim().to_string();
+            let upper = trimmed.to_uppercase();
+
+            let asc = !upper.contains(" DESC");
+            let nulls_first = upper.contains(" NULLS FIRST");
+
+            // Strip sort/nulls directives for opclass parsing / expression detection.
+            let mut core = trimmed.clone();
+            for token in [" ASC", " DESC", " NULLS FIRST", " NULLS LAST"] {
+                if let Some(pos) = core.to_uppercase().find(token) {
+                    core.truncate(pos);
+                    break;
+                }
+            }
+            let core = core.trim().to_string();
+
+            // Heuristic: treat as expression if it contains parentheses or spaces.
+            let is_expression = core.contains('(')
+                || core.contains(')')
+                || core.contains(' ')
+                || core.contains("::");
+
+            // Heuristic opclass parsing: split whitespace and take second token if it looks like opclass.
+            let mut opclass: Option<String> = None;
+            let mut name = core.clone();
+            let parts: Vec<&str> = core.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let second = parts[1];
+                if !matches!(second.to_uppercase().as_str(), "ASC" | "DESC" | "NULLS") {
+                    opclass = Some(second.to_string());
+                    name = parts[0].to_string();
+                }
+            }
+
+            RawIndexColumnInfo {
+                name,
+                is_expression,
+                asc,
+                nulls_first,
+                opclass,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
