@@ -1,40 +1,25 @@
-error[E0603]: function `select` is private
-  --> tests/ui/boolean_enforcement/fail/where_int_column_pg.rs:18:41
+error[E0277]: `Int4` is not a boolean SQL type
+  --> tests/ui/boolean_enforcement/fail/where_int_column_pg.rs:20:46
    |
-18 |     let _ = drizzle::postgres::helpers::select(())
-   |                                         ^^^^^^ private function
+20 |     let _ = qb.select(()).from(user).r#where(user.age);
+   |                                      ------- ^^^^^^^^ logical operations require a boolean-typed expression
+   |                                      |
+   |                                      required by a bound introduced by this call
    |
-note: the function `select` is defined here
-  --> postgres/src/helpers.rs
+   = help: the trait `BooleanLike` is not implemented for `Int4`
+help: the following other types implement trait `BooleanLike`
+  --> types/src/sql/mod.rs
    |
-   |     order_by, select, select_distinct, set, union, union_all, update, r#where,
-   |               ^^^^^^
-help: consider importing this function instead
+   | impl BooleanLike for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl BooleanLike for crate::postgres::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean`
+note: required by a bound in `drizzle::postgres::builder::select::<impl drizzle::postgres::builder::QueryBuilder<'a, S, drizzle::postgres::builder::SelectFromSet, T, M, R>>::r#where`
+  --> postgres/src/builder/select.rs
    |
-18 -     let _ = drizzle::postgres::helpers::select(())
-18 +     let _ = drizzle_core::helpers::select(())
-   |
-help: import `select` directly
-   |
-18 -     let _ = drizzle::postgres::helpers::select(())
-18 +     let _ = drizzle_core::helpers::select(())
-   |
-
-error[E0599]: no method named `from` found for struct `drizzle::core::SQL<'a, V>` in the current scope
-  --> tests/ui/boolean_enforcement/fail/where_int_column_pg.rs:19:10
-   |
-18 |        let _ = drizzle::postgres::helpers::select(())
-   |   _____________-
-   |  |_____________|
-19 | ||         .from(user)
-   | ||_________-^^^^_____- help: use associated function syntax instead: `drizzle::core::SQL<'_, _>::from(user)`
-   | |          ||
-   | |__________|this is an associated function, not a method
-   |
-   |
-   = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
-note: the candidate is defined in the trait `From`
-  --> $RUST/core/src/convert/mod.rs
-   |
-   |     fn from(value: T) -> Self;
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R>
+   |            ------- required by a bound in this associated function
+...
+   |         E::SQLType: drizzle_core::types::BooleanLike,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::postgres::builder::select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R>>::r#where`

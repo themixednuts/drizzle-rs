@@ -20,7 +20,7 @@ error[E0277]: `drizzle::postgres::types::Text` is not a numeric SQL type
 note: required by a bound in `to_timestamp`
  --> core/src/expr/datetime.rs
   |
-  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, Scalar>
+  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate>
   |        ------------ required by a bound in this function
 ...
   |     E::SQLType: Numeric,

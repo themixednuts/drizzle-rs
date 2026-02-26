@@ -13,9 +13,9 @@ struct Schema {
 }
 
 fn main() {
-    let user = User::default();
-    // Text column is not BooleanLike — should fail
-    let _ = drizzle::postgres::helpers::select(())
-        .from(user)
-        .r#where(user.name);
+    let qb = drizzle::postgres::builder::QueryBuilder::new::<Schema>();
+    let Schema { user } = Schema::new();
+
+    // Text column is not BooleanLike in PostgreSQL — should fail
+    let _ = qb.select(()).from(user).r#where(user.name);
 }

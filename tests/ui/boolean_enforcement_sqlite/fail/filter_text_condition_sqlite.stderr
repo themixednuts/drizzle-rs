@@ -1,0 +1,25 @@
+error[E0277]: `drizzle::sqlite::types::Text` is not a boolean SQL type
+  --> tests/ui/boolean_enforcement_sqlite/fail/filter_text_condition_sqlite.rs:14:47
+   |
+14 |     let _ = count_all::<SQLiteValue>().filter(user.name);
+   |                                        ------ ^^^^^^^^^ logical operations require a boolean-typed expression
+   |                                        |
+   |                                        required by a bound introduced by this call
+   |
+   = help: the trait `BooleanLike` is not implemented for `drizzle::sqlite::types::Text`
+help: the following other types implement trait `BooleanLike`
+  --> types/src/sql/mod.rs
+   |
+   | impl BooleanLike for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl BooleanLike for crate::postgres::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Boolean`
+note: required by a bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg>>::filter`
+  --> core/src/expr/window.rs
+   |
+   |     pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg>
+   |            ------ required by a bound in this associated function
+...
+   |         C::SQLType: BooleanLike,
+   |                     ^^^^^^^^^^^ required by this bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg>>::filter`

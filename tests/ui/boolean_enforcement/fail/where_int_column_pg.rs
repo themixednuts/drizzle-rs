@@ -13,9 +13,9 @@ struct Schema {
 }
 
 fn main() {
-    let user = User::default();
+    let qb = drizzle::postgres::builder::QueryBuilder::new::<Schema>();
+    let Schema { user } = Schema::new();
+
     // Int4 is not BooleanLike in PostgreSQL — should fail
-    let _ = drizzle::postgres::helpers::select(())
-        .from(user)
-        .r#where(user.age);
+    let _ = qb.select(()).from(user).r#where(user.age);
 }

@@ -1,0 +1,23 @@
+error[E0277]: `Int4` is not a boolean SQL type
+  --> tests/ui/boolean_enforcement/fail/or_int_input_pg.rs:14:36
+   |
+14 |     let _ = or::<PostgresValue, _, _>([user.age]);
+   |                                    ^ logical operations require a boolean-typed expression
+   |
+   = help: the trait `BooleanLike` is not implemented for `Int4`
+help: the following other types implement trait `BooleanLike`
+  --> types/src/sql/mod.rs
+   |
+   | impl BooleanLike for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl BooleanLike for crate::postgres::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean`
+note: required by a bound in `or`
+  --> core/src/expr/logical.rs
+   |
+   | pub fn or<'a, V, I, E>(
+   |        -- required by a bound in this function
+...
+   |     E::SQLType: BooleanLike,
+   |                 ^^^^^^^^^^^ required by this bound in `or`

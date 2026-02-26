@@ -26,7 +26,7 @@ help: the following other types implement trait `Compatible<Rhs>`
    | |     crate::postgres::types::Int4,
    | |     crate::postgres::types::Int8,
 ...  |
-   | |     crate::postgres::types::Any
+   | |     crate::postgres::types::Enum
    | | );
    | |_^ `drizzle::postgres::types::Boolean` implements `Compatible<Placeholder>`
    = note: required for `()` to implement `CastTypePolicy<PostgresDialect, drizzle::postgres::types::Boolean, Int4>`
