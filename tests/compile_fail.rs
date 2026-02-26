@@ -21,7 +21,7 @@ fn cast_targets_postgres_ui() {
     t.compile_fail("tests/ui/cast_targets/postgres/fail/*.rs");
 }
 
-#[cfg(feature = "rusqlite")]
+#[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn raw_sql_ui() {
     let t = trybuild::TestCases::new();
