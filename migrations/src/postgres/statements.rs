@@ -1373,7 +1373,7 @@ fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]
 
         if ready.is_empty() {
             // Circular dependency - just add remaining in any order
-            result.extend(remaining.into_iter());
+            result.extend(remaining);
             break;
         }
 
