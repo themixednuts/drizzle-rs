@@ -167,7 +167,7 @@ let partial: Vec<PartialSelectUsers> = db
 ## CRUD
 
 ```rust
-use drizzle::core::expr::{eq, gt, in_subquery, min, row};
+use drizzle::core::expr::*;
 ```
 
 ### Select
@@ -245,6 +245,54 @@ db.delete(users)
     .r#where(eq(users.id, 1))
     .execute()?;
 ```
+
+## Expressions
+
+Aggregate functions and common SQL expressions:
+
+```rust
+// Aggregates
+let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
+let oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
+
+// Coalesce — first non-null value
+let rows: Vec<(String,)> = db
+    .select((coalesce(users.email, "unknown"),))
+    .from(users)
+    .all()?;
+```
+
+> Available: `count`, `sum`, `avg`, `min`, `max`, `coalesce`, `abs`, `upper`, `lower`, `length`, and more in `drizzle::core::expr`.
+
+## Group By
+
+```rust
+db.select((users.name, alias(count(users.id), "total")))
+    .from(users)
+    .group_by([users.name])
+    .having(gt(count(users.id), 1))
+    .all()?;
+```
+
+## Set Operations
+
+Combine queries with `union`, `union_all`, `intersect`, and `except`:
+
+```rust
+let results: Vec<(String,)> = db
+    .select((users.name,))
+    .from(users)
+    .r#where(lte(users.age, 25))
+    .union(
+        db.select((users.name,))
+          .from(users)
+          .r#where(gte(users.age, 30))
+    )
+    .order_by(asc(users.name))
+    .all()?;
+```
+
+> `union` removes duplicates. Use `union_all` to keep them.
 
 ## Transactions
 
