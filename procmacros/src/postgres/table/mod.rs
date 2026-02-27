@@ -115,6 +115,12 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate const DDL entities
     let const_ddl = generate_const_ddl(&ctx, &column_zst_idents)?;
 
+    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    #[cfg(feature = "query")]
+    let query_api_impls = generate_query_api_impls(&ctx)?;
+    #[cfg(not(feature = "query"))]
+    let query_api_impls = quote!();
+
     // Get the table name from the context for use in generated code
     let table_name = &ctx.table_name;
 
@@ -151,9 +157,92 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #driver_impls
         #json_impls
         #const_ddl
+        #query_api_impls
     };
 
     Ok(expanded)
+}
+
+/// Generate query API impls (RelationDef, accessors, FromJsonValue) for PostgreSQL.
+///
+/// Shared by both `#[PostgresTable]` and `#[PostgresView]`.
+#[cfg(feature = "query")]
+pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
+    use crate::common::type_is_uuid;
+    use crate::postgres::field::PostgreSQLType;
+
+    let struct_ident = ctx.struct_ident;
+    let select_model_ident = &ctx.select_model_ident;
+    let partial_select_model_ident = &ctx.select_model_partial_ident;
+    let table_name = &ctx.table_name;
+
+    // Collect FK infos
+    let fk_infos: Vec<FkInfo> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|f| {
+            let fk = f.foreign_key.as_ref()?;
+            Some(FkInfo {
+                source_column: f.column_name.clone(),
+                target_table_ident: fk.table.clone(),
+                target_column_ident: fk.column.clone(),
+                is_nullable: f.is_nullable,
+            })
+        })
+        .collect();
+
+    // Collect field info for FromJsonValue generation
+    let field_json_infos: Vec<FieldJsonInfo> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let enum_storage = if f.is_pgenum {
+                // Native PostgreSQL enums are always text-based
+                Some(EnumStorage::Text)
+            } else if f.is_enum {
+                match f.column_type {
+                    PostgreSQLType::Integer
+                    | PostgreSQLType::Bigint
+                    | PostgreSQLType::Smallint
+                    | PostgreSQLType::Serial
+                    | PostgreSQLType::Smallserial
+                    | PostgreSQLType::Bigserial => Some(EnumStorage::Integer),
+                    _ => Some(EnumStorage::Text),
+                }
+            } else {
+                None
+            };
+            FieldJsonInfo {
+                ident: f.ident.clone(),
+                column_name: f.column_name.clone(),
+                is_nullable: f.is_nullable,
+                is_uuid: type_is_uuid(&f.base_type),
+                enum_storage,
+                base_type: f.base_type.clone(),
+            }
+        })
+        .collect();
+
+    // Collect column names
+    let column_names: Vec<String> = ctx
+        .field_infos
+        .iter()
+        .map(|f| f.column_name.clone())
+        .collect();
+
+    let inner = generate_query_api(
+        struct_ident,
+        ctx.struct_vis,
+        table_name,
+        select_model_ident,
+        partial_select_model_ident,
+        &fk_infos,
+        &field_json_infos,
+        &column_names,
+    )?;
+
+    Ok(inner)
 }
 
 /// Generate a const that references the original table marker tokens from the attribute.

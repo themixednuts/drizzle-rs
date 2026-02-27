@@ -361,6 +361,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         }
     };
 
+    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    #[cfg(feature = "query")]
+    let query_api_impls = crate::sqlite::table::generate_query_api_impls(&ctx)?;
+    #[cfg(not(feature = "query"))]
+    let query_api_impls = quote!();
+
     Ok(quote! {
         #view_marker_const
 
@@ -406,6 +412,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         #to_sql_impl
         #sql_view_impl
         #sql_view_info_impl
+        #query_api_impls
 
         impl drizzle::core::HasSelectModel for #struct_ident {
             type SelectModel = #select_model_ident;

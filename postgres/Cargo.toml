@@ -86,6 +86,7 @@ smallvec = ["dep:smallvec"]
 compact-str = ["dep:compact_str"]
 bytes = ["dep:bytes"]
 
+query = ["std", "dep:serde_json", "serde_json/alloc", "drizzle-core/query"]
 postgres-sync = ["std", "dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
 tokio-postgres = [
     "std",

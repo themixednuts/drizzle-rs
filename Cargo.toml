@@ -236,6 +236,14 @@ tracing = [
 # Disabled by default to preserve fallible behavior on unexpected/corrupt data.
 unchecked = []
 
+# Relational Query API (db.query(table).with(...).find_many())
+query = [
+  "drizzle-core/query",
+  "drizzle-macros/query",
+  "drizzle-sqlite?/query",
+  "drizzle-postgres?/query",
+]
+
 # Add dialect-specific features back for gating re-exports
 sqlite = ["drizzle-seed/sqlite", "drizzle-macros/sqlite", "dep:drizzle-sqlite"]
 postgres = ["drizzle-seed/postgres", "drizzle-macros/postgres", "dep:drizzle-postgres"]

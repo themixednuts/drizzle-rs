@@ -15,7 +15,7 @@ help: the following other types implement trait `BooleanLike`
 ...
    | impl BooleanLike for crate::postgres::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Boolean`
-note: required by a bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R>>::r#where`
+note: required by a bound in `select::<impl drizzle::postgres::builder::QueryBuilder<'a, S, SelectFromSet, T, M, R>>::r#where`
   --> postgres/src/builder/select.rs
    |
    |     pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R>

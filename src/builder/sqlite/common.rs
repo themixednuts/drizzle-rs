@@ -278,6 +278,153 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     }
 }
 
+// =============================================================================
+// Query API: DrizzleQueryBuilder
+// =============================================================================
+
+/// Wrapper around `drizzle_core::query::QueryBuilder` holding a connection reference.
+///
+/// Created by `Drizzle::query()`. Builder methods configure relations, filtering,
+/// and pagination. Terminal methods (`find_many`, `find_first`) execute the query
+/// and are added by each driver module.
+///
+/// Two lifetimes:
+/// - `'db` — connection reference
+/// - `'a` — expression/value lifetime (independent of connection)
+#[cfg(all(feature = "sqlite", feature = "query"))]
+pub struct DrizzleQueryBuilder<
+    'db,
+    'a,
+    Conn,
+    Schema,
+    T,
+    Rels = (),
+    Cols = drizzle_core::query::AllColumns,
+> {
+    pub(crate) drizzle: &'db Drizzle<Conn, Schema>,
+    pub(crate) builder: drizzle_core::query::QueryBuilder<SQLiteValue<'a>, T, Rels, Cols>,
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<Conn, Schema> Drizzle<Conn, Schema> {
+    /// Creates a relational query builder for the given table.
+    ///
+    /// ```ignore
+    /// let users = db.query(user)
+    ///     .with(user.posts())
+    ///     .find_many()?;
+    /// ```
+    pub fn query<T>(&self, _table: T) -> DrizzleQueryBuilder<'_, '_, Conn, Schema, T>
+    where
+        T: drizzle_core::query::QueryTable,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self,
+            builder: drizzle_core::query::QueryBuilder::new(),
+        }
+    }
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cols>
+    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, Cols>
+{
+    /// Includes a relation in the query results.
+    pub fn with<R, N, C>(
+        self,
+        handle: drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C>,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        (
+            drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C>,
+            Rels,
+        ),
+        Cols,
+    >
+    where
+        R: drizzle_core::relation::RelationDef<Source = T> + 'static,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.with(handle),
+        }
+    }
+
+    /// Adds a typed WHERE clause using the expression system.
+    pub fn r#where<E>(self, condition: E) -> Self
+    where
+        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.r#where(condition),
+        }
+    }
+
+    /// Adds a typed ORDER BY clause.
+    pub fn order_by<E>(self, expr: E) -> Self
+    where
+        E: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.order_by(expr),
+        }
+    }
+
+    /// Sets a LIMIT on the query.
+    pub fn limit(self, n: u32) -> Self {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.limit(n),
+        }
+    }
+
+    /// Sets an OFFSET on the query.
+    pub fn offset(self, n: u32) -> Self {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.offset(n),
+        }
+    }
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels>
+    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns>
+where
+    T: drizzle_core::query::QueryTable,
+{
+    /// Selects only the specified columns (whitelist).
+    pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
+        self,
+        selector: S,
+    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns>
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.columns(selector),
+        }
+    }
+
+    /// Excludes the specified columns (blacklist).
+    pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
+        self,
+        selector: S,
+    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns>
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.omit(selector),
+        }
+    }
+}
+
 impl<'d, 'a, Conn, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'d, Conn, S, T, State>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,

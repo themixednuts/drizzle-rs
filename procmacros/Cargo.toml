@@ -54,3 +54,5 @@ turso = ["sqlite"]
 # PostgreSQL driver-specific features
 postgres-sync = ["postgres"]
 tokio-postgres = ["postgres"]
+# Relational query API code generation
+query = []

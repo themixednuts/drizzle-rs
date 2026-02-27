@@ -160,6 +160,17 @@ pub mod core {
         pub use drizzle_core::dialect::*;
     }
 
+    /// Query API types (relational queries with nested loading).
+    #[cfg(feature = "query")]
+    pub mod query {
+        pub use drizzle_core::query::*;
+    }
+
+    /// Re-export serde_json for proc macro generated code.
+    #[cfg(feature = "query")]
+    #[doc(hidden)]
+    pub use drizzle_core::serde_json;
+
     /// Row inference types and traits.
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,

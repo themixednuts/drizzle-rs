@@ -18,7 +18,7 @@ error[E0277]: the trait bound `for<'r> (): drizzle_core::row::ColumnTypeCompatib
    = note: required for `SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::Null, Agg>>,)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (Option<i64>,), SumRow>`
    = note: 1 redundant requirement hidden
    = note: required for `Scoped<SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::Null, Agg>>,)>, Cons<User, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (Option<i64>,), SumRow>`
-note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, drizzle::sqlite::builder::QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>

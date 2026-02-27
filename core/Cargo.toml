@@ -56,6 +56,20 @@ cidr = ["dep:cidr"]
 geo-types = ["dep:geo-types"]
 bit-vec = ["dep:bit-vec"]
 compact-str = []
+
+# Query API (relational query builder with JSON subqueries)
+query = [
+    "std",
+    "dep:serde_json", "serde_json/alloc",
+    "dep:serde",
+    # Enable serde for wrapper types so they implement DeserializeOwned
+    # (required by generated FromJsonValue impls that use T::deserialize(&Value))
+    "compact_str/serde",
+    "smallvec/serde",
+    "bit-vec?/serde_std",
+    "arrayvec?/serde",
+    "bytes?/serde",
+]
 smallvec-types = []
 
 # Database backends
