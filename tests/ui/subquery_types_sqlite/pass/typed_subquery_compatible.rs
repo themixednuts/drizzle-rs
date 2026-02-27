@@ -36,7 +36,7 @@ fn main() {
         .select((left_users.id, left_users.name))
         .from(left_users)
         .r#where(in_subquery(
-            row((left_users.id, left_users.name)),
+            (left_users.id, left_users.name),
             right_rows,
         ));
 }

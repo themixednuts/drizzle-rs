@@ -17,8 +17,8 @@ error[E0277]: SQL type `drizzle::sqlite::types::Integer` is not compatible with 
 note: required by a bound in `drizzle::core::expr::in_subquery`
   --> core/src/expr/set.rs
    |
-   | pub fn in_subquery<'a, V, E, S>(
+   | pub fn in_subquery<'a, V, L, S, M>(
    |        ----------- required by a bound in this function
 ...
-   |     E::SQLType: Compatible<S::SQLType>,
+   |     L::SQLType: Compatible<S::SQLType>,
    |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `in_subquery`

@@ -3,7 +3,7 @@ error[E0271]: type mismatch resolving `<QueryBuilder<'_, Schema, SelectFromSet, 
    |
 28 |           .r#where(in_subquery(
    |  __________________^
-29 | |             row((left_users.id, left_users.name)),
+29 | |             (left_users.id, left_users.name),
 30 | |             right_ids,
 31 | |         ));
    | |_________^ expected `(_, _)`, found `Integer`
