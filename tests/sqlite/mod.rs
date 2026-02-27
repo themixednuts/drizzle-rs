@@ -16,6 +16,8 @@ pub mod json;
 pub mod migrations;
 pub mod parameters;
 pub mod prepare;
+#[cfg(feature = "query")]
+pub mod query;
 pub mod schema;
 pub mod seed;
 pub mod select;

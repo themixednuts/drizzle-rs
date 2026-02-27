@@ -29,6 +29,143 @@ pub struct DrizzleBuilder<'a, DrizzleRef, Schema, Builder, State> {
     pub(crate) state: PhantomData<(Schema, State, &'a ())>,
 }
 
+/// Shared Postgres query builder wrapper (relational query API).
+#[cfg(feature = "query")]
+pub struct DrizzleQueryBuilder<
+    'db,
+    'a,
+    DrizzleRef,
+    Schema,
+    T,
+    Rels = (),
+    Cols = drizzle_core::query::AllColumns,
+> {
+    pub(crate) drizzle: DrizzleRef,
+    pub(crate) builder: drizzle_core::query::QueryBuilder<PostgresValue<'a>, T, Rels, Cols>,
+    pub(crate) _schema: PhantomData<(&'db (), Schema)>,
+}
+
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols>
+    DrizzleQueryBuilder<'db, 'a, DrizzleRef, Schema, T, Rels, Cols>
+{
+    /// Includes a relation in the query results.
+    pub fn with<R, N, C>(
+        self,
+        handle: drizzle_core::query::RelationHandle<PostgresValue<'a>, R, N, C>,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        (
+            drizzle_core::query::RelationHandle<PostgresValue<'a>, R, N, C>,
+            Rels,
+        ),
+        Cols,
+    >
+    where
+        R: drizzle_core::relation::RelationDef<Source = T> + 'static,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.with(handle),
+            _schema: PhantomData,
+        }
+    }
+
+    /// Adds a typed WHERE clause using the expression system.
+    pub fn r#where<E>(self, condition: E) -> Self
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.r#where(condition),
+            _schema: PhantomData,
+        }
+    }
+
+    /// Adds a typed ORDER BY clause.
+    pub fn order_by<E>(self, expr: E) -> Self
+    where
+        E: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.order_by(expr),
+            _schema: PhantomData,
+        }
+    }
+
+    /// Sets a LIMIT on the query.
+    pub fn limit(self, n: u32) -> Self {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.limit(n),
+            _schema: PhantomData,
+        }
+    }
+
+    /// Sets an OFFSET on the query.
+    pub fn offset(self, n: u32) -> Self {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.offset(n),
+            _schema: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels>
+    DrizzleQueryBuilder<'db, 'a, DrizzleRef, Schema, T, Rels, drizzle_core::query::AllColumns>
+where
+    T: drizzle_core::query::QueryTable,
+{
+    /// Selects only the specified columns (whitelist).
+    pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
+        self,
+        selector: S,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+    > {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.columns(selector),
+            _schema: PhantomData,
+        }
+    }
+
+    /// Selects all columns except the specified ones (blacklist).
+    pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
+        self,
+        selector: S,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+    > {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.omit(selector),
+            _schema: PhantomData,
+        }
+    }
+}
+
 /// Intermediate builder for typed ON CONFLICT within a PostgreSQL Drizzle wrapper.
 pub struct DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
     drizzle: DrizzleRef,
