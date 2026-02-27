@@ -201,7 +201,7 @@ sqlite_test!(
         let results: Vec<SubqueryResult> = drizzle_exec!(
             db.select((simple.id, simple.name))
                 .from(simple)
-                .r#where(in_subquery(row((simple.id, simple.name)), bob_row))
+                .r#where(in_subquery((simple.id, simple.name), bob_row))
                 => all
         );
 

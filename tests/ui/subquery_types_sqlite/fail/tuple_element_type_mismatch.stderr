@@ -1,10 +1,10 @@
 error[E0277]: SQL type `drizzle::sqlite::types::Integer` is not compatible with `drizzle::sqlite::types::Text`
-  --> tests/ui/subquery_types_sqlite/fail/tuple_element_type_mismatch.rs:31:13
+  --> tests/ui/subquery_types_sqlite/fail/tuple_element_type_mismatch.rs:31:14
    |
 30 |         .r#where(in_subquery(
    |                  ----------- required by a bound introduced by this call
-31 |             row((left_users.id, left_users.name)),
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+31 |             (left_users.id, left_users.name),
+   |              ^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
    |
    = help: the trait `Compatible<drizzle::sqlite::types::Text>` is not implemented for `drizzle::sqlite::types::Integer`
    = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
@@ -18,19 +18,19 @@ error[E0277]: SQL type `drizzle::sqlite::types::Integer` is not compatible with 
 note: required by a bound in `drizzle::core::expr::in_subquery`
   --> core/src/expr/set.rs
    |
-   | pub fn in_subquery<'a, V, E, S>(
+   | pub fn in_subquery<'a, V, L, S, M>(
    |        ----------- required by a bound in this function
 ...
-   |     E::SQLType: Compatible<S::SQLType>,
+   |     L::SQLType: Compatible<S::SQLType>,
    |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `in_subquery`
 
 error[E0277]: SQL type `drizzle::sqlite::types::Text` is not compatible with `drizzle::sqlite::types::Integer`
-  --> tests/ui/subquery_types_sqlite/fail/tuple_element_type_mismatch.rs:31:13
+  --> tests/ui/subquery_types_sqlite/fail/tuple_element_type_mismatch.rs:31:29
    |
 30 |         .r#where(in_subquery(
    |                  ----------- required by a bound introduced by this call
-31 |             row((left_users.id, left_users.name)),
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+31 |             (left_users.id, left_users.name),
+   |                             ^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
    |
    = help: the trait `Compatible<drizzle::sqlite::types::Integer>` is not implemented for `drizzle::sqlite::types::Text`
    = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
@@ -64,9 +64,9 @@ help: the following other types implement trait `Compatible<Rhs>`
 note: required by a bound in `drizzle::core::expr::in_subquery`
   --> core/src/expr/set.rs
    |
-   | pub fn in_subquery<'a, V, E, S>(
+   | pub fn in_subquery<'a, V, L, S, M>(
    |        ----------- required by a bound in this function
 ...
-   |     E::SQLType: Compatible<S::SQLType>,
+   |     L::SQLType: Compatible<S::SQLType>,
    |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `in_subquery`
    = note: this error originates in the macro `impl_reflexive_compat` which comes from the expansion of the macro `impl_placeholder_compat` (in Nightly builds, run with -Z macro-backtrace for more info)
