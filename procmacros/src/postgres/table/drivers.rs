@@ -145,14 +145,11 @@ fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> Token
 
 /// Generate field conversion for PARTIAL SELECT model.
 ///
-/// In partial models, fields are Option<OriginalType>:
-/// - String field -> Option<String>
-/// - Option<String> field -> Option<Option<String>>
-///
+/// In partial models, all fields are `Option<BaseType>` where BaseType is
+/// the unwrapped inner type (i.e. `Option<T>` fields use just `T`).
 /// We use try_get which returns Result<T, Error> and fall back to None on error.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
-    let _drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let base_type = &info.base_type;
     let type_category = TypeCategory::from_type(base_type);
@@ -168,88 +165,38 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
         let is_integer_enum = info.is_enum && is_integer_column(&info.column_type);
 
         if is_integer_enum {
-            // Integer-stored enum
-            if info.is_nullable {
-                // Original is Option<EnumType>, partial is Option<Option<EnumType>>
-                quote! {
-                    #name: {
-                        let v: Option<Option<i32>> = row.try_get::<_, Option<i32>>(#idx).ok();
-                        v.map(|opt| opt.and_then(|v| <#base_type as TryFrom<i32>>::try_from(v).ok()))
-                    },
-                }
-            } else {
-                // Original is EnumType, partial is Option<EnumType>
-                quote! {
-                    #name: {
-                        let v: Option<i32> = row.try_get::<_, i32>(#idx).ok();
-                        v.and_then(|v| <#base_type as TryFrom<i32>>::try_from(v).ok())
-                    },
-                }
+            quote! {
+                #name: {
+                    let v: Option<i32> = row.try_get::<_, i32>(#idx).ok();
+                    v.and_then(|v| <#base_type as TryFrom<i32>>::try_from(v).ok())
+                },
             }
         } else {
-            // Text-stored or native pg enum
-            if info.is_nullable {
-                // Original is Option<EnumType>, partial is Option<Option<EnumType>>
-                quote! {
-                    #name: {
-                        let s: Option<Option<String>> = row.try_get::<_, Option<String>>(#idx).ok();
-                        s.map(|opt| opt.and_then(|s| s.parse::<#base_type>().ok()))
-                    },
-                }
-            } else {
-                // Original is EnumType, partial is Option<EnumType>
-                quote! {
-                    #name: {
-                        let s: Option<String> = row.try_get::<_, String>(#idx).ok();
-                        s.and_then(|s| s.parse::<#base_type>().ok())
-                    },
-                }
+            quote! {
+                #name: {
+                    let s: Option<String> = row.try_get::<_, String>(#idx).ok();
+                    s.and_then(|s| s.parse::<#base_type>().ok())
+                },
             }
         }
     } else if needs_from_postgres_value {
-        // Use DrizzleRowByName for FromPostgresValue types
-        if info.is_nullable {
-            // Original is Option<T>, partial is Option<Option<T>>
-            quote! {
-                #name: {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    Some(DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx).ok().flatten())
-                },
-            }
-        } else {
-            // Original is T, partial is Option<T>
-            quote! {
-                #name: {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx).ok()
-                },
-            }
+        quote! {
+            #name: {
+                use drizzle::postgres::traits::DrizzleRowByIndex;
+                DrizzleRowByIndex::get_column::<#base_type>(row, #idx).ok()
+            },
         }
     } else if info.is_json && type_category != TypeCategory::Json {
-        // JSON/JSONB with custom struct (not serde_json::Value)
-        // Read as serde_json::Value and deserialize to target type
-        if info.is_nullable {
-            // Original is Option<T>, partial is Option<Option<T>>
-            quote! {
-                #name: {
-                    let json_val: Option<Option<::serde_json::Value>> = row.try_get::<_, Option<::serde_json::Value>>(#idx).ok();
-                    json_val.map(|opt| opt.and_then(|v| ::serde_json::from_value(v).ok()))
-                },
-            }
-        } else {
-            // Original is T, partial is Option<T>
-            quote! {
-                #name: {
-                    let json_val: Option<::serde_json::Value> = row.try_get::<_, ::serde_json::Value>(#idx).ok();
-                    json_val.and_then(|v| ::serde_json::from_value(v).ok())
-                },
-            }
+        quote! {
+            #name: {
+                let json_val: Option<::serde_json::Value> = row.try_get::<_, ::serde_json::Value>(#idx).ok();
+                json_val.and_then(|v| ::serde_json::from_value(v).ok())
+            },
         }
     } else {
-        // For standard types, try to get the original type (including Option wrapper if nullable)
-        let ty = &info.field_type;
+        // For standard types, always read as base_type wrapped in Option
         quote! {
-            #name: row.try_get::<_, #ty>(#idx).ok(),
+            #name: row.try_get::<_, #base_type>(#idx).ok(),
         }
     }
 }
