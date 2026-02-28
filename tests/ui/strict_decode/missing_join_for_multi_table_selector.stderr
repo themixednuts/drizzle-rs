@@ -18,7 +18,7 @@ help: the following other types implement trait `drizzle_core::row::ScopeContain
    = note: 1 redundant requirement hidden
    = note: required for `Cons<User, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<User, Cons<Post, Nil>>, (drizzle_core::row::ScopeHere, (drizzle_core::row::ScopeThere<_>, ()))>`
    = note: required for `Scoped<SelectAs<UserPostRow>, Cons<User, Nil>>` to implement `MarkerScopeValidFor<(drizzle_core::row::ScopeHere, (drizzle_core::row::ScopeThere<_>, ()))>`
-note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, drizzle::sqlite::builder::QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
