@@ -3,6 +3,7 @@
 //! This module provides shared abstractions to reduce code duplication between
 //! the dialect-specific macro implementations.
 
+pub(crate) mod constraints;
 mod context;
 mod diagnostics;
 pub(crate) mod enum_utils;

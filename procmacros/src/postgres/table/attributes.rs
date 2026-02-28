@@ -264,3 +264,15 @@ impl Parse for TableAttributes {
         Ok(attrs)
     }
 }
+
+impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyAttr {
+    fn target_table(&self) -> &Ident {
+        &self.target_table
+    }
+    fn source_columns(&self) -> &[Ident] {
+        &self.source_columns
+    }
+    fn target_columns(&self) -> &[Ident] {
+        &self.target_columns
+    }
+}
