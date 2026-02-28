@@ -376,15 +376,15 @@ macro_rules! impl_join_arg_trait {
                         condition.push_mut($crate::Token::AND);
                     }
                     condition.append_mut(
-                        $crate::SQL::ident(join_name.to_string())
+                        $crate::SQL::ident(join_name)
                             .push($crate::Token::DOT)
-                            .append($crate::SQL::ident(self_col.to_string())),
+                            .append($crate::SQL::ident(*self_col)),
                     );
                     condition.push_mut($crate::Token::EQ);
                     condition.append_mut(
-                        $crate::SQL::ident(from_name.to_string())
+                        $crate::SQL::ident(from_name)
                             .push($crate::Token::DOT)
-                            .append($crate::SQL::ident(target_col.to_string())),
+                            .append($crate::SQL::ident(*target_col)),
                     );
                 }
 
