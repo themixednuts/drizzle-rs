@@ -1012,8 +1012,17 @@ use drizzle_core::serde_json;
 
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels>
-    common::DrizzleQueryBuilder<'db, 'a, &'db mut Drizzle<Schema>, Schema, T, Rels>
+impl<'db, 'a, Schema, T, Rels, Cl>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db mut Drizzle<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::AllColumns,
+        Cl,
+    >
 {
     /// Executes the query and returns all matching rows with their relations.
     pub fn find_many(
@@ -1092,7 +1101,22 @@ impl<'db, 'a, Schema, T, Rels>
 
         Ok(results)
     }
+}
 
+// AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
+#[cfg(feature = "query")]
+impl<'db, 'a, Schema, T, Rels, W, Ord>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db mut Drizzle<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::AllColumns,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
+    >
+{
     /// Executes the query and returns the first matching row, or `None`.
     pub fn find_first(
         self,
@@ -1119,7 +1143,7 @@ impl<'db, 'a, Schema, T, Rels>
 
 // PartialColumns: read base from a single JSON "__base" column via FromJsonValue
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
         'db,
         'a,
@@ -1128,6 +1152,7 @@ impl<'db, 'a, Schema, T, Rels>
         T,
         Rels,
         drizzle_core::query::PartialColumns,
+        Cl,
     >
 {
     /// Executes the query and returns all matching rows with their relations.
@@ -1215,7 +1240,22 @@ impl<'db, 'a, Schema, T, Rels>
 
         Ok(results)
     }
+}
 
+// PartialColumns find_first: requires no LIMIT set yet
+#[cfg(feature = "query")]
+impl<'db, 'a, Schema, T, Rels, W, Ord>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db mut Drizzle<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
+    >
+{
     /// Executes the query and returns the first matching row, or `None`.
     pub fn find_first(
         self,

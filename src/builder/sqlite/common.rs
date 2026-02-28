@@ -300,9 +300,10 @@ pub struct DrizzleQueryBuilder<
     T,
     Rels = (),
     Cols = drizzle_core::query::AllColumns,
+    Cl = drizzle_core::query::Clauses,
 > {
     pub(crate) drizzle: &'db Drizzle<Conn, Schema>,
-    pub(crate) builder: drizzle_core::query::QueryBuilder<SQLiteValue<'a>, T, Rels, Cols>,
+    pub(crate) builder: drizzle_core::query::QueryBuilder<SQLiteValue<'a>, T, Rels, Cols, Cl>,
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
@@ -326,13 +327,14 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cols>
-    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, Cols>
+impl<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
+    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
 {
     /// Includes a relation in the query results.
-    pub fn with<R, N, C>(
+    #[allow(clippy::type_complexity)]
+    pub fn with<R, N, C, RCl>(
         self,
-        handle: drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C>,
+        handle: drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C, RCl>,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -340,10 +342,11 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols>
         Schema,
         T,
         (
-            drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C>,
+            drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C, RCl>,
             Rels,
         ),
         Cols,
+        Cl,
     >
     where
         R: drizzle_core::relation::RelationDef<Source = T> + 'static,
@@ -353,9 +356,38 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols>
             builder: self.builder.with(handle),
         }
     }
+}
 
-    /// Adds a typed WHERE clause using the expression system.
-    pub fn r#where<E>(self, condition: E) -> Self
+/// WHERE is only available when no WHERE clause has been set yet.
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cols, Ord, Lim>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<drizzle_core::query::NoWhere, Ord, Lim>,
+    >
+{
+    /// Sets the WHERE clause for the query.
+    ///
+    /// Can only be called once. To combine conditions, use `and(a, b)` or `or(a, b)`.
+    pub fn r#where<E>(
+        self,
+        condition: E,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<drizzle_core::query::HasWhere, Ord, Lim>,
+    >
     where
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
@@ -365,9 +397,38 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols>
             builder: self.builder.r#where(condition),
         }
     }
+}
 
+/// ORDER BY is only available when no ORDER BY clause has been set yet.
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Lim>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, drizzle_core::query::NoOrderBy, Lim>,
+    >
+{
     /// Adds a typed ORDER BY clause.
-    pub fn order_by<E>(self, expr: E) -> Self
+    ///
+    /// Can only be called once.
+    pub fn order_by<E>(
+        self,
+        expr: E,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, drizzle_core::query::HasOrderBy, Lim>,
+    >
     where
         E: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -376,17 +437,71 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols>
             builder: self.builder.order_by(expr),
         }
     }
+}
 
-    /// Sets a LIMIT on the query.
-    pub fn limit(self, n: u32) -> Self {
+/// LIMIT is only available when no LIMIT has been set yet.
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
+    >
+{
+    /// Sets a LIMIT on the query. Can only be called once.
+    pub fn limit(
+        self,
+        n: u32,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
+    > {
         DrizzleQueryBuilder {
             drizzle: self.drizzle,
             builder: self.builder.limit(n),
         }
     }
+}
 
-    /// Sets an OFFSET on the query.
-    pub fn offset(self, n: u32) -> Self {
+/// OFFSET requires LIMIT to have been set first.
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
+    >
+{
+    /// Sets an OFFSET on the query. Requires `.limit()` to have been called first.
+    pub fn offset(
+        self,
+        n: u32,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Conn,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasOffset>,
+    > {
         DrizzleQueryBuilder {
             drizzle: self.drizzle,
             builder: self.builder.offset(n),
@@ -395,16 +510,16 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols>
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels>
-    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns>
+impl<'db, 'a, Conn, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
 where
     T: drizzle_core::query::QueryTable,
 {
-    /// Selects only the specified columns (whitelist).
+    /// Selects only the specified columns (include list).
     pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
-    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns>
+    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
     {
         DrizzleQueryBuilder {
             drizzle: self.drizzle,
@@ -412,11 +527,11 @@ where
         }
     }
 
-    /// Excludes the specified columns (blacklist).
+    /// Excludes the specified columns (exclude list).
     pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
-    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns>
+    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
     {
         DrizzleQueryBuilder {
             drizzle: self.drizzle,

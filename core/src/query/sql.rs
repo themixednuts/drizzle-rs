@@ -32,7 +32,8 @@ pub struct RenderedRelation<V: SQLParam> {
     pub table_name: &'static str,
     /// Target table columns for SELECT (e.g., ["id", "content", "author_id"]).
     pub column_names: Vec<&'static str>,
-    /// FK column pairs: (source_col_on_target, target_col_on_source).
+    /// FK column pairs for the join condition.
+    /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
     pub fk_columns: &'static [(&'static str, &'static str)],
     /// Cardinality (Many, One, OptionalOne).
     pub cardinality: RelCardinality,
@@ -64,7 +65,8 @@ impl<V: SQLParam> RenderRelations<V> for () {
 }
 
 // AllColumns: use all columns from QueryTable
-impl<V, R, Nested, Rest> RenderRelations<V> for (RelationHandle<V, R, Nested, AllColumns>, Rest)
+impl<V, R, Nested, Rest, Cl> RenderRelations<V>
+    for (RelationHandle<V, R, Nested, AllColumns, Cl>, Rest)
 where
     V: SQLParam,
     R: RelationDef,
@@ -93,7 +95,8 @@ where
 }
 
 // PartialColumns: use filtered columns from the handle
-impl<V, R, Nested, Rest> RenderRelations<V> for (RelationHandle<V, R, Nested, PartialColumns>, Rest)
+impl<V, R, Nested, Rest, Cl> RenderRelations<V>
+    for (RelationHandle<V, R, Nested, PartialColumns, Cl>, Rest)
 where
     V: SQLParam,
     R: RelationDef,
