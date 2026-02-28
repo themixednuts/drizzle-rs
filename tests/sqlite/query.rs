@@ -631,7 +631,7 @@ sqlite_test!(query_view_where_order, ViewSchema, {
     assert_eq!(posts[1].content, "Bravo Post");
     assert_eq!(posts[2].content, "Charlie Post");
 
-    // WHERE + LIMIT
+    // ORDER BY DESC + LIMIT
     let posts = drizzle_exec!(
         db.query(q_post_view)
             .order_by(desc(q_post_view.content))

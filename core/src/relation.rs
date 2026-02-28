@@ -38,7 +38,9 @@ pub trait RelationDef: private::Sealed + 'static {
     type Card: CardWrap;
     /// Relation name (used in JSON keys).
     const NAME: &'static str;
-    /// FK column pairs: `(source_col, target_col)`.
+    /// FK column pairs for the join condition.
+    ///
+    /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
     fn fk_columns() -> &'static [(&'static str, &'static str)];
 }
 

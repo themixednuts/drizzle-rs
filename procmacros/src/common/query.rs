@@ -145,6 +145,10 @@ fn forward_method_name(column_name: &str) -> String {
 
 /// Derive the reverse method name from a source table name.
 /// Lowercase + `s`: `Post` -> `posts`, `Comment` -> `comments`.
+///
+/// Uses naive pluralization (appends `s`). Irregular plurals like
+/// `Category` -> `categorys` are not handled. Users can define
+/// custom accessor methods for those cases.
 fn reverse_method_name(source_table_ident: &Ident) -> String {
     format!("{}s", source_table_ident.to_string().to_snake_case())
 }
@@ -207,19 +211,12 @@ fn generate_forward_relations(
                 }
             }
 
-            /// Type alias for a `RelEntry` containing this relation's data.
+            /// Type alias for query results with this relation loaded.
             ///
-            /// Use this in function signatures to accept query results with this relation loaded:
-            /// ```ignore
-            /// fn process(row: &QueryRow<SelectModel, TypeAlias>) { ... }
-            /// ```
-            ///
-            /// The `__Rest` parameter allows composing multiple relations:
-            /// ```ignore
-            /// fn process(row: &QueryRow<SelectModel, WithPosts<WithAuthor>>) { ... }
-            /// ```
-            #vis type #type_alias_ident<__Rest = ()> =
-                drizzle::core::query::RelEntry<#rel_zst, #data_type, __Rest>;
+            /// Nest `Rest` to compose multiple relations:
+            /// `QueryRow<SelectUser, UserWithPosts<UserWithInvitedBy>>`
+            #vis type #type_alias_ident<Rest = ()> =
+                drizzle::core::query::RelEntry<#rel_zst, #data_type, Rest>;
 
             // Accessor via extension trait
             #[doc(hidden)]
@@ -328,15 +325,14 @@ fn generate_reverse_relations(
                 }
             }
 
-            /// Type alias for a `RelEntry` containing this relation's data.
+            /// Type alias for query results with this relation loaded.
             ///
-            /// Use this in function signatures to accept query results with this relation loaded.
-            /// The `__Rest` parameter allows composing multiple relations.
-            #vis type #type_alias_ident<__Rest = ()> =
+            /// Nest `Rest` to compose multiple relations.
+            #vis type #type_alias_ident<Rest = ()> =
                 drizzle::core::query::RelEntry<
                     #rel_zst,
                     Vec<drizzle::core::query::QueryRow<#source_select, ()>>,
-                    __Rest,
+                    Rest,
                 >;
 
             #[doc(hidden)]
@@ -452,7 +448,7 @@ fn generate_column_selector(
         .collect();
 
     quote! {
-        /// Column selector for partial column queries.
+        #[doc(hidden)]
         #vis struct #selector_ident {
             selected: ::std::vec::Vec<&'static str>,
         }
