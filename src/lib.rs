@@ -76,10 +76,10 @@ extern crate alloc;
 mod builder;
 
 #[macro_use]
-mod transaction;
+mod macros;
 
 #[macro_use]
-mod macros;
+mod transaction;
 
 #[doc(hidden)]
 pub(crate) use drizzle_builder_join_impl;
@@ -159,6 +159,17 @@ pub mod core {
     pub mod dialect {
         pub use drizzle_core::dialect::*;
     }
+
+    /// Query API types (relational queries with nested loading).
+    #[cfg(feature = "query")]
+    pub mod query {
+        pub use drizzle_core::query::*;
+    }
+
+    /// Re-export serde_json for proc macro generated code.
+    #[cfg(feature = "query")]
+    #[doc(hidden)]
+    pub use drizzle_core::serde_json;
 
     /// Row inference types and traits.
     pub use drizzle_core::row::{

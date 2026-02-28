@@ -19,6 +19,8 @@ pub mod insert;
 pub mod joins;
 pub mod migrations;
 pub mod prepare;
+#[cfg(feature = "query")]
+pub mod query;
 pub mod schema;
 pub mod select;
 pub mod subquery;

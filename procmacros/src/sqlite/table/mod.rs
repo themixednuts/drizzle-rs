@@ -148,6 +148,12 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     #[cfg(not(feature = "libsql"))]
     let libsql_impls = quote!();
 
+    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    #[cfg(feature = "query")]
+    let query_api_impls = generate_query_api_impls(&ctx)?;
+    #[cfg(not(feature = "query"))]
+    let query_api_impls = quote!();
+
     // Generate compile-time validation for default literals
     let default_validations = generate_default_validations(&field_infos);
 
@@ -191,9 +197,84 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #rusqlite_impls
         #turso_impls
         #libsql_impls
+        #query_api_impls
     };
 
     Ok(expanded)
+}
+
+/// Generate query API impls (RelationDef, accessors, FromJsonValue) for SQLite.
+///
+/// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
+#[cfg(feature = "query")]
+pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream> {
+    use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
+    use crate::sqlite::field::SQLiteType;
+
+    let struct_ident = ctx.struct_ident;
+    let select_model_ident = &ctx.select_model_ident;
+    let table_name = &ctx.table_name;
+
+    // Collect FK infos
+    let fk_infos: Vec<FkInfo> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|f| {
+            let fk = f.foreign_key.as_ref()?;
+            Some(FkInfo {
+                source_column: f.column_name.clone(),
+                target_table_ident: fk.table_ident.clone(),
+                target_column_ident: fk.column_ident.clone(),
+                is_nullable: f.is_nullable,
+            })
+        })
+        .collect();
+
+    let partial_select_model_ident = &ctx.select_model_partial_ident;
+
+    // Collect field info for FromJsonValue generation
+    let field_json_infos: Vec<FieldJsonInfo> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let enum_storage = if f.is_enum {
+                match f.column_type {
+                    SQLiteType::Integer => Some(EnumStorage::Integer),
+                    _ => Some(EnumStorage::Text),
+                }
+            } else {
+                None
+            };
+            FieldJsonInfo {
+                ident: f.ident.clone(),
+                column_name: f.column_name.clone(),
+                is_nullable: f.is_nullable,
+                is_uuid: f.is_uuid,
+                enum_storage,
+                base_type: f.base_type.clone(),
+            }
+        })
+        .collect();
+
+    // Collect column names
+    let column_names: Vec<String> = ctx
+        .field_infos
+        .iter()
+        .map(|f| f.column_name.clone())
+        .collect();
+
+    let inner = generate_query_api(
+        struct_ident,
+        ctx.struct_vis,
+        table_name,
+        select_model_ident,
+        partial_select_model_ident,
+        &fk_infos,
+        &field_json_infos,
+        &column_names,
+    )?;
+
+    Ok(inner)
 }
 
 /// Generate a const that references the original table marker tokens from the attribute.

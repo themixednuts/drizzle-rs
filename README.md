@@ -208,7 +208,7 @@ let exact_rows = db
 let matched: Vec<SelectUsers> = db
     .select(())
     .from(users)
-    .r#where(in_subquery(row((users.id, users.name)), exact_rows))
+    .r#where(in_subquery((users.id, users.name), exact_rows))
     .all()?;
 ```
 
@@ -220,11 +220,11 @@ db.insert(users)
     .value(InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"))
     .execute()?;
 
-// Multiple rows
+// Multiple rows — all rows must set the same optional fields
 db.insert(users)
     .values([
         InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"),
-        InsertUsers::new("Jordan Lee", 30i64),
+        InsertUsers::new("Jordan Lee", 30i64).with_email("jordan@example.com"),
     ])
     .execute()?;
 ```

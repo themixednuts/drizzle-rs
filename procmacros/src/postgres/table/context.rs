@@ -59,8 +59,7 @@ impl<'a> MacroContext<'a> {
                 quote!(#ty)
             }
             ModelType::PartialSelect => {
-                let ty = &field.field_type;
-                quote!(::std::option::Option<#ty>)
+                quote!(::std::option::Option<#base_type>)
             }
             ModelType::Insert => {
                 let postgres_insert_value = pg_paths::postgres_insert_value();

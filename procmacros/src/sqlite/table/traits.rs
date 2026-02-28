@@ -255,7 +255,7 @@ pub(crate) fn generate_table_impls(
     })
 }
 
-fn generate_foreign_keys(
+pub(crate) fn generate_foreign_keys(
     ctx: &MacroContext,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
@@ -919,7 +919,7 @@ fn generate_constraint_capabilities(ctx: &MacroContext) -> TokenStream {
 }
 
 /// Generates `Relation` and `Joinable` impls from FK declarations.
-fn generate_relations(ctx: &MacroContext) -> Result<TokenStream> {
+pub(crate) fn generate_relations(ctx: &MacroContext) -> Result<TokenStream> {
     let relation_marker = core_paths::relation_marker();
     let joinable_marker = core_paths::joinable_marker();
 

@@ -8,6 +8,8 @@ mod diagnostics;
 pub(crate) mod enum_utils;
 pub(crate) mod generators;
 mod helpers;
+#[cfg(feature = "query")]
+pub(crate) mod query;
 mod table_pipeline;
 pub(crate) mod type_mapping;
 mod type_utils;

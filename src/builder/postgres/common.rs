@@ -29,6 +29,258 @@ pub struct DrizzleBuilder<'a, DrizzleRef, Schema, Builder, State> {
     pub(crate) state: PhantomData<(Schema, State, &'a ())>,
 }
 
+/// Shared Postgres query builder wrapper (relational query API).
+#[cfg(feature = "query")]
+pub struct DrizzleQueryBuilder<
+    'db,
+    'a,
+    DrizzleRef,
+    Schema,
+    T,
+    Rels = (),
+    Cols = drizzle_core::query::AllColumns,
+    Cl = drizzle_core::query::Clauses,
+> {
+    pub(crate) drizzle: DrizzleRef,
+    pub(crate) builder: drizzle_core::query::QueryBuilder<PostgresValue<'a>, T, Rels, Cols, Cl>,
+    pub(crate) _schema: PhantomData<(&'db (), Schema)>,
+}
+
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
+    DrizzleQueryBuilder<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
+{
+    /// Includes a relation in the query results.
+    #[allow(clippy::type_complexity)]
+    pub fn with<R, N, C, RCl>(
+        self,
+        handle: drizzle_core::query::RelationHandle<PostgresValue<'a>, R, N, C, RCl>,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        (
+            drizzle_core::query::RelationHandle<PostgresValue<'a>, R, N, C, RCl>,
+            Rels,
+        ),
+        Cols,
+        Cl,
+    >
+    where
+        R: drizzle_core::relation::RelationDef<Source = T> + 'static,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.with(handle),
+            _schema: PhantomData,
+        }
+    }
+}
+
+/// WHERE is only available when no WHERE clause has been set yet.
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Ord, Lim>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<drizzle_core::query::NoWhere, Ord, Lim>,
+    >
+{
+    /// Sets the WHERE clause for the query.
+    ///
+    /// Can only be called once. To combine conditions, use `and(a, b)` or `or(a, b)`.
+    pub fn r#where<E>(
+        self,
+        condition: E,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<drizzle_core::query::HasWhere, Ord, Lim>,
+    >
+    where
+        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E::SQLType: drizzle_core::types::BooleanLike,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.r#where(condition),
+            _schema: PhantomData,
+        }
+    }
+}
+
+/// ORDER BY is only available when no ORDER BY clause has been set yet.
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Lim>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, drizzle_core::query::NoOrderBy, Lim>,
+    >
+{
+    /// Adds a typed ORDER BY clause. Can only be called once.
+    pub fn order_by<E>(
+        self,
+        expr: E,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, drizzle_core::query::HasOrderBy, Lim>,
+    >
+    where
+        E: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
+    {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.order_by(expr),
+            _schema: PhantomData,
+        }
+    }
+}
+
+/// LIMIT is only available when no LIMIT has been set yet.
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
+    >
+{
+    /// Sets a LIMIT on the query. Can only be called once.
+    pub fn limit(
+        self,
+        n: u32,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
+    > {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.limit(n),
+            _schema: PhantomData,
+        }
+    }
+}
+
+/// OFFSET requires LIMIT to have been set first.
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
+    DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
+    >
+{
+    /// Sets an OFFSET on the query. Requires `.limit()` first.
+    pub fn offset(
+        self,
+        n: u32,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        Cols,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasOffset>,
+    > {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.offset(n),
+            _schema: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, DrizzleRef, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
+where
+    T: drizzle_core::query::QueryTable,
+{
+    /// Selects only the specified columns (include list).
+    pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
+        self,
+        selector: S,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        Cl,
+    > {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.columns(selector),
+            _schema: PhantomData,
+        }
+    }
+
+    /// Selects all columns except the specified ones (exclude list).
+    pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
+        self,
+        selector: S,
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        DrizzleRef,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        Cl,
+    > {
+        DrizzleQueryBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.omit(selector),
+            _schema: PhantomData,
+        }
+    }
+}
+
 /// Intermediate builder for typed ON CONFLICT within a PostgreSQL Drizzle wrapper.
 pub struct DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
     drizzle: DrizzleRef,

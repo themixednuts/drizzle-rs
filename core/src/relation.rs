@@ -23,3 +23,74 @@ pub trait Joinable<Target: ?Sized> {
     note = "all tables used in queries must be included in the schema"
 )]
 pub trait SchemaHasTable<T: ?Sized> {}
+
+// =============================================================================
+// Query API: RelationDef and Cardinality
+// =============================================================================
+
+#[cfg(feature = "query")]
+pub trait RelationDef: private::Sealed + 'static {
+    /// Source table ZST.
+    type Source;
+    /// Target table ZST.
+    type Target: crate::query::QueryTable;
+    /// Cardinality: `Many`, `One`, or `OptionalOne`.
+    type Card: CardWrap;
+    /// Relation name (used in JSON keys).
+    const NAME: &'static str;
+    /// FK column pairs for the join condition.
+    ///
+    /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
+    fn fk_columns() -> &'static [(&'static str, &'static str)];
+}
+
+/// Maps a cardinality marker to a wrapper type.
+#[cfg(feature = "query")]
+pub trait CardWrap: private::Sealed {
+    /// The cardinality for runtime SQL generation decisions.
+    const CARDINALITY: crate::query::RelCardinality;
+    type Wrap<T>;
+}
+
+/// Many-cardinality: wraps data as `Vec<T>`.
+#[cfg(feature = "query")]
+pub struct Many;
+
+/// One-cardinality: wraps data as `T` (exactly one row expected).
+#[cfg(feature = "query")]
+pub struct One;
+
+/// Optional one-cardinality: wraps data as `Option<T>`.
+#[cfg(feature = "query")]
+pub struct OptionalOne;
+
+#[cfg(feature = "query")]
+impl private::Sealed for Many {}
+#[cfg(feature = "query")]
+impl private::Sealed for One {}
+#[cfg(feature = "query")]
+impl private::Sealed for OptionalOne {}
+
+#[cfg(feature = "query")]
+impl CardWrap for Many {
+    const CARDINALITY: crate::query::RelCardinality = crate::query::RelCardinality::Many;
+    type Wrap<T> = crate::prelude::Vec<T>;
+}
+
+#[cfg(feature = "query")]
+impl CardWrap for One {
+    const CARDINALITY: crate::query::RelCardinality = crate::query::RelCardinality::One;
+    type Wrap<T> = T;
+}
+
+#[cfg(feature = "query")]
+impl CardWrap for OptionalOne {
+    const CARDINALITY: crate::query::RelCardinality = crate::query::RelCardinality::OptionalOne;
+    type Wrap<T> = Option<T>;
+}
+
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub mod private {
+    pub trait Sealed {}
+}

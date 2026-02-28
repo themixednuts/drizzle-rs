@@ -160,6 +160,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
                 && matches!(info.column_type, SQLiteType::Integer))
     });
 
+    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some());
+
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
@@ -172,7 +174,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
         attrs: &table_attrs,
-        has_foreign_keys: false,
+        has_foreign_keys,
         is_composite_pk,
     };
 
@@ -183,6 +185,20 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let model_definitions =
         models::generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let alias_definitions = alias::generate_aliased_table(&ctx)?;
+
+    // Generate FK ZSTs and relation impls (logical-only, no SQL constraints in views)
+    use crate::sqlite::table::traits;
+    let sql_table_info_path = core_paths::sql_table_info();
+    let sql_column_info_path = core_paths::sql_column_info();
+    let (foreign_key_impls, sql_foreign_keys, foreign_keys_type, _fk_idents) =
+        traits::generate_foreign_keys(
+            &ctx,
+            struct_ident,
+            struct_vis,
+            &sql_table_info_path,
+            &sql_column_info_path,
+        );
+    let relations_impl = traits::generate_relations(&ctx)?;
     #[cfg(feature = "rusqlite")]
     let rusqlite_impls = rusqlite::generate_rusqlite_impls(&ctx)?;
 
@@ -271,7 +287,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         schema: quote! { ::std::option::Option::None },
         columns: sql_columns,
         primary_key: quote! { ::std::option::Option::None },
-        foreign_keys: quote! { &[] },
+        foreign_keys: sql_foreign_keys,
         constraints: quote! { &[] },
         dependencies: sql_dependencies,
     });
@@ -296,7 +312,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         insert: quote! { #insert_model_ident<'a, T> },
         update: quote! { #update_model_ident<'a, #non_empty_marker> },
         aliased: quote! { #alias_type_ident },
-        foreign_keys: quote! { () },
+        foreign_keys: foreign_keys_type,
         primary_key: quote! { #no_primary_key },
         constraints: quote! { #no_constraint },
     });
@@ -361,6 +377,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         }
     };
 
+    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    #[cfg(feature = "query")]
+    let query_api_impls = crate::sqlite::table::generate_query_api_impls(&ctx)?;
+    #[cfg(not(feature = "query"))]
+    let query_api_impls = quote!();
+
     Ok(quote! {
         #view_marker_const
 
@@ -389,6 +411,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
         #column_accessors
         #column_definitions
+        #foreign_key_impls
         #model_definitions
         #alias_definitions
         #rusqlite_impls
@@ -404,8 +427,10 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             type Tables = #type_set_nil;
         }
         #to_sql_impl
+        #relations_impl
         #sql_view_impl
         #sql_view_info_impl
+        #query_api_impls
 
         impl drizzle::core::HasSelectModel for #struct_ident {
             type SelectModel = #select_model_ident;
