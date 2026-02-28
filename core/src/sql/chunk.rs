@@ -1,5 +1,25 @@
 use crate::prelude::*;
-use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::tokens::Token};
+use crate::{Param, Placeholder, SQLParam, sql::tokens::Token};
+
+/// Lightweight table reference for SQL rendering.
+///
+/// Contains the table name and column names needed for SQL generation
+/// (e.g. SELECT * expansion) without dynamic dispatch.
+#[derive(Clone, Copy, Debug)]
+pub struct TableRef {
+    pub name: &'static str,
+    pub column_names: &'static [&'static str],
+}
+
+/// Lightweight column reference for SQL rendering.
+///
+/// Contains the table and column names needed for qualified column
+/// references (e.g. `"table"."column"`) without dynamic dispatch.
+#[derive(Clone, Copy, Debug)]
+pub struct ColumnRef {
+    pub table_name: &'static str,
+    pub column_name: &'static str,
+}
 
 /// A SQL chunk represents a part of an SQL statement.
 ///
@@ -8,8 +28,8 @@ use crate::{Param, Placeholder, SQLColumnInfo, SQLParam, SQLTableInfo, sql::toke
 /// - `Ident` - Quoted identifiers ("table_name", "column_name")
 /// - `Raw` - Unquoted raw SQL text (function names, expressions)
 /// - `Param` - Parameter placeholders with values
-/// - `Table` - Table reference with metadata access
-/// - `Column` - Column reference with metadata access
+/// - `Table` - Table reference via lightweight `TableRef`
+/// - `Column` - Column reference via lightweight `ColumnRef`
 #[derive(Clone)]
 pub enum SQLChunk<'a, V: SQLParam> {
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
@@ -36,15 +56,14 @@ pub enum SQLChunk<'a, V: SQLParam> {
     /// Renders as: ? or $1 or :name depending on placeholder style
     Param(Param<'a, V>),
 
-    /// Table reference with full metadata access
+    /// Table reference with static name and column names.
     /// Renders as: "table_name"
-    /// Provides: columns() for SELECT *, dependencies() for FK tracking
-    Table(&'static dyn SQLTableInfo),
+    /// Column names used for SELECT * expansion.
+    Table(TableRef),
 
-    /// Column reference with full metadata access
-    /// Renders as: "table"."column"
-    /// Provides: table(), is_primary_key(), foreign_key(), etc.
-    Column(&'static dyn SQLColumnInfo),
+    /// Column reference with static table and column names.
+    /// Renders as: "table_name"."column_name"
+    Column(ColumnRef),
 }
 
 impl<'a, V: SQLParam> SQLChunk<'a, V> {
@@ -70,13 +89,13 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
 
     /// Creates a table chunk - const
     #[inline]
-    pub const fn table(table: &'static dyn SQLTableInfo) -> Self {
+    pub const fn table(table: TableRef) -> Self {
         Self::Table(table)
     }
 
     /// Creates a column chunk - const
     #[inline]
-    pub const fn column(column: &'static dyn SQLColumnInfo) -> Self {
+    pub const fn column(column: ColumnRef) -> Self {
         Self::Column(column)
     }
 
@@ -140,16 +159,16 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             SQLChunk::Param(Param { placeholder, .. }) => {
                 let _ = write!(buf, "{}", placeholder);
             }
-            SQLChunk::Table(table) => {
+            SQLChunk::Table(t) => {
                 let _ = buf.write_char('"');
-                let _ = buf.write_str(table.name());
+                let _ = buf.write_str(t.name);
                 let _ = buf.write_char('"');
             }
-            SQLChunk::Column(column) => {
+            SQLChunk::Column(c) => {
                 let _ = buf.write_char('"');
-                let _ = buf.write_str(column.table().name());
+                let _ = buf.write_str(c.table_name);
                 let _ = buf.write_str("\".\"");
-                let _ = buf.write_str(column.name());
+                let _ = buf.write_str(c.column_name);
                 let _ = buf.write_char('"');
             }
         }
@@ -178,10 +197,10 @@ impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
             SQLChunk::Raw(text) => f.debug_tuple("Raw").field(text).finish(),
             SQLChunk::Number(value) => f.debug_tuple("Number").field(value).finish(),
             SQLChunk::Param(param) => f.debug_tuple("Param").field(param).finish(),
-            SQLChunk::Table(table) => f.debug_tuple("Table").field(&table.name()).finish(),
-            SQLChunk::Column(column) => f
+            SQLChunk::Table(t) => f.debug_tuple("Table").field(&t.name).finish(),
+            SQLChunk::Column(c) => f
                 .debug_tuple("Column")
-                .field(&format!("{}.{}", column.table().name(), column.name()))
+                .field(&format!("{}.{}", c.table_name, c.column_name))
                 .finish(),
         }
     }
@@ -196,17 +215,17 @@ impl<'a, V: SQLParam> From<Token> for SQLChunk<'a, V> {
     }
 }
 
-impl<'a, V: SQLParam> From<&'static dyn SQLColumnInfo> for SQLChunk<'a, V> {
+impl<'a, V: SQLParam> From<TableRef> for SQLChunk<'a, V> {
     #[inline]
-    fn from(value: &'static dyn SQLColumnInfo) -> Self {
-        Self::Column(value)
+    fn from(value: TableRef) -> Self {
+        Self::Table(value)
     }
 }
 
-impl<'a, V: SQLParam> From<&'static dyn SQLTableInfo> for SQLChunk<'a, V> {
+impl<'a, V: SQLParam> From<ColumnRef> for SQLChunk<'a, V> {
     #[inline]
-    fn from(value: &'static dyn SQLTableInfo) -> Self {
-        Self::Table(value)
+    fn from(value: ColumnRef) -> Self {
+        Self::Column(value)
     }
 }
 

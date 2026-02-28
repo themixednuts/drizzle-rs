@@ -2,8 +2,8 @@
 
 use crate::prelude::*;
 use crate::{
-    sql::{SQL, Token},
-    traits::{SQLColumnInfo, SQLParam, SQLTableInfo},
+    sql::{ColumnRef, SQL, TableRef, Token},
+    traits::SQLParam,
 };
 
 #[cfg(feature = "std")]
@@ -122,28 +122,15 @@ where
     }
 }
 
-// Implement ToSQL for SQLTableInfo and SQLColumnInfo trait objects
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'static dyn SQLTableInfo {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for TableRef {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::table(*self)
     }
 }
 
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for &'static dyn SQLColumnInfo {
+impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for ColumnRef {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::column(*self)
-    }
-}
-
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'static dyn SQLColumnInfo]> {
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(|&v| SQL::column(v)), Token::COMMA)
-    }
-}
-
-impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Box<[&'static dyn SQLTableInfo]> {
-    fn to_sql(&self) -> SQL<'a, V> {
-        SQL::join(self.iter().map(|&v| SQL::table(v)), Token::COMMA)
     }
 }
 

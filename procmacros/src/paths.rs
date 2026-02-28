@@ -69,6 +69,22 @@ pub mod core {
         quote!(drizzle::core::SQLTableInfo)
     }
 
+    pub fn drizzle_table() -> TokenStream {
+        quote!(drizzle::core::DrizzleTable)
+    }
+
+    pub fn drizzle_index() -> TokenStream {
+        quote!(drizzle::core::DrizzleIndex)
+    }
+
+    pub fn table_ref() -> TokenStream {
+        quote!(drizzle::core::TableRef)
+    }
+
+    pub fn column_ref() -> TokenStream {
+        quote!(drizzle::core::ColumnRef)
+    }
+
     pub fn sql_foreign_key_info() -> TokenStream {
         quote!(drizzle::core::SQLForeignKeyInfo)
     }
@@ -309,11 +325,6 @@ pub mod core {
     /// Path to the type-set Concat trait.
     pub fn type_set_concat() -> TokenStream {
         quote!(drizzle::core::Concat)
-    }
-
-    /// Path to SQLStaticTableInfo trait.
-    pub fn sql_static_table_info() -> TokenStream {
-        quote!(drizzle::core::SQLStaticTableInfo)
     }
 
     /// Path to the ConflictTarget trait.

@@ -12,7 +12,7 @@ pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {
     const IDENTITY_ALWAYS: bool = true;
 }
 pub trait PostgresColumnInfo: SQLColumnInfo + Any {
-    fn table(&self) -> &dyn PostgresTableInfo;
+    fn table(&self) -> &'static dyn PostgresTableInfo;
 
     fn is_serial(&self) -> bool;
     fn is_bigserial(&self) -> bool;
@@ -45,7 +45,7 @@ pub trait PostgresColumnInfo: SQLColumnInfo + Any {
 
 // Blanket implementation for static references
 impl<T: PostgresColumnInfo> PostgresColumnInfo for &'static T {
-    fn table(&self) -> &dyn PostgresTableInfo {
+    fn table(&self) -> &'static dyn PostgresTableInfo {
         <T as PostgresColumnInfo>::table(*self)
     }
 

@@ -163,11 +163,11 @@ mod tests {
     struct TestView;
 
     impl drizzle_core::traits::SQLTableInfo for TestView {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "user_stats"
         }
 
-        fn schema(&self) -> Option<&str> {
+        fn schema(&self) -> Option<&'static str> {
             Some("public")
         }
 

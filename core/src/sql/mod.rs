@@ -7,7 +7,7 @@ use crate::prelude::*;
 use crate::{
     param::{Param, ParamBind},
     placeholder::Placeholder,
-    traits::{SQLColumnInfo, SQLParam, SQLTableInfo, ToSQL},
+    traits::{SQLParam, ToSQL},
 };
 pub use chunk::*;
 use core::fmt::{Display, Write};
@@ -111,7 +111,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates SQL referencing a table
     #[inline]
-    pub fn table(table: &'static dyn SQLTableInfo) -> Self {
+    pub fn table(table: TableRef) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Table(table)],
         }
@@ -119,7 +119,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates SQL referencing a column
     #[inline]
-    pub fn column(column: &'static dyn SQLColumnInfo) -> Self {
+    pub fn column(column: ColumnRef) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Column(column)],
         }
@@ -479,7 +479,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         match chunks {
             Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(table)]) => {
                 let _ = buf.write_char(' ');
-                self.write_qualified_columns(buf, *table);
+                Self::write_qualified_columns(buf, table);
             }
             Some([SQLChunk::Token(Token::FROM), _]) => {
                 let _ = buf.write_char(' ');
@@ -489,26 +489,21 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Write fully qualified columns
-    pub fn write_qualified_columns(
-        &self,
-        buf: &mut impl core::fmt::Write,
-        table: &dyn SQLTableInfo,
-    ) {
-        let columns = table.columns();
-        if columns.is_empty() {
+    /// Write fully qualified columns for a table
+    pub fn write_qualified_columns(buf: &mut impl core::fmt::Write, table: &TableRef) {
+        if table.column_names.is_empty() {
             let _ = buf.write_char('*');
             return;
         }
 
-        for (i, col) in columns.iter().enumerate() {
+        for (i, col_name) in table.column_names.iter().enumerate() {
             if i > 0 {
                 let _ = buf.write_str(", ");
             }
             let _ = buf.write_char('"');
-            let _ = buf.write_str(table.name());
+            let _ = buf.write_str(table.name);
             let _ = buf.write_str("\".\"");
-            let _ = buf.write_str(col.name());
+            let _ = buf.write_str(col_name);
             let _ = buf.write_char('"');
         }
     }

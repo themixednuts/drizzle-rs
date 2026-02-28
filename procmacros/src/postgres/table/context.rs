@@ -16,8 +16,6 @@ pub(crate) struct MacroContext<'a> {
     pub struct_vis: &'a Visibility,
     /// Table name (can be customized via attributes)
     pub table_name: String,
-    /// Generated CREATE TABLE SQL statement
-    pub create_table_sql: String,
     /// Parsed field information
     pub field_infos: &'a [FieldInfo],
     /// Generated SELECT model identifier
@@ -28,8 +26,6 @@ pub(crate) struct MacroContext<'a> {
     pub insert_model_ident: Ident,
     /// Generated UPDATE model identifier
     pub update_model_ident: Ident,
-    /// Whether any field has foreign keys
-    pub has_foreign_keys: bool,
     /// Whether the table has a composite primary key
     #[allow(dead_code)]
     pub is_composite_pk: bool,

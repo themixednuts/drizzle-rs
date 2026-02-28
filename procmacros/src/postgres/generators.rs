@@ -72,7 +72,7 @@ pub fn generate_postgres_column_info(
                 #is_serial
             }
 
-            fn table(&self) -> &dyn #postgres_table_info {
+            fn table(&self) -> &'static dyn #postgres_table_info {
                 #table
             }
 
@@ -148,15 +148,8 @@ pub fn generate_sql_schema(
     name: TokenStream,
     r#type: TokenStream,
     const_sql: TokenStream,
-    runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
-    common_gen::generate_sql_schema::<PostgresDialect>(
-        struct_ident,
-        name,
-        r#type,
-        const_sql,
-        runtime_sql,
-    )
+    common_gen::generate_sql_schema::<PostgresDialect>(struct_ident, name, r#type, const_sql)
 }
 
 /// Generate PostgreSQL SQLSchema for fields trait implementation.

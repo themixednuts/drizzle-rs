@@ -115,7 +115,7 @@ mod tests {
     }
 
     impl SQLTableInfo for TestTable {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             self.name
         }
         fn columns(&self) -> &'static [&'static dyn drizzle_core::SQLColumnInfo] {

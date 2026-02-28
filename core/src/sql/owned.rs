@@ -1,17 +1,18 @@
 use crate::prelude::*;
-use crate::{OwnedParam, SQL, SQLChunk, SQLColumnInfo, SQLParam, SQLTableInfo, ToSQL, Token};
+use crate::sql::{ColumnRef, TableRef};
+use crate::{OwnedParam, SQL, SQLChunk, SQLParam, ToSQL, Token};
 use smallvec::SmallVec;
 
 /// Owned version of SQLChunk with 'static lifetime
 #[derive(Debug, Clone)]
 pub enum OwnedSQLChunk<V: SQLParam> {
     Token(Token),
-    Ident(String),
-    Raw(String),
+    Ident(Box<str>),
+    Raw(Box<str>),
     Number(usize),
     Param(OwnedParam<V>),
-    Table(&'static dyn SQLTableInfo),
-    Column(&'static dyn SQLColumnInfo),
+    Table(TableRef),
+    Column(ColumnRef),
 }
 
 impl<V: SQLParam> OwnedSQLChunk<V> {
@@ -23,25 +24,25 @@ impl<V: SQLParam> OwnedSQLChunk<V> {
 
     /// Creates a table chunk.
     #[inline]
-    pub const fn table(table: &'static dyn SQLTableInfo) -> Self {
+    pub const fn table(table: TableRef) -> Self {
         Self::Table(table)
     }
 
     /// Creates a column chunk.
     #[inline]
-    pub const fn column(column: &'static dyn SQLColumnInfo) -> Self {
+    pub const fn column(column: ColumnRef) -> Self {
         Self::Column(column)
     }
 
     /// Creates a quoted identifier from a runtime string.
     #[inline]
-    pub fn ident(name: impl Into<String>) -> Self {
+    pub fn ident(name: impl Into<Box<str>>) -> Self {
         Self::Ident(name.into())
     }
 
     /// Creates raw SQL text from a runtime string.
     #[inline]
-    pub fn raw(text: impl Into<String>) -> Self {
+    pub fn raw(text: impl Into<Box<str>>) -> Self {
         Self::Raw(text.into())
     }
 
@@ -56,12 +57,12 @@ impl<'a, V: SQLParam> From<SQLChunk<'a, V>> for OwnedSQLChunk<V> {
     fn from(value: SQLChunk<'a, V>) -> Self {
         match value {
             SQLChunk::Token(token) => Self::Token(token),
-            SQLChunk::Ident(cow) => Self::Ident(cow.into_owned()),
-            SQLChunk::Raw(cow) => Self::Raw(cow.into_owned()),
+            SQLChunk::Ident(cow) => Self::Ident(cow.into_owned().into_boxed_str()),
+            SQLChunk::Raw(cow) => Self::Raw(cow.into_owned().into_boxed_str()),
             SQLChunk::Number(value) => Self::Number(value),
             SQLChunk::Param(param) => Self::Param(param.into()),
-            SQLChunk::Table(table) => Self::Table(table),
-            SQLChunk::Column(column) => Self::Column(column),
+            SQLChunk::Table(t) => Self::Table(t),
+            SQLChunk::Column(c) => Self::Column(c),
         }
     }
 }
@@ -70,12 +71,12 @@ impl<V: SQLParam> From<OwnedSQLChunk<V>> for SQLChunk<'static, V> {
     fn from(value: OwnedSQLChunk<V>) -> Self {
         match value {
             OwnedSQLChunk::Token(token) => SQLChunk::Token(token),
-            OwnedSQLChunk::Ident(s) => SQLChunk::Ident(Cow::Owned(s)),
-            OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(s)),
+            OwnedSQLChunk::Ident(s) => SQLChunk::Ident(Cow::Owned(String::from(s))),
+            OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(String::from(s))),
             OwnedSQLChunk::Number(value) => SQLChunk::Number(value),
             OwnedSQLChunk::Param(param) => SQLChunk::Param(param.into()),
-            OwnedSQLChunk::Table(table) => SQLChunk::Table(table),
-            OwnedSQLChunk::Column(column) => SQLChunk::Column(column),
+            OwnedSQLChunk::Table(t) => SQLChunk::Table(t),
+            OwnedSQLChunk::Column(c) => SQLChunk::Column(c),
         }
     }
 }

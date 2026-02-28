@@ -90,6 +90,7 @@ cidr = { version = "0.3" }
 geo-types = { version = "0.7" }
 bit-vec = { version = "0.8" }
 time = { version = "0.3", default-features = false, features = ["formatting", "parsing"] }
+const_format = { version = "0.2" }
 
 # CLI-specific dependencies
 colored = { version = "3.0" }
@@ -289,6 +290,7 @@ tracing = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
+const_format = { workspace = true }
 
 [profile.bench]
 debug = true

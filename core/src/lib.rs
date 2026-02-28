@@ -77,7 +77,7 @@ pub mod types;
 // Re-export key types and traits
 pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{BuilderInit, ExecutableState};
-pub use dialect::{Dialect, DialectExt, DialectTypes, PostgresDialect, SQLiteDialect};
+pub use dialect::{Dialect, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind, ParamSet};
 pub use placeholder::*;
@@ -91,7 +91,7 @@ pub use row::{
     SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
-pub use sql::{OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, Token};
+pub use sql::{ColumnRef, OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, TableRef, Token};
 pub use traits::*;
 
 // =============================================================================

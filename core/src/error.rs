@@ -57,6 +57,10 @@ pub enum DrizzleError {
     #[error("Type conversion error: {0}")]
     ConversionError(compact_str::CompactString),
 
+    /// Schema error (e.g. cycle in table dependencies)
+    #[error("Schema error: {0}")]
+    Schema(compact_str::CompactString),
+
     /// Generic error
     #[error("Database error: {0}")]
     Other(compact_str::CompactString),

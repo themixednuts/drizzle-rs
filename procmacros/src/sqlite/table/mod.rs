@@ -84,36 +84,16 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate table marker const for IDE hover documentation
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
 
-    // Calculate has_foreign_keys before creating context
-    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
-        || !attrs.composite_foreign_keys.is_empty();
-
-    // Generate CREATE TABLE SQL (only for tables without foreign keys)
-    let create_table_sql = if has_foreign_keys {
-        String::new()
-    } else {
-        ddl::generate_create_table_sql_from_params(
-            &table_name,
-            &field_infos,
-            is_composite_pk,
-            attrs.strict,
-            attrs.without_rowid,
-        )
-    };
-
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
         table_name,
-        create_table_sql,
-        create_table_sql_runtime: None,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
         attrs: &attrs,
-        has_foreign_keys,
         is_composite_pk,
     };
 

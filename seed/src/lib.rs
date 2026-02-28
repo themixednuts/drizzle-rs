@@ -83,8 +83,8 @@ mod statement {
             .iter()
             .map(|chunk| match chunk {
                 drizzle_core::OwnedSQLChunk::Token(t) => SQLChunk::Token(*t),
-                drizzle_core::OwnedSQLChunk::Ident(s) => SQLChunk::Ident(Cow::Owned(s.clone())),
-                drizzle_core::OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(s.clone())),
+                drizzle_core::OwnedSQLChunk::Ident(s) => SQLChunk::Ident(Cow::Owned(s.to_string())),
+                drizzle_core::OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(s.to_string())),
                 drizzle_core::OwnedSQLChunk::Number(v) => SQLChunk::Number(*v),
                 drizzle_core::OwnedSQLChunk::Param(p) => SQLChunk::Param(Param {
                     placeholder: p.placeholder,
@@ -112,8 +112,10 @@ mod statement {
             .into_iter()
             .map(|chunk| match chunk {
                 drizzle_core::OwnedSQLChunk::Token(t) => SQLChunk::Token(t),
-                drizzle_core::OwnedSQLChunk::Ident(s) => SQLChunk::Ident(Cow::Owned(s)),
-                drizzle_core::OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(s)),
+                drizzle_core::OwnedSQLChunk::Ident(s) => {
+                    SQLChunk::Ident(Cow::Owned(String::from(s)))
+                }
+                drizzle_core::OwnedSQLChunk::Raw(s) => SQLChunk::Raw(Cow::Owned(String::from(s))),
                 drizzle_core::OwnedSQLChunk::Number(v) => SQLChunk::Number(v),
                 drizzle_core::OwnedSQLChunk::Param(p) => SQLChunk::Param(Param {
                     placeholder: p.placeholder,

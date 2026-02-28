@@ -9,7 +9,7 @@ pub trait SQLiteColumn<'a>: SQLColumn<'a, SQLiteValue<'a>> {
 
 pub trait SQLiteColumnInfo: SQLColumnInfo {
     fn is_autoincrement(&self) -> bool;
-    fn table(&self) -> &dyn SQLiteTableInfo;
+    fn table(&self) -> &'static dyn SQLiteTableInfo;
 
     /// Returns the foreign key reference if this column has one.
     fn foreign_key(&self) -> Option<&'static dyn SQLiteColumnInfo> {
@@ -36,7 +36,7 @@ impl<T: SQLiteColumnInfo> SQLiteColumnInfo for &'static T {
         <T as SQLiteColumnInfo>::is_autoincrement(*self)
     }
 
-    fn table(&self) -> &dyn SQLiteTableInfo {
+    fn table(&self) -> &'static dyn SQLiteTableInfo {
         <T as SQLiteColumnInfo>::table(*self)
     }
 
