@@ -128,8 +128,7 @@ pub use upgrade::{latest_version_for_dialect, needs_upgrade_for_dialect, upgrade
 // Core traits and dialect markers
 pub use traits::{
     CanUpgrade, Dialect as DialectTrait, DiffType, Entity, EntityKey, EntityKind, MigrationResult,
-    Mysql, Postgres, Sqlite, Upgradable, V5, V6, V7, V8, Version, VersionLt, Versioned,
-    assert_can_upgrade,
+    Mysql, Postgres, Sqlite, Upgradable, V5, V6, V7, V8, Version, Versioned, assert_can_upgrade,
 };
 
 // Collection types for diffing
