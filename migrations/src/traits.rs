@@ -98,20 +98,6 @@ pub trait Upgradable<From: Version, To: Version> {
     fn upgrade(self) -> Result<Self::Output, Self::Error>;
 }
 
-/// Type-level version comparison.
-///
-/// This trait enables compile-time assertions about version ordering.
-/// For example, you can require `From: VersionLt<To>` to ensure From < To.
-pub trait VersionLt<Other: Version>: Version {}
-
-// Declare version ordering relationships
-impl VersionLt<V6> for V5 {}
-impl VersionLt<V7> for V5 {}
-impl VersionLt<V8> for V5 {}
-impl VersionLt<V7> for V6 {}
-impl VersionLt<V8> for V6 {}
-impl VersionLt<V8> for V7 {}
-
 /// Type-safe upgrade function that only compiles for valid upgrade paths.
 ///
 /// This function leverages the `CanUpgrade` trait to enforce at compile time
