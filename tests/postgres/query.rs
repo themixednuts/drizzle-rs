@@ -643,6 +643,134 @@ postgres_test!(query_view_where_order, QViewSchema, {
     assert_eq!(posts[1].content, "Bravo Post");
 });
 
+// -- View with FK: query a view that has relations --
+#[PostgresView(DEFINITION = "SELECT id, content, author_id FROM q_post")]
+struct QPostViewFk {
+    id: i32,
+    content: String,
+    #[column(references = QUser::id)]
+    author_id: i32,
+}
+
+#[derive(PostgresSchema)]
+struct QViewFkSchema {
+    q_user: QUser,
+    q_post: QPost,
+    q_post_view_fk: QPostViewFk,
+}
+
+// -- View with forward relation (view -> table) --
+postgres_test!(query_view_with_forward_relation, QViewFkSchema, {
+    let QViewFkSchema {
+        q_user,
+        q_post,
+        q_post_view_fk,
+    } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([
+                InsertQUser::new("Alice"),
+                InsertQUser::new("Bob"),
+            ])
+            => execute
+    );
+
+    let all_users: Vec<SelectQUser> = drizzle_exec!(db.select(()).from(q_user) => all);
+    let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
+    let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+
+    drizzle_exec!(
+        db.insert(q_post)
+            .values([
+                InsertQPost::new("Alice's Post", alice_id),
+                InsertQPost::new("Bob's Post", bob_id),
+            ])
+            => execute
+    );
+
+    // Query the view with its forward relation (author)
+    let posts = drizzle_exec!(
+        db.query(q_post_view_fk)
+            .with(q_post_view_fk.author())
+            .order_by(asc(q_post_view_fk.content))
+            .find_many()
+    );
+
+    assert_eq!(posts.len(), 2);
+    assert_eq!(posts[0].content, "Alice's Post");
+    assert_eq!(posts[0].author().name, "Alice");
+    assert_eq!(posts[1].content, "Bob's Post");
+    assert_eq!(posts[1].author().name, "Bob");
+});
+
+// -- Combo: query regular tables and views in the same schema --
+postgres_test!(query_combo_tables_and_views, QViewFkSchema, {
+    let QViewFkSchema {
+        q_user,
+        q_post,
+        q_post_view_fk,
+    } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([
+                InsertQUser::new("Alice"),
+                InsertQUser::new("Bob"),
+            ])
+            => execute
+    );
+
+    let all_users: Vec<SelectQUser> = drizzle_exec!(db.select(()).from(q_user) => all);
+    let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
+    let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+
+    drizzle_exec!(
+        db.insert(q_post)
+            .values([
+                InsertQPost::new("Post A", alice_id),
+                InsertQPost::new("Post B", alice_id),
+                InsertQPost::new("Post C", bob_id),
+            ])
+            => execute
+    );
+
+    // 1) Query regular table with relations
+    let users = drizzle_exec!(
+        db.query(q_user)
+            .with(q_user.q_posts())
+            .order_by(asc(q_user.name))
+            .find_many()
+    );
+    assert_eq!(users.len(), 2);
+    assert_eq!(users[0].name, "Alice");
+    assert_eq!(users[0].q_posts().len(), 2);
+    assert_eq!(users[1].name, "Bob");
+    assert_eq!(users[1].q_posts().len(), 1);
+
+    // 2) Query view with relations from the same schema
+    let view_posts = drizzle_exec!(
+        db.query(q_post_view_fk)
+            .with(q_post_view_fk.author())
+            .order_by(asc(q_post_view_fk.content))
+            .find_many()
+    );
+    assert_eq!(view_posts.len(), 3);
+    assert_eq!(view_posts[0].content, "Post A");
+    assert_eq!(view_posts[0].author().name, "Alice");
+    assert_eq!(view_posts[2].content, "Post C");
+    assert_eq!(view_posts[2].author().name, "Bob");
+
+    // 3) Query view standalone (no relations)
+    let view_first = drizzle_exec!(
+        db.query(q_post_view_fk)
+            .r#where(eq(q_post_view_fk.content, "Post B"))
+            .find_first()
+    );
+    assert!(view_first.is_some());
+    assert_eq!(view_first.unwrap().content, "Post B");
+});
+
 // -- Complex deeply nested: 4-level deep, multiple siblings, all cardinalities --
 postgres_test!(query_deep_nested_complex, QDeepSchema, {
     let QDeepSchema {
