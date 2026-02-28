@@ -76,10 +76,10 @@ extern crate alloc;
 mod builder;
 
 #[macro_use]
-mod transaction;
+mod macros;
 
 #[macro_use]
-mod macros;
+mod transaction;
 
 #[doc(hidden)]
 pub(crate) use drizzle_builder_join_impl;
