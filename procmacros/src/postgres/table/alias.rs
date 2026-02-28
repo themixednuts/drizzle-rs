@@ -74,12 +74,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                     <#original_field_type as SQLColumnInfo>::is_unique(&ORIGINAL_FIELD)
                 }
 
-                fn name(&self) -> &str {
+                fn name(&self) -> &'static str {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                     <#original_field_type as SQLColumnInfo>::name(&ORIGINAL_FIELD)
                 }
 
-                fn r#type(&self) -> &str {
+                fn r#type(&self) -> &'static str {
                     static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                     <#original_field_type as SQLColumnInfo>::r#type(&ORIGINAL_FIELD)
                 }
@@ -89,7 +89,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                     <#original_field_type as SQLColumnInfo>::has_default(&ORIGINAL_FIELD)
                 }
 
-                fn table(&self) -> &dyn SQLTableInfo {
+                fn table(&self) -> &'static dyn SQLTableInfo {
                     // Column info requires a static table reference, so runtime alias names are
                     // intentionally not reflected here.
                     static ORIGINAL_TABLE: #table_name = #table_name::new();
@@ -124,7 +124,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                     <#original_field_type as PostgresColumnInfo>::postgres_type(&ORIGINAL_FIELD)
                 }
 
-                fn table(&self) -> &dyn PostgresTableInfo {
+                fn table(&self) -> &'static dyn PostgresTableInfo {
                     // Column info requires a static table reference, so runtime alias names are
                     // intentionally not reflected here.
                     static ORIGINAL_TABLE: #table_name = #table_name::new();
@@ -314,11 +314,11 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         // Implement table traits for the aliased table
         impl SQLTableInfo for #aliased_table_name {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 self.alias
             }
 
-            fn schema(&self) -> ::std::option::Option<&str> {
+            fn schema(&self) -> ::std::option::Option<&'static str> {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as SQLTableInfo>::schema(&ORIGINAL_TABLE)
             }
@@ -412,11 +412,11 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         }
 
         impl<Tag: #alias_tag + 'static> SQLTableInfo for #alias_type_name<Tag> {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 Tag::NAME
             }
 
-            fn schema(&self) -> ::std::option::Option<&str> {
+            fn schema(&self) -> ::std::option::Option<&'static str> {
                 SQLTableInfo::schema(::core::ops::Deref::deref(self))
             }
 
@@ -481,10 +481,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             const NAME: &'static str = <#aliased_table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::NAME;
             const TYPE: PostgresSchemaType = <#aliased_table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::TYPE;
             const SQL: &'static str = <#aliased_table_name as SQLSchema<'a, PostgresSchemaType, PostgresValue<'a>>>::SQL;
-
-            fn ddl(&self) -> SQL<'a, PostgresValue<'a>> {
-                SQLSchema::ddl(::core::ops::Deref::deref(self))
-            }
         }
 
         impl<'a, Tag: #alias_tag + 'static> ToSQL<'a, PostgresValue<'a>> for #alias_type_name<Tag> {

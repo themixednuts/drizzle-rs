@@ -237,29 +237,16 @@ pub(crate) fn generate_sql_schema<D: Dialect>(
     name: TokenStream,
     r#type: TokenStream,
     const_sql: TokenStream,
-    runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
     let sql_schema = core_paths::sql_schema();
-    let sql = core_paths::sql();
     let schema_type = D::schema_type();
     let value_type = D::value_type();
-
-    let fn_method = runtime_sql
-        .map(|v| {
-            quote! {
-                fn ddl(&self) -> #sql<'a, #value_type<'a>> {
-                    #v
-                }
-            }
-        })
-        .unwrap_or_default();
 
     quote! {
         impl<'a> #sql_schema<'a, #schema_type, #value_type<'a>> for #struct_ident {
             const NAME: &'static str = #name;
             const TYPE: #schema_type = #r#type;
             const SQL: &'static str = #const_sql;
-            #fn_method
         }
     }
 }
@@ -272,18 +259,13 @@ pub(crate) fn generate_sql_schema_field<D: Dialect>(
     sql: TokenStream,
 ) -> TokenStream {
     let sql_schema = core_paths::sql_schema();
-    let sql_type = core_paths::sql();
     let value_type = D::value_type();
 
     quote! {
         impl<'a> #sql_schema<'a, &'a str, #value_type<'a>> for #struct_ident {
             const NAME: &'static str = #name;
             const TYPE: &'a str = #r#type;
-            const SQL: &'static str = "";
-
-            fn ddl(&self) -> #sql_type<'a, #value_type<'a>> {
-                #sql_type::raw(#sql)
-            }
+            const SQL: &'static str = #sql;
         }
     }
 }

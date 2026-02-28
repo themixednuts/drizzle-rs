@@ -132,20 +132,101 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     fn alias<Name: Tag + 'static>() -> Self::Aliased<Name>;
 }
 
-pub trait SQLTableInfo: Any + Send + Sync {
+/// Compile-time table metadata.
+///
+/// Provides table name, schema, columns, keys, and constraints as associated
+/// constants and static methods. Implementing this trait automatically provides
+/// [`SQLTableInfo`] via a blanket implementation.
+pub trait DrizzleTable: Send + Sync + 'static {
     /// Unqualified table name.
-    fn name(&self) -> &str;
+    const NAME: &'static str;
 
-    /// Optional schema/catalog namespace for this table.
-    fn schema(&self) -> Option<&str> {
+    /// Fully-qualified table name (e.g. `schema.table`).
+    const QUALIFIED_NAME: &'static str;
+
+    /// Schema namespace, if any.
+    const SCHEMA: Option<&'static str> = None;
+
+    /// Names of tables this table depends on via foreign keys.
+    const DEPENDENCY_NAMES: &'static [&'static str] = &[];
+
+    /// All columns in this table.
+    fn columns_list() -> &'static [&'static dyn SQLColumnInfo];
+
+    /// Primary key, if defined.
+    fn primary_key_info() -> Option<&'static dyn SQLPrimaryKeyInfo> {
         None
     }
 
-    /// Fully-qualified table name when schema is present.
+    /// Foreign key constraints.
+    fn foreign_keys_list() -> &'static [&'static dyn SQLForeignKeyInfo] {
+        &[]
+    }
+
+    /// All constraints (PK, FK, unique, check).
+    fn constraints_list() -> &'static [&'static dyn SQLConstraintInfo] {
+        &[]
+    }
+
+    /// Tables this table depends on via foreign keys.
+    fn dependencies_list() -> &'static [&'static dyn SQLTableInfo] {
+        &[]
+    }
+}
+
+/// Blanket: any `DrizzleTable` automatically satisfies `SQLTableInfo`.
+impl<T: DrizzleTable> SQLTableInfo for T {
+    fn name(&self) -> &'static str {
+        T::NAME
+    }
+
+    fn schema(&self) -> Option<&'static str> {
+        T::SCHEMA
+    }
+
+    fn qualified_name(&self) -> Cow<'static, str> {
+        Cow::Borrowed(T::QUALIFIED_NAME)
+    }
+
+    fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
+        T::columns_list()
+    }
+
+    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
+        T::primary_key_info()
+    }
+
+    fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
+        T::foreign_keys_list()
+    }
+
+    fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
+        T::constraints_list()
+    }
+
+    fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
+        T::dependencies_list()
+    }
+}
+
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not implement SQLTableInfo",
+    label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
+)]
+pub trait SQLTableInfo: Any + Send + Sync {
+    /// Unqualified table name.
+    fn name(&self) -> &'static str;
+
+    /// Schema namespace for this table, if any.
+    fn schema(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Fully-qualified table name.
     fn qualified_name(&self) -> Cow<'static, str> {
         match self.schema() {
             Some(schema) => Cow::Owned(format!("{schema}.{}", self.name())),
-            None => Cow::Owned(self.name().to_string()),
+            None => Cow::Borrowed(self.name()),
         }
     }
 
@@ -160,54 +241,6 @@ pub trait SQLTableInfo: Any + Send + Sync {
         &[]
     }
     fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo];
-
-    /// Lookup a column by name.
-    fn column_named(&self, name: &str) -> Option<&'static dyn SQLColumnInfo> {
-        self.columns()
-            .iter()
-            .copied()
-            .find(|col| col.name() == name)
-    }
-}
-
-/// Implemented by concrete table structs to expose a canonical static instance.
-pub trait SQLStaticTableInfo: SQLTableInfo + Sized + 'static {
-    fn static_table() -> &'static Self;
-}
-
-// Blanket implementation for static references
-impl<T: SQLTableInfo> SQLTableInfo for &'static T {
-    fn name(&self) -> &str {
-        (*self).name()
-    }
-
-    fn schema(&self) -> Option<&str> {
-        (*self).schema()
-    }
-
-    fn qualified_name(&self) -> Cow<'static, str> {
-        (*self).qualified_name()
-    }
-
-    fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-        (*self).columns()
-    }
-
-    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-        (*self).primary_key()
-    }
-
-    fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
-        (*self).foreign_keys()
-    }
-
-    fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
-        (*self).constraints()
-    }
-
-    fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
-        (*self).dependencies()
-    }
 }
 
 impl core::fmt::Debug for dyn SQLTableInfo {

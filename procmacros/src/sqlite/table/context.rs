@@ -22,9 +22,6 @@ pub(crate) struct MacroContext<'a> {
     pub(crate) struct_ident: &'a Ident,
     pub(crate) struct_vis: &'a Visibility,
     pub(crate) table_name: String,
-    pub(crate) create_table_sql: String,
-    #[allow(dead_code)]
-    pub(crate) create_table_sql_runtime: Option<TokenStream>,
     pub(crate) field_infos: &'a [FieldInfo<'a>],
     pub(crate) select_model_ident: Ident,
     pub(crate) select_model_partial_ident: Ident,
@@ -32,7 +29,6 @@ pub(crate) struct MacroContext<'a> {
     pub(crate) update_model_ident: Ident,
     /// Table attributes (strict, without_rowid, etc.)
     pub(crate) attrs: &'a TableAttributes,
-    pub(crate) has_foreign_keys: bool,
     #[allow(dead_code)]
     pub(crate) is_composite_pk: bool,
 }

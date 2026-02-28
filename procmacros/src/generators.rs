@@ -26,10 +26,10 @@ pub fn generate_sql_column_info(
 
     quote! {
         impl #sql_column_info for #struct_ident {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 #name
             }
-            fn r#type(&self) -> &str {
+            fn r#type(&self) -> &'static str {
                 #r#type
             }
             fn is_primary_key(&self) -> bool {
@@ -44,7 +44,7 @@ pub fn generate_sql_column_info(
             fn has_default(&self) -> bool {
                 #has_default
             }
-            fn table(&self) -> &dyn #sql_table_info {
+            fn table(&self) -> &'static dyn #sql_table_info {
                 #table
             }
             fn foreign_key(&self) -> ::std::option::Option<&'static dyn #sql_column_info> {
@@ -54,11 +54,13 @@ pub fn generate_sql_column_info(
     }
 }
 
-/// Configuration for generating an `SQLTableInfo` trait implementation.
-pub struct SQLTableInfoConfig<'a> {
+/// Configuration for generating a `DrizzleTable` trait implementation.
+pub struct DrizzleTableConfig<'a> {
     pub struct_ident: &'a Ident,
     pub name: TokenStream,
+    pub qualified_name: TokenStream,
     pub schema: TokenStream,
+    pub dependency_names: TokenStream,
     pub columns: TokenStream,
     pub primary_key: TokenStream,
     pub foreign_keys: TokenStream,
@@ -66,18 +68,21 @@ pub struct SQLTableInfoConfig<'a> {
     pub dependencies: TokenStream,
 }
 
-/// Generate SQLTableInfo trait implementation
-pub fn generate_sql_table_info(config: SQLTableInfoConfig<'_>) -> TokenStream {
-    let sql_table_info = core_paths::sql_table_info();
+/// Generate DrizzleTable trait implementation (blanket provides SQLTableInfo).
+pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
+    let drizzle_table = core_paths::drizzle_table();
     let sql_column_info = core_paths::sql_column_info();
     let sql_primary_key_info = core_paths::sql_primary_key_info();
     let sql_foreign_key_info = core_paths::sql_foreign_key_info();
     let sql_constraint_info = core_paths::sql_constraint_info();
+    let sql_table_info = core_paths::sql_table_info();
 
-    let SQLTableInfoConfig {
+    let DrizzleTableConfig {
         struct_ident,
         name,
+        qualified_name,
         schema,
+        dependency_names,
         columns,
         primary_key,
         foreign_keys,
@@ -86,32 +91,29 @@ pub fn generate_sql_table_info(config: SQLTableInfoConfig<'_>) -> TokenStream {
     } = config;
 
     quote! {
-        impl #sql_table_info for #struct_ident {
-            fn name(&self) -> &str {
-                #name
-            }
+        impl #drizzle_table for #struct_ident {
+            const NAME: &'static str = #name;
+            const QUALIFIED_NAME: &'static str = #qualified_name;
+            const SCHEMA: ::std::option::Option<&'static str> = #schema;
+            const DEPENDENCY_NAMES: &'static [&'static str] = #dependency_names;
 
-            fn schema(&self) -> ::std::option::Option<&str> {
-                #schema
-            }
-
-            fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
+            fn columns_list() -> &'static [&'static dyn #sql_column_info] {
                 #columns
             }
 
-            fn primary_key(&self) -> ::std::option::Option<&'static dyn #sql_primary_key_info> {
+            fn primary_key_info() -> ::std::option::Option<&'static dyn #sql_primary_key_info> {
                 #primary_key
             }
 
-            fn foreign_keys(&self) -> &'static [&'static dyn #sql_foreign_key_info] {
+            fn foreign_keys_list() -> &'static [&'static dyn #sql_foreign_key_info] {
                 #foreign_keys
             }
 
-            fn constraints(&self) -> &'static [&'static dyn #sql_constraint_info] {
+            fn constraints_list() -> &'static [&'static dyn #sql_constraint_info] {
                 #constraints
             }
 
-            fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {
+            fn dependencies_list() -> &'static [&'static dyn #sql_table_info] {
                 #dependencies
             }
         }

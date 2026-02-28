@@ -19,7 +19,7 @@ use column_definitions::{
     generate_column_accessors, generate_column_definitions, generate_column_fields,
 };
 use context::MacroContext;
-use ddl::{generate_const_ddl, generate_create_table_sql_from_params};
+use ddl::generate_const_ddl;
 use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -54,35 +54,15 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate table metadata JSON for drizzle-kit compatible migrations
     let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
 
-    // Calculate has_foreign_keys before creating context
-    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
-        || !attrs.composite_foreign_keys.is_empty();
-
-    // Generate CREATE TABLE SQL (only for tables without foreign keys)
-    let schema_name = attrs.schema.as_deref().unwrap_or("public");
-
-    let create_table_sql = if has_foreign_keys {
-        String::new()
-    } else {
-        generate_create_table_sql_from_params(
-            schema_name,
-            &table_name,
-            &field_infos,
-            is_composite_pk,
-        )
-    };
-
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
         table_name,
-        create_table_sql,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
-        has_foreign_keys,
         is_composite_pk,
         attrs: &attrs,
     };

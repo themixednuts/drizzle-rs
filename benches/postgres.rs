@@ -1,7 +1,6 @@
 #![allow(clippy::redundant_closure)]
 
 use divan::{AllocProfiler, Bencher, black_box};
-use drizzle::core::SQLSchema;
 use drizzle::core::expr::{alias, count, eq};
 use drizzle::postgres::prelude::*;
 
@@ -76,28 +75,25 @@ fn get_database_url() -> String {
 
 #[cfg(feature = "postgres-sync")]
 fn setup_postgres_connection() -> ::postgres::Client {
-    const USER: User = User::new();
     let mut client = ::postgres::Client::connect(&get_database_url(), ::postgres::NoTls).expect(
         "Failed to connect to PostgreSQL - is Docker running? (docker compose up -d postgres)",
     );
     client
         .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .unwrap();
-    client.batch_execute(&USER.ddl().sql().to_string()).unwrap();
+    client.batch_execute(User::ddl_sql()).unwrap();
     client
 }
 
 #[cfg(feature = "postgres-sync")]
 fn setup_postgres_blog_connection() -> ::postgres::Client {
-    const USER: User = User::new();
-    const POST: Post = Post::new();
     let mut client = ::postgres::Client::connect(&get_database_url(), ::postgres::NoTls)
         .expect("Failed to connect to PostgreSQL");
     client
         .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .unwrap();
-    client.batch_execute(&USER.ddl().sql().to_string()).unwrap();
-    client.batch_execute(&POST.ddl().sql().to_string()).unwrap();
+    client.batch_execute(User::ddl_sql()).unwrap();
+    client.batch_execute(Post::ddl_sql()).unwrap();
     client
 }
 
@@ -769,7 +765,6 @@ mod postgres_sync {
 
 #[cfg(feature = "tokio-postgres")]
 async fn setup_tokio_postgres_connection() -> ::tokio_postgres::Client {
-    const USER: User = User::new();
     let (client, connection) =
         ::tokio_postgres::connect(&get_database_url(), ::tokio_postgres::NoTls)
             .await
@@ -781,17 +776,12 @@ async fn setup_tokio_postgres_connection() -> ::tokio_postgres::Client {
         .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .await
         .unwrap();
-    client
-        .batch_execute(&USER.ddl().sql().to_string())
-        .await
-        .unwrap();
+    client.batch_execute(User::ddl_sql()).await.unwrap();
     client
 }
 
 #[cfg(feature = "tokio-postgres")]
 async fn setup_tokio_postgres_blog_connection() -> ::tokio_postgres::Client {
-    const USER: User = User::new();
-    const POST: Post = Post::new();
     let (client, connection) =
         ::tokio_postgres::connect(&get_database_url(), ::tokio_postgres::NoTls)
             .await
@@ -803,14 +793,8 @@ async fn setup_tokio_postgres_blog_connection() -> ::tokio_postgres::Client {
         .batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .await
         .unwrap();
-    client
-        .batch_execute(&USER.ddl().sql().to_string())
-        .await
-        .unwrap();
-    client
-        .batch_execute(&POST.ddl().sql().to_string())
-        .await
-        .unwrap();
+    client.batch_execute(User::ddl_sql()).await.unwrap();
+    client.batch_execute(Post::ddl_sql()).await.unwrap();
     client
 }
 

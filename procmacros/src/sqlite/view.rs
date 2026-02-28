@@ -2,7 +2,7 @@ use crate::common::{
     count_primary_keys, make_uppercase_path, required_fields_pattern, struct_fields,
     table_name_from_attrs,
 };
-use crate::generators::{SQLTableInfoConfig, generate_sql_table_info};
+use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::{
     core as core_paths, ddl as ddl_paths, sqlite as sqlite_paths, std as std_paths,
 };
@@ -160,21 +160,16 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
                 && matches!(info.column_type, SQLiteType::Integer))
     });
 
-    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some());
-
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
         table_name: view_name.clone(),
-        create_table_sql: String::new(),
-        create_table_sql_runtime: None,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
         attrs: &table_attrs,
-        has_foreign_keys,
         is_composite_pk,
     };
 
@@ -187,18 +182,23 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let alias_definitions = alias::generate_aliased_table(&ctx)?;
 
     // Generate FK ZSTs and relation impls (logical-only, no SQL constraints in views)
-    use crate::sqlite::table::traits;
     let sql_table_info_path = core_paths::sql_table_info();
     let sql_column_info_path = core_paths::sql_column_info();
     let (foreign_key_impls, sql_foreign_keys, foreign_keys_type, _fk_idents) =
-        traits::generate_foreign_keys(
-            &ctx,
+        crate::common::constraints::generate_foreign_keys(
+            ctx.field_infos,
+            &ctx.attrs.composite_foreign_keys,
+            &ctx.table_name,
             struct_ident,
             struct_vis,
             &sql_table_info_path,
             &sql_column_info_path,
         );
-    let relations_impl = traits::generate_relations(&ctx)?;
+    let relations_impl = crate::common::constraints::generate_relations(
+        ctx.field_infos,
+        &ctx.attrs.composite_foreign_keys,
+        ctx.struct_ident,
+    )?;
     #[cfg(feature = "rusqlite")]
     let rusqlite_impls = rusqlite::generate_rusqlite_impls(&ctx)?;
 
@@ -281,10 +281,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         &DEPENDENCIES
     };
 
-    let sql_table_info_impl = generate_sql_table_info(SQLTableInfoConfig {
+    let drizzle_table_impl = generate_drizzle_table(DrizzleTableConfig {
         struct_ident,
         name: quote! { Self::VIEW_NAME },
+        qualified_name: quote! { Self::VIEW_NAME },
         schema: quote! { ::std::option::Option::None },
+        dependency_names: quote! { &[] },
         columns: sql_columns,
         primary_key: quote! { ::std::option::Option::None },
         foreign_keys: sql_foreign_keys,
@@ -317,6 +319,13 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         constraints: quote! { #no_constraint },
     });
     let sqlite_table_impl = generate_sqlite_table(struct_ident, quote! { false }, quote! { false });
+    let view_const_sql = if has_definition_literal {
+        // Literal definition: build the entire CREATE VIEW SQL at proc-macro time
+        let sql = format!("CREATE VIEW \"{}\" AS {}", view_name, definition_sql);
+        quote! { #sql }
+    } else {
+        quote! { "" }
+    };
     let sql_schema_impl = generate_sql_schema(
         struct_ident,
         quote! { Self::VIEW_NAME },
@@ -327,14 +336,17 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
                 #sqlite_schema_type::View(&VIEW_INSTANCE)
             }
         },
-        quote! { "" },
-        Some(quote! { #sql::raw(Self::create_view_sql()) }),
+        view_const_sql,
     );
+    let table_ref = core_paths::table_ref();
+    let view_column_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();
     let to_sql_impl = generate_to_sql(
         struct_ident,
         quote! {
-            static INSTANCE: #struct_ident = #struct_ident::new();
-            #sql::table(&INSTANCE)
+            #sql::table(#table_ref {
+                name: Self::VIEW_NAME,
+                column_names: &[#(#view_column_names),*],
+            })
         },
     );
 
@@ -407,6 +419,16 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
                 }
                 view.create_view_sql()
             }
+
+            /// Returns the DDL SQL for creating this view.
+            pub fn ddl_sql() -> ::std::string::String {
+                let sql = <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL;
+                if sql.is_empty() {
+                    Self::create_view_sql()
+                } else {
+                    sql.to_string()
+                }
+            }
         }
 
         #column_accessors
@@ -420,7 +442,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
         #sql_schema_impl
         #sql_table_impl
-        #sql_table_info_impl
+        #drizzle_table_impl
         #sqlite_table_info_impl
         #sqlite_table_impl
         impl #schema_item_tables for #struct_ident {

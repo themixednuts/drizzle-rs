@@ -4,6 +4,7 @@
 
 use super::context::MacroContext;
 use crate::paths::ddl::postgres as ddl_paths;
+use crate::paths::{core as core_paths, postgres as postgres_paths};
 use crate::postgres::field::{FieldInfo, PostgreSQLDefault};
 use drizzle_types::postgres::ddl::{Column, PrimaryKey, Table, UniqueConstraint, sql::TableSql};
 use proc_macro2::TokenStream;
@@ -153,6 +154,11 @@ pub(crate) fn generate_const_ddl(
     let struct_ident = ctx.struct_ident;
     let table_name = &ctx.table_name;
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
+
+    // Get core type paths for SQLSchema reference
+    let sql_schema = core_paths::sql_schema();
+    let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let postgres_value = postgres_paths::postgres_value();
 
     // Get DDL type paths
     let table_def = ddl_paths::table_def();
@@ -381,6 +387,11 @@ pub(crate) fn generate_const_ddl(
                     .unique_constraints(&uniques)
                     .create_table_sql()
             }
+
+            /// Returns the DDL SQL for creating this table.
+            pub fn ddl_sql() -> &'static str {
+                <Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL
+            }
         }
     })
 }
@@ -449,13 +460,11 @@ mod tests {
             struct_ident: &struct_ident,
             struct_vis: &struct_vis,
             table_name: "posts".to_string(),
-            create_table_sql: String::new(),
             field_infos: &fields,
             select_model_ident: syn::parse_str("PostsSelect").expect("valid ident"),
             select_model_partial_ident: syn::parse_str("PostsPartial").expect("valid ident"),
             insert_model_ident: syn::parse_str("PostsInsert").expect("valid ident"),
             update_model_ident: syn::parse_str("PostsUpdate").expect("valid ident"),
-            has_foreign_keys: true,
             is_composite_pk: false,
             attrs: &attrs,
         };

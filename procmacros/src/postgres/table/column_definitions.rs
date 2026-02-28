@@ -322,18 +322,14 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             impl<'a> SQLSchema<'a, &'a str, PostgresValue<'a>> for #zst_ident {
                 const NAME: &'static str = #name;
                 const TYPE: &'a str = #col_type;
-                const SQL: &'static str = "";
-
-                fn ddl(&self) -> SQL<'a, PostgresValue<'a>> {
-                    SQL::raw(#sql)
-                }
+                const SQL: &'static str = #sql;
             }
 
             impl SQLColumnInfo for #zst_ident {
-                fn name(&self) -> &str {
+                fn name(&self) -> &'static str {
                     <Self as SQLSchema<'_, &'static str, PostgresValue<'_>>>::NAME
                 }
-                fn r#type(&self) -> &str {
+                fn r#type(&self) -> &'static str {
                     <Self as SQLSchema<'_, &'static str, PostgresValue<'_>>>::TYPE
                 }
                 fn is_primary_key(&self) -> bool {
@@ -348,7 +344,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 fn has_default(&self) -> bool {
                     #has_default
                 }
-                fn table(&self) -> &dyn SQLTableInfo {
+                fn table(&self) -> &'static dyn SQLTableInfo {
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
@@ -358,7 +354,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             }
 
             impl PostgresColumnInfo for #zst_ident {
-                fn table(&self) -> &dyn PostgresTableInfo {
+                fn table(&self) -> &'static dyn PostgresTableInfo {
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
@@ -417,8 +413,10 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
             impl<'a> ToSQL<'a, PostgresValue<'a>> for #zst_ident {
                 fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                    static INSTANCE: #zst_ident = #zst_ident;
-                    SQL::column(&INSTANCE)
+                    SQL::column(drizzle::core::ColumnRef {
+                        table_name: <#struct_ident as drizzle::core::DrizzleTable>::NAME,
+                        column_name: #name,
+                    })
                 }
             }
 

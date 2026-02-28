@@ -47,7 +47,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
     let sql_index = core_paths::sql_index();
-    let sql_index_info = core_paths::sql_index_info();
+    let drizzle_index = core_paths::drizzle_index();
     let sql_table_info = core_paths::sql_table_info();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
@@ -173,6 +173,45 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
         quote! {}
     };
 
+    // Build the const SQL using concatcp! to reference the table's TABLE_NAME
+    let unique_kw = if is_unique { "UNIQUE " } else { "" };
+    let index_name_lit = &index_name;
+
+    // Build the column list for the CREATE INDEX SQL
+    // We need each column name from the column ZSTs
+    let column_sql_parts: Vec<TokenStream> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, col)| {
+            let prefix = if i > 0 { ", \"" } else { "\"" };
+            let suffix = "\"";
+            quote! {
+                #prefix,
+                {
+                    const fn column_name<'a, C: #sql_schema<'a, &'static str, #sqlite_value<'a>>>(_: &C) -> &'a str {
+                        C::NAME
+                    }
+                    column_name(&#col)
+                },
+                #suffix
+            }
+        })
+        .collect();
+
+    let create_index_prefix = format!("CREATE {}INDEX \"{}\" ON \"", unique_kw, index_name_lit);
+    let create_index_mid = "\" (";
+    let create_index_suffix = ")";
+
+    let const_sql = quote! {
+        ::drizzle::const_format::concatcp!(
+            #create_index_prefix,
+            <#table_type as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME,
+            #create_index_mid,
+            #(#column_sql_parts,)*
+            #create_index_suffix
+        )
+    };
+
     let mut expanded = quote! {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #struct_vis struct #struct_ident;
@@ -200,6 +239,11 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             pub fn create_index_sql() -> ::std::string::String {
                 Self::DDL_INDEX.into_index().create_index_sql()
             }
+
+            /// Returns the DDL SQL for creating this index.
+            pub fn ddl_sql() -> &'static str {
+                <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL
+            }
         }
 
         impl Default for #struct_ident {
@@ -213,24 +257,16 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
             type Table = #table_type;
         }
 
-        impl #sql_index_info for #struct_ident
+        impl #drizzle_index for #struct_ident
         {
-            fn table(&self) -> &dyn #sql_table_info {
+            const INDEX_NAME: &'static str = #index_name;
+            const COLUMN_NAMES: &'static [&'static str] = Self::COLUMN_NAMES;
+            const IS_UNIQUE: bool = #is_unique;
+
+            fn table_ref() -> &'static dyn #sql_table_info {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #table_type = #table_type::new();
                 &TABLE_INSTANCE
-            }
-
-            fn name(&self) -> &'static str {
-                #index_name
-            }
-
-            fn is_unique(&self) -> bool {
-                #is_unique
-            }
-
-            fn columns(&self) -> &'static [&'static str] {
-                Self::COLUMN_NAMES
             }
         }
 
@@ -242,11 +278,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
                 #sqlite_schema_type::Index(&INDEX_INSTANCE)
             };
-            const SQL: &'static str = "";
-
-            fn ddl(&self) -> #sql<'a, #sqlite_value<'a>> {
-                #sql::raw(Self::create_index_sql())
-            }
+            const SQL: &'static str = #const_sql;
         }
 
         impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident

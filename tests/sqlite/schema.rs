@@ -126,17 +126,17 @@ sqlite_test!(test_schema_derive, AppTestSchema, {
         "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`email` TEXT NOT NULL,\n\t`name` TEXT NOT NULL\n);"
     );
 
-    // Test index SQL generation
-    let email_idx_sql = UserEmailIdx.ddl().sql();
+    // Test index SQL generation (compile-time const SQL format)
+    let email_idx_sql = UserEmailIdx::ddl_sql();
     assert_eq!(
         email_idx_sql,
-        "CREATE UNIQUE INDEX `user_email_idx` ON `users`(`email`);"
+        "CREATE UNIQUE INDEX \"user_email_idx\" ON \"users\" (\"email\")"
     );
 
-    let name_idx_sql = UserNameIdx.ddl().sql();
+    let name_idx_sql = UserNameIdx::ddl_sql();
     assert_eq!(
         name_idx_sql,
-        "CREATE INDEX `user_name_idx` ON `users`(`name`);"
+        "CREATE INDEX \"user_name_idx\" ON \"users\" (\"name\")"
     );
 
     // Test that we can get all schema items

@@ -16,26 +16,19 @@ pub fn setup_db() -> Connection {
 
 #[cfg(feature = "rusqlite")]
 fn create_tables(conn: &Connection) {
-    // Simple table
-
-    use drizzle_core::SQLSchema;
-
-    conn.execute(Simple::new().ddl().sql().as_str(), [])
+    conn.execute(Simple::ddl_sql(), [])
         .expect("Failed to create simple table");
 
-    conn.execute(Complex::new().ddl().sql().as_str(), [])
+    conn.execute(Complex::ddl_sql(), [])
         .expect("Failed to create complex table");
 
-    // Posts table for joins
-    conn.execute(Post::new().ddl().sql().as_str(), [])
+    conn.execute(Post::ddl_sql(), [])
         .expect("Failed to create posts table");
 
-    // Categories for many-to-many testing
-    conn.execute(Category::new().ddl().sql().as_str(), [])
+    conn.execute(Category::ddl_sql(), [])
         .expect("Failed to create categories table");
 
-    // Junction table
-    conn.execute(PostCategory::new().ddl().sql().as_str(), [])
+    conn.execute(PostCategory::ddl_sql(), [])
         .expect("Failed to create post_categories table");
 }
 

@@ -99,6 +99,10 @@ pub use drizzle_macros::sql;
 /// Database dialect enum.
 pub use drizzle_types::Dialect;
 
+/// Re-export const_format for proc macro generated compile-time SQL.
+#[doc(hidden)]
+pub use const_format;
+
 /// Error types.
 pub mod error {
     pub use drizzle_core::error::DrizzleError;
@@ -120,7 +124,8 @@ pub mod migrations {
 pub mod core {
     /// SQL building blocks.
     pub use drizzle_core::{
-        OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, Token, TypedPlaceholder, asc, desc,
+        ColumnRef, OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, TableRef, Token,
+        TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.

@@ -1,7 +1,6 @@
 #![allow(clippy::redundant_closure)]
 
 use divan::{AllocProfiler, Bencher, black_box};
-use drizzle::core::SQLSchema;
 use drizzle::core::expr::{alias, count, eq};
 use drizzle::sqlite::prelude::*;
 
@@ -71,19 +70,16 @@ macro_rules! gen_posts {
 
 #[cfg(feature = "rusqlite")]
 fn setup_rusqlite_connection() -> ::rusqlite::Connection {
-    const USER: User = User::new();
     let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute(&USER.ddl().sql().to_string(), []).unwrap();
+    conn.execute(User::ddl_sql(), []).unwrap();
     conn
 }
 
 #[cfg(feature = "rusqlite")]
 fn setup_rusqlite_blog_connection() -> ::rusqlite::Connection {
-    const USER: User = User::new();
-    const POST: Post = Post::new();
     let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute(&USER.ddl().sql().to_string(), []).unwrap();
-    conn.execute(&POST.ddl().sql().to_string(), []).unwrap();
+    conn.execute(User::ddl_sql(), []).unwrap();
+    conn.execute(Post::ddl_sql(), []).unwrap();
     conn
 }
 
@@ -110,13 +106,12 @@ fn setup_rusqlite_blog_drizzle() -> (drizzle::sqlite::rusqlite::Drizzle<BlogSche
 
 #[cfg(feature = "turso")]
 async fn setup_turso_connection() -> ::turso::Connection {
-    const USER: User = User::new();
     let db = ::turso::Builder::new_local(":memory:")
         .build()
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    conn.execute(&USER.ddl().sql().to_string(), ())
+    conn.execute(User::ddl_sql(), ())
         .await
         .expect("create table");
     conn
@@ -124,17 +119,15 @@ async fn setup_turso_connection() -> ::turso::Connection {
 
 #[cfg(feature = "turso")]
 async fn setup_turso_blog_connection() -> ::turso::Connection {
-    const USER: User = User::new();
-    const POST: Post = Post::new();
     let db = ::turso::Builder::new_local(":memory:")
         .build()
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    conn.execute(&USER.ddl().sql().to_string(), ())
+    conn.execute(User::ddl_sql(), ())
         .await
         .expect("create users table");
-    conn.execute(&POST.ddl().sql().to_string(), ())
+    conn.execute(Post::ddl_sql(), ())
         .await
         .expect("create posts table");
     conn
@@ -148,7 +141,9 @@ async fn setup_turso_drizzle() -> (drizzle::sqlite::turso::Drizzle<Schema>, User
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
     let (db, Schema { user }) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
-    db.execute(user.ddl()).await.expect("create table");
+    db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
+        .await
+        .expect("create table");
     (db, user)
 }
 
@@ -161,8 +156,12 @@ async fn setup_turso_blog_drizzle() -> (drizzle::sqlite::turso::Drizzle<BlogSche
     let conn = db.connect().expect("connect to db");
     let (db, BlogSchema { user, post }) =
         drizzle::sqlite::turso::Drizzle::new(conn, BlogSchema::new());
-    db.execute(user.ddl()).await.expect("create users table");
-    db.execute(post.ddl()).await.expect("create posts table");
+    db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
+        .await
+        .expect("create users table");
+    db.execute(drizzle::core::SQL::raw(Post::ddl_sql()))
+        .await
+        .expect("create posts table");
     (db, user, post)
 }
 
@@ -172,13 +171,12 @@ async fn setup_turso_blog_drizzle() -> (drizzle::sqlite::turso::Drizzle<BlogSche
 
 #[cfg(feature = "libsql")]
 async fn setup_libsql_connection() -> ::libsql::Connection {
-    const USER: User = User::new();
     let db = ::libsql::Builder::new_local(":memory:")
         .build()
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    conn.execute(&USER.ddl().sql().to_string(), ())
+    conn.execute(User::ddl_sql(), ())
         .await
         .expect("create table");
     conn
@@ -186,17 +184,15 @@ async fn setup_libsql_connection() -> ::libsql::Connection {
 
 #[cfg(feature = "libsql")]
 async fn setup_libsql_blog_connection() -> ::libsql::Connection {
-    const USER: User = User::new();
-    const POST: Post = Post::new();
     let db = ::libsql::Builder::new_local(":memory:")
         .build()
         .await
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
-    conn.execute(&USER.ddl().sql().to_string(), ())
+    conn.execute(User::ddl_sql(), ())
         .await
         .expect("create users table");
-    conn.execute(&POST.ddl().sql().to_string(), ())
+    conn.execute(Post::ddl_sql(), ())
         .await
         .expect("create posts table");
     conn
@@ -210,7 +206,9 @@ async fn setup_libsql_drizzle() -> (drizzle::sqlite::libsql::Drizzle<Schema>, Us
         .expect("create in memory");
     let conn = db.connect().expect("connect to db");
     let (db, Schema { user }) = drizzle::sqlite::libsql::Drizzle::new(conn, Schema::new());
-    db.execute(user.ddl()).await.expect("create table");
+    db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
+        .await
+        .expect("create table");
     (db, user)
 }
 
@@ -223,8 +221,12 @@ async fn setup_libsql_blog_drizzle() -> (drizzle::sqlite::libsql::Drizzle<BlogSc
     let conn = db.connect().expect("connect to db");
     let (db, BlogSchema { user, post }) =
         drizzle::sqlite::libsql::Drizzle::new(conn, BlogSchema::new());
-    db.execute(user.ddl()).await.expect("create users table");
-    db.execute(post.ddl()).await.expect("create posts table");
+    db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
+        .await
+        .expect("create users table");
+    db.execute(drizzle::core::SQL::raw(Post::ddl_sql()))
+        .await
+        .expect("create posts table");
     (db, user, post)
 }
 

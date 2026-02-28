@@ -5,12 +5,11 @@
 
 use super::context::MacroContext;
 use crate::paths::ddl::sqlite as ddl_paths;
+use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
-use drizzle_types::sqlite::ddl::{Column, PrimaryKey, Table, UniqueConstraint, sql::TableSql};
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::borrow::Cow;
 use syn::Result;
 
 /// Convert a referential action string to the corresponding enum variant token
@@ -25,29 +24,227 @@ fn referential_action_token(action: &str, referential_action: &TokenStream) -> T
     }
 }
 
-/// Generate the CREATE TABLE SQL string from raw parameters.
+/// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`
+/// using `concatcp!` so that foreign key REFERENCES can resolve table names
+/// via `<OtherTable>::TABLE_NAME` at compile time.
+pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
+    let table_name = &ctx.table_name;
+    let is_composite_pk = ctx.is_composite_pk;
+    let strict = ctx.attrs.strict;
+    let without_rowid = ctx.attrs.without_rowid;
+    let field_infos = ctx.field_infos;
+
+    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
+        || !ctx.attrs.composite_foreign_keys.is_empty();
+
+    if !has_foreign_keys {
+        // For tables without FKs, we can build the SQL entirely at proc-macro
+        // time as a string literal (no need for concatcp!)
+        let sql = build_create_table_sql(
+            table_name,
+            field_infos,
+            is_composite_pk,
+            strict,
+            without_rowid,
+        );
+        return quote! { #sql };
+    }
+
+    // For tables WITH FKs, we need concatcp! to reference other table's TABLE_NAME
+    // Build the SQL pieces that will be concatenated at compile time
+    let mut parts: Vec<TokenStream> = Vec::new();
+
+    // CREATE TABLE "table_name" (\n
+    let header = format!("CREATE TABLE \"{}\" (\n", table_name);
+    parts.push(quote! { #header });
+
+    // Column definitions
+    let column_lines: Vec<String> = field_infos
+        .iter()
+        .map(|field| build_column_sql(table_name, field, is_composite_pk))
+        .collect();
+
+    for (i, col_line) in column_lines.iter().enumerate() {
+        let line = if i > 0 {
+            format!(",\n{}", col_line)
+        } else {
+            col_line.clone()
+        };
+        parts.push(quote! { #line });
+    }
+
+    // Composite primary key (if needed)
+    if is_composite_pk {
+        let pk_columns: Vec<&String> = field_infos
+            .iter()
+            .filter(|f| f.is_primary)
+            .map(|f| &f.column_name)
+            .collect();
+        if !pk_columns.is_empty() {
+            let pk_str = format!(
+                ",\nPRIMARY KEY({})",
+                pk_columns
+                    .iter()
+                    .map(|c| format!("\"{}\"", c))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            parts.push(quote! { #pk_str });
+        }
+    }
+
+    // Unique constraints
+    for field in field_infos.iter().filter(|f| f.is_unique && !f.is_primary) {
+        let uq_str = format!(",\nUNIQUE(\"{}\")", field.column_name);
+        parts.push(quote! { #uq_str });
+    }
+
+    // Single-column foreign keys
+    for field in field_infos {
+        if let Some(ref fk) = field.foreign_key {
+            let ref_table_ident = &fk.table_ident;
+            let ref_column = fk.column_ident.to_string().to_snake_case();
+
+            // FK prefix: ,\nFOREIGN KEY ("col") REFERENCES "
+            let fk_prefix = format!(",\nFOREIGN KEY (\"{}\") REFERENCES \"", field.column_name);
+            parts.push(quote! { #fk_prefix });
+
+            // Table name via const reference
+            parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
+
+            // FK suffix: " ("ref_col")
+            let mut fk_suffix = format!("\" (\"{}\")", ref_column);
+
+            if let Some(ref on_delete) = fk.on_delete {
+                fk_suffix.push_str(&format!(" ON DELETE {}", on_delete.to_uppercase()));
+            }
+            if let Some(ref on_update) = fk.on_update {
+                fk_suffix.push_str(&format!(" ON UPDATE {}", on_update.to_uppercase()));
+            }
+
+            parts.push(quote! { #fk_suffix });
+        }
+    }
+
+    // Composite foreign keys
+    for fk in &ctx.attrs.composite_foreign_keys {
+        let ref_table_ident = &fk.target_table;
+        let source_columns: Vec<String> = fk
+            .source_columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| f.ident == src)
+                    .map(|f| f.column_name.clone())
+                    .unwrap_or_else(|| src.to_string())
+            })
+            .collect();
+        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+
+        let source_cols_str = source_columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let target_cols_str = target_columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let fk_prefix = format!(",\nFOREIGN KEY ({}) REFERENCES \"", source_cols_str);
+        parts.push(quote! { #fk_prefix });
+
+        parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
+
+        let mut fk_suffix = format!("\" ({})", target_cols_str);
+
+        if let Some(ref on_delete) = fk.on_delete {
+            fk_suffix.push_str(&format!(" ON DELETE {}", on_delete.to_uppercase()));
+        }
+        if let Some(ref on_update) = fk.on_update {
+            fk_suffix.push_str(&format!(" ON UPDATE {}", on_update.to_uppercase()));
+        }
+
+        parts.push(quote! { #fk_suffix });
+    }
+
+    // Closing paren with optional modifiers
+    let mut closing = "\n)".to_string();
+    if strict && without_rowid {
+        closing.push_str(" STRICT, WITHOUT ROWID");
+    } else if strict {
+        closing.push_str(" STRICT");
+    } else if without_rowid {
+        closing.push_str(" WITHOUT ROWID");
+    }
+    parts.push(quote! { #closing });
+
+    quote! {
+        ::drizzle::const_format::concatcp!(#(#parts),*)
+    }
+}
+
+/// Build the CREATE TABLE SQL string entirely at proc-macro time.
 ///
-/// This is the core implementation that doesn't require a full MacroContext.
-/// Use this before context is fully constructed.
-pub(crate) fn generate_create_table_sql_from_params(
+/// Used for tables WITHOUT foreign keys where all data is known statically.
+fn build_create_table_sql(
     table_name: &str,
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
     strict: bool,
     without_rowid: bool,
 ) -> String {
-    // Build Table
+    use drizzle_types::sqlite::ddl::{Column, PrimaryKey, Table, UniqueConstraint, sql::TableSql};
+    use std::borrow::Cow;
+
     let mut table = Table::new(table_name.to_string());
     table.strict = strict;
     table.without_rowid = without_rowid;
 
-    // Build Columns
     let columns: Vec<Column> = field_infos
         .iter()
-        .map(|field| build_column(table_name, field, is_composite_pk))
+        .map(|field| {
+            let is_single_pk = field.is_primary && !is_composite_pk;
+
+            let mut col = Column::new(
+                Cow::Owned(table_name.to_string()),
+                Cow::Owned(field.column_name.clone()),
+                Cow::Owned(field.column_type.to_sql_type().to_string()),
+            );
+
+            col.not_null = !field.is_nullable;
+
+            if is_single_pk {
+                col.primary_key = Some(true);
+            }
+
+            if field.is_autoincrement {
+                col.autoincrement = Some(true);
+            }
+
+            if field.is_unique && !field.is_primary {
+                col.unique = Some(true);
+            }
+
+            if let Some(ref default_expr) = field.default_value
+                && let syn::Expr::Lit(expr_lit) = default_expr
+            {
+                let default_str = match &expr_lit.lit {
+                    syn::Lit::Int(i) => i.to_string(),
+                    syn::Lit::Float(f) => f.to_string(),
+                    syn::Lit::Bool(b) => if b.value() { "1" } else { "0" }.to_string(),
+                    syn::Lit::Str(s) => format!("'{}'", s.value().replace('\'', "''")),
+                    _ => return col,
+                };
+                col.default = Some(Cow::Owned(default_str));
+            }
+
+            col
+        })
         .collect();
 
-    // Build PrimaryKey
     let pk_columns: Vec<String> = field_infos
         .iter()
         .filter(|f| f.is_primary)
@@ -65,7 +262,6 @@ pub(crate) fn generate_create_table_sql_from_params(
         None
     };
 
-    // Build UniqueConstraints (single-column only, non-primary)
     let unique_constraints: Vec<UniqueConstraint> = field_infos
         .iter()
         .filter(|f| f.is_unique && !f.is_primary)
@@ -78,7 +274,6 @@ pub(crate) fn generate_create_table_sql_from_params(
         })
         .collect();
 
-    // Generate SQL (no foreign keys for compile-time generation)
     TableSql::new(&table)
         .columns(&columns)
         .primary_key(primary_key.as_ref())
@@ -87,77 +282,46 @@ pub(crate) fn generate_create_table_sql_from_params(
         .create_table_sql()
 }
 
-/// Generate the CREATE TABLE SQL string at proc-macro time.
-///
-/// This is used for tables WITHOUT foreign keys, where all information
-/// is known at macro expansion time. Uses the same DDL types as runtime
-/// generation for consistency.
-#[allow(dead_code)]
-pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
-    generate_create_table_sql_from_params(
-        &ctx.table_name,
-        ctx.field_infos,
-        ctx.is_composite_pk,
-        ctx.attrs.strict,
-        ctx.attrs.without_rowid,
-    )
-}
-
-/// Build UniqueConstraints from field infos (single-column only, non-primary)
-#[allow(dead_code)]
-fn build_unique_constraints(table_name: &str, field_infos: &[FieldInfo]) -> Vec<UniqueConstraint> {
-    field_infos
-        .iter()
-        .filter(|f| f.is_unique && !f.is_primary)
-        .map(|field| {
-            UniqueConstraint::from_strings(
-                table_name.to_string(),
-                format!("{}_{}_unique", table_name, field.column_name),
-                vec![field.column_name.clone()],
-            )
-        })
-        .collect()
-}
-
-/// Build a Column from FieldInfo
-fn build_column(table_name: &str, field: &FieldInfo, is_composite_pk: bool) -> Column {
+/// Build a column SQL fragment for use in concatcp! based generation.
+fn build_column_sql(_table_name: &str, field: &FieldInfo, is_composite_pk: bool) -> String {
     let is_single_pk = field.is_primary && !is_composite_pk;
 
-    let mut col = Column::new(
-        Cow::Owned(table_name.to_string()),
-        Cow::Owned(field.column_name.clone()),
-        Cow::Owned(field.column_type.to_sql_type().to_string()),
-    );
-
-    col.not_null = !field.is_nullable;
+    let mut parts = vec![format!(
+        "\"{}\" {}",
+        field.column_name,
+        field.column_type.to_sql_type()
+    )];
 
     if is_single_pk {
-        col.primary_key = Some(true);
+        parts.push("PRIMARY KEY".to_string());
     }
-
     if field.is_autoincrement {
-        col.autoincrement = Some(true);
+        parts.push("AUTOINCREMENT".to_string());
     }
-
+    if !field.is_nullable {
+        parts.push("NOT NULL".to_string());
+    }
     if field.is_unique && !field.is_primary {
-        col.unique = Some(true);
+        parts.push("UNIQUE".to_string());
     }
 
-    // Handle default value
     if let Some(ref default_expr) = field.default_value
         && let syn::Expr::Lit(expr_lit) = default_expr
     {
         let default_str = match &expr_lit.lit {
-            syn::Lit::Int(i) => i.to_string(),
-            syn::Lit::Float(f) => f.to_string(),
-            syn::Lit::Bool(b) => if b.value() { "1" } else { "0" }.to_string(),
-            syn::Lit::Str(s) => format!("'{}'", s.value().replace('\'', "''")),
-            _ => return col,
+            syn::Lit::Int(i) => format!("DEFAULT {}", i),
+            syn::Lit::Float(f) => format!("DEFAULT {}", f),
+            syn::Lit::Bool(b) => format!("DEFAULT {}", if b.value() { "1" } else { "0" }),
+            syn::Lit::Str(s) => format!("DEFAULT '{}'", s.value().replace('\'', "''")),
+            _ => String::new(),
         };
-        col.default = Some(Cow::Owned(default_str));
+        if !default_str.is_empty() {
+            parts.push(default_str);
+        }
     }
 
-    col
+    // Use tab indent for columns to match the DDL generator format
+    format!("\t{}", parts.join(" "))
 }
 
 /// Generate const DDL definitions for the table and its columns.
@@ -173,6 +337,11 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
     let table_name = &ctx.table_name;
     let strict = ctx.attrs.strict;
     let without_rowid = ctx.attrs.without_rowid;
+
+    // Get core type paths for SQLSchema reference
+    let sql_schema = core_paths::sql_schema();
+    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+    let sqlite_value = sqlite_paths::sqlite_value();
 
     // Get DDL type paths
     let table_def = ddl_paths::table_def();
@@ -413,12 +582,17 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
                 .unique_constraints(&uniques)
                 .create_table_sql()
         }
+
+        /// Returns the DDL SQL for creating this table.
+        pub fn ddl_sql() -> &'static str {
+            <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL
+        }
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::generate_create_table_sql_from_params;
+    use super::build_create_table_sql;
     use crate::sqlite::field::{FieldInfo, SQLiteType};
 
     #[test]
@@ -450,7 +624,7 @@ mod tests {
             update_type: None,
         };
 
-        let sql = generate_create_table_sql_from_params("users", &[field], false, false, false);
+        let sql = build_create_table_sql("users", &[field], false, false, false);
         assert!(
             sql.contains("DEFAULT 'O''Hara'"),
             "expected escaped default string, got: {sql}"

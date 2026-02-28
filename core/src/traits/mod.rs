@@ -28,8 +28,6 @@ pub use to_sql::*;
 pub use type_set::*;
 pub use view::*;
 
-use crate::sql::SQL;
-
 /// Trait for schema elements (tables, columns, etc.).
 ///
 /// The `'a` lifetime ties any borrowed parameter values to generated SQL.
@@ -40,14 +38,8 @@ use crate::sql::SQL;
 pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     const NAME: &'static str;
     const TYPE: T;
-    /// Static SQL string for schema creation (e.g., CREATE TABLE ...)
+    /// Static SQL string for schema creation (e.g., CREATE TABLE ...).
     const SQL: &'static str;
-
-    /// Generate DDL SQL for this schema element (e.g., CREATE TABLE ...).
-    /// Default implementation wraps the static SQL string.
-    fn ddl(&self) -> SQL<'a, V> {
-        SQL::raw(Self::SQL)
-    }
 }
 
 /// Maps a schema item type to its table contribution.

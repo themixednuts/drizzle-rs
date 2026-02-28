@@ -1,5 +1,4 @@
 use crate::common::schema::sqlite::{Category, Complex, Post, PostCategory, Role, Simple};
-use drizzle_core::SQLSchema;
 use rand::seq::IndexedRandom;
 use turso::Connection;
 use turso::{Builder, IntoValue};
@@ -10,32 +9,27 @@ pub async fn setup_db() -> Connection {
     let db = Builder::new_local(":memory:").build().await.unwrap();
     let conn = db.connect().unwrap();
     create_tables(&conn).await;
-    // seed(&conn, 10, rand::random_range(0..=1000));
     conn
 }
 
 async fn create_tables(conn: &Connection) {
-    // Simple table
-    conn.execute(Simple::new().ddl().sql().as_str(), ())
+    conn.execute(Simple::ddl_sql(), ())
         .await
         .expect("Failed to create simple table");
 
-    conn.execute(Complex::new().ddl().sql().as_str(), ())
+    conn.execute(Complex::ddl_sql(), ())
         .await
         .expect("Failed to create complex table");
 
-    // Posts table for joins
-    conn.execute(Post::new().ddl().sql().as_str(), ())
+    conn.execute(Post::ddl_sql(), ())
         .await
         .expect("Failed to create posts table");
 
-    // Categories for many-to-many testing
-    conn.execute(Category::new().ddl().sql().as_str(), ())
+    conn.execute(Category::ddl_sql(), ())
         .await
         .expect("Failed to create categories table");
 
-    // Junction table
-    conn.execute(PostCategory::new().ddl().sql().as_str(), ())
+    conn.execute(PostCategory::ddl_sql(), ())
         .await
         .expect("Failed to create post_categories table");
 }

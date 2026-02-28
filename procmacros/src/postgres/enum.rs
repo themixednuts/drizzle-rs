@@ -7,7 +7,7 @@ use syn::{DataEnum, Ident};
 // Generate implementation for PostgreSQL enum representation following SQLite pattern
 pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
     // Get paths for fully-qualified types
-    let sql = core_paths::sql();
+    let _sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
     let sql_enum_info = core_paths::sql_enum_info();
     let schema_item_tables = core_paths::schema_item_tables();
@@ -466,11 +466,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                 static ENUM_INSTANCE: #name = #name::#first_variant;
                 #postgres_schema_type::Enum(&ENUM_INSTANCE)
             };
-            const SQL: &'static str = "";
-
-            fn ddl(&self) -> #sql<'a, #postgres_value<'a>> {
-                #sql::raw(#create_type_sql_literal)
-            }
+            const SQL: &'static str = #create_type_sql_literal;
         }
 
         // Implement new() for schema integration - returns the default variant

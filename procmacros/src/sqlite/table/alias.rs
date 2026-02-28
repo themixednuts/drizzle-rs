@@ -1,7 +1,5 @@
 use crate::common::generate_expr_impl;
-use crate::generators::{
-    SQLTableInfoConfig, generate_impl, generate_sql_column_info, generate_sql_table_info,
-};
+use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths, std as std_paths};
 use crate::sqlite::generators::*;
 use crate::sqlite::table::context::MacroContext;
@@ -228,31 +226,43 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         })
         .collect();
 
-    let sql_table_info_impl = generate_sql_table_info(SQLTableInfoConfig {
-        struct_ident: &aliased_table_name,
-        name: quote! {self.alias},
-        schema: quote! { ::std::option::Option::None },
-        columns: quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sql_table_info>::columns(&ORIGINAL_TABLE)
-        },
-        primary_key: quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sql_table_info>::primary_key(&ORIGINAL_TABLE)
-        },
-        foreign_keys: quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sql_table_info>::foreign_keys(&ORIGINAL_TABLE)
-        },
-        constraints: quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sql_table_info>::constraints(&ORIGINAL_TABLE)
-        },
-        dependencies: quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sql_table_info>::dependencies(&ORIGINAL_TABLE)
-        },
-    });
+    // AliasedTableName has a dynamic name so uses manual SQLTableInfo impl
+    let sql_table_info_impl = quote! {
+        impl #sql_table_info for #aliased_table_name {
+            fn name(&self) -> &'static str {
+                self.alias
+            }
+
+            fn schema(&self) -> ::std::option::Option<&'static str> {
+                ::std::option::Option::None
+            }
+
+            fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as #sql_table_info>::columns(&ORIGINAL_TABLE)
+            }
+
+            fn primary_key(&self) -> ::std::option::Option<&'static dyn drizzle::core::SQLPrimaryKeyInfo> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as #sql_table_info>::primary_key(&ORIGINAL_TABLE)
+            }
+
+            fn foreign_keys(&self) -> &'static [&'static dyn drizzle::core::SQLForeignKeyInfo] {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as #sql_table_info>::foreign_keys(&ORIGINAL_TABLE)
+            }
+
+            fn constraints(&self) -> &'static [&'static dyn drizzle::core::SQLConstraintInfo] {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as #sql_table_info>::constraints(&ORIGINAL_TABLE)
+            }
+
+            fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as #sql_table_info>::dependencies(&ORIGINAL_TABLE)
+            }
+        }
+    };
 
     let sqlite_table_info_impl = generate_sqlite_table_info(
         &aliased_table_name,
@@ -300,12 +310,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::NAME},
         quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::TYPE},
         quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::SQL},
-        Some(quote! {
-            {
-                static INSTANCE: #table_name = #table_name::new();
-                <#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::ddl(&INSTANCE)
-            }
-        }),
     );
 
     let to_sql_impl = generate_to_sql(
@@ -438,11 +442,11 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         }
 
         impl<Tag: #alias_tag + 'static> #sql_table_info for #alias_type_name<Tag> {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 Tag::NAME
             }
 
-            fn schema(&self) -> ::std::option::Option<&str> {
+            fn schema(&self) -> ::std::option::Option<&'static str> {
                 #sql_table_info::schema(::core::ops::Deref::deref(self))
             }
 
@@ -512,10 +516,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             const NAME: &'static str = <#aliased_table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::NAME;
             const TYPE: #sqlite_schema_type = <#aliased_table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::TYPE;
             const SQL: &'static str = <#aliased_table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::SQL;
-
-            fn ddl(&self) -> #sql<'a, #sqlite_value<'a>> {
-                #sql_schema::ddl(::core::ops::Deref::deref(self))
-            }
         }
 
         impl<Tag: #alias_tag + 'static> drizzle::core::HasSelectModel for #alias_type_name<Tag> {

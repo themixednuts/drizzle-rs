@@ -65,7 +65,7 @@ pub fn generate_sqlite_column_info(
                 #is_autoincrement
             }
 
-            fn table(&self) -> &dyn #sqlite_table_info {
+            fn table(&self) -> &'static dyn #sqlite_table_info {
                 #table
             }
 
@@ -156,15 +156,8 @@ pub fn generate_sql_schema(
     name: TokenStream,
     r#type: TokenStream,
     const_sql: TokenStream,
-    runtime_sql: Option<TokenStream>,
 ) -> TokenStream {
-    common_gen::generate_sql_schema::<SqliteDialect>(
-        struct_ident,
-        name,
-        r#type,
-        const_sql,
-        runtime_sql,
-    )
+    common_gen::generate_sql_schema::<SqliteDialect>(struct_ident, name, r#type, const_sql)
 }
 
 /// Generate SQLite SQLSchema for fields trait implementation.

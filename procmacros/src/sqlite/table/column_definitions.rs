@@ -60,6 +60,7 @@ pub(crate) fn generate_column_definitions<'a>(
     let expr_value_type = core_paths::expr_value_type();
     let into_select_target = core_paths::into_select_target();
     let select_cols = core_paths::select_cols();
+    let column_ref = core_paths::column_ref();
     let sqlite_column = sqlite_paths::sqlite_column();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
@@ -138,8 +139,10 @@ pub(crate) fn generate_column_definitions<'a>(
         );
 
         let to_sql_body = quote! {
-            static INSTANCE: #zst_ident = #zst_ident;
-            #sql::column(&INSTANCE)
+            #sql::column(#column_ref {
+                table_name: <#struct_ident as drizzle::core::DrizzleTable>::NAME,
+                column_name: #name,
+            })
         };
 
         let into_sqlite_value_impl = quote! {

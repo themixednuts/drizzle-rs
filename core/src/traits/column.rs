@@ -7,26 +7,14 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     fn is_not_null(&self) -> bool;
     fn is_primary_key(&self) -> bool;
     fn is_unique(&self) -> bool;
-    fn name(&self) -> &str;
-    fn r#type(&self) -> &str;
+    fn name(&self) -> &'static str;
+    fn r#type(&self) -> &'static str;
     fn has_default(&self) -> bool;
 
-    fn table(&self) -> &dyn SQLTableInfo;
+    fn table(&self) -> &'static dyn SQLTableInfo;
     /// Returns the foreign key reference if this column has one.
     fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
         None
-    }
-
-    /// Returns the foreign key table if this column references one.
-    fn foreign_key_table(&self) -> Option<&'static dyn SQLTableInfo> {
-        self.foreign_key().map(|fk| fk.table())
-    }
-
-    fn as_column(&self) -> &dyn SQLColumnInfo
-    where
-        Self: Sized,
-    {
-        self
     }
 }
 
@@ -81,11 +69,11 @@ impl<T: SQLColumnInfo> SQLColumnInfo for &'static T {
         (*self).is_unique()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         (*self).name()
     }
 
-    fn r#type(&self) -> &str {
+    fn r#type(&self) -> &'static str {
         (*self).r#type()
     }
 
@@ -93,7 +81,7 @@ impl<T: SQLColumnInfo> SQLColumnInfo for &'static T {
         (*self).has_default()
     }
 
-    fn table(&self) -> &dyn SQLTableInfo {
+    fn table(&self) -> &'static dyn SQLTableInfo {
         (*self).table()
     }
 

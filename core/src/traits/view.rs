@@ -51,14 +51,6 @@ pub trait SQLViewInfo: SQLTableInfo + Any {
     fn tablespace(&self) -> Option<&'static str> {
         None
     }
-
-    /// Erased access to the view info.
-    fn as_view_info(&self) -> &dyn SQLViewInfo
-    where
-        Self: Sized,
-    {
-        self
-    }
 }
 
 impl core::fmt::Debug for dyn SQLViewInfo {

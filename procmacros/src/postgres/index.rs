@@ -120,7 +120,7 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
     let sql_index = core_paths::sql_index();
-    let sql_index_info = core_paths::sql_index_info();
+    let drizzle_index = core_paths::drizzle_index();
     let sql_table_info = core_paths::sql_table_info();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
@@ -279,6 +279,11 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             pub fn create_index_sql() -> ::std::string::String {
                 Self::DDL_INDEX.into_index().create_index_sql()
             }
+
+            /// Returns the DDL SQL for creating this index.
+            pub fn ddl_sql() -> &'static str {
+                <Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL
+            }
         }
 
         impl Default for #struct_ident {
@@ -291,23 +296,15 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             type Table = #table_type;
         }
 
-        impl #sql_index_info for #struct_ident {
-            fn table(&self) -> &dyn #sql_table_info {
+        impl #drizzle_index for #struct_ident {
+            const INDEX_NAME: &'static str = #index_name;
+            const COLUMN_NAMES: &'static [&'static str] = Self::COLUMN_NAMES;
+            const IS_UNIQUE: bool = #is_unique;
+
+            fn table_ref() -> &'static dyn #sql_table_info {
                 #[allow(non_upper_case_globals)]
                 static TABLE_INSTANCE: #table_type = #table_type::new();
                 &TABLE_INSTANCE
-            }
-
-            fn name(&self) -> &'static str {
-                #index_name
-            }
-
-            fn is_unique(&self) -> bool {
-                #is_unique
-            }
-
-            fn columns(&self) -> &'static [&'static str] {
-                Self::COLUMN_NAMES
             }
         }
 
@@ -319,10 +316,6 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
                 #postgres_schema_type::Index(&INDEX_INSTANCE)
             };
             const SQL: &'static str = "";
-
-            fn ddl(&self) -> #sql<'a, #postgres_value<'a>> {
-                #sql::raw(Self::create_index_sql())
-            }
         }
 
         impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_ident {
