@@ -1463,3 +1463,34 @@ struct ColumnInfo {
     enum_type_name: Option<String>,
     marker_exprs: Vec<syn::ExprPath>,
 }
+
+// Trait impls for shared constraint generation
+
+impl crate::common::constraints::ForeignKeyRef for PostgreSQLReference {
+    fn ref_table(&self) -> &Ident {
+        &self.table
+    }
+    fn ref_column(&self) -> &Ident {
+        &self.column
+    }
+}
+
+impl crate::common::constraints::ConstraintFieldInfo for FieldInfo {
+    type ForeignKey = PostgreSQLReference;
+
+    fn ident(&self) -> &Ident {
+        &self.ident
+    }
+    fn column_name(&self) -> &str {
+        &self.column_name
+    }
+    fn is_primary(&self) -> bool {
+        self.is_primary
+    }
+    fn is_unique(&self) -> bool {
+        self.is_unique
+    }
+    fn foreign_key(&self) -> Option<&PostgreSQLReference> {
+        self.foreign_key.as_ref()
+    }
+}
