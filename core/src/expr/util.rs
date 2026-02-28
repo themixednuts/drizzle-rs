@@ -1,7 +1,6 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
 use crate::dialect::{PostgresDialect, SQLiteDialect};
-use crate::prelude::ToString;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
@@ -478,6 +477,6 @@ where
         SQL::empty()
             .push(Token::EXCLUDED)
             .push(Token::DOT)
-            .append(SQL::ident(self.column.name().to_string()))
+            .append(SQL::ident(self.column.name()))
     }
 }
