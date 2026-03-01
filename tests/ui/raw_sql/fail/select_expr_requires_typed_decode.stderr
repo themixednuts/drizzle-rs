@@ -18,7 +18,7 @@ help: the following other types implement trait `drizzle_core::row::StrictDecode
    | impl<M, Scope> StrictDecodeMarker for Scoped<M, Scope> where M: StrictDecodeMarker {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Scoped<M, Scope>`
    = note: required for `Scoped<SelectExpr, Cons<User, Nil>>` to implement `drizzle_core::row::StrictDecodeMarker`
-note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, rusqlite::Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
@@ -33,7 +33,7 @@ error[E0277]: cannot deserialize `()` from a database row
 20 |     let _rows = db.select(sql!("1")).from(user).all().unwrap();
    |                                                 ^^^ this type does not implement FromDrizzleRow
    |
-   = help: the trait `for<'r> FromDrizzleRow<Row<'r>>` is not implemented for `()`
+   = help: the trait `for<'r> FromDrizzleRow<rusqlite::Row<'r>>` is not implemented for `()`
    = note: derive #[SQLiteFromRow] or #[PostgresFromRow], or use .all_as::<T>()
    = help: the following other types implement trait `FromDrizzleRow<Row>`:
              (T0, T1)
@@ -44,10 +44,10 @@ error[E0277]: cannot deserialize `()` from a database row
              (T0, T1, T2, T3, T4, T5, T6)
              (T0, T1, T2, T3, T4, T5, T6, T7)
              (T0,)
-   = note: required for `SelectExpr` to implement `for<'r> DecodeSelectedRef<&'r Row<'r>, ()>`
+   = note: required for `SelectExpr` to implement `for<'r> DecodeSelectedRef<&'r rusqlite::Row<'r>, ()>`
    = note: 1 redundant requirement hidden
-   = note: required for `Scoped<SelectExpr, Cons<User, Nil>>` to implement `for<'r> DecodeSelectedRef<&'r Row<'r>, ()>`
-note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
+   = note: required for `Scoped<SelectExpr, Cons<User, Nil>>` to implement `for<'r> DecodeSelectedRef<&'r rusqlite::Row<'r>, ()>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'a, rusqlite::Connection, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
