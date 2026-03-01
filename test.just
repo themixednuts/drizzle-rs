@@ -3,7 +3,7 @@
 # Usage:
 #   just test                                        — run all test matrixes
 #   just test::sqlite                                — SQLite with default features (rusqlite,uuid)
-#   just test::sqlite "rusqlite,libsql,uuid"         — SQLite with custom features (libsql auto-adds --test-threads=1)
+#   just test::sqlite "rusqlite,libsql,uuid"         — SQLite with custom features
 #   just test::pg                                    — PostgreSQL with default features
 #   just test::pg "postgres-sync,tokio-postgres,uuid" — PostgreSQL with custom features
 
@@ -21,15 +21,9 @@ default: sqlite-matrix pg-matrix
 # Quick runs — single feature set
 # ---------------------------------------------------------------------------
 
-# Run SQLite tests. libsql in the feature list automatically adds --test-threads=1.
+# Run SQLite tests with the given features.
 sqlite features="rusqlite,uuid" *ARGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ "{{features}}" == *"libsql"* ]]; then
-        cargo test --features "{{features}}" {{ARGS}} -- --test-threads=1
-    else
-        cargo test --features "{{features}}" {{ARGS}}
-    fi
+    cargo test --features "{{features}}" {{ARGS}}
 
 # Run PostgreSQL tests. Starts the container automatically.
 pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
@@ -53,9 +47,9 @@ sqlite-matrix:
     # rusqlite: bare then full
     cargo test --lib --tests --features rusqlite
     cargo test --lib --tests --features "rusqlite,{{_sqlite-ext}}"
-    # libsql: bare then full (single-threaded)
-    cargo test --lib --tests --features libsql -- --test-threads=1
-    cargo test --lib --tests --features "libsql,{{_sqlite-ext}}" -- --test-threads=1
+    # libsql: bare then full
+    cargo test --lib --tests --features libsql
+    cargo test --lib --tests --features "libsql,{{_sqlite-ext}}"
 
 # Run full PostgreSQL matrix
 pg-matrix:

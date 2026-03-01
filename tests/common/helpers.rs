@@ -1,4 +1,41 @@
 // =============================================================================
+// Temp DB Path Generation (file-based test isolation)
+// =============================================================================
+
+use std::path::PathBuf;
+use std::sync::Once;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const TEST_DB_DIR: &str = "drizzle_rs_tests";
+
+fn ensure_test_db_dir() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        // Each process gets its own subdirectory keyed by PID, so concurrent
+        // `cargo test` invocations never interfere with each other.
+        let dir = std::env::temp_dir()
+            .join(TEST_DB_DIR)
+            .join(std::process::id().to_string());
+        // Clean up any stale files from a previous run with the same PID.
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        let _ = std::fs::create_dir_all(&dir);
+    });
+}
+
+pub fn temp_db_path() -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    ensure_test_db_dir();
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    std::env::temp_dir()
+        .join(TEST_DB_DIR)
+        .join(pid.to_string())
+        .join(format!("test_{}.db", id))
+}
+
+// =============================================================================
 // Test Failure Report Infrastructure
 // =============================================================================
 
@@ -350,12 +387,15 @@ pub mod test_db {
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
 
+    use std::path::PathBuf;
+
     /// Generic test database wrapper
     pub struct TestDb<D> {
         pub db: D,
         pub driver_name: String,
         pub schema_ddl: Vec<String>,
         pub statements: RefCell<Vec<CapturedStatement>>,
+        pub db_path: Option<PathBuf>,
     }
 
     impl<D> Deref for TestDb<D> {
@@ -371,6 +411,18 @@ pub mod test_db {
         }
     }
 
+    impl<D> Drop for TestDb<D> {
+        fn drop(&mut self) {
+            if let Some(path) = &self.db_path {
+                let _ = std::fs::remove_file(path);
+                // Clean up WAL/SHM sidecar files
+                let path_str = path.to_string_lossy();
+                let _ = std::fs::remove_file(format!("{}-wal", path_str));
+                let _ = std::fs::remove_file(format!("{}-shm", path_str));
+            }
+        }
+    }
+
     impl<D> TestDb<D> {
         pub fn new(db: D, driver_name: impl Into<String>, schema_ddl: Vec<String>) -> Self {
             Self {
@@ -378,7 +430,13 @@ pub mod test_db {
                 driver_name: driver_name.into(),
                 schema_ddl,
                 statements: RefCell::new(Vec::new()),
+                db_path: None,
             }
+        }
+
+        pub fn with_db_path(mut self, path: PathBuf) -> Self {
+            self.db_path = Some(path);
+            self
         }
 
         /// Record a SQL statement execution
@@ -454,6 +512,7 @@ pub mod test_db {
 
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite_setup {
+    use super::temp_db_path;
     use super::test_db::TestDb;
     use drizzle::sqlite::rusqlite::Drizzle;
     use drizzle_migrations::{Migration, MigrationSet};
@@ -461,7 +520,8 @@ pub mod rusqlite_setup {
     use rusqlite::Connection;
 
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<Drizzle<S>>, S) {
-        let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
+        let db_path = temp_db_path();
+        let conn = Connection::open(&db_path).expect("Failed to create database");
         conn.execute_batch("PRAGMA foreign_keys = ON")
             .expect("Failed to enable foreign keys");
         let schema = S::default();
@@ -481,7 +541,7 @@ pub mod rusqlite_setup {
         );
 
         if let Err(e) = db.migrate(&migrations) {
-            let test_db = TestDb::new(db, "rusqlite", schema_ddl);
+            let test_db = TestDb::new(db, "rusqlite", schema_ddl).with_db_path(db_path);
             test_db.fail(
                 "schema_creation",
                 &e,
@@ -490,13 +550,14 @@ pub mod rusqlite_setup {
             );
         }
 
-        let test_db = TestDb::new(db, "rusqlite", schema_ddl);
+        let test_db = TestDb::new(db, "rusqlite", schema_ddl).with_db_path(db_path);
         (test_db, schema)
     }
 }
 
 #[cfg(feature = "libsql")]
 pub mod libsql_setup {
+    use super::temp_db_path;
     use super::test_db::TestDb;
     use drizzle::sqlite::libsql::Drizzle;
     use drizzle_migrations::{Migration, MigrationSet};
@@ -505,7 +566,8 @@ pub mod libsql_setup {
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
     -> (TestDb<Drizzle<S>>, S) {
-        let db = Builder::new_local(":memory:")
+        let db_path = temp_db_path();
+        let db = Builder::new_local(&db_path)
             .build()
             .await
             .expect("build db");
@@ -530,7 +592,7 @@ pub mod libsql_setup {
         );
 
         if let Err(e) = db.migrate(&migrations).await {
-            let test_db = TestDb::new(db, "libsql", schema_ddl);
+            let test_db = TestDb::new(db, "libsql", schema_ddl).with_db_path(db_path);
             test_db.fail(
                 "schema_creation",
                 &e,
@@ -539,13 +601,14 @@ pub mod libsql_setup {
             );
         }
 
-        let test_db = TestDb::new(db, "libsql", schema_ddl);
+        let test_db = TestDb::new(db, "libsql", schema_ddl).with_db_path(db_path);
         (test_db, schema)
     }
 }
 
 #[cfg(feature = "turso")]
 pub mod turso_setup {
+    use super::temp_db_path;
     use super::test_db::TestDb;
     use drizzle::sqlite::turso::Drizzle;
     use drizzle_migrations::{Migration, MigrationSet};
@@ -554,7 +617,8 @@ pub mod turso_setup {
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
     -> (TestDb<Drizzle<S>>, S) {
-        let db = Builder::new_local(":memory:")
+        let db_path = temp_db_path();
+        let db = Builder::new_local(&db_path)
             .build()
             .await
             .expect("build db");
@@ -579,7 +643,7 @@ pub mod turso_setup {
         );
 
         if let Err(e) = db.migrate(&migrations).await {
-            let test_db = TestDb::new(db, "turso", schema_ddl);
+            let test_db = TestDb::new(db, "turso", schema_ddl).with_db_path(db_path);
             test_db.fail(
                 "schema_creation",
                 &e,
@@ -588,7 +652,7 @@ pub mod turso_setup {
             );
         }
 
-        let test_db = TestDb::new(db, "turso", schema_ddl);
+        let test_db = TestDb::new(db, "turso", schema_ddl).with_db_path(db_path);
         (test_db, schema)
     }
 }
