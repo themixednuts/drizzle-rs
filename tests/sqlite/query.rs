@@ -89,7 +89,7 @@ sqlite_test!(query_find_many_no_relations, UserPostSchema, {
             => execute
     );
 
-    let users = drizzle_exec!(db.query(q_user).find_many());
+    let users = drizzle_exec!(db.query(q_user).order_by(asc(q_user.name)).find_many());
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alice");
     assert_eq!(users[1].name, "Bob");
@@ -108,7 +108,7 @@ sqlite_test!(query_find_first, UserPostSchema, {
             => execute
     );
 
-    let user = drizzle_exec!(db.query(q_user).find_first());
+    let user = drizzle_exec!(db.query(q_user).order_by(asc(q_user.name)).find_first());
     assert!(user.is_some());
     assert_eq!(user.unwrap().name, "Alice");
 });
@@ -1046,6 +1046,82 @@ sqlite_test!(query_type_alias_in_fn_signature, UserPostSchema, {
 
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
     assert_eq!(get_inviter_name(alice), None);
+});
+
+// =============================================================================
+// Offset
+// =============================================================================
+
+// -- Root query offset --
+sqlite_test!(query_with_limit_offset, UserPostSchema, {
+    let UserPostSchema { q_user, q_post: _ } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([
+                InsertQUser::new("Alice"),
+                InsertQUser::new("Bob"),
+                InsertQUser::new("Charlie"),
+                InsertQUser::new("Dave"),
+            ])
+            => execute
+    );
+
+    // LIMIT 2 OFFSET 1 with ORDER BY to ensure determinism
+    let users = drizzle_exec!(
+        db.query(q_user)
+            .order_by(asc(q_user.name))
+            .limit(2)
+            .offset(1)
+            .find_many()
+    );
+
+    assert_eq!(users.len(), 2);
+    assert_eq!(users[0].name, "Bob");
+    assert_eq!(users[1].name, "Charlie");
+});
+
+// -- Relation handle offset --
+sqlite_test!(query_relation_limit_offset, UserPostSchema, {
+    let UserPostSchema { q_user, q_post } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([InsertQUser::new("Alice")])
+            => execute
+    );
+
+    let all_users: Vec<SelectQUser> = drizzle_exec!(db.select(()).from(q_user) => all);
+    let alice_id = all_users[0].id;
+
+    drizzle_exec!(
+        db.insert(q_post)
+            .values([
+                InsertQPost::new("AAA", alice_id),
+                InsertQPost::new("BBB", alice_id),
+                InsertQPost::new("CCC", alice_id),
+                InsertQPost::new("DDD", alice_id),
+            ])
+            => execute
+    );
+
+    // Relation subquery with ORDER BY + LIMIT + OFFSET
+    let users = drizzle_exec!(
+        db.query(q_user)
+            .with(
+                q_user
+                    .q_posts()
+                    .order_by(asc(q_post.content))
+                    .limit(2)
+                    .offset(1)
+            )
+            .find_many()
+    );
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].q_posts().len(), 2);
+    assert_eq!(users[0].q_posts()[0].content, "BBB");
+    assert_eq!(users[0].q_posts()[1].content, "CCC");
 });
 
 // =============================================================================
