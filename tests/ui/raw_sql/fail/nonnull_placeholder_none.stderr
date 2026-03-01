@@ -13,8 +13,8 @@ error[E0277]: the trait bound `Option<i32>: drizzle_core::bind::BindValue<'_, _,
              `&str` implements `ValueTypeForDialect<SQLiteDialect>`
              `&uuid::Uuid` implements `ValueTypeForDialect<PostgresDialect>`
              `&uuid::Uuid` implements `ValueTypeForDialect<SQLiteDialect>`
-             `Arc<Vec<u8>>` implements `ValueTypeForDialect<PostgresDialect>`
-             `Arc<Vec<u8>>` implements `ValueTypeForDialect<SQLiteDialect>`
+             `Arc<std::string::String>` implements `ValueTypeForDialect<PostgresDialect>`
+             `Arc<std::string::String>` implements `ValueTypeForDialect<SQLiteDialect>`
            and $N others
    = note: required for `Option<i32>` to implement `drizzle_core::bind::BindValue<'_, _, drizzle::sqlite::types::Integer>`
 note: required by a bound in `TypedPlaceholder::<T, N>::bind`
