@@ -88,7 +88,7 @@ postgres_test!(query_find_many_no_relations, QUserPostSchema, {
             => execute
     );
 
-    let users = drizzle_exec!(db.query(q_user).find_many());
+    let users = drizzle_exec!(db.query(q_user).order_by(asc(q_user.name)).find_many());
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alice");
     assert_eq!(users[1].name, "Bob");
@@ -107,7 +107,7 @@ postgres_test!(query_find_first, QUserPostSchema, {
             => execute
     );
 
-    let user = drizzle_exec!(db.query(q_user).find_first());
+    let user = drizzle_exec!(db.query(q_user).order_by(asc(q_user.name)).find_first());
     assert!(user.is_some());
     assert_eq!(user.unwrap().name, "Alice");
 });
@@ -961,6 +961,166 @@ postgres_test!(query_deep_nested_complex, QDeepSchema, {
     // -- Dave: no inviter, no posts --
     assert!(users[3].invited_by().is_none());
     assert_eq!(users[3].q_posts().len(), 0);
+});
+
+// =============================================================================
+// Type alias ergonomics
+// =============================================================================
+
+// Verify generated type aliases work in function signatures.
+// The query API generates aliases like `QUserWithQPosts<Rest = ()>` so users
+// can write clean function signatures instead of spelling out RelEntry<__Rel_...>.
+use drizzle::core::query::QueryRow;
+
+// Single relation: User with posts loaded
+type UserWithPosts = QueryRow<SelectQUser, QUserWithQPosts>;
+
+// Composed relations: User with invited_by AND posts loaded.
+// The Rest parameter chains them: `QUserWithInvitedBy<QUserWithQPosts>`
+// means "store has invited_by first, then q_posts".
+// Note: order must match the .with() call order (last .with() is outermost).
+type UserWithPostsAndInviter = QueryRow<SelectQUser, QUserWithInvitedBy<QUserWithQPosts>>;
+
+fn count_posts(user: &UserWithPosts) -> usize {
+    user.q_posts().len()
+}
+
+fn get_inviter_name(user: &UserWithPostsAndInviter) -> Option<&str> {
+    user.invited_by().as_ref().map(|u| u.name.as_str())
+}
+
+postgres_test!(query_type_alias_in_fn_signature, QUserPostSchema, {
+    let QUserPostSchema { q_user, q_post } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([InsertQUser::new("Alice")])
+            => execute
+    );
+
+    let all_users: Vec<SelectQUser> = drizzle_exec!(db.select(()).from(q_user) => all);
+    let alice_id = all_users[0].id;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([InsertQUser::new("Bob").with_invited_by(alice_id)])
+            => execute
+    );
+
+    let all_users: Vec<SelectQUser> = drizzle_exec!(db.select(()).from(q_user) => all);
+    let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+
+    drizzle_exec!(
+        db.insert(q_post)
+            .values([
+                InsertQPost::new("Post 1", alice_id),
+                InsertQPost::new("Post 2", alice_id),
+                InsertQPost::new("Bob Post", bob_id),
+            ])
+            => execute
+    );
+
+    // Use type alias with single relation
+    let users: Vec<UserWithPosts> =
+        drizzle_exec!(db.query(q_user).with(q_user.q_posts()).find_many());
+
+    let alice = users.iter().find(|u| u.name == "Alice").unwrap();
+    assert_eq!(count_posts(alice), 2);
+
+    let bob = users.iter().find(|u| u.name == "Bob").unwrap();
+    assert_eq!(count_posts(bob), 1);
+
+    // Use type alias with composed relations
+    // .with() order: q_posts first, then invited_by
+    // Type order: InvitedBy<QPosts> (last .with() is outermost in the store)
+    let users: Vec<UserWithPostsAndInviter> = drizzle_exec!(
+        db.query(q_user)
+            .with(q_user.q_posts())
+            .with(q_user.invited_by())
+            .find_many()
+    );
+
+    let bob = users.iter().find(|u| u.name == "Bob").unwrap();
+    assert_eq!(get_inviter_name(bob), Some("Alice"));
+
+    let alice = users.iter().find(|u| u.name == "Alice").unwrap();
+    assert_eq!(get_inviter_name(alice), None);
+});
+
+// =============================================================================
+// Offset
+// =============================================================================
+
+// -- Root query offset --
+postgres_test!(query_with_limit_offset, QUserPostSchema, {
+    let QUserPostSchema { q_user, q_post: _ } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([
+                InsertQUser::new("Alice"),
+                InsertQUser::new("Bob"),
+                InsertQUser::new("Charlie"),
+                InsertQUser::new("Dave"),
+            ])
+            => execute
+    );
+
+    // LIMIT 2 OFFSET 1 with ORDER BY to ensure determinism
+    let users = drizzle_exec!(
+        db.query(q_user)
+            .order_by(asc(q_user.name))
+            .limit(2)
+            .offset(1)
+            .find_many()
+    );
+
+    assert_eq!(users.len(), 2);
+    assert_eq!(users[0].name, "Bob");
+    assert_eq!(users[1].name, "Charlie");
+});
+
+// -- Relation handle offset --
+postgres_test!(query_relation_limit_offset, QUserPostSchema, {
+    let QUserPostSchema { q_user, q_post } = schema;
+
+    drizzle_exec!(
+        db.insert(q_user)
+            .values([InsertQUser::new("Alice")])
+            => execute
+    );
+
+    let all_users: Vec<SelectQUser> = drizzle_exec!(db.select(()).from(q_user) => all);
+    let alice_id = all_users[0].id;
+
+    drizzle_exec!(
+        db.insert(q_post)
+            .values([
+                InsertQPost::new("AAA", alice_id),
+                InsertQPost::new("BBB", alice_id),
+                InsertQPost::new("CCC", alice_id),
+                InsertQPost::new("DDD", alice_id),
+            ])
+            => execute
+    );
+
+    // Relation subquery with ORDER BY + LIMIT + OFFSET
+    let users = drizzle_exec!(
+        db.query(q_user)
+            .with(
+                q_user
+                    .q_posts()
+                    .order_by(asc(q_post.content))
+                    .limit(2)
+                    .offset(1)
+            )
+            .find_many()
+    );
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].q_posts().len(), 2);
+    assert_eq!(users[0].q_posts()[0].content, "BBB");
+    assert_eq!(users[0].q_posts()[1].content, "CCC");
 });
 
 // =============================================================================
