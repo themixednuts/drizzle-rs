@@ -182,6 +182,10 @@ pub fn build_query_sql<'p, V: SQLParam>(
         }
     }
 
+    // Collect relation subquery params separately so root WHERE params
+    // come first in the final params vec (matching $1, $2, ... numbering).
+    let mut rel_params: Vec<&'p V> = Vec::new();
+
     // Add relation subqueries as additional SELECT columns
     let mut alias_counter = 1usize;
     let mut param_counter = where_params.len() + 1;
@@ -193,7 +197,7 @@ pub fn build_query_sql<'p, V: SQLParam>(
             &mut alias_counter,
             &mut param_counter,
             &mut sql,
-            &mut params,
+            &mut rel_params,
         );
         // PostgreSQL returns json type — cast to text so the driver reads it as String
         if dialect == Dialect::PostgreSQL {
@@ -216,7 +220,7 @@ pub fn build_query_sql<'p, V: SQLParam>(
         let table_prefix = format!("\"{table_name}\".");
         let alias_prefix = format!("\"{alias}\".");
 
-        // WHERE
+        // WHERE — root params go first ($1, $2, ...) before relation params
         if !where_clause.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&where_clause.replace(&table_prefix, &alias_prefix));
@@ -231,6 +235,9 @@ pub fn build_query_sql<'p, V: SQLParam>(
             sql.push_str(&order_by.replace(&table_prefix, &alias_prefix));
         }
     }
+
+    // Append relation params after root WHERE params
+    params.extend(rel_params);
 
     // LIMIT
     if let Some(n) = limit {
@@ -484,26 +491,34 @@ fn renumber_placeholders(dialect: Dialect, sql: &str, offset: usize) -> String {
 /// `$1` becomes `$offset`, `$2` becomes `$offset+1`, etc.
 fn renumber_dollar_placeholders(sql: &str, offset: usize) -> String {
     let mut result = String::with_capacity(sql.len() + 8);
-    let bytes = sql.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
+    let mut chars = sql.char_indices().peekable();
 
-    while i < len {
-        if bytes[i] == b'$' && i + 1 < len && bytes[i + 1].is_ascii_digit() {
-            // Parse the original number
-            let start = i + 1;
-            let mut end = start;
-            while end < len && bytes[end].is_ascii_digit() {
-                end += 1;
+    while let Some((i, ch)) = chars.next() {
+        if ch == '$' {
+            // Check if next char is a digit
+            if let Some(&(start, next_ch)) = chars.peek()
+                && next_ch.is_ascii_digit()
+            {
+                // Consume all digits
+                let mut end = start;
+                while let Some(&(j, d)) = chars.peek() {
+                    if d.is_ascii_digit() {
+                        end = j + d.len_utf8();
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                let orig: usize = sql[start..end].parse().unwrap_or(0);
+                let new_num = orig + offset - 1; // $1 -> $offset, $2 -> $offset+1
+                result.push('$');
+                let _ = write!(result, "{new_num}");
+                continue;
             }
-            let orig: usize = sql[start..end].parse().unwrap_or(0);
-            let new_num = orig + offset - 1; // $1 -> $offset, $2 -> $offset+1
-            result.push('$');
-            let _ = write!(result, "{new_num}");
-            i = end;
+            result.push(ch);
         } else {
-            result.push(bytes[i] as char);
-            i += 1;
+            // Copy the char directly — safe for all UTF-8
+            result.push_str(&sql[i..i + ch.len_utf8()]);
         }
     }
 
