@@ -563,7 +563,10 @@ fn enum_json_conversion(
                     let n = v.as_i64().ok_or_else(|| drizzle::error::DrizzleError::Other(
                         ::std::format!("enum field '{}': expected integer", #col_name).into()
                     ))?;
-                    <#field_type as ::std::convert::TryFrom<i64>>::try_from(n)?
+                    <#field_type as ::std::convert::TryFrom<i64>>::try_from(n)
+                        .map_err(|_| drizzle::error::DrizzleError::Other(
+                            ::std::format!("enum field '{}': invalid integer value {n}", #col_name).into()
+                        ))?
                 }
             }
         }

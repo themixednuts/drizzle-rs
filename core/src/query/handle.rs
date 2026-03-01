@@ -233,16 +233,3 @@ where
         }
     }
 }
-
-// SAFETY: R is a ZST marker (PhantomData only). String/Vec<V>/Option<u32> are
-// Send+Sync when V is. Nested consists of more RelationHandles (recursively safe).
-// Cols is AllColumns (ZST) or PartialColumns (Vec<&'static str> — Send+Sync).
-// Cl is Clauses<W, Ord, Lim> — ZST markers, always Send+Sync.
-unsafe impl<V: SQLParam, R: RelationDef, Nested: Send, Cols: Send, Cl: Send> Send
-    for RelationHandle<V, R, Nested, Cols, Cl>
-{
-}
-unsafe impl<V: SQLParam, R: RelationDef, Nested: Sync, Cols: Sync, Cl: Sync> Sync
-    for RelationHandle<V, R, Nested, Cols, Cl>
-{
-}
