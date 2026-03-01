@@ -27,14 +27,14 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
             _ => {
                 return Err(syn::Error::new_spanned(
                     &input,
-                    "Schema can only be derived for structs with named fields",
+                    "#[derive(SQLiteSchema)] requires a struct with named fields",
                 ));
             }
         },
         _ => {
             return Err(syn::Error::new_spanned(
                 &input,
-                "Schema can only be derived for structs",
+                "#[derive(SQLiteSchema)] can only be applied to structs",
             ));
         }
     };
@@ -48,10 +48,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                 .as_ref()
                 .map(|ident| (ident, &field.ty))
                 .ok_or_else(|| {
-                    syn::Error::new_spanned(
-                        field,
-                        "SQLiteSchema can only be derived for structs with named fields",
-                    )
+                    syn::Error::new_spanned(field, "#[derive(SQLiteSchema)] fields must have names")
                 })
         })
         .collect::<Result<Vec<_>>>()?;

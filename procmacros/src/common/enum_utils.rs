@@ -32,14 +32,14 @@ pub(crate) fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
             } else {
                 Err(syn::Error::new(
                     expr.span(),
-                    "Expected integer literal after unary minus",
+                    "expected an integer literal after `-`; enum discriminants must be integer values",
                 ))
             }
         }
 
         other => Err(syn::Error::new(
             other.span(),
-            "Expected integer literal or unary minus",
+            "enum discriminant must be an integer literal (e.g., `= 1` or `= -1`)",
         )),
     }
 }
@@ -65,7 +65,7 @@ pub(crate) fn resolve_discriminants(data: &DataEnum) -> syn::Result<Vec<(&syn::I
             return Err(syn::Error::new(
                 variant.ident.span(),
                 format!(
-                    "Duplicate discriminant value {}: variant `{}` conflicts with `{}`",
+                    "duplicate discriminant value {}: variant `{}` conflicts with `{}`",
                     value, variant.ident, prev_ident,
                 ),
             ));

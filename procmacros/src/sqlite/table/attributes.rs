@@ -105,25 +105,32 @@ impl Parse for CompositeForeignKeyAttr {
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "FOREIGN_KEY expects columns(...), references(...), optional on_delete/on_update",
+                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, or on_update",
                     ));
                 }
             }
         }
 
         let source_columns = source_columns.ok_or_else(|| {
-            syn::Error::new(input.span(), "FOREIGN_KEY missing columns(...) argument")
+            syn::Error::new(input.span(), "FOREIGN_KEY requires a columns(...) argument")
         })?;
         let target_table = target_table.ok_or_else(|| {
-            syn::Error::new(input.span(), "FOREIGN_KEY missing references(...) argument")
+            syn::Error::new(
+                input.span(),
+                "FOREIGN_KEY requires a references(...) argument",
+            )
         })?;
-        let target_columns = target_columns
-            .ok_or_else(|| syn::Error::new(input.span(), "FOREIGN_KEY missing target columns"))?;
+        let target_columns = target_columns.ok_or_else(|| {
+            syn::Error::new(
+                input.span(),
+                "FOREIGN_KEY requires target columns in references(Table, col1, col2)",
+            )
+        })?;
 
         if source_columns.len() != target_columns.len() {
             return Err(syn::Error::new(
                 input.span(),
-                "FOREIGN_KEY source and target column counts must match",
+                "FOREIGN_KEY columns(...) and references(...) must have the same number of columns",
             ));
         }
 
@@ -160,7 +167,7 @@ impl Parse for TableAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'NAME'",
+                                    "NAME requires a string literal, e.g. NAME = \"my_table\"",
                                 ));
                             }
                             "CRATE" => {
@@ -172,7 +179,7 @@ impl Parse for TableAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'crate'",
+                                    "crate requires a string literal, e.g. crate = \"my_drizzle\"",
                                 ));
                             }
                             _ => {}
@@ -217,7 +224,7 @@ impl Parse for TableAttributes {
             }
             return Err(syn::Error::new(
                 meta.span(),
-                "Unrecognized table attribute.\n\
+                "unrecognized table attribute.\n\
                  Supported attributes:\n\
                  - name/NAME: Custom table name (e.g., #[SQLiteTable(name = \"custom_name\")])\n\
                  - strict/STRICT: Enable STRICT mode (e.g., #[SQLiteTable(strict)])\n\

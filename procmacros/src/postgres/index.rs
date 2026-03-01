@@ -413,13 +413,13 @@ fn extract_table_from_column(column: &Expr) -> Result<Type> {
 
             // Create table type
             let table_type = syn::parse_str::<Type>(&table_ident.to_string())
-                .map_err(|_| Error::new_spanned(column, "Invalid table name"))?;
+                .map_err(|_| Error::new_spanned(column, "invalid table name"))?;
 
             Ok(table_type)
         } else {
             Err(Error::new_spanned(
                 column,
-                "Column must be in format Table::column",
+                "column must be in format Table::column",
             ))
         }
     } else {

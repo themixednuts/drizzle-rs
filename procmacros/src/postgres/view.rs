@@ -61,7 +61,7 @@ impl Parse for ViewAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'NAME'",
+                                    "NAME requires a string literal, e.g. NAME = \"active_users\"",
                                 ));
                             }
                             "SCHEMA" => {
@@ -76,7 +76,7 @@ impl Parse for ViewAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'SCHEMA'",
+                                    "SCHEMA requires a string literal, e.g. SCHEMA = \"auth\"",
                                 ));
                             }
                             "DEFINITION" => {
@@ -107,7 +107,7 @@ impl Parse for ViewAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'USING'",
+                                    "USING requires a string literal, e.g. USING = \"heap\"",
                                 ));
                             }
                             "TABLESPACE" => {
@@ -122,7 +122,7 @@ impl Parse for ViewAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'TABLESPACE'",
+                                    "TABLESPACE requires a string literal, e.g. TABLESPACE = \"my_tablespace\"",
                                 ));
                             }
                             "WITH" | "WITH_OPTIONS" => {
@@ -172,7 +172,7 @@ impl Parse for ViewAttributes {
             }
             return Err(syn::Error::new(
                 meta.span(),
-                "Unrecognized view attribute.\n\
+                "unrecognized view attribute.\n\
                  Supported attributes (case-insensitive):\n\
                  - NAME: Custom view name (e.g., #[PostgresView(NAME = \"active_users\")])\n\
                  - SCHEMA: Custom schema name (e.g., #[PostgresView(SCHEMA = \"auth\")])\n\
@@ -214,7 +214,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     if attrs.definition.is_none() && !attrs.existing {
         return Err(syn::Error::new(
             input.span(),
-            "PostgresView requires a DEFINITION unless marked as EXISTING",
+            "#[PostgresView] requires a DEFINITION attribute unless marked as EXISTING.\n\
+             Example: #[PostgresView(DEFINITION = \"SELECT * FROM users WHERE active\")]",
         ));
     }
 

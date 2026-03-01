@@ -23,17 +23,14 @@ pub(crate) fn struct_fields<'a>(input: &'a DeriveInput, macro_name: &str) -> Res
             Fields::Unnamed(_) | Fields::Unit => Err(syn::Error::new(
                 input.span(),
                 format!(
-                    "The #[{}] attribute requires a struct with named fields.",
+                    "#[derive({})] requires a struct with named fields",
                     macro_name
                 ),
             )),
         },
         _ => Err(syn::Error::new(
             input.span(),
-            format!(
-                "The #[{}] attribute can only be applied to struct definitions.\n",
-                macro_name
-            ),
+            format!("#[derive({})] can only be applied to structs", macro_name),
         )),
     }
 }

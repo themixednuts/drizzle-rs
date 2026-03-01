@@ -27,7 +27,7 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     let Some(first_variant) = data.variants.first().map(|v| &v.ident) else {
         return Err(syn::Error::new_spanned(
             name,
-            "PostgresEnum cannot be derived for empty enums",
+            "#[derive(PostgresEnum)] requires at least one variant",
         ));
     };
     let variant_idents: Vec<_> = data.variants.iter().map(|v| &v.ident).collect();

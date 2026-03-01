@@ -562,10 +562,9 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
             .iter()
             .enumerate()
             .map(|(idx, field)| {
-                let field_name = field
-                    .ident
-                    .as_ref()
-                    .ok_or_else(|| syn::Error::new_spanned(field, "expected named struct field"))?;
+                let field_name = field.ident.as_ref().ok_or_else(|| {
+                    syn::Error::new_spanned(field, "FromRow requires a struct with named fields")
+                })?;
                 postgres::generate_named_field_assignment_with_offset_fallback(
                     idx, field, field_name,
                 )

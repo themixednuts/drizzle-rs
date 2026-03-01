@@ -315,7 +315,7 @@ impl<'a> FieldInfo<'a> {
             _ => Err(Error::new_spanned(
                 action,
                 format!(
-                    "Invalid referential action '{}'. Supported: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
+                    "invalid referential action `{}`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
                     action_str
                 ),
             )),
@@ -458,7 +458,7 @@ impl<'a> FieldInfo<'a> {
         let Some(field_name) = &field.ident else {
             return Err(Error::new_spanned(
                 field,
-                "All struct fields must have names. Tuple structs are not supported.\n\
+                "all struct fields must have names; tuple structs are not supported.\n\
                  Example: pub field_name: String",
             ));
         };
