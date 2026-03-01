@@ -23,7 +23,7 @@ pub(crate) fn generate_convenience_method(
     let field_index = ctx.field_infos.iter().position(|f| f.ident == field.ident);
 
     let Some(field_index) = field_index else {
-        return quote! { compile_error!("internal error: field missing from macro context"); };
+        return quote! { compile_error!("field not found on this table — this is a bug in drizzle-macros, please report it"); };
     };
 
     match model_type {

@@ -27,14 +27,14 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
             _ => {
                 return Err(syn::Error::new_spanned(
                     &input,
-                    "PostgresSchema can only be derived for structs with named fields",
+                    "#[derive(PostgresSchema)] requires a struct with named fields",
                 ));
             }
         },
         _ => {
             return Err(syn::Error::new_spanned(
                 &input,
-                "PostgresSchema can only be derived for structs",
+                "#[derive(PostgresSchema)] can only be applied to structs",
             ));
         }
     };
@@ -50,7 +50,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 .ok_or_else(|| {
                     syn::Error::new_spanned(
                         field,
-                        "PostgresSchema can only be derived for structs with named fields",
+                        "#[derive(PostgresSchema)] fields must have names",
                     )
                 })
         })

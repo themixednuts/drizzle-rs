@@ -61,7 +61,7 @@ impl Parse for ViewAttributes {
                                 }
                                 return Err(syn::Error::new(
                                     nv.span(),
-                                    "Expected a string literal for 'NAME'",
+                                    "NAME requires a string literal, e.g. NAME = \"active_users\"",
                                 ));
                             }
                             "DEFINITION" => {
@@ -102,7 +102,7 @@ impl Parse for ViewAttributes {
             }
             return Err(syn::Error::new(
                 meta.span(),
-                "Unrecognized view attribute.\n\
+                "unrecognized view attribute.\n\
                  Supported attributes (case-insensitive):\n\
                  - NAME: Custom view name (e.g., #[SQLiteView(NAME = \"active_users\")])\n\
                  - DEFINITION: View definition SQL string or expression\n\
@@ -137,7 +137,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     if attrs.definition.is_none() && !attrs.existing {
         return Err(syn::Error::new(
             input.span(),
-            "SQLiteView requires a DEFINITION unless marked as EXISTING",
+            "#[SQLiteView] requires a DEFINITION attribute unless marked as EXISTING.\n\
+             Example: #[SQLiteView(DEFINITION = \"SELECT * FROM users WHERE active = 1\")]",
         ));
     }
 

@@ -114,7 +114,7 @@ fn parse_template_with_args(
                 if brace_count != 0 {
                     return Err(syn::Error::new(
                         Span::call_site(),
-                        "Unmatched braces in SQL template",
+                        "unmatched `{` in sql!() template; use `{{` to emit a literal brace",
                     ));
                 }
 
@@ -125,7 +125,7 @@ fn parse_template_with_args(
                             return Err(syn::Error::new(
                                 Span::call_site(),
                                 format!(
-                                    "Not enough arguments provided. Expected at least {}, got {}",
+                                    "not enough arguments for sql!() template: expected at least {}, got {}",
                                     arg_index + 1,
                                     args.len()
                                 ),
@@ -136,7 +136,7 @@ fn parse_template_with_args(
                     } else {
                         return Err(syn::Error::new(
                             Span::call_site(),
-                            "Empty expression in SQL template",
+                            "empty `{}` in sql!() template; pass arguments after the template string, or use a named expression like `{expr}`",
                         ));
                     }
                 } else {
@@ -144,7 +144,7 @@ fn parse_template_with_args(
                     let expr: Expr = syn::parse_str(&expr_content).map_err(|e| {
                         syn::Error::new(
                             Span::call_site(),
-                            format!("Invalid expression in SQL template: {}", e),
+                            format!("invalid expression in sql!() template: {}", e),
                         )
                     })?;
 
@@ -161,7 +161,7 @@ fn parse_template_with_args(
 
                 return Err(syn::Error::new(
                     Span::call_site(),
-                    "Unmatched closing brace in SQL template",
+                    "unmatched `}` in sql!() template; use `}}` to emit a literal brace",
                 ));
             }
             _ => current_text.push(ch),
@@ -180,7 +180,7 @@ fn parse_template_with_args(
         return Err(syn::Error::new(
             Span::call_site(),
             format!(
-                "Too many arguments provided. Expected {}, got {}",
+                "too many arguments for sql!() template: expected {}, got {}",
                 arg_index,
                 args.len()
             ),

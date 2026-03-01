@@ -154,7 +154,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
             // Check if the enum has any variants
             if data.variants.is_empty() {
                 return quote! {
-                    compile_error!("SQLiteEnum cannot be derived for empty enums");
+                    compile_error!("#[derive(SQLiteEnum)] requires at least one variant");
                 }
                 .into();
             }
@@ -166,7 +166,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
             }
         }
         _ => quote! {
-            compile_error!("SQLiteEnum can only be derived for enums and tuple structs");
+            compile_error!("#[derive(SQLiteEnum)] can only be applied to enums");
         }
         .into(),
     }
@@ -1140,7 +1140,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
             // Check if the enum has any variants
             if data.variants.is_empty() {
                 return quote! {
-                    compile_error!("PostgresEnum cannot be derived for empty enums");
+                    compile_error!("#[derive(PostgresEnum)] requires at least one variant");
                 }
                 .into();
             }
@@ -1152,7 +1152,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
             }
         }
         _ => quote! {
-            compile_error!("PostgresEnum can only be derived for enums");
+            compile_error!("#[derive(PostgresEnum)] can only be applied to enums");
         }
         .into(),
     }

@@ -686,7 +686,7 @@ impl FieldInfo {
         let Some(name) = field.ident.clone() else {
             return Err(Error::new_spanned(
                 field,
-                "All struct fields must have names. Tuple structs are not supported.",
+                "all struct fields must have names; tuple structs are not supported",
             ));
         };
         let vis = field.vis.clone();
@@ -907,7 +907,7 @@ impl FieldInfo {
                 let path_ident = meta
                     .path
                     .get_ident()
-                    .ok_or_else(|| syn::Error::new_spanned(&meta.path, "Expected identifier"))?;
+                    .ok_or_else(|| syn::Error::new_spanned(&meta.path, "expected a column attribute name in #[column(...)]"))?;
                 // Convert to uppercase for case-insensitive matching
                 let path = path_ident.to_string().to_ascii_uppercase();
 
@@ -917,7 +917,7 @@ impl FieldInfo {
                         if !type_category.is_valid_constraint("serial") {
                             return Err(syn::Error::new(
                                 span,
-                                "serial constraint requires field type i32",
+                                "#[column(serial)] requires the field type to be i32",
                             ));
                         }
                         is_serial = true;
@@ -928,7 +928,7 @@ impl FieldInfo {
                         if !type_category.is_valid_constraint("bigserial") {
                             return Err(syn::Error::new(
                                 span,
-                                "bigserial constraint requires field type i64",
+                                "#[column(bigserial)] requires the field type to be i64",
                             ));
                         }
                         is_bigserial = true;
@@ -939,7 +939,7 @@ impl FieldInfo {
                         if !type_category.is_valid_constraint("smallserial") {
                             return Err(syn::Error::new(
                                 span,
-                                "smallserial constraint requires field type i16",
+                                "#[column(smallserial)] requires the field type to be i16",
                             ));
                         }
                         is_smallserial = true;
@@ -975,7 +975,7 @@ impl FieldInfo {
                                 _ => {
                                     return Err(syn::Error::new_spanned(
                                         &mode_ident,
-                                        "Expected 'always' or 'by_default' as identity mode",
+                                        "expected `always` or `by_default` for #[column(identity(...))]",
                                     ));
                                 }
                             }
@@ -1006,7 +1006,7 @@ impl FieldInfo {
                                 _ => {
                                     return Err(syn::Error::new_spanned(
                                         &type_ident,
-                                        "Expected 'stored' or 'virtual' as first argument to generated()",
+                                        "expected `stored` or `virtual` for #[column(generated(...))]",
                                     ));
                                 }
                             };
@@ -1020,7 +1020,7 @@ impl FieldInfo {
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     expr_lit,
-                                    "Expected string literal for generation expression",
+                                    "expected a string literal for the SQL expression, e.g. generated(stored, \"col_a + col_b\")",
                                 ));
                             };
 
@@ -1028,7 +1028,7 @@ impl FieldInfo {
                         } else {
                             return Err(syn::Error::new_spanned(
                                 &meta.path,
-                                "generated() requires arguments: generated(stored|virtual, \"expression\")",
+                                "#[column(generated(...))] requires arguments: generated(stored, \"expression\") or generated(virtual, \"expression\")",
                             ));
                         }
 
@@ -1071,7 +1071,7 @@ impl FieldInfo {
                                 _ => {
                                     return Err(syn::Error::new_spanned(
                                         lit,
-                                        "Unsupported default literal type",
+                                        "unsupported default value; expected a string, integer, float, or boolean literal",
                                     ));
                                 }
                             }
@@ -1145,7 +1145,10 @@ impl FieldInfo {
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &meta.path,
-                            format!("Unknown column constraint: '{}'. Supported: PRIMARY, UNIQUE, SERIAL, BIGSERIAL, SMALLSERIAL, IDENTITY, GENERATED, JSON, JSONB, ENUM, DEFAULT, DEFAULT_FN, CHECK, REFERENCES, ON_DELETE, ON_UPDATE", path_ident),
+                            format!("unknown #[column] attribute `{}`.\n\
+                                     Supported: primary, unique, serial, bigserial, smallserial, identity, \
+                                     generated, json, jsonb, enum, default, default_fn, check, references, \
+                                     on_delete, on_update", path_ident),
                         ));
                     }
                 }
@@ -1185,7 +1188,7 @@ impl FieldInfo {
             _ => Err(Error::new_spanned(
                 action,
                 format!(
-                    "Invalid referential action '{}'. Supported: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
+                    "invalid referential action `{}`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
                     action_str
                 ),
             )),
