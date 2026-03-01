@@ -286,7 +286,7 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
     struct_vis: &syn::Visibility,
     sql_table_info: &TokenStream,
     sql_column_info: &TokenStream,
-) -> (TokenStream, TokenStream, TokenStream, Vec<Ident>) {
+) -> Result<(TokenStream, TokenStream, TokenStream, Vec<Ident>)> {
     let sql_foreign_key_info = core_paths::sql_foreign_key_info();
     let sql_foreign_key = core_paths::sql_foreign_key();
     let sql_constraint_info = core_paths::sql_constraint_info();
@@ -448,9 +448,17 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
                     .iter()
                     .find(|f| f.ident() == src)
                     .map(|f| f.column_name().to_owned())
-                    .unwrap_or_else(|| src.to_string())
+                    .ok_or_else(|| {
+                        syn::Error::new(
+                            src.span(),
+                            format!(
+                                "composite foreign key references field `{}` which does not exist on `{}`",
+                                src, struct_ident
+                            ),
+                        )
+                    })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         let source_col_zst_idents: Vec<Ident> = fk
             .source_columns()
@@ -603,7 +611,7 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
         quote! { (#(#fk_zst_idents,)*) }
     };
 
-    (quote! { #(#fk_impls)* }, fk_list, fk_types, fk_zst_idents)
+    Ok((quote! { #(#fk_impls)* }, fk_list, fk_types, fk_zst_idents))
 }
 
 pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
@@ -754,9 +762,17 @@ pub(crate) fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyR
                     .iter()
                     .find(|f| f.ident() == src)
                     .map(|f| f.column_name().to_owned())
-                    .unwrap_or_else(|| src.to_string())
+                    .ok_or_else(|| {
+                        syn::Error::new(
+                            src.span(),
+                            format!(
+                                "composite foreign key references field `{}` which does not exist on `{}`",
+                                src, struct_ident
+                            ),
+                        )
+                    })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         let target_cols: Vec<String> = comp_fk
             .target_columns()
             .iter()

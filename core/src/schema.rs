@@ -60,7 +60,8 @@ where
 ///
 /// Returns an error if a cycle is detected.
 #[cfg(feature = "std")]
-pub fn topological_order<'a>(
+#[allow(dead_code)]
+pub(crate) fn topological_order<'a>(
     items: impl IntoIterator<Item = (&'a str, &'a [&'a str])>,
 ) -> crate::error::Result<Vec<&'a str>> {
     let items: Vec<_> = items.into_iter().collect();
