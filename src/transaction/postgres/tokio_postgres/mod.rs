@@ -7,6 +7,11 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
+/// Returns an error indicating the transaction has already been consumed.
+fn tx_consumed_error() -> DrizzleError {
+    DrizzleError::TransactionError("Transaction already consumed".into())
+}
+
 pub mod delete;
 pub mod insert;
 pub mod select;
@@ -75,10 +80,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Executes a raw SQL string with no parameters.
     async fn execute_raw(&self, sql: &str) -> drizzle_core::error::Result<()> {
         let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
-        tx.execute(sql, &[])
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        tx.execute(sql, &[]).await.map_err(DrizzleError::from)?;
         Ok(())
     }
 
@@ -150,7 +153,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     postgres_transaction_constructors!();
 
-    pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, tokio_postgres::Error>
+    pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -169,8 +172,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
 
         let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
-        tx.execute(&sql, &param_refs[..]).await
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        Ok(tx
+            .execute(&sql, &param_refs[..])
+            .await
+            .map_err(DrizzleError::from)?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -196,12 +202,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
 
         let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
 
         let rows = tx
             .query(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in rows {
@@ -233,38 +239,26 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
 
         let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
 
         let row = tx
             .query_one(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         R::try_from(&row).map_err(Into::into)
     }
 
     /// Commits the transaction
     pub(crate) async fn commit(&self) -> drizzle_core::error::Result<()> {
-        let tx = self
-            .tx
-            .borrow_mut()
-            .take()
-            .expect("Transaction already consumed");
-        tx.commit()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+        let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+        tx.commit().await.map_err(DrizzleError::from)
     }
 
     /// Rolls back the transaction
     pub(crate) async fn rollback(&self) -> drizzle_core::error::Result<()> {
-        let tx = self
-            .tx
-            .borrow_mut()
-            .take()
-            .expect("Transaction already consumed");
-        tx.rollback()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+        let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+        tx.rollback().await.map_err(DrizzleError::from)
     }
 }
 
@@ -343,12 +337,12 @@ where
         };
 
         let tx_ref = self.transaction.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
 
         Ok(tx
             .execute(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?)
+            .map_err(DrizzleError::from)?)
     }
 
     /// Runs the query and returns all matching rows, decoded as the given type `R`.
@@ -372,12 +366,12 @@ where
         };
 
         let tx_ref = self.transaction.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
 
         let rows = tx
             .query(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in rows {
@@ -407,12 +401,12 @@ where
         };
 
         let tx_ref = self.transaction.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
 
         let row = tx
             .query_one(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -439,11 +433,11 @@ where
         };
 
         let tx_ref = self.transaction.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
         let rows = tx
             .query(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -477,11 +471,11 @@ where
         };
 
         let tx_ref = self.transaction.tx.borrow();
-        let tx = tx_ref.as_ref().expect("Transaction already consumed");
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
         let row = tx
             .query_one(&sql_str, &param_refs[..])
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
     }
