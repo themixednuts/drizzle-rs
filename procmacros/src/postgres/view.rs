@@ -267,7 +267,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             &input.vis,
             &sql_table_info_path,
             &sql_column_info_path,
-        );
+        )?;
     let relations_impl = crate::common::constraints::generate_relations(
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,

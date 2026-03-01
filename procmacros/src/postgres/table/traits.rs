@@ -74,7 +74,7 @@ pub(super) fn generate_table_impls(
             ctx.struct_vis,
             &sql_table_info,
             &sql_column_info,
-        );
+        )?;
     let (primary_key_impls, sql_primary_key, primary_key_type, pk_constraint_ident) =
         crate::common::constraints::generate_primary_key(
             ctx.field_infos,
