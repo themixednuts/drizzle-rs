@@ -1,4 +1,4 @@
-#[cfg(feature = "rusqlite")]
+#[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn strict_decode_ui() {
     let t = trybuild::TestCases::new();
@@ -29,7 +29,7 @@ fn raw_sql_ui() {
     t.compile_fail("tests/ui/raw_sql/fail/*.rs");
 }
 
-#[cfg(feature = "rusqlite")]
+#[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn aggregate_types_ui() {
     let t = trybuild::TestCases::new();
@@ -61,7 +61,7 @@ fn scalar_types_postgres_ui() {
     t.compile_fail("tests/ui/scalar_types_postgres/fail/*.rs");
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(all(feature = "postgres", feature = "uuid"))]
 #[test]
 fn join_nullability_postgres_ui() {
     let t = trybuild::TestCases::new();
@@ -93,7 +93,7 @@ fn subquery_types_sqlite_ui() {
     t.compile_fail("tests/ui/subquery_types_sqlite/fail/*.rs");
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(all(feature = "postgres", feature = "uuid"))]
 #[test]
 fn set_ops_postgres_ui() {
     let t = trybuild::TestCases::new();
