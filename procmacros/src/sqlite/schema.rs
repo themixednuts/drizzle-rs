@@ -310,11 +310,11 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             match <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE {
                 #sqlite_schema_type::Table(table_info) => {
                     let table_name = #sql_table_info::qualified_name(table_info).into_owned();
-                    let table_sql = #field_types::ddl_sql().to_string();
+                    let table_sql = <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL.to_string();
                     tables.push((table_name, table_sql, table_info));
                 }
                 #sqlite_schema_type::Index(index_info) => {
-                    let index_sql = #field_types::ddl_sql().to_string();
+                    let index_sql = <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL.to_string();
                     let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
                     let index_name = #sql_index_info::name(index_info);
                     let index_key = ::std::format!("{}::{}", table_name, index_name);
@@ -330,7 +330,15 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                 }
                 #sqlite_schema_type::View(view_info) => {
                     if !view_info.is_existing() {
-                        let view_sql = #field_types::ddl_sql().to_string();
+                        let sql = <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL;
+                        let view_sql = if sql.is_empty() {
+                            // Expression-based views have empty const SQL; build from definition
+                            let view_name = #sql_table_info::name(view_info);
+                            let definition = view_info.definition_sql();
+                            ::std::format!("CREATE VIEW \"{}\" AS {}", view_name, definition)
+                        } else {
+                            sql.to_string()
+                        };
                         views.push(view_sql);
                     }
                 }
