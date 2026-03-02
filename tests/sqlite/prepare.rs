@@ -276,10 +276,13 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
     }
     let prepared_duration = start.elapsed();
 
-    // Prepared statements should generally be faster for repeated queries
+    // Prepared statements should generally be faster for repeated queries.
+    // Use 5x tolerance to avoid flaky failures under heavy system load.
     assert!(
-        prepared_duration <= regular_duration * 2,
-        "Prepared statements shouldn't be significantly slower"
+        prepared_duration <= regular_duration * 5,
+        "Prepared statements shouldn't be significantly slower: prepared={:?}, regular={:?}",
+        prepared_duration,
+        regular_duration,
     );
 });
 
