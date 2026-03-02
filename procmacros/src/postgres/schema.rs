@@ -353,11 +353,11 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             match <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
                 #postgres_schema_type::Table(table_info) => {
                     let table_name = #sql_table_info::qualified_name(table_info).into_owned();
-                    let table_sql = #field_types::ddl_sql().to_string();
+                    let table_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
                     tables.push((table_name, table_sql, table_info));
                 }
                 #postgres_schema_type::Index(index_info) => {
-                    let index_sql = #field_types::ddl_sql().to_string();
+                    let index_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
                     let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
                     let index_name = #sql_index_info::name(index_info);
                     let index_key = ::std::format!("{}::{}", table_name, index_name);
@@ -371,13 +371,45 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                         .or_insert_with(::std::vec::Vec::new)
                         .push(index_sql);
                 }
-                #postgres_schema_type::Enum(enum_info) => {
-                    let enum_sql = enum_info.create_type_sql();
+                #postgres_schema_type::Enum(_enum_info) => {
+                    let enum_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
                     enums.push(enum_sql);
                 }
                 #postgres_schema_type::View(view_info) => {
                     if !view_info.is_existing() {
-                        let view_sql = #field_types::ddl_sql().to_string();
+                        let sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL;
+                        let view_sql = if sql.is_empty() {
+                            // Expression-based views have empty const SQL; reconstruct from view_info
+                            let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
+                            let view_name = #sql_table_info::name(view_info);
+                            let definition = view_info.definition_sql();
+                            let materialized_kw = if view_info.is_materialized() { "MATERIALIZED " } else { "" };
+                            let schema_prefix = if view_schema != "public" {
+                                ::std::format!("\"{}\".", view_schema)
+                            } else {
+                                ::std::string::String::new()
+                            };
+                            let mut view_sql = ::std::format!(
+                                "CREATE {}VIEW {}\"{}\"",
+                                materialized_kw, schema_prefix, view_name
+                            );
+                            if let ::std::option::Option::Some(using) = view_info.using_clause() {
+                                view_sql.push_str(&::std::format!(" USING {}", using));
+                            }
+                            if let ::std::option::Option::Some(tablespace) = view_info.tablespace() {
+                                view_sql.push_str(&::std::format!(" TABLESPACE \"{}\"", tablespace));
+                            }
+                            view_sql.push_str(" AS ");
+                            view_sql.push_str(&definition);
+                            if view_info.is_materialized() {
+                                if let ::std::option::Option::Some(true) = view_info.with_no_data() {
+                                    view_sql.push_str(" WITH NO DATA");
+                                }
+                            }
+                            view_sql
+                        } else {
+                            sql.to_string()
+                        };
                         views.push(view_sql);
                     }
                 }

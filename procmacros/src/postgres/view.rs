@@ -415,7 +415,11 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             "CREATE VIEW"
         };
 
-        let mut sql = format!("{} \"{}\".\"{}\"", create_kw, view_schema, view_name);
+        let mut sql = if view_schema != "public" {
+            format!("{} \"{}\".\"{}\"", create_kw, view_schema, view_name)
+        } else {
+            format!("{} \"{}\"", create_kw, view_name)
+        };
         if let Some(ref using) = attrs.using {
             sql.push_str(&format!(" USING {}", using));
         }

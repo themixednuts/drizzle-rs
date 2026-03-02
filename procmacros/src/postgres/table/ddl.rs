@@ -134,6 +134,215 @@ fn build_column(
     col
 }
 
+/// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`
+/// using `concatcp!` so that foreign key REFERENCES can resolve table names
+/// via `<OtherTable>::TABLE_NAME` at compile time.
+pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
+    let table_name = &ctx.table_name;
+    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
+    let is_composite_pk = ctx.is_composite_pk;
+    let field_infos = ctx.field_infos;
+
+    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
+        || !ctx.attrs.composite_foreign_keys.is_empty();
+
+    if !has_foreign_keys {
+        // For tables without FKs, build the SQL entirely at proc-macro time
+        let sql = generate_create_table_sql(ctx);
+        return quote! { #sql };
+    }
+
+    // For tables WITH FKs, use concatcp! to reference other table's TABLE_NAME
+    let mut parts: Vec<TokenStream> = Vec::new();
+
+    // CREATE TABLE ["schema".]"table" (\n
+    let header = if schema_name != "public" {
+        format!("CREATE TABLE \"{}\".\"{}\" (\n", schema_name, table_name)
+    } else {
+        format!("CREATE TABLE \"{}\" (\n", table_name)
+    };
+    parts.push(quote! { #header });
+
+    // Column definitions
+    let column_lines: Vec<String> = field_infos
+        .iter()
+        .map(|field| build_pg_column_sql(field, is_composite_pk))
+        .collect();
+
+    for (i, col_line) in column_lines.iter().enumerate() {
+        let line = if i > 0 {
+            format!(",\n{}", col_line)
+        } else {
+            col_line.clone()
+        };
+        parts.push(quote! { #line });
+    }
+
+    // Primary key constraint
+    let pk_columns: Vec<&String> = field_infos
+        .iter()
+        .filter(|f| f.is_primary)
+        .map(|f| &f.column_name)
+        .collect();
+    if !pk_columns.is_empty() {
+        let pk_str = format!(
+            ",\n\tPRIMARY KEY({})",
+            pk_columns
+                .iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        parts.push(quote! { #pk_str });
+    }
+
+    // Unique constraints
+    for field in field_infos.iter().filter(|f| f.is_unique && !f.is_primary) {
+        let uq_name = format!("{}_{}_unique", table_name, field.column_name);
+        let uq_str = format!(
+            ",\n\tCONSTRAINT \"{}\" UNIQUE(\"{}\")",
+            uq_name, field.column_name
+        );
+        parts.push(quote! { #uq_str });
+    }
+
+    // Single-column foreign keys
+    for field in field_infos {
+        if let Some(ref fk) = field.foreign_key {
+            let ref_table_ident = &fk.table;
+            let ref_column = fk.column.to_string();
+            let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
+
+            // FK prefix: ,\n\tCONSTRAINT "name" FOREIGN KEY ("col") REFERENCES "
+            let fk_prefix = format!(
+                ",\n\tCONSTRAINT \"{}\" FOREIGN KEY (\"{}\") REFERENCES \"",
+                fk_name, field.column_name
+            );
+            parts.push(quote! { #fk_prefix });
+
+            // Table name via const reference
+            parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
+
+            // FK suffix: "("ref_col")
+            let mut fk_suffix = format!("\"(\"{}\")", ref_column);
+
+            if let Some(ref on_delete) = fk.on_delete {
+                let action = on_delete.to_uppercase();
+                if action != "NO ACTION" {
+                    fk_suffix.push_str(&format!(" ON DELETE {}", action));
+                }
+            }
+            if let Some(ref on_update) = fk.on_update {
+                let action = on_update.to_uppercase();
+                if action != "NO ACTION" {
+                    fk_suffix.push_str(&format!(" ON UPDATE {}", action));
+                }
+            }
+
+            parts.push(quote! { #fk_suffix });
+        }
+    }
+
+    // Composite foreign keys
+    for fk in &ctx.attrs.composite_foreign_keys {
+        let ref_table_ident = &fk.target_table;
+        let source_columns: Vec<String> = fk
+            .source_columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| f.ident == *src)
+                    .map(|f| f.column_name.clone())
+                    .unwrap_or_else(|| src.to_string())
+            })
+            .collect();
+        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+
+        let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
+        let source_cols_str = source_columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let target_cols_str = target_columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let fk_prefix = format!(
+            ",\n\tCONSTRAINT \"{}\" FOREIGN KEY ({}) REFERENCES \"",
+            fk_name, source_cols_str
+        );
+        parts.push(quote! { #fk_prefix });
+
+        parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
+
+        let mut fk_suffix = format!("\"({})", target_cols_str);
+
+        if let Some(ref on_delete) = fk.on_delete {
+            let action = on_delete.to_uppercase();
+            if action != "NO ACTION" {
+                fk_suffix.push_str(&format!(" ON DELETE {}", action));
+            }
+        }
+        if let Some(ref on_update) = fk.on_update {
+            let action = on_update.to_uppercase();
+            if action != "NO ACTION" {
+                fk_suffix.push_str(&format!(" ON UPDATE {}", action));
+            }
+        }
+
+        parts.push(quote! { #fk_suffix });
+    }
+
+    // Check constraints
+    for field in field_infos {
+        if let Some(ref check) = field.check_constraint {
+            let chk_name = format!("{}_{}_check", table_name, field.column_name);
+            let chk_str = format!(",\n\tCONSTRAINT \"{}\" CHECK ({})", chk_name, check);
+            parts.push(quote! { #chk_str });
+        }
+    }
+
+    // Closing
+    parts.push(quote! { "\n);" });
+
+    quote! {
+        ::drizzle::const_format::concatcp!(#(#parts),*)
+    }
+}
+
+/// Build a PG column SQL fragment for use in concatcp! based generation.
+fn build_pg_column_sql(field: &FieldInfo, _is_composite_pk: bool) -> String {
+    let mut parts = vec![format!(
+        "\"{}\" {}",
+        field.column_name,
+        field.column_type.to_sql_type()
+    )];
+
+    // Serial types are implicitly NOT NULL, don't add redundant constraint
+    if !field.is_nullable && !field.is_serial {
+        parts.push("NOT NULL".to_string());
+    }
+
+    // Handle default value (skip if serial - SERIAL type has implicit DEFAULT)
+    if !field.is_serial
+        && let Some(ref default) = field.default
+    {
+        match default {
+            PostgreSQLDefault::Literal(s) => parts.push(format!("DEFAULT {}", s)),
+            PostgreSQLDefault::Function(s) => parts.push(format!("DEFAULT {}", s)),
+            PostgreSQLDefault::Expression(ts) => {
+                parts.push(format!("DEFAULT {}", ts));
+            }
+        }
+    }
+
+    format!("\t{}", parts.join(" "))
+}
+
 /// Convert a referential action string to the corresponding enum variant token
 fn referential_action_token(action: &str, referential_action: &TokenStream) -> TokenStream {
     match action.to_uppercase().as_str() {
