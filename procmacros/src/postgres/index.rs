@@ -247,6 +247,52 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
 
     let is_unique = attr.unique;
 
+    // Build compile-time SQL using concatcp! to reference the table's schema and name
+    let unique_kw = if attr.unique { "UNIQUE " } else { "" };
+    let concurrent_kw = if attr.concurrent { "CONCURRENTLY " } else { "" };
+    let create_prefix = format!(
+        "CREATE {}{}INDEX \"{}\" ON \"",
+        unique_kw, concurrent_kw, index_name
+    );
+    let dot_quote = "\".\"";
+    let method_and_open = match &attr.method {
+        Some(method) => format!("\" USING {}(", method),
+        None => "\"(".to_string(),
+    };
+    let column_sql_parts: Vec<TokenStream> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, col)| {
+            let prefix = if i > 0 { ", \"" } else { "\"" };
+            let suffix = "\"";
+            quote! {
+                #prefix,
+                {
+                    const fn column_name<'a, C: #sql_schema<'a, &'static str, #postgres_value<'a>>>(_: &C) -> &'a str {
+                        C::NAME
+                    }
+                    column_name(&#col)
+                },
+                #suffix
+            }
+        })
+        .collect();
+    let close = match &attr.where_clause {
+        Some(wc) => format!(") WHERE {}", wc),
+        None => ")".to_string(),
+    };
+    let const_sql = quote! {
+        ::drizzle::const_format::concatcp!(
+            #create_prefix,
+            <#table_type>::DDL_TABLE.schema,
+            #dot_quote,
+            <#table_type as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::NAME,
+            #method_and_open,
+            #(#column_sql_parts,)*
+            #close
+        )
+    };
+
     // Generate the index struct and implementations
     let mut expanded = quote! {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -315,7 +361,7 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
                 static INDEX_INSTANCE: #struct_ident = #struct_ident::new();
                 #postgres_schema_type::Index(&INDEX_INSTANCE)
             };
-            const SQL: &'static str = "";
+            const SQL: &'static str = #const_sql;
         }
 
         impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_ident {

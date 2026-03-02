@@ -47,10 +47,8 @@ pub(super) fn generate_table_impls(
         })
     };
 
-    // Schema SQL const - PostgreSQL tables always use create_table_sql() at runtime
-    // because they have schema-qualified names and complex DDL.
-    // We store empty string in const SQL and rely on create_table_sql() method.
-    let sql_const = quote! { "" };
+    // Generate compile-time SQL for const SQL, using concatcp! for FK references
+    let sql_const = super::ddl::generate_schema_sql_const(ctx);
 
     // Use generator functions for consistent pattern with SQLite
     let sql_schema_impl = generate_sql_schema(
