@@ -706,7 +706,10 @@ pub mod queries {
         ORDER BY n.nspname, c.relname
     "#;
 
-    /// Query to get all views
+    /// Query to get all views.
+    ///
+    /// Accepts `$1::text[]` — when non-NULL, scopes to those schemas;
+    /// when NULL, returns all non-system views.
     pub const VIEWS_QUERY: &str = r#"
         SELECT
             schemaname AS schema,
@@ -714,8 +717,9 @@ pub mod queries {
             definition,
             FALSE AS is_materialized
         FROM pg_views
-        WHERE schemaname NOT LIKE 'pg_%'
-          AND schemaname != 'information_schema'
+        WHERE ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
+           OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
+               AND schemaname != 'information_schema')
         UNION ALL
         SELECT
             schemaname AS schema,
@@ -723,8 +727,9 @@ pub mod queries {
             definition,
             TRUE AS is_materialized
         FROM pg_matviews
-        WHERE schemaname NOT LIKE 'pg_%'
-          AND schemaname != 'information_schema'
+        WHERE ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
+           OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
+               AND schemaname != 'information_schema')
         ORDER BY schema, name
     "#;
 

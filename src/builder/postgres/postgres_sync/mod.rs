@@ -583,7 +583,7 @@ impl<Schema> Drizzle<Schema> {
         // Views
         let raw_views: Vec<RawViewInfo> = self
             .client
-            .query(queries::VIEWS_QUERY, &[])
+            .query(queries::VIEWS_QUERY, &[&schema_filter])
             .map_err(|e| err("Failed to query views", e))?
             .into_iter()
             .map(|row| RawViewInfo {
