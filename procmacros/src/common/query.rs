@@ -39,6 +39,12 @@ pub(crate) struct FieldJsonInfo {
     pub is_nullable: bool,
     /// Whether the field is a UUID type.
     pub is_uuid: bool,
+    /// Whether the field is a raw blob type (Vec<u8>).
+    pub is_blob: bool,
+    /// Whether the field is a boolean type.
+    /// SQLite stores booleans as integers (0/1) which appear as JSON numbers
+    /// inside `json_object()`. Requires special handling in `FromJsonValue`.
+    pub is_bool: bool,
     /// If the field is an enum, how it is stored in the database.
     pub enum_storage: Option<EnumStorage>,
     /// The unwrapped base type (e.g., `i32` even if the field is `Option<i32>`).
@@ -67,6 +73,13 @@ pub(crate) fn generate_query_api(
 ) -> Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
+    // Collect blob column names (UUID and Vec<u8> types — stored as BLOB in SQLite).
+    let blob_column_names: Vec<&str> = field_json_infos
+        .iter()
+        .filter(|f| f.is_uuid || f.is_blob)
+        .map(|f| f.column_name.as_str())
+        .collect();
+
     // 1. Generate QueryTable impl (table name, column names, select model, partial select model)
     tokens.extend(generate_query_table(
         struct_ident,
@@ -74,6 +87,7 @@ pub(crate) fn generate_query_api(
         partial_select_model_ident,
         table_name,
         column_names,
+        &blob_column_names,
     ));
 
     // 2. Generate forward relations (from this table to target)
@@ -119,8 +133,18 @@ fn generate_query_table(
     partial_select_model_ident: &Ident,
     table_name: &str,
     column_names: &[String],
+    blob_column_names: &[&str],
 ) -> TokenStream {
     let column_name_literals: Vec<&str> = column_names.iter().map(|s| s.as_str()).collect();
+
+    let blob_const = if blob_column_names.is_empty() {
+        // Use default (empty slice) — no override needed
+        quote! {}
+    } else {
+        quote! {
+            const BLOB_COLUMNS: &'static [&'static str] = &[#(#blob_column_names),*];
+        }
+    };
 
     quote! {
         impl drizzle::core::query::QueryTable for #struct_ident {
@@ -128,6 +152,7 @@ fn generate_query_table(
             type PartialSelect = #partial_select_model_ident;
             const TABLE_NAME: &'static str = #table_name;
             const COLUMN_NAMES: &'static [&'static str] = &[#(#column_name_literals),*];
+            #blob_const
         }
     }
 }
@@ -394,6 +419,14 @@ fn generate_from_json_value_impl(
                 return generate_enum_read(ident, col_name, &f.base_type, storage, is_nullable);
             }
 
+            if f.is_bool {
+                return generate_bool_read(ident, col_name, is_nullable);
+            }
+
+            if f.is_blob {
+                return generate_blob_read(ident, col_name, is_nullable);
+            }
+
             generate_serde_read(ident, col_name, is_nullable)
         })
         .collect();
@@ -525,6 +558,77 @@ fn generate_enum_read(
                 let v = obj.get(#col_name)
                     .ok_or_else(|| drizzle::error::DrizzleError::Other(::std::format!("missing field '{}'", #col_name).into()))?;
                 #conversion
+            }
+        }
+    }
+}
+
+/// Generates a boolean field read that handles both JSON booleans and integers.
+///
+/// SQLite stores booleans as integers (0/1) which appear as JSON numbers inside
+/// `json_object()`. This handler accepts both `true`/`false` and `0`/`1`.
+fn generate_bool_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
+    if is_nullable {
+        quote! {
+            #ident: match obj.get(#col_name) {
+                Some(drizzle::core::serde_json::Value::Bool(b)) => Some(*b),
+                Some(drizzle::core::serde_json::Value::Number(n)) => Some(n.as_i64().unwrap_or(0) != 0),
+                Some(drizzle::core::serde_json::Value::Null) | None => None,
+                Some(_) => None,
+            }
+        }
+    } else {
+        quote! {
+            #ident: match obj.get(#col_name) {
+                Some(drizzle::core::serde_json::Value::Bool(b)) => *b,
+                Some(drizzle::core::serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+                _ => return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
+                    ::std::format!("field '{}': expected boolean or integer", #col_name).into()
+                )),
+            }
+        }
+    }
+}
+
+/// Generates a raw blob field read from a hex string.
+///
+/// SQLite's `hex()` wrapping converts BLOBs to uppercase hex strings for
+/// `json_object()` compatibility. This handler decodes the hex string back
+/// to `Vec<u8>`.
+fn generate_blob_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
+    if is_nullable {
+        quote! {
+            #ident: match obj.get(#col_name) {
+                Some(drizzle::core::serde_json::Value::String(s)) if !s.is_empty() => {
+                    let bytes = (0..s.len())
+                        .step_by(2)
+                        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+                        .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
+                        .map_err(|e| drizzle::error::DrizzleError::Other(
+                            ::std::format!("field '{}': invalid hex: {e}", #col_name).into()
+                        ))?;
+                    Some(bytes)
+                },
+                Some(drizzle::core::serde_json::Value::Null) | None => None,
+                Some(drizzle::core::serde_json::Value::String(_)) => Some(::std::vec::Vec::new()),
+                _ => None,
+            }
+        }
+    } else {
+        quote! {
+            #ident: {
+                let s = obj.get(#col_name)
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| drizzle::error::DrizzleError::Other(
+                        ::std::format!("missing field '{}'", #col_name).into()
+                    ))?;
+                (0..s.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+                    .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
+                    .map_err(|e| drizzle::error::DrizzleError::Other(
+                        ::std::format!("field '{}': invalid hex: {e}", #col_name).into()
+                    ))?
             }
         }
     }

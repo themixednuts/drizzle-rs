@@ -32,6 +32,8 @@ pub struct RenderedRelation<V: SQLParam> {
     pub table_name: &'static str,
     /// Target table columns for SELECT (e.g., ["id", "content", "author_id"]).
     pub column_names: Vec<&'static str>,
+    /// Column names that store BLOB data and need `hex()` wrapping in JSON.
+    pub blob_columns: &'static [&'static str],
     /// FK column pairs for the join condition.
     /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
     pub fk_columns: &'static [(&'static str, &'static str)],
@@ -80,6 +82,7 @@ where
         out.push(RenderedRelation {
             table_name: <R::Target as QueryTable>::TABLE_NAME,
             column_names: <R::Target as QueryTable>::COLUMN_NAMES.to_vec(),
+            blob_columns: <R::Target as QueryTable>::BLOB_COLUMNS,
             fk_columns: R::fk_columns(),
             cardinality: <R::Card as CardWrap>::CARDINALITY,
             rel_name: R::NAME,
@@ -110,6 +113,7 @@ where
         out.push(RenderedRelation {
             table_name: <R::Target as QueryTable>::TABLE_NAME,
             column_names: handle.cols.columns,
+            blob_columns: <R::Target as QueryTable>::BLOB_COLUMNS,
             fk_columns: R::fk_columns(),
             cardinality: <R::Card as CardWrap>::CARDINALITY,
             rel_name: R::NAME,
@@ -140,6 +144,7 @@ where
 pub fn build_query_sql<'p, V: SQLParam>(
     table_name: &str,
     column_names: &[&str],
+    blob_columns: &[&str],
     relations: &'p [RenderedRelation<V>],
     where_clause: &str,
     where_params: &'p [V],
@@ -166,7 +171,7 @@ pub fn build_query_sql<'p, V: SQLParam>(
             sql.push('\'');
             sql.push_str(c);
             sql.push_str("', ");
-            write_qualified_column(alias, c, &mut sql);
+            write_json_column(alias, c, blob_columns, dialect, &mut sql);
         }
         sql.push(')');
         if dialect == Dialect::PostgreSQL {
@@ -312,7 +317,7 @@ fn write_relation_subquery<'p, V: SQLParam>(
         sql.push('\'');
         sql.push_str(c);
         sql.push_str("', ");
-        write_qualified_column(alias, c, sql);
+        write_json_column(alias, c, rel.blob_columns, dialect, sql);
     }
 
     // Nested relation subqueries as additional json_object args
@@ -447,6 +452,36 @@ fn write_qualified_column(alias: &str, column: &str, sql: &mut String) {
     sql.push_str("\".\"");
     sql.push_str(column);
     sql.push('"');
+}
+
+/// Writes a column reference for use inside `json_object()`.
+///
+/// For BLOB columns on SQLite, wraps with a NULL-safe `hex()` expression:
+/// `CASE WHEN col IS NULL THEN NULL ELSE hex(col) END`.
+///
+/// Plain `hex(NULL)` returns an empty string `""` rather than SQL NULL,
+/// which would cause `json_object()` to emit `"col":""` instead of
+/// `"col":null`. The CASE expression preserves NULLs correctly.
+///
+/// PostgreSQL handles all types natively in `json_build_object()`, so no
+/// wrapping is needed regardless of column type.
+fn write_json_column(
+    alias: &str,
+    column: &str,
+    blob_columns: &[&str],
+    dialect: Dialect,
+    sql: &mut String,
+) {
+    let is_blob = dialect == Dialect::SQLite && blob_columns.contains(&column);
+    if is_blob {
+        sql.push_str("CASE WHEN ");
+        write_qualified_column(alias, column, sql);
+        sql.push_str(" IS NULL THEN NULL ELSE hex(");
+        write_qualified_column(alias, column, sql);
+        sql.push_str(") END");
+    } else {
+        write_qualified_column(alias, column, sql);
+    }
 }
 
 /// Opens a JSON object constructor.
