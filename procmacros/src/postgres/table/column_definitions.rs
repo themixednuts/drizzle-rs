@@ -97,9 +97,9 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
         // Generate direct From implementations for all enum fields
         // Custom types (is_custom_type) already have these impls from their enum derive
-        let enum_impl = if field_info.is_custom_type {
+        let enum_impl = if field_info.is_custom_type || field_info.is_pgenum {
             quote! {}
-        } else if field_info.is_enum || field_info.is_pgenum {
+        } else if field_info.is_enum {
             let (conversion, reference_conversion) = match field_info.column_type {
                 PostgreSQLType::Smallint => (
                     quote! {
