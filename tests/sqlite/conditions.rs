@@ -143,6 +143,9 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
             => all
     );
     assert_eq!(result.len(), 2);
+    // Verify TEXT enum round-trip: role field deserialized correctly
+    assert!(result.iter().any(|r| r.role == Role::Admin));
+    assert!(result.iter().any(|r| r.role == Role::User));
 
     // Test is_not_null condition
     let result: Vec<SelectComplex> = drizzle_exec!(
@@ -152,6 +155,7 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
             => all
     );
     assert_eq!(result.len(), 1);
+    assert_eq!(result[0].role, Role::User);
     assert_eq!(result[0].name, "User A");
 
     // Test is_null with integer field

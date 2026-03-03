@@ -509,6 +509,47 @@ postgres_test!(select_with_enum_condition, ComplexSchema, {
     assert_eq!(results[0].name, "Alice");
 });
 
+// Verify full SelectComplex round-trip including native PG enum columns.
+// Previous tests use PgComplexResult (partial) which skips the role column.
+// This test ensures row.get::<_, Role>(idx) works for native PG enum types.
+#[cfg(feature = "uuid")]
+postgres_test!(select_full_model_with_enum, ComplexSchema, {
+    let ComplexSchema { complex, .. } = schema;
+
+    let data1 = InsertComplex::new("Alice", true, Role::Admin);
+    let data2 = InsertComplex::new("Bob", true, Role::User);
+    let data3 = InsertComplex::new("Charlie", false, Role::Moderator);
+
+    drizzle_exec!(db.insert(complex).values(vec![data1, data2, data3]) => execute);
+
+    // Full select returning SelectComplex (includes role enum column)
+    let results: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].role, Role::Admin);
+    assert_eq!(results[1].role, Role::User);
+    assert_eq!(results[2].role, Role::Moderator);
+});
+
+// Verify full SelectTask round-trip with TWO native PG enum columns (priority, status).
+postgres_test!(select_full_model_with_multiple_enums, TaskSchema, {
+    let TaskSchema { task, .. } = schema;
+
+    let t1 = InsertTask::new("Urgent", Priority::High, PostStatus::Published);
+    let t2 = InsertTask::new("Normal", Priority::Medium, PostStatus::Draft);
+    let t3 = InsertTask::new("Low-pri", Priority::Low, PostStatus::Archived);
+
+    drizzle_exec!(db.insert(task).values(vec![t1, t2, t3]) => execute);
+
+    let results: Vec<SelectTask> = drizzle_exec!(db.select(()).from(task) => all);
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].priority, Priority::High);
+    assert_eq!(results[0].status, PostStatus::Published);
+    assert_eq!(results[1].priority, Priority::Medium);
+    assert_eq!(results[1].status, PostStatus::Draft);
+    assert_eq!(results[2].priority, Priority::Low);
+    assert_eq!(results[2].status, PostStatus::Archived);
+});
+
 #[cfg(feature = "uuid")]
 postgres_test!(select_complex_where, ComplexSchema, {
     let ComplexSchema { complex, .. } = schema;
