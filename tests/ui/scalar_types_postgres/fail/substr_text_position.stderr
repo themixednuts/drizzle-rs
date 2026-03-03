@@ -12,7 +12,7 @@ help: the following other types implement trait `Integral`
  --> types/src/sql/mod.rs
   |
   | impl Integral for crate::sqlite::types::Integer {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::sqlite::types::Integer`
 ...
   | impl Integral for crate::postgres::types::Int2 {}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int2`
@@ -43,7 +43,7 @@ help: the following other types implement trait `Integral`
  --> types/src/sql/mod.rs
   |
   | impl Integral for crate::sqlite::types::Integer {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::sqlite::types::Integer`
 ...
   | impl Integral for crate::postgres::types::Int2 {}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int2`
