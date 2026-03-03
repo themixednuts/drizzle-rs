@@ -229,13 +229,9 @@ pub fn build_query_sql<'p, V: SQLParam>(
         let table_prefix = format!("\"{table_name}\".");
         let alias_prefix = format!("\"{alias}\".");
 
-        // WHERE — root params go first ($1, $2, ...) before relation params
         if !where_clause.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&where_clause.replace(&table_prefix, &alias_prefix));
-            for p in where_params {
-                params.push(p);
-            }
         }
 
         // ORDER BY
@@ -245,8 +241,25 @@ pub fn build_query_sql<'p, V: SQLParam>(
         }
     }
 
-    // Append relation params after root WHERE params
-    params.extend(rel_params);
+    // Assemble params in the correct order for the dialect.
+    //
+    // PostgreSQL uses numbered `$N` placeholders — root WHERE params are
+    // `$1..$N` and relation params are renumbered to `$N+1..`, so they
+    // must appear in that order regardless of SQL text position.
+    //
+    // SQLite/MySQL use positional `?` — params must match the textual
+    // order in the SQL string. Relation subqueries appear in the SELECT
+    // clause (before WHERE), so their params must come first.
+    match dialect {
+        Dialect::PostgreSQL => {
+            params.extend(where_params.iter());
+            params.extend(rel_params);
+        }
+        _ => {
+            params.extend(rel_params);
+            params.extend(where_params.iter());
+        }
+    }
 
     // LIMIT
     if let Some(n) = limit {
@@ -597,7 +610,7 @@ fn renumber_dollar_placeholders(sql: &str, offset: usize) -> String {
     let mut result = String::with_capacity(sql.len() + 8);
     let mut chars = sql.char_indices().peekable();
 
-    while let Some((i, ch)) = chars.next() {
+    while let Some((_i, ch)) = chars.next() {
         if ch == '$' {
             // Check if next char is a digit
             if let Some(&(start, next_ch)) = chars.peek()
@@ -621,8 +634,7 @@ fn renumber_dollar_placeholders(sql: &str, offset: usize) -> String {
             }
             result.push(ch);
         } else {
-            // Copy the char directly — safe for all UTF-8
-            result.push_str(&sql[i..i + ch.len_utf8()]);
+            result.push(ch);
         }
     }
 

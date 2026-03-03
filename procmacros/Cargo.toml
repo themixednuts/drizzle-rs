@@ -19,6 +19,7 @@ proc-macro2 = { version = "1.0" }
 syn = { version = "2.0", features = ["full"] }
 rand = { workspace = true }
 heck = { version = "0.5" }
+pluralizer = { version = "0.5" }
 proc-macro-crate = "3.4"
 paste = { workspace = true }
 # Migration types for metadata generation

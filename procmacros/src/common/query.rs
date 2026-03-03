@@ -3,7 +3,7 @@
 //! Generates relation ZSTs, `RelationDef` impls, accessor traits/impls,
 //! type aliases, `FromJsonValue` impls, and column selectors from FK declarations.
 
-use heck::ToSnakeCase;
+use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Result, Visibility};
@@ -170,20 +170,25 @@ fn generate_query_table(
 /// If no `_id` suffix, uses column name as-is: `invited_by` -> `invited_by`.
 fn forward_method_name(column_name: &str) -> String {
     if let Some(stripped) = column_name.strip_suffix("_id") {
-        stripped.to_string()
+        if stripped.is_empty() {
+            column_name.to_string()
+        } else {
+            stripped.to_string()
+        }
     } else {
         column_name.to_string()
     }
 }
 
 /// Derive the reverse method name from a source table name.
-/// Lowercase + `s`: `Post` -> `posts`, `Comment` -> `comments`.
-///
-/// Uses naive pluralization (appends `s`). Irregular plurals like
-/// `Category` -> `categorys` are not handled. Users can define
-/// custom accessor methods for those cases.
+/// Lowercase + pluralize: `Post` -> `posts`, `Category` -> `categories`.
 fn reverse_method_name(source_table_ident: &Ident) -> String {
-    format!("{}s", source_table_ident.to_string().to_snake_case())
+    pluralize(&source_table_ident.to_string().to_snake_case())
+}
+
+/// Pluralize an English word using the `pluralizer` crate.
+fn pluralize(s: &str) -> String {
+    pluralizer::pluralize(s, 2, false)
 }
 
 /// Generates forward relations (One/OptionalOne from this table to target).
@@ -230,6 +235,7 @@ fn generate_forward_relations(
         tokens.extend(quote! {
             #[doc(hidden)]
             #[derive(Debug, Clone, Copy)]
+            #[allow(non_camel_case_types)]
             #vis struct #rel_zst;
 
             impl drizzle::core::relation::private::Sealed for #rel_zst {}
@@ -253,6 +259,7 @@ fn generate_forward_relations(
 
             // Accessor via extension trait
             #[doc(hidden)]
+            #[allow(non_camel_case_types)]
             #vis trait #rel_accessor_trait {
                 fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
             }
@@ -265,6 +272,7 @@ fn generate_forward_relations(
 
             // Result accessor trait
             #[doc(hidden)]
+            #[allow(non_camel_case_types)]
             #vis trait #accessor_trait<W> {
                 type Data;
                 fn #method_name(&self) -> &Self::Data;
@@ -338,12 +346,13 @@ fn generate_reverse_relations(
         let source_col = &fk.source_column;
         let target_col = fk.target_column_ident.to_string();
 
-        // Type alias: e.g., `QUserWithQPosts<Rest = ()>`
+        // Type alias: e.g., `UserWithPosts<Rest = ()>`
         let type_alias_ident = format_ident!("{}With{}", target_table, to_pascal(&method_name_str));
 
         tokens.extend(quote! {
             #[doc(hidden)]
             #[derive(Debug, Clone, Copy)]
+            #[allow(non_camel_case_types)]
             #vis struct #rel_zst;
 
             impl drizzle::core::relation::private::Sealed for #rel_zst {}
@@ -369,6 +378,7 @@ fn generate_reverse_relations(
                 >;
 
             #[doc(hidden)]
+            #[allow(non_camel_case_types)]
             #vis trait #rel_accessor_trait {
                 fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
             }
@@ -380,6 +390,7 @@ fn generate_reverse_relations(
             }
 
             #[doc(hidden)]
+            #[allow(non_camel_case_types)]
             #vis trait #accessor_trait<W> {
                 type Data;
                 fn #method_name(&self) -> &Self::Data;
@@ -429,6 +440,8 @@ fn generate_many_to_many_relations(
 
     let mut tokens = TokenStream::new();
 
+    let junction_pascal = to_pascal(&struct_ident.to_string());
+
     // Generate both directions: A→B and B→A through the junction
     for (source_fk, target_fk) in [(fk_a, fk_b), (fk_b, fk_a)] {
         let source_table = &source_fk.target_table_ident;
@@ -437,13 +450,17 @@ fn generate_many_to_many_relations(
 
         let method_name_str = reverse_method_name(target_table);
         let method_name = format_ident!("{}", method_name_str);
-        let rel_zst = format_ident!("__Rel_{source_table}_{}", to_pascal(&method_name_str));
+        // Include junction table name to avoid collisions with reverse relations
+        let rel_zst = format_ident!(
+            "__Rel_{source_table}_Via{junction_pascal}_{}",
+            to_pascal(&method_name_str)
+        );
         let accessor_trait = format_ident!(
-            "__QueryAccess_{source_table}_{}",
+            "__QueryAccess_{source_table}_Via{junction_pascal}_{}",
             to_pascal(&method_name_str)
         );
         let rel_accessor_trait = format_ident!(
-            "__{source_table}_{}_RelAccessor",
+            "__{source_table}_Via{junction_pascal}_{}_RelAccessor",
             to_pascal(&method_name_str)
         );
 
@@ -452,11 +469,17 @@ fn generate_many_to_many_relations(
         let target_col_name = &target_fk.source_column;
         let target_target_col = target_fk.target_column_ident.to_string();
 
-        let type_alias_ident = format_ident!("{}With{}", source_table, to_pascal(&method_name_str));
+        let type_alias_ident = format_ident!(
+            "{}Via{}With{}",
+            source_table,
+            junction_pascal,
+            to_pascal(&method_name_str)
+        );
 
         tokens.extend(quote! {
             #[doc(hidden)]
             #[derive(Debug, Clone, Copy)]
+            #[allow(non_camel_case_types)]
             #vis struct #rel_zst;
 
             impl drizzle::core::relation::private::Sealed for #rel_zst {}
@@ -487,6 +510,7 @@ fn generate_many_to_many_relations(
                 >;
 
             #[doc(hidden)]
+            #[allow(non_camel_case_types)]
             #vis trait #rel_accessor_trait {
                 fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
             }
@@ -498,6 +522,7 @@ fn generate_many_to_many_relations(
             }
 
             #[doc(hidden)]
+            #[allow(non_camel_case_types)]
             #vis trait #accessor_trait<W> {
                 type Data;
                 fn #method_name(&self) -> &Self::Data;
@@ -726,6 +751,11 @@ fn generate_blob_read(ident: &Ident, col_name: &str, is_nullable: bool) -> Token
         quote! {
             #ident: match obj.get(#col_name) {
                 Some(drizzle::core::serde_json::Value::String(s)) if !s.is_empty() => {
+                    if s.len() % 2 != 0 {
+                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
+                            ::std::format!("field '{}': odd-length hex string", #col_name).into()
+                        ));
+                    }
                     let bytes = (0..s.len())
                         .step_by(2)
                         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
@@ -748,6 +778,11 @@ fn generate_blob_read(ident: &Ident, col_name: &str, is_nullable: bool) -> Token
                     .ok_or_else(|| drizzle::error::DrizzleError::Other(
                         ::std::format!("missing field '{}'", #col_name).into()
                     ))?;
+                if s.len() % 2 != 0 {
+                    return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
+                        ::std::format!("field '{}': odd-length hex string", #col_name).into()
+                    ));
+                }
                 (0..s.len())
                     .step_by(2)
                     .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
@@ -818,6 +853,5 @@ fn enum_json_conversion(
 
 /// Convert a snake_case string to PascalCase.
 fn to_pascal(s: &str) -> String {
-    use heck::ToUpperCamelCase;
     s.to_upper_camel_case()
 }
