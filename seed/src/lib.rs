@@ -197,9 +197,9 @@ struct GeneratedChunk<'a> {
 
 #[derive(Clone)]
 struct RelationSpec {
-    target_table: String,
-    fk_columns: Vec<String>,
-    ref_columns: Vec<String>,
+    target_table: &'static str,
+    fk_columns: &'static [&'static str],
+    ref_columns: &'static [&'static str],
     children_per_parent: usize,
 }
 
@@ -225,8 +225,9 @@ where
         let table_map: HashMap<&str, &TableRef> =
             active_tables.iter().map(|t| (t.name, *t)).collect();
 
-        let mut generated_values: HashMap<String, Vec<SeedValue>> = HashMap::new();
-        let mut generated_counts: HashMap<String, usize> = HashMap::new();
+        let mut generated_values: HashMap<(&'static str, &'static str), Vec<SeedValue>> =
+            HashMap::new();
+        let mut generated_counts: HashMap<&'static str, usize> = HashMap::new();
         let mut chunks_out = Vec::new();
 
         for &table_name in &order {
@@ -241,7 +242,7 @@ where
 
             let count = self.derived_count_for(table, &generated_counts);
             if count == 0 {
-                generated_counts.insert(table_name.to_string(), 0);
+                generated_counts.insert(table_name, 0);
                 continue;
             }
 
@@ -285,10 +286,10 @@ where
             for (col_idx, col) in columns.iter().enumerate() {
                 let vals: Vec<SeedValue> =
                     all_rows.iter().map(|row| row[col_idx].clone()).collect();
-                generated_values.insert(format!("{}.{}", table_name, col.name), vals);
+                generated_values.insert((table_name, col.name), vals);
             }
 
-            generated_counts.insert(table_name.to_string(), count);
+            generated_counts.insert(table_name, count);
 
             let param_limit = self
                 .config
@@ -310,7 +311,7 @@ where
     fn derived_count_for(
         &self,
         table: &TableRef,
-        generated_counts: &HashMap<String, usize>,
+        generated_counts: &HashMap<&'static str, usize>,
     ) -> usize {
         if let Some(&count) = self.config.table_counts.get(table.name) {
             return count;
@@ -322,7 +323,7 @@ where
                 let children_per_parent = self
                     .config
                     .relation_counts
-                    .get(&(parent_name.to_string(), table.name.to_string()))
+                    .get(&(parent_name, table.name))
                     .copied()
                     .unwrap_or(1);
                 let child_count = parent_count.saturating_mul(children_per_parent);
@@ -333,7 +334,7 @@ where
         derived.unwrap_or_else(|| self.config.count_for(table.name))
     }
 
-    fn parent_table_names(table: &TableRef) -> Vec<&str> {
+    fn parent_table_names(table: &TableRef) -> Vec<&'static str> {
         let mut seen = HashSet::new();
         let mut parent_names = Vec::new();
 
@@ -354,7 +355,7 @@ where
             .iter()
             .map(|col| {
                 let col_name = col.name;
-                let key = (table_name.to_string(), col_name.to_string());
+                let key = (table_name, col_name);
 
                 if let Some(custom) = self.config.column_generators.get(&key) {
                     return Box::new(Arc::clone(custom)) as Box<dyn Generator>;
@@ -378,19 +379,17 @@ where
             .foreign_keys
             .iter()
             .map(|fk| {
-                let target = fk.target_table.to_string();
-                let source = source_table.name.to_string();
                 let children_per_parent = self
                     .config
                     .relation_counts
-                    .get(&(target.clone(), source))
+                    .get(&(fk.target_table, source_table.name))
                     .copied()
                     .unwrap_or(1);
 
                 RelationSpec {
-                    target_table: target,
-                    fk_columns: fk.source_columns.iter().map(|s| (*s).to_string()).collect(),
-                    ref_columns: fk.target_columns.iter().map(|s| (*s).to_string()).collect(),
+                    target_table: fk.target_table,
+                    fk_columns: fk.source_columns,
+                    ref_columns: fk.target_columns,
                     children_per_parent,
                 }
             })
@@ -403,7 +402,7 @@ where
         col_index_map: &HashMap<&str, usize>,
         relation_specs: &[RelationSpec],
         row_idx: usize,
-        generated_values: &HashMap<String, Vec<SeedValue>>,
+        generated_values: &HashMap<(&'static str, &'static str), Vec<SeedValue>>,
     ) {
         for rel in relation_specs {
             if rel.fk_columns.len() != rel.ref_columns.len() {
@@ -415,14 +414,14 @@ where
                 .first()
                 .and_then(|first_ref| {
                     generated_values
-                        .get(&format!("{}.{}", rel.target_table, first_ref))
+                        .get(&(rel.target_table, first_ref))
                         .map(|vals| vals.len())
                 })
                 .unwrap_or(0);
 
             if parent_count == 0 || rel.children_per_parent == 0 {
-                for fk_col in &rel.fk_columns {
-                    if let Some(&fk_idx) = col_index_map.get(fk_col.as_str()) {
+                for fk_col in rel.fk_columns {
+                    if let Some(&fk_idx) = col_index_map.get(fk_col) {
                         row[fk_idx] = SeedValue::Null;
                     }
                 }
@@ -431,12 +430,11 @@ where
 
             let parent_idx = (row_idx / rel.children_per_parent) % parent_count;
             for (fk_col, ref_col) in rel.fk_columns.iter().zip(rel.ref_columns.iter()) {
-                let Some(&fk_idx) = col_index_map.get(fk_col.as_str()) else {
+                let Some(&fk_idx) = col_index_map.get(fk_col) else {
                     continue;
                 };
 
-                let key = format!("{}.{}", rel.target_table, ref_col);
-                if let Some(parent_vals) = generated_values.get(&key) {
+                if let Some(parent_vals) = generated_values.get(&(rel.target_table, ref_col)) {
                     if let Some(parent_value) = parent_vals.get(parent_idx) {
                         row[fk_idx] = parent_value.clone();
                     } else {
