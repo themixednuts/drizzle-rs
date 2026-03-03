@@ -71,6 +71,8 @@ pub struct Complex {
     pub description: Option<String>,
     pub data_blob: Option<Vec<u8>>,
     pub created_at: Option<String>,
+    #[column(references = Complex::id)]
+    pub invited_by: Option<Uuid>,
 }
 
 #[cfg(all(feature = "uuid", feature = "serde"))]
@@ -90,6 +92,8 @@ pub struct Complex {
     pub config: Option<String>,
     pub data_blob: Option<Vec<u8>>,
     pub created_at: Option<String>,
+    #[column(references = Complex::id)]
+    pub invited_by: Option<Uuid>,
 }
 
 #[cfg(all(not(feature = "uuid"), feature = "serde"))]
@@ -109,6 +113,8 @@ pub struct Complex {
     pub config: Option<String>,
     pub data_blob: Option<Vec<u8>>,
     pub created_at: Option<String>,
+    #[column(references = Complex::id)]
+    pub invited_by: Option<i32>,
 }
 
 #[cfg(all(not(feature = "uuid"), not(feature = "serde")))]
@@ -126,6 +132,8 @@ pub struct Complex {
     pub description: Option<String>,
     pub data_blob: Option<Vec<u8>>,
     pub created_at: Option<String>,
+    #[column(references = Complex::id)]
+    pub invited_by: Option<i32>,
 }
 
 // Posts table for join testing
@@ -204,6 +212,16 @@ pub struct Comment {
     pub body: String,
     #[column(references = Post::id)]
     pub post_id: Uuid,
+}
+
+// Replies table for deep nesting in query API tests
+#[PostgresTable]
+pub struct Reply {
+    #[column(serial, primary)]
+    pub id: i32,
+    pub text: String,
+    #[column(references = Comment::id)]
+    pub comment_id: i32,
 }
 
 // Table with native PostgreSQL enum
@@ -285,6 +303,7 @@ pub struct FullBlogSchema {
     pub category: Category,
     pub post_category: PostCategory,
     pub comment: Comment,
+    pub reply: Reply,
 }
 
 // Schema with indexes
