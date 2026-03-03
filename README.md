@@ -407,6 +407,10 @@ let users = db.query(users)
     .find_many()?;
 ```
 
+> **Note:** Relation accessor methods (e.g., `users.posts()`, `posts.author()`) are defined via
+> generated extension traits. When table definitions live in a separate module, you must import
+> these traits (e.g., `use schema::__User_Posts_RelAccessor;`) for the methods to be available.
+
 ## Transactions
 
 Transactions auto-rollback on error or panic. Return `Ok(value)` to commit, `Err(...)` to rollback.
