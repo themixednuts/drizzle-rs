@@ -8,7 +8,7 @@ use core::fmt::Write;
 use crate::SQLParam;
 use crate::dialect::Dialect;
 use crate::prelude::*;
-use crate::relation::{CardWrap, RelationDef};
+use crate::relation::{CardWrap, JunctionMeta, RelationDef};
 
 use super::builder::{AllColumns, PartialColumns, QueryTable};
 use super::handle::RelationHandle;
@@ -53,6 +53,8 @@ pub struct RenderedRelation<V: SQLParam> {
     pub offset: Option<u32>,
     /// Nested rendered relations.
     pub nested: Vec<RenderedRelation<V>>,
+    /// Junction table metadata for many-to-many relations.
+    pub junction: Option<JunctionMeta>,
 }
 
 /// Converts a typed relation structure into `Vec<RenderedRelation<V>>`.
@@ -92,6 +94,7 @@ where
             limit: handle.limit,
             offset: handle.offset,
             nested,
+            junction: R::junction(),
         });
         rest.render_into(out);
     }
@@ -123,6 +126,7 @@ where
             limit: handle.limit,
             offset: handle.offset,
             nested,
+            junction: R::junction(),
         });
         rest.render_into(out);
     }
@@ -275,6 +279,16 @@ fn write_relation_subquery<'p, V: SQLParam>(
     let _ = write!(alias_buf, "{alias_num}");
     let alias = &alias_buf;
 
+    // Allocate junction alias if this is a many-to-many relation.
+    let junction_alias = rel.junction.as_ref().map(|_| {
+        let num = *alias_counter;
+        *alias_counter += 1;
+        let mut buf = String::with_capacity(4);
+        buf.push('t');
+        let _ = write!(buf, "{num}");
+        buf
+    });
+
     let target_table = rel.table_name;
     let target_columns = &rel.column_names;
     let fk_columns = rel.fk_columns;
@@ -363,29 +377,54 @@ fn write_relation_subquery<'p, V: SQLParam>(
         sql.push_str(target_table);
         sql.push_str("\" AS \"");
         sql.push_str(alias);
-        sql.push_str("\" WHERE ");
+        sql.push('"');
+        if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
+            write_junction_join(junction, alias, junc_alias, sql);
+        }
+        sql.push_str(" WHERE ");
     } else {
         sql.push('"');
         sql.push_str(target_table);
         sql.push_str("\" AS \"");
         sql.push_str(alias);
-        sql.push_str("\" WHERE ");
+        sql.push('"');
+        if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
+            write_junction_join(junction, alias, junc_alias, sql);
+        }
+        sql.push_str(" WHERE ");
     }
 
-    // FK join conditions
-    for (i, (src_col, tgt_col)) in fk_columns.iter().enumerate() {
-        if i > 0 {
-            sql.push_str(" AND ");
+    // FK join conditions — junction replaces direct FK with INNER JOIN + WHERE
+    if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
+        for (i, (junc_col, src_col)) in junction.source_fk.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(" AND ");
+            }
+            sql.push('"');
+            sql.push_str(junc_alias);
+            sql.push_str("\".\"");
+            sql.push_str(junc_col);
+            sql.push_str("\" = \"");
+            sql.push_str(parent_alias);
+            sql.push_str("\".\"");
+            sql.push_str(src_col);
+            sql.push('"');
         }
-        sql.push('"');
-        sql.push_str(alias);
-        sql.push_str("\".\"");
-        sql.push_str(src_col);
-        sql.push_str("\" = \"");
-        sql.push_str(parent_alias);
-        sql.push_str("\".\"");
-        sql.push_str(tgt_col);
-        sql.push('"');
+    } else {
+        for (i, (src_col, tgt_col)) in fk_columns.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(" AND ");
+            }
+            sql.push('"');
+            sql.push_str(alias);
+            sql.push_str("\".\"");
+            sql.push_str(src_col);
+            sql.push_str("\" = \"");
+            sql.push_str(parent_alias);
+            sql.push_str("\".\"");
+            sql.push_str(tgt_col);
+            sql.push('"');
+        }
     }
 
     // Additional WHERE and ORDER BY (rewrite table references to alias).
@@ -452,6 +491,36 @@ fn write_qualified_column(alias: &str, column: &str, sql: &mut String) {
     sql.push_str("\".\"");
     sql.push_str(column);
     sql.push('"');
+}
+
+/// Writes an `INNER JOIN` clause for a junction (many-to-many) table.
+///
+/// Generates: `INNER JOIN "junction" AS "junc_alias" ON "junc_alias"."col" = "target_alias"."col"`
+fn write_junction_join(
+    junction: &JunctionMeta,
+    target_alias: &str,
+    junc_alias: &str,
+    sql: &mut String,
+) {
+    sql.push_str(" INNER JOIN \"");
+    sql.push_str(junction.table_name);
+    sql.push_str("\" AS \"");
+    sql.push_str(junc_alias);
+    sql.push_str("\" ON ");
+    for (i, (junc_col, target_col)) in junction.target_fk.iter().enumerate() {
+        if i > 0 {
+            sql.push_str(" AND ");
+        }
+        sql.push('"');
+        sql.push_str(junc_alias);
+        sql.push_str("\".\"");
+        sql.push_str(junc_col);
+        sql.push_str("\" = \"");
+        sql.push_str(target_alias);
+        sql.push_str("\".\"");
+        sql.push_str(target_col);
+        sql.push('"');
+    }
 }
 
 /// Writes a column reference for use inside `json_object()`.

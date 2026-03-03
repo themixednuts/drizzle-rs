@@ -104,19 +104,27 @@ pub(crate) fn generate_query_api(
         fk_infos,
     ));
 
-    // 4. Generate FromJsonValue for the select model
+    // 4. Generate many-to-many relations (junction table detection)
+    tokens.extend(generate_many_to_many_relations(
+        struct_ident,
+        struct_vis,
+        table_name,
+        fk_infos,
+    ));
+
+    // 5. Generate FromJsonValue for the select model
     tokens.extend(generate_from_json_value(
         select_model_ident,
         field_json_infos,
     ));
 
-    // 5. Generate FromJsonValue for the partial select model (all fields optional)
+    // 6. Generate FromJsonValue for the partial select model (all fields optional)
     tokens.extend(generate_partial_from_json_value(
         partial_select_model_ident,
         field_json_infos,
     ));
 
-    // 6. Generate column selector struct and `.columns()` method
+    // 7. Generate column selector struct and `.columns()` method
     tokens.extend(generate_column_selector(
         struct_ident,
         struct_vis,
@@ -366,6 +374,124 @@ fn generate_reverse_relations(
             }
 
             impl #rel_accessor_trait for #target_table {
+                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
+                    drizzle::core::query::RelationHandle::new()
+                }
+            }
+
+            #[doc(hidden)]
+            #vis trait #accessor_trait<W> {
+                type Data;
+                fn #method_name(&self) -> &Self::Data;
+            }
+
+            impl<Base, Store, W> #accessor_trait<W> for drizzle::core::query::QueryRow<Base, Store>
+            where
+                Store: drizzle::core::query::FindRel<#rel_zst, W>,
+            {
+                type Data = <Store as drizzle::core::query::FindRel<#rel_zst, W>>::Data;
+                fn #method_name(&self) -> &Self::Data {
+                    self.store.get()
+                }
+            }
+        });
+    }
+
+    tokens
+}
+
+/// Generates many-to-many relations through a junction table.
+///
+/// A junction table is detected when:
+/// - Exactly 2 FK columns exist
+/// - They target 2 different tables
+/// - Neither target is the junction table itself
+///
+/// For each direction, generates a relation from one target to the other
+/// through the junction, with `Card = Many` and `fn junction()`.
+fn generate_many_to_many_relations(
+    struct_ident: &Ident,
+    vis: &Visibility,
+    table_name: &str,
+    fk_infos: &[FkInfo],
+) -> TokenStream {
+    // Junction detection: exactly 2 FKs to 2 different external tables
+    if fk_infos.len() != 2 {
+        return TokenStream::new();
+    }
+    let (fk_a, fk_b) = (&fk_infos[0], &fk_infos[1]);
+    if fk_a.target_table_ident == fk_b.target_table_ident {
+        return TokenStream::new();
+    }
+    if fk_a.target_table_ident == *struct_ident || fk_b.target_table_ident == *struct_ident {
+        return TokenStream::new();
+    }
+
+    let mut tokens = TokenStream::new();
+
+    // Generate both directions: A→B and B→A through the junction
+    for (source_fk, target_fk) in [(fk_a, fk_b), (fk_b, fk_a)] {
+        let source_table = &source_fk.target_table_ident;
+        let target_table = &target_fk.target_table_ident;
+        let target_select = format_ident!("Select{}", target_table);
+
+        let method_name_str = reverse_method_name(target_table);
+        let method_name = format_ident!("{}", method_name_str);
+        let rel_zst = format_ident!("__Rel_{source_table}_{}", to_pascal(&method_name_str));
+        let accessor_trait = format_ident!(
+            "__QueryAccess_{source_table}_{}",
+            to_pascal(&method_name_str)
+        );
+        let rel_accessor_trait = format_ident!(
+            "__{source_table}_{}_RelAccessor",
+            to_pascal(&method_name_str)
+        );
+
+        let source_col_name = &source_fk.source_column;
+        let source_target_col = source_fk.target_column_ident.to_string();
+        let target_col_name = &target_fk.source_column;
+        let target_target_col = target_fk.target_column_ident.to_string();
+
+        let type_alias_ident = format_ident!("{}With{}", source_table, to_pascal(&method_name_str));
+
+        tokens.extend(quote! {
+            #[doc(hidden)]
+            #[derive(Debug, Clone, Copy)]
+            #vis struct #rel_zst;
+
+            impl drizzle::core::relation::private::Sealed for #rel_zst {}
+
+            impl drizzle::core::relation::RelationDef for #rel_zst {
+                type Source = #source_table;
+                type Target = #target_table;
+                type Card = drizzle::core::relation::Many;
+                const NAME: &'static str = #method_name_str;
+                fn fk_columns() -> &'static [(&'static str, &'static str)] {
+                    &[]
+                }
+                fn junction() -> Option<drizzle::core::relation::JunctionMeta> {
+                    Some(drizzle::core::relation::JunctionMeta {
+                        table_name: #table_name,
+                        source_fk: &[(#source_col_name, #source_target_col)],
+                        target_fk: &[(#target_col_name, #target_target_col)],
+                    })
+                }
+            }
+
+            /// Type alias for query results with this many-to-many relation loaded.
+            #vis type #type_alias_ident<Rest = ()> =
+                drizzle::core::query::RelEntry<
+                    #rel_zst,
+                    Vec<drizzle::core::query::QueryRow<#target_select, ()>>,
+                    Rest,
+                >;
+
+            #[doc(hidden)]
+            #vis trait #rel_accessor_trait {
+                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
+            }
+
+            impl #rel_accessor_trait for #source_table {
                 fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
                     drizzle::core::query::RelationHandle::new()
                 }

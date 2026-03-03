@@ -42,6 +42,15 @@ pub trait RelationDef: private::Sealed + 'static {
     ///
     /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
     fn fk_columns() -> &'static [(&'static str, &'static str)];
+
+    /// Junction table metadata for many-to-many relations.
+    ///
+    /// Returns `None` for direct FK relations. When `Some`, the SQL generator
+    /// emits an `INNER JOIN` through the junction table instead of a direct
+    /// FK correlation.
+    fn junction() -> Option<JunctionMeta> {
+        None
+    }
 }
 
 /// Maps a cardinality marker to a wrapper type.
@@ -63,6 +72,18 @@ pub struct One;
 /// Optional one-cardinality: wraps data as `Option<T>`.
 #[cfg(feature = "query")]
 pub struct OptionalOne;
+
+/// Metadata for many-to-many relations through a junction table.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Copy)]
+pub struct JunctionMeta {
+    /// Junction table name (e.g., "post_categories").
+    pub table_name: &'static str,
+    /// (junction_col, source_col) — WHERE correlation with parent row.
+    pub source_fk: &'static [(&'static str, &'static str)],
+    /// (junction_col, target_col) — INNER JOIN with target table.
+    pub target_fk: &'static [(&'static str, &'static str)],
+}
 
 #[cfg(feature = "query")]
 impl private::Sealed for Many {}

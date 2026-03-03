@@ -11,7 +11,8 @@ use drizzle_macros::sqlite_test;
 use uuid::Uuid;
 
 use crate::common::schema::sqlite::{
-    Comment, Complex, InsertComment, InsertComplex, InsertPost, InsertReply, Post, Reply, Role,
+    Category, Comment, Complex, InsertCategory, InsertComment, InsertComplex, InsertPost,
+    InsertPostCategory, InsertReply, Post, PostCategory, Reply, Role, SelectCategory,
     SelectComment, SelectComplex, SelectPost,
 };
 
@@ -19,11 +20,12 @@ use crate::common::schema::sqlite::{
 // These are needed because the table definitions live in a different module.
 #[allow(unused_imports)]
 use crate::common::schema::sqlite::{
-    __ColumnsAccessor_Complex, __ColumnsAccessor_Post, __Comment_Replys_RelAccessor,
-    __Complex_InvitedBy_RelAccessor, __Complex_Posts_RelAccessor, __Post_Author_RelAccessor,
-    __Post_Comments_RelAccessor, __QueryAccess_Comment_Replys, __QueryAccess_Complex_InvitedBy,
-    __QueryAccess_Complex_Posts, __QueryAccess_Post_Author, __QueryAccess_Post_Comments, ComplexId,
-    ComplexWithInvitedBy, ComplexWithPosts,
+    __Category_Posts_RelAccessor, __ColumnsAccessor_Complex, __ColumnsAccessor_Post,
+    __Comment_Replys_RelAccessor, __Complex_InvitedBy_RelAccessor, __Complex_Posts_RelAccessor,
+    __Post_Author_RelAccessor, __Post_Categorys_RelAccessor, __Post_Comments_RelAccessor,
+    __QueryAccess_Category_Posts, __QueryAccess_Comment_Replys, __QueryAccess_Complex_InvitedBy,
+    __QueryAccess_Complex_Posts, __QueryAccess_Post_Author, __QueryAccess_Post_Categorys,
+    __QueryAccess_Post_Comments, ComplexId, ComplexWithInvitedBy, ComplexWithPosts,
 };
 
 // =============================================================================
@@ -1276,3 +1278,223 @@ sqlite_test!(query_first_limits_to_one, ComplexPostQuerySchema, {
 
     assert_eq!(users.len(), 1);
     assert!(users[0].posts().len() <= 1);
+});
+
+// =============================================================================
+// Many-to-many relations
+// =============================================================================
+
+#[derive(SQLiteSchema)]
+struct M2MQuerySchema {
+    complex: Complex,
+    post: Post,
+    category: Category,
+    post_category: PostCategory,
+}
+
+// -- basic m2m: post.categorys() returns categories through junction --
+sqlite_test!(query_many_to_many_basic, M2MQuerySchema, {
+    let M2MQuerySchema {
+        complex,
+        post,
+        category,
+        post_category,
+    } = schema;
+
+    // Insert author
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("Alice", true, Role::User)])
+            => execute
+    );
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users[0].id;
+
+    // Insert post
+    drizzle_exec!(
+        db.insert(post)
+            .values([InsertPost::new("My Post", true).with_author_id(alice_id)])
+            => execute
+    );
+    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+    let post_id = all_posts[0].id;
+
+    // Insert categories
+    drizzle_exec!(
+        db.insert(category)
+            .values([
+                InsertCategory::new("Tech"),
+                InsertCategory::new("Science"),
+            ])
+            => execute
+    );
+    let all_cats: Vec<SelectCategory> = drizzle_exec!(db.select(()).from(category) => all);
+
+    // Link post to both categories
+    drizzle_exec!(
+        db.insert(post_category)
+            .values([
+                InsertPostCategory::new(post_id, all_cats[0].id),
+                InsertPostCategory::new(post_id, all_cats[1].id),
+            ])
+            => execute
+    );
+
+    // Query posts with their categories through the junction
+    let posts = drizzle_exec!(db.query(post).with(post.categorys()).find_many());
+
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].title, "My Post");
+    assert_eq!(posts[0].categorys().len(), 2);
+    let cat_names: Vec<&str> = posts[0]
+        .categorys()
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert!(cat_names.contains(&"Tech"));
+    assert!(cat_names.contains(&"Science"));
+});
+
+// -- reverse m2m: category.posts() returns posts through junction --
+sqlite_test!(query_many_to_many_reverse, M2MQuerySchema, {
+    let M2MQuerySchema {
+        complex,
+        post,
+        category,
+        post_category,
+    } = schema;
+
+    // Insert author
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("Alice", true, Role::User)])
+            => execute
+    );
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users[0].id;
+
+    // Insert posts
+    drizzle_exec!(
+        db.insert(post)
+            .values([
+                InsertPost::new("Post A", true).with_author_id(alice_id),
+                InsertPost::new("Post B", true).with_author_id(alice_id),
+            ])
+            => execute
+    );
+    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+
+    // Insert category
+    drizzle_exec!(
+        db.insert(category)
+            .values([InsertCategory::new("Tech")])
+            => execute
+    );
+    let all_cats: Vec<SelectCategory> = drizzle_exec!(db.select(()).from(category) => all);
+    let cat_id = all_cats[0].id;
+
+    // Link category to both posts
+    drizzle_exec!(
+        db.insert(post_category)
+            .values([
+                InsertPostCategory::new(all_posts[0].id, cat_id),
+                InsertPostCategory::new(all_posts[1].id, cat_id),
+            ])
+            => execute
+    );
+
+    // Query categories with their posts
+    let cats = drizzle_exec!(db.query(category).with(category.posts()).find_many());
+
+    assert_eq!(cats.len(), 1);
+    assert_eq!(cats[0].name, "Tech");
+    assert_eq!(cats[0].posts().len(), 2);
+    let post_titles: Vec<&str> = cats[0].posts().iter().map(|p| p.title.as_str()).collect();
+    assert!(post_titles.contains(&"Post A"));
+    assert!(post_titles.contains(&"Post B"));
+});
+
+// -- m2m with no associations returns empty vec --
+sqlite_test!(query_many_to_many_empty, M2MQuerySchema, {
+    let M2MQuerySchema {
+        complex,
+        post,
+        category: _,
+        post_category: _,
+    } = schema;
+
+    // Insert author and post with no category links
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("Alice", true, Role::User)])
+            => execute
+    );
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users[0].id;
+
+    drizzle_exec!(
+        db.insert(post)
+            .values([InsertPost::new("Lonely Post", true).with_author_id(alice_id)])
+            => execute
+    );
+
+    let posts = drizzle_exec!(db.query(post).with(post.categorys()).find_many());
+
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].categorys().len(), 0);
+});
+
+// -- m2m with limit --
+sqlite_test!(query_many_to_many_with_limit, M2MQuerySchema, {
+    let M2MQuerySchema {
+        complex,
+        post,
+        category,
+        post_category,
+    } = schema;
+
+    // Insert author
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("Alice", true, Role::User)])
+            => execute
+    );
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users[0].id;
+
+    // Insert post
+    drizzle_exec!(
+        db.insert(post)
+            .values([InsertPost::new("My Post", true).with_author_id(alice_id)])
+            => execute
+    );
+    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+    let post_id = all_posts[0].id;
+
+    // Insert 3 categories and link all to the post
+    drizzle_exec!(
+        db.insert(category)
+            .values([
+                InsertCategory::new("A"),
+                InsertCategory::new("B"),
+                InsertCategory::new("C"),
+            ])
+            => execute
+    );
+    let all_cats: Vec<SelectCategory> = drizzle_exec!(db.select(()).from(category) => all);
+
+    drizzle_exec!(
+        db.insert(post_category)
+            .values([
+                InsertPostCategory::new(post_id, all_cats[0].id),
+                InsertPostCategory::new(post_id, all_cats[1].id),
+                InsertPostCategory::new(post_id, all_cats[2].id),
+            ])
+            => execute
+    );
+
+    let posts = drizzle_exec!(db.query(post).with(post.categorys().limit(2)).find_many());
+
+    assert_eq!(posts.len(), 1);
+    assert!(posts[0].categorys().len() <= 2);
+});
