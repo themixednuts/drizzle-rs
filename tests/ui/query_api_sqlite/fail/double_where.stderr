@@ -1,0 +1,13 @@
+error[E0599]: no method named `r#where` found for struct `drizzle::core::query::QueryBuilder<SQLiteValue<'_>, User, (), AllColumns, Clauses<HasWhere>>` in the current scope
+  --> tests/ui/query_api_sqlite/fail/double_where.rs:18:10
+   |
+16 |       let _ = drizzle::core::query::QueryBuilder::<drizzle::sqlite::values::SQLiteValue, User>::new()
+   |  _____________-
+17 | |         .r#where(eq(user.name, "Alice"))
+18 | |         .r#where(eq(user.active, true));
+   | |         -^^^^^^^ method not found in `drizzle::core::query::QueryBuilder<SQLiteValue<'_>, User, (), AllColumns, Clauses<HasWhere>>`
+   | |_________|
+   |
+   |
+   = note: the method was found for
+           - `drizzle::core::query::QueryBuilder<V, T, Rels, Cols, Clauses<NoWhere, Ord, Lim>>`

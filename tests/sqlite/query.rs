@@ -20,12 +20,14 @@ use crate::common::schema::sqlite::{
 // These are needed because the table definitions live in a different module.
 #[allow(unused_imports)]
 use crate::common::schema::sqlite::{
-    __Category_Posts_RelAccessor, __ColumnsAccessor_Complex, __ColumnsAccessor_Post,
-    __Comment_Replys_RelAccessor, __Complex_InvitedBy_RelAccessor, __Complex_Posts_RelAccessor,
-    __Post_Author_RelAccessor, __Post_Categorys_RelAccessor, __Post_Comments_RelAccessor,
-    __QueryAccess_Category_Posts, __QueryAccess_Comment_Replys, __QueryAccess_Complex_InvitedBy,
-    __QueryAccess_Complex_Posts, __QueryAccess_Post_Author, __QueryAccess_Post_Categorys,
-    __QueryAccess_Post_Comments, ComplexId, ComplexWithInvitedBy, ComplexWithPosts,
+    __Category_ViaPostCategory_Posts_RelAccessor, __ColumnsAccessor_Complex,
+    __ColumnsAccessor_Post, __Comment_Replies_RelAccessor, __Complex_InvitedBy_RelAccessor,
+    __Complex_Posts_RelAccessor, __Post_Author_RelAccessor, __Post_Comments_RelAccessor,
+    __Post_ViaPostCategory_Categories_RelAccessor, __QueryAccess_Category_ViaPostCategory_Posts,
+    __QueryAccess_Comment_Replies, __QueryAccess_Complex_InvitedBy, __QueryAccess_Complex_Posts,
+    __QueryAccess_Post_Author, __QueryAccess_Post_Comments,
+    __QueryAccess_Post_ViaPostCategory_Categories, ComplexId, ComplexWithInvitedBy,
+    ComplexWithPosts,
 };
 
 // =============================================================================
@@ -487,6 +489,91 @@ sqlite_test!(query_relation_order_limit_typed, ComplexPostQuerySchema, {
     assert_eq!(users[0].posts()[1].title, "Post B");
 });
 
+// -- Forward relation with NULL FK --
+sqlite_test!(query_forward_relation_null_fk, ComplexPostQuerySchema, {
+    let ComplexPostQuerySchema { complex, post } = schema;
+
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("Alice", true, Role::User)])
+            => execute
+    );
+
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users[0].id;
+
+    // Post with author
+    drizzle_exec!(
+        db.insert(post)
+            .values([InsertPost::new("With Author", true).with_author_id(alice_id)])
+            => execute
+    );
+    // Post without author (NULL FK)
+    drizzle_exec!(
+        db.insert(post)
+            .values([InsertPost::new("No Author", true)])
+            => execute
+    );
+
+    let posts = drizzle_exec!(
+        db.query(post)
+            .with(post.author())
+            .order_by(asc(post.title))
+            .find_many()
+    );
+
+    assert_eq!(posts.len(), 2);
+    // "No Author" comes first alphabetically
+    assert!(posts[0].author().is_none());
+    assert!(posts[1].author().is_some());
+    assert_eq!(posts[1].author().as_ref().unwrap().name, "Alice");
+});
+
+// -- Combined root WHERE + relation WHERE (tests param ordering) --
+sqlite_test!(
+    query_root_and_relation_where_combined,
+    ComplexPostQuerySchema,
+    {
+        let ComplexPostQuerySchema { complex, post } = schema;
+
+        drizzle_exec!(
+            db.insert(complex)
+                .values([
+                    InsertComplex::new("Alice", true, Role::User),
+                    InsertComplex::new("Bob", true, Role::User),
+                ])
+                => execute
+        );
+
+        let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+        let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
+        let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+
+        drizzle_exec!(
+            db.insert(post)
+                .values([
+                    InsertPost::new("Alice Draft", false).with_author_id(alice_id),
+                    InsertPost::new("Alice Published", true).with_author_id(alice_id),
+                    InsertPost::new("Bob Post", true).with_author_id(bob_id),
+                ])
+                => execute
+        );
+
+        // Root WHERE filters to Alice, relation WHERE filters to published posts
+        let users = drizzle_exec!(
+            db.query(complex)
+                .with(complex.posts().r#where(eq(post.published, true)))
+                .r#where(eq(complex.name, "Alice"))
+                .find_many()
+        );
+
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].name, "Alice");
+        assert_eq!(users[0].posts().len(), 1);
+        assert_eq!(users[0].posts()[0].title, "Alice Published");
+    }
+);
+
 // =============================================================================
 // View support
 // =============================================================================
@@ -563,7 +650,11 @@ sqlite_test!(query_view_find_first, ViewSchema, {
             => execute
     );
 
-    let post_result = drizzle_exec!(db.query(post_view).find_first());
+    let post_result = drizzle_exec!(
+        db.query(post_view)
+            .order_by(asc(post_view.title))
+            .find_first()
+    );
     assert!(post_result.is_some());
     assert_eq!(post_result.unwrap().title, "First Post");
 });
@@ -864,7 +955,7 @@ sqlite_test!(query_deep_nested_complex, DeepQuerySchema, {
                 complex.posts().order_by(desc(post.title)).limit(3).with(
                     post.comments()
                         .order_by(asc(comment.body))
-                        .with(comment.replys()),
+                        .with(comment.replies()),
                 ),
             )
             .with(complex.invited_by())
@@ -894,7 +985,7 @@ sqlite_test!(query_deep_nested_complex, DeepQuerySchema, {
     // Alice Thoughts: 1 comment, no replies
     assert_eq!(alice_posts[1].comments().len(), 1);
     assert_eq!(alice_posts[1].comments()[0].body, "Interesting thoughts");
-    assert_eq!(alice_posts[1].comments()[0].replys().len(), 0);
+    assert_eq!(alice_posts[1].comments()[0].replies().len(), 0);
 
     // Alice Draft: 3 comments ordered by body ASC
     let draft_comments = alice_posts[2].comments();
@@ -903,13 +994,13 @@ sqlite_test!(query_deep_nested_complex, DeepQuerySchema, {
     assert_eq!(draft_comments[1].body, "Love this");
     assert_eq!(draft_comments[2].body, "Needs work");
     // "Great draft!" has 1 reply
-    assert_eq!(draft_comments[0].replys().len(), 1);
-    assert_eq!(draft_comments[0].replys()[0].text, "Thanks!");
+    assert_eq!(draft_comments[0].replies().len(), 1);
+    assert_eq!(draft_comments[0].replies()[0].text, "Thanks!");
     // "Love this" has 0 replies
-    assert_eq!(draft_comments[1].replys().len(), 0);
+    assert_eq!(draft_comments[1].replies().len(), 0);
     // "Needs work" has 1 reply
-    assert_eq!(draft_comments[2].replys().len(), 1);
-    assert_eq!(draft_comments[2].replys()[0].text, "Will revise");
+    assert_eq!(draft_comments[2].replies().len(), 1);
+    assert_eq!(draft_comments[2].replies()[0].text, "Will revise");
 
     // -- Bob: invited by Alice, 1 post with 1 comment with 1 reply --
     assert!(users[1].invited_by().is_some());
@@ -918,9 +1009,9 @@ sqlite_test!(query_deep_nested_complex, DeepQuerySchema, {
     assert_eq!(users[1].posts()[0].title, "Bob First Post");
     assert_eq!(users[1].posts()[0].comments().len(), 1);
     assert_eq!(users[1].posts()[0].comments()[0].body, "Welcome Bob!");
-    assert_eq!(users[1].posts()[0].comments()[0].replys().len(), 1);
+    assert_eq!(users[1].posts()[0].comments()[0].replies().len(), 1);
     assert_eq!(
-        users[1].posts()[0].comments()[0].replys()[0].text,
+        users[1].posts()[0].comments()[0].replies()[0].text,
         "Glad to be here"
     );
 
@@ -1277,7 +1368,7 @@ sqlite_test!(query_first_limits_to_one, ComplexPostQuerySchema, {
     let users = drizzle_exec!(db.query(complex).with(complex.posts().first()).find_many());
 
     assert_eq!(users.len(), 1);
-    assert!(users[0].posts().len() <= 1);
+    assert_eq!(users[0].posts().len(), 1);
 });
 
 // =============================================================================
@@ -1292,7 +1383,7 @@ struct M2MQuerySchema {
     post_category: PostCategory,
 }
 
-// -- basic m2m: post.categorys() returns categories through junction --
+// -- basic m2m: post.categories() returns categories through junction --
 sqlite_test!(query_many_to_many_basic, M2MQuerySchema, {
     let M2MQuerySchema {
         complex,
@@ -1341,13 +1432,13 @@ sqlite_test!(query_many_to_many_basic, M2MQuerySchema, {
     );
 
     // Query posts with their categories through the junction
-    let posts = drizzle_exec!(db.query(post).with(post.categorys()).find_many());
+    let posts = drizzle_exec!(db.query(post).with(post.categories()).find_many());
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].title, "My Post");
-    assert_eq!(posts[0].categorys().len(), 2);
+    assert_eq!(posts[0].categories().len(), 2);
     let cat_names: Vec<&str> = posts[0]
-        .categorys()
+        .categories()
         .iter()
         .map(|c| c.name.as_str())
         .collect();
@@ -1438,10 +1529,10 @@ sqlite_test!(query_many_to_many_empty, M2MQuerySchema, {
             => execute
     );
 
-    let posts = drizzle_exec!(db.query(post).with(post.categorys()).find_many());
+    let posts = drizzle_exec!(db.query(post).with(post.categories()).find_many());
 
     assert_eq!(posts.len(), 1);
-    assert_eq!(posts[0].categorys().len(), 0);
+    assert_eq!(posts[0].categories().len(), 0);
 });
 
 // -- m2m with limit --
@@ -1493,8 +1584,8 @@ sqlite_test!(query_many_to_many_with_limit, M2MQuerySchema, {
             => execute
     );
 
-    let posts = drizzle_exec!(db.query(post).with(post.categorys().limit(2)).find_many());
+    let posts = drizzle_exec!(db.query(post).with(post.categories().limit(2)).find_many());
 
     assert_eq!(posts.len(), 1);
-    assert!(posts[0].categorys().len() <= 2);
+    assert_eq!(posts[0].categories().len(), 2);
 });

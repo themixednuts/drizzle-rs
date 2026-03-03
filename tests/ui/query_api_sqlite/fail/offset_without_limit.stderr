@@ -1,0 +1,10 @@
+error[E0599]: no method named `offset` found for struct `drizzle::core::query::QueryBuilder<SQLiteValue<'_>, User>` in the current scope
+  --> tests/ui/query_api_sqlite/fail/offset_without_limit.rs:14:10
+   |
+13 |       let _ = drizzle::core::query::QueryBuilder::<drizzle::sqlite::values::SQLiteValue, User>::new()
+   |  _____________-
+14 | |         .offset(5);
+   | |         -^^^^^^--- help: remove the arguments
+   | |         ||
+   | |_________|field, not a method
+   |
