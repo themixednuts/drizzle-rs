@@ -1244,3 +1244,35 @@ sqlite_test!(query_columns_find_first, ComplexPostQuerySchema, {
     assert_eq!(user.name.as_deref(), Some("Alice"));
     assert!(user.id.is_none()); // not selected
 });
+
+// =============================================================================
+// .first() on relations
+// =============================================================================
+
+// -- .first() limits relation to at most 1 element --
+sqlite_test!(query_first_limits_to_one, ComplexPostQuerySchema, {
+    let ComplexPostQuerySchema { complex, post } = schema;
+
+    drizzle_exec!(
+        db.insert(complex)
+            .values([InsertComplex::new("Alice", true, Role::User)])
+            => execute
+    );
+
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users[0].id;
+
+    drizzle_exec!(
+        db.insert(post)
+            .values([
+                InsertPost::new("Post 1", true).with_author_id(alice_id),
+                InsertPost::new("Post 2", true).with_author_id(alice_id),
+                InsertPost::new("Post 3", true).with_author_id(alice_id),
+            ])
+            => execute
+    );
+
+    let users = drizzle_exec!(db.query(complex).with(complex.posts().first()).find_many());
+
+    assert_eq!(users.len(), 1);
+    assert!(users[0].posts().len() <= 1);
