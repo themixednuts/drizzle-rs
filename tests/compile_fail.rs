@@ -141,6 +141,13 @@ fn view_query_sqlite_ui() {
     t.compile_fail("tests/ui/view_query_sqlite/fail/*.rs");
 }
 
+#[cfg(all(feature = "rusqlite", feature = "query"))]
+#[test]
+fn query_api_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/query_api_sqlite/fail/*.rs");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn aggregate_propagation_ui() {
