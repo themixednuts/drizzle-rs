@@ -15,6 +15,7 @@ Add the library and install the CLI:
 [dependencies]
 drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
 # drivers: rusqlite | libsql | turso | postgres-sync | tokio-postgres
+# optional: query (relational query API)
 ```
 
 ```bash
@@ -246,6 +247,24 @@ db.delete(users)
     .execute()?;
 ```
 
+## Order By / Limit / Offset
+
+```rust
+let rows: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .order_by(asc(users.name))
+    .limit(10)
+    .offset(20)
+    .all()?;
+```
+
+Multiple sort keys:
+
+```rust
+.order_by([asc(users.name), desc(users.age)])
+```
+
 ## Expressions
 
 Aggregate functions and common SQL expressions:
@@ -293,6 +312,100 @@ let results: Vec<(String,)> = db
 ```
 
 > `union` removes duplicates. Use `union_all` to keep them.
+
+## Joins
+
+Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct.
+`#[from(Users)]` sets the default source table for unannotated fields:
+
+```rust
+use drizzle::core::expr::eq;
+use drizzle::sqlite::prelude::*;
+
+#[derive(SQLiteFromRow, Debug)]
+#[from(Users)]
+struct UserWithPost {
+    #[column(Users::id)]
+    user_id: i64,
+    name: String,
+    #[column(Posts::id)]
+    post_id: i64,
+    #[column(Posts::content)]
+    content: Option<String>,
+}
+
+// Explicit ON condition
+let rows: Vec<UserWithPost> = db
+    .select(UserWithPost::Select)
+    .from(users)
+    .left_join((posts, eq(users.id, posts.author_id)))
+    .all()?;
+
+// Auto-FK: derives the ON condition from #[column(references = ...)]
+let rows: Vec<UserWithPost> = db
+    .select(UserWithPost::Select)
+    .from(users)
+    .left_join(posts)
+    .all()?;
+```
+
+## Relational Queries
+
+Requires the `query` feature. Fetches a table with its relations in a single query — no manual joins.
+
+Relation methods are auto-generated from `#[column(references = ...)]` foreign keys. Given `Posts.author_id → Users.id`, calling `users.posts()` returns the reverse (one-to-many) relation and `posts.author()` returns the forward (many-to-one) relation.
+
+```rust
+// Users with their posts
+let users = db.query(users)
+    .with(users.posts())
+    .find_many()?;
+
+for user in &users {
+    // Base fields accessed directly (QueryRow derefs to SelectUsers)
+    println!("{}: {} posts", user.name, user.posts().len());
+}
+```
+
+`.find_first()` returns `Option<QueryRow<...>>` instead of `Vec`:
+
+```rust
+let user = db.query(users)
+    .with(users.posts())
+    .r#where(eq(users.name, "Alice"))
+    .find_first()?;
+```
+
+Relations nest — fetch users with their posts and each post's comments:
+
+```rust
+let users = db.query(users)
+    .with(users.posts().with(posts.comments()))
+    .find_many()?;
+
+let first_post = &users[0].posts()[0];
+println!("{} comments", first_post.comments().len());
+```
+
+Multiple relations on the same table:
+
+```rust
+let users = db.query(users)
+    .with(users.posts())
+    .with(users.invited_by())
+    .find_many()?;
+```
+
+Supports `where`, `order_by`, `limit`, and `offset` on the root query:
+
+```rust
+let users = db.query(users)
+    .with(users.posts())
+    .r#where(gt(users.age, 25))
+    .order_by(asc(users.name))
+    .limit(10)
+    .find_many()?;
+```
 
 ## Transactions
 
@@ -380,42 +493,6 @@ stmt.execute(db.conn(), [new_name.bind("New Name"), target.bind(1)])?;
 
 > Use `.prepare().into_owned()` to convert a prepared statement into a self-contained value that can be stored or moved freely.
 
-## Joins
-
-Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct.
-`#[from(Users)]` sets the default source table for unannotated fields:
-
-```rust
-use drizzle::core::expr::eq;
-use drizzle::sqlite::prelude::*;
-
-#[derive(SQLiteFromRow, Debug)]
-#[from(Users)]
-struct UserWithPost {
-    #[column(Users::id)]
-    user_id: i64,
-    name: String,
-    #[column(Posts::id)]
-    post_id: i64,
-    #[column(Posts::content)]
-    content: Option<String>,
-}
-
-// Explicit ON condition
-let rows: Vec<UserWithPost> = db
-    .select(UserWithPost::Select)
-    .from(users)
-    .left_join((posts, eq(users.id, posts.author_id)))
-    .all()?;
-
-// Auto-FK: derives the ON condition from #[column(references = ...)]
-let rows: Vec<UserWithPost> = db
-    .select(UserWithPost::Select)
-    .from(users)
-    .left_join(posts)
-    .all()?;
-```
-
 ## Aliases
 
 Use a `Tag` to create compile-time-safe aliases for self-joins and CTEs.
@@ -448,18 +525,6 @@ let age = cast(user.age, drizzle::postgres::types::Int4);
 ```
 
 Use a string cast target only when you need a custom SQL type name.
-
-## Order By / Limit / Offset
-
-```rust
-let rows: Vec<SelectUsers> = db
-    .select(())
-    .from(users)
-    .order_by([asc(users.name)])
-    .limit(10)
-    .offset(20)
-    .all()?;
-```
 
 ## PostgreSQL
 
