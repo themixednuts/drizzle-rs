@@ -1065,6 +1065,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let (sql, bind_params) = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             T::COLUMN_NAMES,
+            T::BLOB_COLUMNS,
             &rendered,
             &builder.where_clause,
             &builder.where_params,
@@ -1196,6 +1197,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let (sql, bind_params) = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             &col_refs,
+            T::BLOB_COLUMNS,
             &rendered,
             &builder.where_clause,
             &builder.where_params,

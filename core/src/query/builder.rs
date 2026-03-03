@@ -356,4 +356,10 @@ pub trait QueryTable {
     const TABLE_NAME: &'static str;
     /// All column names in SELECT order.
     const COLUMN_NAMES: &'static [&'static str];
+    /// Column names that store BLOB data (e.g., UUID as bytes in SQLite).
+    ///
+    /// These columns are wrapped with `hex()` inside `json_object()` calls
+    /// because SQLite's JSON functions cannot serialize BLOB values directly.
+    /// The `FromJsonValue` deserializer then parses the hex string back.
+    const BLOB_COLUMNS: &'static [&'static str] = &[];
 }

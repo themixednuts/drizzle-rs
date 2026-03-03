@@ -230,6 +230,8 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
                 column_name: f.column_name.clone(),
                 is_nullable: f.is_nullable,
                 is_uuid: f.is_uuid,
+                is_blob: !f.is_uuid && matches!(f.column_type, SQLiteType::Blob),
+                is_bool: crate::common::type_is_bool(f.base_type),
                 enum_storage,
                 base_type: f.base_type.clone(),
             }
