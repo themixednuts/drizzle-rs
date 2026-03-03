@@ -112,7 +112,6 @@ fn generate_field_from_row_impl(
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    let idx = quote!((#idx) as i32);
     let name = info.ident;
     let base_type = info.base_type;
 
@@ -123,6 +122,28 @@ fn generate_field_from_row_impl(
             errors::conversion::REFERENCE_TYPE_UNSUPPORTED,
         ));
     }
+
+    // Custom types (auto-detected enums): use DrizzleRowByIndex for unified conversion
+    if info.is_custom_type {
+        // idx is a usize expression here (before i32 cast for libsql)
+        if is_optional {
+            return Ok(quote! {
+                #name: {
+                    use drizzle::sqlite::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx)?
+                },
+            });
+        } else {
+            return Ok(quote! {
+                #name: {
+                    use drizzle::sqlite::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx)?
+                },
+            });
+        }
+    }
+
+    let idx = quote!((#idx) as i32);
 
     // Dispatch based on type category
     match info.type_category() {

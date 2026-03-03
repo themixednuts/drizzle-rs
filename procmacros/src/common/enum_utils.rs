@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use syn::{DataEnum, Expr, ExprLit, ExprUnary, Lit, UnOp, spanned::Spanned};
+use syn::{Attribute, DataEnum, Expr, ExprLit, ExprUnary, Lit, UnOp, spanned::Spanned};
 
 /// Parse a discriminant expression into an i64 value.
 ///
@@ -42,6 +42,27 @@ pub(crate) fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
             "enum discriminant must be an integer literal (e.g., `= 1` or `= -1`)",
         )),
     }
+}
+
+/// Check if the enum has any variant with an explicit discriminant (`= N`).
+pub(crate) fn has_explicit_discriminants(data: &DataEnum) -> bool {
+    data.variants.iter().any(|v| v.discriminant.is_some())
+}
+
+/// Check if the type has a `#[repr(iN)]` or `#[repr(uN)]` attribute.
+pub(crate) fn has_integer_repr(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if !attr.path().is_ident("repr") {
+            return false;
+        }
+        let Ok(nested) = attr.parse_args::<syn::Ident>() else {
+            return false;
+        };
+        matches!(
+            nested.to_string().as_str(),
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+        )
+    })
 }
 
 /// Resolve all discriminant values for an enum's variants and validate uniqueness.

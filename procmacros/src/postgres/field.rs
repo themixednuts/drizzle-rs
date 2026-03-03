@@ -675,6 +675,8 @@ pub(crate) struct FieldInfo {
     pub foreign_key: Option<PostgreSQLReference>,
     pub has_default: bool,
     pub marker_exprs: Vec<syn::ExprPath>,
+    /// True for unknown types that are validated at type-check time via DrizzlePostgresColumn trait
+    pub is_custom_type: bool,
 }
 
 impl FieldInfo {
@@ -696,7 +698,7 @@ impl FieldInfo {
         let is_nullable = is_option_type(&ty);
 
         // Infer PostgreSQL type from Rust type
-        let type_str = ty.to_token_stream().to_string();
+        let _type_str = ty.to_token_stream().to_string();
         let type_category = TypeCategory::from_type(&ty);
 
         // Initialize constraint-related fields
@@ -713,6 +715,9 @@ impl FieldInfo {
         let mut generated_column = None;
         let mut is_pgenum = false;
         let mut marker_exprs = Vec::new();
+
+        // Track whether this is a custom type (unknown to the macro, validated via trait bounds)
+        let mut is_custom_type = false;
 
         // Parse #[column(...)] attributes for constraints
         let mut is_explicit_json = false;
@@ -759,18 +764,14 @@ impl FieldInfo {
         } else if is_explicit_jsonb {
             // Explicit #[column(jsonb)] - use JSONB type for any Serialize/Deserialize type
             PostgreSQLType::Jsonb
-        } else {
+        } else if let Some(pg_type) = type_category.to_postgres_type() {
             // Infer from Rust type
-            type_category.to_postgres_type().ok_or_else(|| {
-                Error::new(
-                    name.span(),
-                    format!(
-                        "Cannot infer PostgreSQL type for Rust type '{}'. \
-                        Use a supported type or add #[column(enum)] for enum types.",
-                        type_str
-                    ),
-                )
-            })?
+            pg_type
+        } else {
+            // Unknown type — deferred to DrizzlePostgresColumn trait at type-check time.
+            // Use Text as placeholder; real SQL_TYPE comes from the trait const.
+            is_custom_type = true;
+            PostgreSQLType::Text
         };
 
         #[cfg(not(feature = "serde"))]
@@ -785,18 +786,13 @@ impl FieldInfo {
             let base_type = option_inner_type(&ty).unwrap_or(&ty);
             let base_type_str = base_type.to_token_stream().to_string().replace(' ', "");
             PostgreSQLType::from_enum_attribute(&base_type_str)
-        } else {
+        } else if let Some(pg_type) = type_category.to_postgres_type() {
             // Infer from Rust type
-            type_category.to_postgres_type().ok_or_else(|| {
-                Error::new(
-                    name.span(),
-                    format!(
-                        "Cannot infer PostgreSQL type for Rust type '{}'. \
-                        Use a supported type or add #[column(enum)] for enum types.",
-                        type_str
-                    ),
-                )
-            })?
+            pg_type
+        } else {
+            // Unknown type — deferred to DrizzlePostgresColumn trait at type-check time.
+            is_custom_type = true;
+            PostgreSQLType::Text
         };
 
         // Apply flags from type category
@@ -859,6 +855,7 @@ impl FieldInfo {
             foreign_key,
             has_default,
             marker_exprs,
+            is_custom_type,
         })
     }
 

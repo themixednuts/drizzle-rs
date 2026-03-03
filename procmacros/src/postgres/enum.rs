@@ -1,11 +1,15 @@
-use crate::common::enum_utils::resolve_discriminants;
+use crate::common::enum_utils::{has_integer_repr, resolve_discriminants};
 use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DataEnum, Ident};
+use syn::{Attribute, DataEnum, Ident};
 
 // Generate implementation for PostgreSQL enum representation following SQLite pattern
-pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
+pub fn generate_enum_impl(
+    name: &Ident,
+    data: &DataEnum,
+    attrs: &[Attribute],
+) -> syn::Result<TokenStream> {
     // Get paths for fully-qualified types
     let _sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
@@ -213,7 +217,12 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
     #[cfg(not(feature = "postgres"))]
     let postgres_impls = quote! {};
 
-    Ok(quote! {
+    // Detect storage format: INTEGER if has #[repr(iN)]
+    let is_integer_storage = has_integer_repr(attrs);
+    let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
+
+    // Common base: integer and string conversions, Display, FromStr, etc.
+    let common_impls = quote! {
 
         #postgres_impls
 
@@ -409,77 +418,268 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
                 })
             }
         }
+    };
 
-        // Implement PostgresEnum trait for native PostgreSQL enum support
-        impl #postgres_enum_trait for #name {
-            fn enum_type_name(&self) -> &'static str {
-                stringify!(#name)
+    // Generate DrizzlePostgresColumn impl (feature-gated on postgres driver availability)
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    let drizzle_postgres_column_impl = if !is_integer_storage {
+        // Native enum: read via FromSql, write as Enum variant
+        quote! {
+            impl #drizzle_postgres_column for #name {
+                const SQL_TYPE: &'static str = stringify!(#name);
+                const NEEDS_CREATE_TYPE: bool = true;
+
+                fn from_postgres_row(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                    let v: #name = row.get::<_, #name>(idx);
+                    ::std::result::Result::Ok(v)
+                }
+
+                fn to_postgres_value(&self) -> #postgres_value<'static> {
+                    #postgres_value::Enum(::std::boxed::Box::new(self.clone()))
+                }
             }
+        }
+    } else {
+        // Integer-stored enum: read as i32, write as Integer
+        quote! {
+            impl #drizzle_postgres_column for #name {
+                const SQL_TYPE: &'static str = "integer";
+                const NEEDS_CREATE_TYPE: bool = false;
 
-            fn as_enum(&self) -> &dyn #postgres_enum_trait {
-                self
+                fn from_postgres_row(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                    let v: i32 = row.get::<_, i32>(idx);
+                    <#name as ::std::convert::TryFrom<i32>>::try_from(v)
+                        .map_err(|_| #drizzle_error::ConversionError(
+                            ::std::format!("Failed to convert {} to {}", v, stringify!(#name)).into()
+                        ))
+                }
+
+                fn to_postgres_value(&self) -> #postgres_value<'static> {
+                    let integer: i64 = self.into();
+                    #postgres_value::Integer(integer as i32)
+                }
             }
+        }
+    };
 
-            fn variant_name(&self) -> &'static str {
-                match self {
-                    #(#to_str_variants,)*
+    #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
+    let drizzle_postgres_column_impl = if !is_integer_storage {
+        // Native enum without driver: no from_postgres_row method
+        quote! {
+            impl #drizzle_postgres_column for #name {
+                const SQL_TYPE: &'static str = stringify!(#name);
+                const NEEDS_CREATE_TYPE: bool = true;
+
+                fn to_postgres_value(&self) -> #postgres_value<'static> {
+                    #postgres_value::Enum(::std::boxed::Box::new(self.clone()))
+                }
+            }
+        }
+    } else {
+        // Integer-stored enum without driver: no from_postgres_row method
+        quote! {
+            impl #drizzle_postgres_column for #name {
+                const SQL_TYPE: &'static str = "integer";
+                const NEEDS_CREATE_TYPE: bool = false;
+
+                fn to_postgres_value(&self) -> #postgres_value<'static> {
+                    let integer: i64 = self.into();
+                    #postgres_value::Integer(integer as i32)
+                }
+            }
+        }
+    };
+
+    // Native enum impls (PostgresEnum trait, SQLEnumInfo, SQLSchema, CREATE TYPE SQL, Expr with Enum type)
+    // Only generated for non-integer-repr enums
+    let native_enum_impls = if !is_integer_storage {
+        quote! {
+            // Implement PostgresEnum trait for native PostgreSQL enum support
+            impl #postgres_enum_trait for #name {
+                fn enum_type_name(&self) -> &'static str {
+                    stringify!(#name)
+                }
+
+                fn as_enum(&self) -> &dyn #postgres_enum_trait {
+                    self
+                }
+
+                fn variant_name(&self) -> &'static str {
+                    match self {
+                        #(#to_str_variants,)*
+                    }
+                }
+
+                fn into_boxed(&self) -> ::std::boxed::Box<dyn #postgres_enum_trait> {
+                    match self {
+                        #(#boxed_variants,)*
+                    }
+                }
+
+                fn try_from_str(value: &str) -> ::std::result::Result<Self, #drizzle_error> {
+                    Self::try_from(value)
                 }
             }
 
-            fn into_boxed(&self) -> ::std::boxed::Box<dyn #postgres_enum_trait> {
-                match self {
-                    #(#boxed_variants,)*
+            // Implement SQLEnumInfo trait for schema integration
+            impl #sql_enum_info for #name {
+                fn name(&self) -> &'static str {
+                    stringify!(#name)
+                }
+
+                fn create_type_sql(&self) -> ::std::string::String {
+                    // Reuse the compile-time const SQL instead of rebuilding at runtime
+                    <#name as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string()
+                }
+
+                fn variants(&self) -> &'static [&'static str] {
+                    &[#(stringify!(#variant_idents),)*]
                 }
             }
 
-            fn try_from_str(value: &str) -> ::std::result::Result<Self, #drizzle_error> {
-                Self::try_from(value)
+            // Implement SQLSchema trait for schema integration
+            impl<'a> #sql_schema<'a, #postgres_schema_type, #postgres_value<'a>> for #name {
+                const NAME: &'static str = stringify!(#name);
+                const TYPE: #postgres_schema_type = {
+                    #[allow(non_upper_case_globals)]
+                    static ENUM_INSTANCE: #name = #name::#first_variant;
+                    #postgres_schema_type::Enum(&ENUM_INSTANCE)
+                };
+                const SQL: &'static str = #create_type_sql_literal;
+            }
+
+            // Implement new() for schema integration - returns the default variant
+            impl #name {
+                /// Creates a new instance of this enum with its default variant.
+                /// Used by PostgresSchema for schema initialization.
+                pub const fn new() -> Self {
+                    #name::#first_variant
+                }
+            }
+
+            // Implement Expr trait for type-safe comparisons — native enum type
+            impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
+                type SQLType = #postgres_types::Enum;
+                type Nullable = #core_expr::NonNull;
+                type Aggregate = #core_expr::Scalar;
+            }
+
+            // DrizzlePostgresColumn for native enum
+            #drizzle_postgres_column_impl
+
+            // From<Enum> for PostgresValue (owned)
+            impl<'a> ::std::convert::From<#name> for #postgres_value<'a> {
+                fn from(value: #name) -> Self {
+                    #postgres_value::Enum(::std::boxed::Box::new(value))
+                }
+            }
+
+            // From<&Enum> for PostgresValue (reference)
+            impl<'a> ::std::convert::From<&#name> for #postgres_value<'a> {
+                fn from(value: &#name) -> Self {
+                    #postgres_value::Enum(::std::boxed::Box::new((*value).clone()))
+                }
+            }
+
+            impl #value_type_for_dialect<#postgres_dialect> for #name {
+                type SQLType = #postgres_types::Enum;
+            }
+
+            impl #value_type_for_dialect<#postgres_dialect> for &#name {
+                type SQLType = #postgres_types::Enum;
+            }
+
+            // TryFrom<PostgresValue> for the enum (read path)
+            impl<'a> ::std::convert::TryFrom<#postgres_value<'a>> for #name {
+                type Error = #drizzle_error;
+
+                fn try_from(value: #postgres_value<'a>) -> ::std::result::Result<Self, Self::Error> {
+                    match value {
+                        #postgres_value::Text(cow) => <#name as ::std::str::FromStr>::from_str(cow.as_ref()),
+                        #postgres_value::Enum(boxed) => {
+                            <#name as ::std::str::FromStr>::from_str(boxed.variant_name())
+                        }
+                        _ => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("Cannot convert {:?} to {}", value, stringify!(#name)).into(),
+                        )),
+                    }
+                }
             }
         }
-
-        // Implement SQLEnumInfo trait for schema integration
-        impl #sql_enum_info for #name {
-            fn name(&self) -> &'static str {
-                stringify!(#name)
+    } else {
+        // Integer-repr enum: stored as integer column, no CREATE TYPE needed
+        quote! {
+            // Implement new() - returns the default variant
+            impl #name {
+                pub const fn new() -> Self {
+                    #name::#first_variant
+                }
             }
 
-            fn create_type_sql(&self) -> ::std::string::String {
-                // Reuse the compile-time const SQL instead of rebuilding at runtime
-                <#name as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string()
+            // Implement Expr trait for type-safe comparisons — integer type
+            impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
+                type SQLType = #postgres_types::Integer;
+                type Nullable = #core_expr::NonNull;
+                type Aggregate = #core_expr::Scalar;
             }
 
-            fn variants(&self) -> &'static [&'static str] {
-                &[#(stringify!(#variant_idents),)*]
+            // DrizzlePostgresColumn for integer-stored enum
+            #drizzle_postgres_column_impl
+
+            // From<Enum> for PostgresValue (owned)
+            impl<'a> ::std::convert::From<#name> for #postgres_value<'a> {
+                fn from(value: #name) -> Self {
+                    let integer: i64 = value.into();
+                    #postgres_value::Integer(integer as i32)
+                }
+            }
+
+            // From<&Enum> for PostgresValue (reference)
+            impl<'a> ::std::convert::From<&#name> for #postgres_value<'a> {
+                fn from(value: &#name) -> Self {
+                    let integer: i64 = value.into();
+                    #postgres_value::Integer(integer as i32)
+                }
+            }
+
+            impl #value_type_for_dialect<#postgres_dialect> for #name {
+                type SQLType = #postgres_types::Integer;
+            }
+
+            impl #value_type_for_dialect<#postgres_dialect> for &#name {
+                type SQLType = #postgres_types::Integer;
+            }
+
+            // TryFrom<PostgresValue> for the enum (read path)
+            impl<'a> ::std::convert::TryFrom<#postgres_value<'a>> for #name {
+                type Error = #drizzle_error;
+
+                fn try_from(value: #postgres_value<'a>) -> ::std::result::Result<Self, Self::Error> {
+                    match value {
+                        #postgres_value::Integer(i) => <#name as ::std::convert::TryFrom<i32>>::try_from(i),
+                        #postgres_value::Bigint(i) => <#name as ::std::convert::TryFrom<i64>>::try_from(i),
+                        _ => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("Cannot convert {:?} to {}", value, stringify!(#name)).into(),
+                        )),
+                    }
+                }
             }
         }
+    };
 
-        // Implement SQLSchema trait for schema integration
-        impl<'a> #sql_schema<'a, #postgres_schema_type, #postgres_value<'a>> for #name {
-            const NAME: &'static str = stringify!(#name);
-            const TYPE: #postgres_schema_type = {
-                #[allow(non_upper_case_globals)]
-                static ENUM_INSTANCE: #name = #name::#first_variant;
-                #postgres_schema_type::Enum(&ENUM_INSTANCE)
-            };
-            const SQL: &'static str = #create_type_sql_literal;
-        }
+    // ToSQL implementation (delegates to From)
+    let to_sql_trait = core_paths::to_sql_trait();
+    let sql_path = core_paths::sql();
 
-        // Implement new() for schema integration - returns the default variant
-        impl #name {
-            /// Creates a new instance of this enum with its default variant.
-            /// Used by PostgresSchema for schema initialization.
-            pub const fn new() -> Self {
-                #name::#first_variant
+    Ok(quote! {
+        #common_impls
+        #native_enum_impls
+
+        // ToSQL implementation (delegates to From)
+        impl<'a> #to_sql_trait<'a, #postgres_value<'a>> for #name {
+            fn to_sql(&self) -> #sql_path<'a, #postgres_value<'a>> {
+                <#postgres_value<'_> as ::std::convert::From<&#name>>::from(self).into()
             }
-        }
-
-        // Implement Expr trait for type-safe comparisons
-        // Use a dedicated enum marker for stricter compatibility checks.
-        // Note: &T impl is handled by blanket impl in drizzle_core
-        impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
-            type SQLType = #postgres_types::Enum;
-            type Nullable = #core_expr::NonNull;
-            type Aggregate = #core_expr::Scalar;
         }
 
         #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -490,33 +690,5 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
         impl #schema_item_tables for #name {
             type Tables = #type_set_nil;
         }
-
-        // Implement ValueTypeForDialect so enums can be used as bind parameters
-        // (From<#name> for PostgresValue is generated by the table macro which knows TEXT vs INTEGER vs native ENUM)
-        impl #value_type_for_dialect<#postgres_dialect> for #name {
-            type SQLType = #postgres_types::Enum;
-        }
-
-        impl #value_type_for_dialect<#postgres_dialect> for &#name {
-            type SQLType = #postgres_types::Enum;
-        }
-
-        // TryFrom<PostgresValue> for the enum (read path)
-        impl<'a> ::std::convert::TryFrom<#postgres_value<'a>> for #name {
-            type Error = #drizzle_error;
-
-            fn try_from(value: #postgres_value<'a>) -> ::std::result::Result<Self, Self::Error> {
-                match value {
-                    #postgres_value::Text(cow) => <#name as ::std::str::FromStr>::from_str(cow.as_ref()),
-                    #postgres_value::Enum(boxed) => {
-                        <#name as ::std::str::FromStr>::from_str(boxed.variant_name())
-                    }
-                    _ => ::std::result::Result::Err(#drizzle_error::ConversionError(
-                        ::std::format!("Cannot convert {:?} to {}", value, stringify!(#name)).into(),
-                    )),
-                }
-            }
-        }
-
     })
 }

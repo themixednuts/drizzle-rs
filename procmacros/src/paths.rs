@@ -445,6 +445,11 @@ pub mod sqlite {
         quote!(drizzle::sqlite::traits::FromSQLiteValue)
     }
 
+    /// Path to the DrizzleSQLiteColumn marker trait.
+    pub fn drizzle_sqlite_column() -> TokenStream {
+        quote!(drizzle::sqlite::traits::DrizzleSQLiteColumn)
+    }
+
     pub fn drizzle_row() -> TokenStream {
         quote!(drizzle::sqlite::traits::DrizzleRowByIndex)
     }
@@ -850,5 +855,10 @@ pub mod postgres {
     /// Path to the PostgresEnum trait.
     pub fn postgres_enum_trait() -> TokenStream {
         quote!(drizzle::postgres::traits::PostgresEnum)
+    }
+
+    /// Path to the DrizzlePostgresColumn marker trait.
+    pub fn drizzle_postgres_column() -> TokenStream {
+        quote!(drizzle::postgres::traits::DrizzlePostgresColumn)
     }
 }

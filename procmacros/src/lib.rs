@@ -160,7 +160,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
             }
 
             // Generate implementation for enum
-            match crate::sqlite::r#enum::generate_enum_impl(name, data) {
+            match crate::sqlite::r#enum::generate_enum_impl(name, data, &input.attrs) {
                 Ok(ts) => ts.into(),
                 Err(e) => e.to_compile_error().into(),
             }
@@ -1146,7 +1146,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
             }
 
             // Generate implementation for enum
-            match crate::postgres::r#enum::generate_enum_impl(name, data) {
+            match crate::postgres::r#enum::generate_enum_impl(name, data, &input.attrs) {
                 Ok(ts) => ts.into(),
                 Err(e) => e.to_compile_error().into(),
             }
