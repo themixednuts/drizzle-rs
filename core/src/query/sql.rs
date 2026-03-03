@@ -379,11 +379,37 @@ fn write_relation_subquery<'p, V: SQLParam>(
 
     if needs_inner_subquery {
         // Inner subquery: (SELECT cols FROM table AS alias WHERE ... ORDER BY ... LIMIT N)
+        //
+        // When nested relations exist, their correlated subqueries reference
+        // FK columns via `alias`. We must ensure those columns appear in the
+        // inner derived table even if the user excluded them via `.columns()`
+        // or `.omit()`.
+        let mut extra_cols: Vec<&str> = Vec::new();
+        for nested_rel in &rel.nested {
+            if let Some(junction) = &nested_rel.junction {
+                for (_, src_col) in junction.source_fk {
+                    if !target_columns.contains(src_col) && !extra_cols.contains(src_col) {
+                        extra_cols.push(src_col);
+                    }
+                }
+            } else {
+                for (_, tgt_col) in nested_rel.fk_columns {
+                    if !target_columns.contains(tgt_col) && !extra_cols.contains(tgt_col) {
+                        extra_cols.push(tgt_col);
+                    }
+                }
+            }
+        }
+
         sql.push_str("(SELECT ");
         for (i, c) in target_columns.iter().enumerate() {
             if i > 0 {
                 sql.push_str(", ");
             }
+            write_qualified_column(alias, c, sql);
+        }
+        for c in &extra_cols {
+            sql.push_str(", ");
             write_qualified_column(alias, c, sql);
         }
         sql.push_str(" FROM \"");
