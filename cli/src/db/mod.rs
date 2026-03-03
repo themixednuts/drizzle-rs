@@ -3430,7 +3430,7 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
 
     // Views
     let raw_views: Vec<RawViewInfo> = client
-        .query(queries::VIEWS_QUERY, &[])
+        .query(queries::VIEWS_QUERY, &[&None::<Vec<String>>])
         .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
         .into_iter()
         .map(|row| RawViewInfo {
@@ -3739,7 +3739,7 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let raw_views: Vec<RawViewInfo> = client
-        .query(queries::VIEWS_QUERY, &[])
+        .query(queries::VIEWS_QUERY, &[&None::<Vec<String>>])
         .await
         .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
         .into_iter()
