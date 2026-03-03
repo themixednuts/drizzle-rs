@@ -4,7 +4,8 @@
 //! - `WindowSpec` builder for PARTITION BY, ORDER BY, and frame clauses
 //! - `.over()` method on aggregate `SQLExpr` to convert Agg → Scalar
 //! - Pure window functions: `row_number`, `rank`, `dense_rank`, `ntile`,
-//!   `lag`, `lead`, `first_value`, `last_value`, `nth_value`
+//!   `percent_rank`, `cume_dist`, `lag`, `lead`, `first_value`, `last_value`,
+//!   `nth_value`
 //!
 //! # Example
 //!
@@ -26,7 +27,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{BooleanLike, Compatible, DataType};
 
-use super::agg::CountPolicy;
+use super::agg::{CountPolicy, FloatPolicy};
 use super::null::NullOr;
 use super::{Agg, Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
 
@@ -299,6 +300,29 @@ where
     V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::func("NTILE", SQL::number(n)))
+}
+
+/// PERCENT_RANK() — relative rank of the current row: (rank - 1) / (total rows - 1).
+///
+/// Returns a float between 0.0 and 1.0, never NULL.
+pub fn percent_rank<'a, V>()
+-> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: FloatPolicy,
+{
+    WindowFnExpr::new(SQL::raw("PERCENT_RANK()"))
+}
+
+/// CUME_DIST() — cumulative distribution: fraction of rows <= current row.
+///
+/// Returns a float between 0.0 and 1.0 (exclusive of 0), never NULL.
+pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: FloatPolicy,
+{
+    WindowFnExpr::new(SQL::raw("CUME_DIST()"))
 }
 
 /// LAG(expr) — value of expr from the previous row.
