@@ -1,17 +1,17 @@
 //! Infer the best generator for a column based on its SQL type and name.
 
 use crate::generator::GeneratorKind;
-use drizzle_core::SQLColumnInfo;
+use drizzle_core::ColumnRef;
 
 /// Select a generator kind for a column based on its type and name.
 ///
 /// Priority: column name heuristics > SQL type mapping.
-pub fn infer_generator(col: &dyn SQLColumnInfo) -> GeneratorKind {
-    let name = col.name().to_lowercase();
-    let sql_type = col.r#type().to_uppercase();
+pub fn infer_generator(col: &ColumnRef) -> GeneratorKind {
+    let name = col.name.to_lowercase();
+    let sql_type = col.sql_type.to_uppercase();
 
     // Primary key auto-increment
-    if col.is_primary_key() && is_integer_type(&sql_type) {
+    if col.primary_key && is_integer_type(&sql_type) {
         return GeneratorKind::IntPrimaryKey;
     }
 

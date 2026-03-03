@@ -212,23 +212,6 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             quote! {}
         };
 
-        // Generate foreign key reference implementation
-        let foreign_key_impl = if let Some(ref fk) = field_info.foreign_key {
-            let table_ident = &fk.table;
-            let column_ident = &fk.column;
-            let column_pascal_case = column_ident.to_string().to_upper_camel_case();
-            let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
-            quote! {
-                // Const validation that the FK column exists and implements the right traits
-                const _: () = { let _ = &#table_ident::#column_ident; };
-                #[allow(non_upper_case_globals)]
-                static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
-                Some(&FK_COLUMN)
-            }
-        } else {
-            quote! { None }
-        };
-
         let mut foreign_key_types = Vec::new();
         if field_info.foreign_key.is_some() {
             let fk_ident = format_ident!("__Fk_{}_{}", struct_ident, field_pascal_case);
@@ -349,32 +332,6 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                     static TABLE: #struct_ident = #struct_ident::new();
                     &TABLE
                 }
-                fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
-                    #foreign_key_impl
-                }
-            }
-
-            impl PostgresColumnInfo for #zst_ident {
-                fn table(&self) -> &'static dyn PostgresTableInfo {
-                    static TABLE: #struct_ident = #struct_ident::new();
-                    &TABLE
-                }
-
-                fn is_serial(&self) -> bool {
-                    <Self as PostgresColumn<'_>>::SERIAL
-                }
-                fn is_bigserial(&self) -> bool {
-                    <Self as PostgresColumn<'_>>::BIGSERIAL
-                }
-                fn is_generated_identity(&self) -> bool {
-                    <Self as PostgresColumn<'_>>::GENERATED_IDENTITY
-                }
-                fn is_identity_always(&self) -> bool {
-                    <Self as PostgresColumn<'_>>::IDENTITY_ALWAYS
-                }
-                fn postgres_type(&self) -> &'static str {
-                    #col_type
-                }
             }
 
             impl<'a> SQLColumn<'a, PostgresValue<'a>> for #zst_ident {
@@ -414,10 +371,10 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
             impl<'a> ToSQL<'a, PostgresValue<'a>> for #zst_ident {
                 fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                    SQL::column(drizzle::core::ColumnRef {
-                        table_name: <#struct_ident as drizzle::core::DrizzleTable>::NAME,
-                        column_name: #name,
-                    })
+                    SQL::column(drizzle::core::ColumnRef::sql(
+                        <#struct_ident as drizzle::core::DrizzleTable>::NAME,
+                        #name,
+                    ))
                 }
             }
 

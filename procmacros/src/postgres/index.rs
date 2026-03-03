@@ -121,7 +121,6 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
     let sql_schema = core_paths::sql_schema();
     let sql_index = core_paths::sql_index();
     let drizzle_index = core_paths::drizzle_index();
-    let sql_table_info = core_paths::sql_table_info();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
     let to_sql = core_paths::to_sql();
@@ -347,10 +346,8 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             const COLUMN_NAMES: &'static [&'static str] = Self::COLUMN_NAMES;
             const IS_UNIQUE: bool = #is_unique;
 
-            fn table_ref() -> &'static dyn #sql_table_info {
-                #[allow(non_upper_case_globals)]
-                static TABLE_INSTANCE: #table_type = #table_type::new();
-                &TABLE_INSTANCE
+            fn table_ref() -> &'static drizzle::core::TableRef {
+                &<#table_type as drizzle::core::DrizzleTable>::TABLE_REF
             }
         }
 

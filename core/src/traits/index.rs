@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use crate::{SQLParam, SQLSchemaType, SQLTable, SQLTableInfo, ToSQL};
+use crate::{SQLParam, SQLSchemaType, SQLTable, TableRef, ToSQL};
 
 /// Compile-time index metadata.
 ///
@@ -17,12 +17,12 @@ pub trait DrizzleIndex: Send + Sync + 'static {
     const IS_UNIQUE: bool = false;
 
     /// The table this index belongs to.
-    fn table_ref() -> &'static dyn SQLTableInfo;
+    fn table_ref() -> &'static TableRef;
 }
 
 /// Blanket: any `DrizzleIndex` automatically satisfies `SQLIndexInfo`.
 impl<T: DrizzleIndex> SQLIndexInfo for T {
-    fn table(&self) -> &'static dyn SQLTableInfo {
+    fn table(&self) -> &'static TableRef {
         T::table_ref()
     }
 
@@ -40,7 +40,7 @@ impl<T: DrizzleIndex> SQLIndexInfo for T {
 }
 
 pub trait SQLIndexInfo: Any + Send + Sync {
-    fn table(&self) -> &'static dyn SQLTableInfo;
+    fn table(&self) -> &'static TableRef;
     /// The name of this index (for DROP INDEX statements)
     fn name(&self) -> &'static str;
 
@@ -59,7 +59,7 @@ impl core::fmt::Debug for dyn SQLIndexInfo {
             .field("name", &self.name())
             .field("is_unique", &self.is_unique())
             .field("columns", &self.columns())
-            .field("table", &self.table())
+            .field("table", &self.table().name)
             .finish()
     }
 }

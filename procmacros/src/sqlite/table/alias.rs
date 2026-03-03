@@ -35,9 +35,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
     let sqlite_table = sqlite_paths::sqlite_table();
-    let sqlite_table_info = sqlite_paths::sqlite_table_info();
     let sqlite_column = sqlite_paths::sqlite_column();
-    let sqlite_column_info = sqlite_paths::sqlite_column_info();
     let alias_type_name = format_ident!("{}Alias", table_name);
 
     // Generate aliased field structs and their names
@@ -75,22 +73,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 Self { alias }
             }
         });
-
-        let sqlite_column_info_impl = generate_sqlite_column_info(aliased_field_type,
-            quote! {
-                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                <#original_field_type as #sqlite_column_info>::is_autoincrement(&ORIGINAL_FIELD)
-            },
-            quote! {
-                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                <#original_field_type as #sqlite_column_info>::table(&ORIGINAL_FIELD)
-            },
-            quote! {
-                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                <#original_field_type as #sqlite_column_info>::foreign_key(&ORIGINAL_FIELD)
-            }
-        );
-
 
         // Generate ToSQL implementation that uses the alias
         let to_sql_custom_impl = quote! {
@@ -131,10 +113,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::has_default(&ORIGINAL_FIELD)
-            },
-            quote! {
-                static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                <#original_field_type as #sql_column_info>::foreign_key(&ORIGINAL_FIELD)
             },
             quote! {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
@@ -190,7 +168,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             #struct_def
             #impl_new
             #sql_column_info_impl
-            #sqlite_column_info_impl
             #sql_column_impl
             #sqlite_column_impl
             #sql_schema_field_impl
@@ -236,57 +213,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             fn schema(&self) -> ::std::option::Option<&'static str> {
                 ::std::option::Option::None
             }
-
-            fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as #sql_table_info>::columns(&ORIGINAL_TABLE)
-            }
-
-            fn primary_key(&self) -> ::std::option::Option<&'static dyn drizzle::core::SQLPrimaryKeyInfo> {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as #sql_table_info>::primary_key(&ORIGINAL_TABLE)
-            }
-
-            fn foreign_keys(&self) -> &'static [&'static dyn drizzle::core::SQLForeignKeyInfo] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as #sql_table_info>::foreign_keys(&ORIGINAL_TABLE)
-            }
-
-            fn constraints(&self) -> &'static [&'static dyn drizzle::core::SQLConstraintInfo] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as #sql_table_info>::constraints(&ORIGINAL_TABLE)
-            }
-
-            fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as #sql_table_info>::dependencies(&ORIGINAL_TABLE)
-            }
         }
     };
-
-    let sqlite_table_info_impl = generate_sqlite_table_info(
-        &aliased_table_name,
-        quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            #sqlite_table_info::r#type(&ORIGINAL_TABLE)
-        },
-        quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            #sqlite_table_info::strict(&ORIGINAL_TABLE)
-        },
-        quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            #sqlite_table_info::without_rowid(&ORIGINAL_TABLE)
-        },
-        quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sqlite_table_info>::sqlite_columns(&ORIGINAL_TABLE)
-        },
-        quote! {
-            static ORIGINAL_TABLE: #table_name = #table_name::new();
-            <#table_name as #sqlite_table_info>::sqlite_dependencies(&ORIGINAL_TABLE)
-        },
-    );
 
     let sql_table_impl = generate_sql_table(SQLTableConfig {
         struct_ident: &aliased_table_name,
@@ -337,15 +265,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
         })
         .collect();
-    let tagged_sqlite_column_refs: Vec<TokenStream> = aliased_fields
-        .iter()
-        .map(|(field_name, _)| {
-            quote! {
-                &(#tagged_alias_meta_name::<Tag>::#field_name) as &'static dyn #sqlite_column_info
-            }
-        })
-        .collect();
-
     Ok(quote! {
 
         // Generate all aliased field type definitions
@@ -412,17 +331,10 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             const SQL_COLUMNS: &'static [&'static dyn #sql_column_info] = &[
                 #(#tagged_sql_column_refs,)*
             ];
-
-            const SQLITE_COLUMNS: &'static [&'static dyn #sqlite_column_info] = &[
-                #(#tagged_sqlite_column_refs,)*
-            ];
         }
 
         // Implement table traits for the aliased table
         #sql_table_info_impl
-
-        // Implement SQLite-specific table traits for aliased table
-        #sqlite_table_info_impl
 
         // Implement core SQLTable trait for aliased table
         #sql_table_impl
@@ -448,48 +360,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
             fn schema(&self) -> ::std::option::Option<&'static str> {
                 #sql_table_info::schema(::core::ops::Deref::deref(self))
-            }
-
-            fn columns(&self) -> &'static [&'static dyn #sql_column_info] {
-                #tagged_alias_meta_name::<Tag>::SQL_COLUMNS
-            }
-
-            fn primary_key(&self) -> ::std::option::Option<&'static dyn drizzle::core::SQLPrimaryKeyInfo> {
-                #sql_table_info::primary_key(::core::ops::Deref::deref(self))
-            }
-
-            fn foreign_keys(&self) -> &'static [&'static dyn drizzle::core::SQLForeignKeyInfo] {
-                #sql_table_info::foreign_keys(::core::ops::Deref::deref(self))
-            }
-
-            fn constraints(&self) -> &'static [&'static dyn drizzle::core::SQLConstraintInfo] {
-                #sql_table_info::constraints(::core::ops::Deref::deref(self))
-            }
-
-            fn dependencies(&self) -> &'static [&'static dyn #sql_table_info] {
-                #sql_table_info::dependencies(::core::ops::Deref::deref(self))
-            }
-        }
-
-        impl<Tag: #alias_tag + 'static> #sqlite_table_info for #alias_type_name<Tag> {
-            fn r#type(&self) -> &#sqlite_schema_type {
-                #sqlite_table_info::r#type(::core::ops::Deref::deref(self))
-            }
-
-            fn strict(&self) -> bool {
-                #sqlite_table_info::strict(::core::ops::Deref::deref(self))
-            }
-
-            fn without_rowid(&self) -> bool {
-                #sqlite_table_info::without_rowid(::core::ops::Deref::deref(self))
-            }
-
-            fn sqlite_columns(&self) -> &'static [&'static dyn #sqlite_column_info] {
-                #tagged_alias_meta_name::<Tag>::SQLITE_COLUMNS
-            }
-
-            fn sqlite_dependencies(&self) -> &'static [&'static dyn #sqlite_table_info] {
-                #sqlite_table_info::sqlite_dependencies(::core::ops::Deref::deref(self))
             }
         }
 

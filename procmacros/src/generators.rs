@@ -18,7 +18,6 @@ pub fn generate_sql_column_info(
     is_not_null: TokenStream,
     is_unique: TokenStream,
     has_default: TokenStream,
-    foreign_key: TokenStream,
     table: TokenStream,
 ) -> TokenStream {
     let sql_column_info = core_paths::sql_column_info();
@@ -47,9 +46,6 @@ pub fn generate_sql_column_info(
             fn table(&self) -> &'static dyn #sql_table_info {
                 #table
             }
-            fn foreign_key(&self) -> ::std::option::Option<&'static dyn #sql_column_info> {
-                #foreign_key
-            }
         }
     }
 }
@@ -61,21 +57,13 @@ pub struct DrizzleTableConfig<'a> {
     pub qualified_name: TokenStream,
     pub schema: TokenStream,
     pub dependency_names: TokenStream,
-    pub columns: TokenStream,
-    pub primary_key: TokenStream,
-    pub foreign_keys: TokenStream,
-    pub constraints: TokenStream,
-    pub dependencies: TokenStream,
+    /// TokenStream for the `const TABLE_REF: TableRef = ...;` body.
+    pub table_ref_const: TokenStream,
 }
 
 /// Generate DrizzleTable trait implementation (blanket provides SQLTableInfo).
 pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
     let drizzle_table = core_paths::drizzle_table();
-    let sql_column_info = core_paths::sql_column_info();
-    let sql_primary_key_info = core_paths::sql_primary_key_info();
-    let sql_foreign_key_info = core_paths::sql_foreign_key_info();
-    let sql_constraint_info = core_paths::sql_constraint_info();
-    let sql_table_info = core_paths::sql_table_info();
 
     let DrizzleTableConfig {
         struct_ident,
@@ -83,11 +71,7 @@ pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
         qualified_name,
         schema,
         dependency_names,
-        columns,
-        primary_key,
-        foreign_keys,
-        constraints,
-        dependencies,
+        table_ref_const,
     } = config;
 
     quote! {
@@ -97,25 +81,7 @@ pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
             const SCHEMA: ::std::option::Option<&'static str> = #schema;
             const DEPENDENCY_NAMES: &'static [&'static str] = #dependency_names;
 
-            fn columns_list() -> &'static [&'static dyn #sql_column_info] {
-                #columns
-            }
-
-            fn primary_key_info() -> ::std::option::Option<&'static dyn #sql_primary_key_info> {
-                #primary_key
-            }
-
-            fn foreign_keys_list() -> &'static [&'static dyn #sql_foreign_key_info] {
-                #foreign_keys
-            }
-
-            fn constraints_list() -> &'static [&'static dyn #sql_constraint_info] {
-                #constraints
-            }
-
-            fn dependencies_list() -> &'static [&'static dyn #sql_table_info] {
-                #dependencies
-            }
+            #table_ref_const
         }
     }
 }

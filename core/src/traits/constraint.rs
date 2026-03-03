@@ -1,8 +1,5 @@
 use crate::relation::SchemaHasTable;
-use crate::traits::{
-    SQLForeignKey, SQLForeignKeyInfo, SQLPrimaryKeyInfo, SQLTableInfo, type_set::Cons,
-    type_set::Nil,
-};
+use crate::traits::{SQLForeignKey, type_set::Cons, type_set::Nil};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SQLConstraintKind {
@@ -12,45 +9,14 @@ pub enum SQLConstraintKind {
     Check,
 }
 
-pub trait SQLConstraintInfo: Send + Sync + 'static {
-    fn table(&self) -> &'static dyn SQLTableInfo;
-    fn name(&self) -> Option<&'static str> {
-        None
-    }
-    fn kind(&self) -> SQLConstraintKind;
-    fn columns(&self) -> &'static [&'static str];
-    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-        None
-    }
-    fn foreign_key(&self) -> Option<&'static dyn SQLForeignKeyInfo> {
-        None
-    }
-    fn check_expression(&self) -> Option<&'static str> {
-        None
-    }
-}
-
-pub trait SQLConstraint: SQLConstraintInfo {
+/// Typed (non-dyn) constraint metadata.
+pub trait SQLConstraint {
     type Table;
     type Kind;
     type Columns;
 }
 
 pub struct NoConstraint;
-
-impl SQLConstraintInfo for NoConstraint {
-    fn table(&self) -> &'static dyn SQLTableInfo {
-        panic!("NoConstraint has no table")
-    }
-
-    fn kind(&self) -> SQLConstraintKind {
-        SQLConstraintKind::Check
-    }
-
-    fn columns(&self) -> &'static [&'static str] {
-        &[]
-    }
-}
 
 impl SQLConstraint for NoConstraint {
     type Table = ();

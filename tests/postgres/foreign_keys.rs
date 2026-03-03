@@ -334,44 +334,38 @@ fn test_composite_foreign_key_sql() {
 
 #[test]
 fn test_composite_foreign_key_metadata_grouping() {
-    let table = CompositeFkChild::new();
-    let fks = table.foreign_keys();
+    let table_ref = &CompositeFkChild::TABLE_REF;
+    let fks = table_ref.foreign_keys;
 
     assert_eq!(fks.len(), 1, "expected a single grouped FK");
-    assert_eq!(fks[0].source_columns(), &["parent_a", "parent_b"]);
-    assert_eq!(fks[0].target_columns(), &["id_a", "id_b"]);
+    assert_eq!(fks[0].source_columns, &["parent_a", "parent_b"]);
+    assert_eq!(fks[0].target_columns, &["id_a", "id_b"]);
 }
 
 #[test]
 fn test_table_constraints_metadata() {
-    let parent = CompositeFkParent::new();
-    let child = CompositeFkChild::new();
-
-    let parent_constraints = parent.constraints();
+    // Verify table_ref has foreign keys and primary key metadata
+    let parent_ref = &CompositeFkParent::TABLE_REF;
     assert!(
-        parent_constraints
-            .iter()
-            .any(|c| c.kind() == SQLConstraintKind::PrimaryKey),
-        "expected parent to expose a primary key constraint"
+        parent_ref.primary_key.is_some(),
+        "expected parent to have a primary key"
     );
 
-    let child_constraints = child.constraints();
+    let child_ref = &CompositeFkChild::TABLE_REF;
     assert!(
-        child_constraints
-            .iter()
-            .any(|c| c.kind() == SQLConstraintKind::ForeignKey),
-        "expected child to expose a foreign key constraint"
+        !child_ref.foreign_keys.is_empty(),
+        "expected child to have foreign keys"
     );
 }
 
 #[test]
 fn test_composite_primary_key_metadata() {
-    let table = CompositeFkParent::new();
-    let pk = table
-        .primary_key()
+    let table_ref = &CompositeFkParent::TABLE_REF;
+    let pk = table_ref
+        .primary_key
         .expect("expected composite primary key metadata");
 
-    assert_eq!(pk.columns(), &["id_a", "id_b"]);
+    assert_eq!(pk.columns, &["id_a", "id_b"]);
 }
 
 #[test]

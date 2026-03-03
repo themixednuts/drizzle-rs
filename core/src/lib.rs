@@ -91,7 +91,10 @@ pub use row::{
     SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
-pub use sql::{ColumnRef, OwnedSQL, OwnedSQLChunk, SQL, SQLChunk, TableRef, Token};
+pub use sql::{
+    ColumnDialect, ColumnRef, ConstraintRef, ForeignKeyRef, OwnedSQL, OwnedSQLChunk, PrimaryKeyRef,
+    SQL, SQLChunk, TableDialect, TableRef, Token,
+};
 pub use traits::*;
 
 // =============================================================================

@@ -23,8 +23,8 @@ pub(crate) fn generate_insert_model(
     let sql = core_paths::sql();
     let sql_model = core_paths::sql_model();
     let to_sql = core_paths::to_sql();
-    let sql_column_info = core_paths::sql_column_info();
-    let sql_table_info = core_paths::sql_table_info();
+    let _sql_column_info = core_paths::sql_column_info();
+    let _sql_table_info = core_paths::sql_table_info();
     let token = core_paths::token();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
@@ -117,9 +117,8 @@ pub(crate) fn generate_insert_model(
         }
 
         impl<'a, T> #sql_model<'a, #sqlite_value<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn #sql_column_info]> {
-                static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = #sql_table_info::columns(&TABLE);
+            fn columns(&self) -> ::std::borrow::Cow<'static, [drizzle::core::ColumnRef]> {
+                let all_columns = <#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF.columns;
                 let mut result_columns = ::std::vec::Vec::new();
 
                 #(

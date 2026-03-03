@@ -104,9 +104,8 @@ pub(crate) fn generate_insert_model(
         }
 
         impl<'a, T> SQLModel<'a, PostgresValue<'a>> for #insert_model<'a, T> {
-            fn columns(&self) -> ::std::borrow::Cow<'static, [&'static dyn SQLColumnInfo]> {
-                static TABLE: #struct_ident = #struct_ident::new();
-                let all_columns = SQLTableInfo::columns(&TABLE);
+            fn columns(&self) -> ::std::borrow::Cow<'static, [drizzle::core::ColumnRef]> {
+                let all_columns = <#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF.columns;
                 let mut result_columns = Vec::new();
 
                 #(

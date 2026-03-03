@@ -124,8 +124,9 @@ pub mod migrations {
 pub mod core {
     /// SQL building blocks.
     pub use drizzle_core::{
-        ColumnRef, OrderBy, Param, ParamBind, ParamSet, SQL, SQLChunk, TableRef, Token,
-        TypedPlaceholder, asc, desc,
+        ColumnDialect, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param, ParamBind,
+        ParamSet, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, Token, TypedPlaceholder,
+        asc, desc,
     };
 
     /// Conversion trait for SQL generation.
@@ -236,9 +237,7 @@ pub mod sqlite {
         // SQLite types
         pub use drizzle_sqlite::attrs::*;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
-        pub use drizzle_sqlite::traits::{
-            SQLiteColumn, SQLiteColumnInfo, SQLiteTable, SQLiteTableInfo,
-        };
+        pub use drizzle_sqlite::traits::{SQLiteColumn, SQLiteTable};
         pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteUpdateValue, SQLiteValue};
     }
 }
@@ -290,9 +289,7 @@ pub mod postgres {
         // PostgreSQL types
         pub use drizzle_postgres::attrs::*;
         pub use drizzle_postgres::common::PostgresSchemaType;
-        pub use drizzle_postgres::traits::{
-            PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo,
-        };
+        pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
         pub use drizzle_postgres::values::{
             PostgresInsertValue, PostgresUpdateValue, PostgresValue,
         };

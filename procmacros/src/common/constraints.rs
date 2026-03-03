@@ -3,6 +3,9 @@
 //! These functions generate primary key, unique, foreign key, constraint capability,
 //! and relation impls. They are generic over `ConstraintFieldInfo` and `ForeignKeyRef`
 //! traits that each dialect implements for its own `FieldInfo` / FK reference types.
+//!
+//! Constraint names are derived at compile time via `concatcp!` using the table's
+//! `SQLSchema::NAME` const, ensuring a single source of truth for naming.
 
 use crate::paths::core as core_paths;
 use heck::ToUpperCamelCase;
@@ -10,6 +13,19 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use std::collections::HashMap;
 use syn::Result;
+
+/// Dialect-specific type tokens needed for const fn column/table name resolution.
+///
+/// Enables constraints to derive names at compile time using `concatcp!` and
+/// `SQLSchema::NAME` instead of baking string literals at macro expansion time.
+pub(crate) struct DialectTypes {
+    /// The `SQLSchema` trait path (e.g., `drizzle::core::SQLSchema`)
+    pub sql_schema: TokenStream,
+    /// The schema type marker (e.g., `drizzle::sqlite::common::SQLiteSchemaType`)
+    pub schema_type: TokenStream,
+    /// The value type (e.g., `drizzle::sqlite::values::SQLiteValue`)
+    pub value_type: TokenStream,
+}
 
 // =============================================================================
 // Trait abstractions
@@ -40,21 +56,69 @@ pub(crate) trait CompositeForeignKeyRef {
 }
 
 // =============================================================================
+// Compile-time name helpers
+// =============================================================================
+
+/// Generate a `concatcp!` expression that produces a table name reference at compile time.
+/// Returns tokens for `<Table as SQLSchema<'_, SchemaType, Value<'_>>>::NAME`.
+fn table_name_const(struct_ident: &Ident, dt: &DialectTypes) -> TokenStream {
+    let sql_schema = &dt.sql_schema;
+    let schema_type = &dt.schema_type;
+    let value_type = &dt.value_type;
+    quote! { <#struct_ident as #sql_schema<'_, #schema_type, #value_type<'_>>>::NAME }
+}
+
+/// Generate a const fn block that resolves a column ZST's name at compile time.
+/// Returns tokens for `{ const fn col_name<...>(...) -> &str { C::NAME } col_name(&Table::new().field) }`.
+fn column_name_const(table_ident: &Ident, field_ident: &Ident, dt: &DialectTypes) -> TokenStream {
+    let sql_schema = &dt.sql_schema;
+    let value_type = &dt.value_type;
+    quote! {
+        {
+            const fn __col_name<'a, C: #sql_schema<'a, &'static str, #value_type<'a>>>(_: &C) -> &'a str {
+                C::NAME
+            }
+            __col_name(&#table_ident::new().#field_ident)
+        }
+    }
+}
+
+/// Generate a `concatcp!` expression for a constraint name like `{table_name}_{suffix}`.
+fn constraint_name_concatcp(struct_ident: &Ident, suffix: &str, dt: &DialectTypes) -> TokenStream {
+    let table_name = table_name_const(struct_ident, dt);
+    quote! {
+        ::drizzle::const_format::concatcp!(#table_name, #suffix)
+    }
+}
+
+/// Generate a `concatcp!` expression for a constraint name like `{table_name}_{col_name}_{suffix}`.
+fn constraint_name_with_col_concatcp(
+    struct_ident: &Ident,
+    field_ident: &Ident,
+    suffix: &str,
+    dt: &DialectTypes,
+) -> TokenStream {
+    let table_name = table_name_const(struct_ident, dt);
+    let col_name = column_name_const(struct_ident, field_ident, dt);
+    quote! {
+        ::drizzle::const_format::concatcp!(#table_name, "_", #col_name, #suffix)
+    }
+}
+
+// =============================================================================
 // Shared constraint generation functions
 // =============================================================================
 
 pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
     field_infos: &[F],
-    table_name: &str,
+    _table_name: &str,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    sql_table_info: &TokenStream,
+    _sql_table_info: &TokenStream,
+    dt: &DialectTypes,
 ) -> (TokenStream, TokenStream, TokenStream, Option<Ident>) {
-    let sql_primary_key_info = core_paths::sql_primary_key_info();
     let sql_primary_key = core_paths::sql_primary_key();
-    let sql_constraint_info = core_paths::sql_constraint_info();
     let sql_constraint = core_paths::sql_constraint();
-    let sql_constraint_kind = core_paths::sql_constraint_kind();
     let primary_key_kind = core_paths::primary_key_kind();
     let columns_belong_to = core_paths::columns_belong_to();
     let non_empty_col_set = core_paths::non_empty_col_set();
@@ -76,14 +140,6 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
     }
 
     let pk_zst_ident = format_ident!("__Pk_{}", struct_ident);
-    let pk_static_name = format_ident!(
-        "__PK_STATIC_{}",
-        struct_ident.to_string().to_ascii_uppercase()
-    );
-    let pk_column_names: Vec<String> = pk_fields
-        .iter()
-        .map(|field| field.column_name().to_owned())
-        .collect();
     let pk_col_zst_idents: Vec<Ident> = pk_fields
         .iter()
         .map(|field| {
@@ -91,8 +147,7 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
             format_ident!("{}{}", struct_ident, pascal)
         })
         .collect();
-    let pk_len = pk_column_names.len();
-    let pk_name = format!("{}_pk", table_name);
+    let _pk_name = constraint_name_concatcp(struct_ident, "_pk", dt);
     let pk_col_tuple = quote! { (#(#pk_col_zst_idents,)*) };
 
     let column_not_null = core_paths::column_not_null();
@@ -135,46 +190,9 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
             assert_pk();
         };
 
-        impl #sql_primary_key_info for #pk_zst_ident {
-            fn table(&self) -> &'static dyn #sql_table_info {
-                #[allow(non_upper_case_globals)]
-                static TABLE: #struct_ident = #struct_ident::new();
-                &TABLE
-            }
-
-            fn columns(&self) -> &'static [&'static str] {
-                static PK_COLUMNS: [&str; #pk_len] = [#(#pk_column_names),*];
-                &PK_COLUMNS
-            }
-        }
-
         impl #sql_primary_key for #pk_zst_ident {
             type Table = #struct_ident;
             type Columns = (#(#pk_col_zst_idents,)*);
-        }
-
-        impl #sql_constraint_info for #pk_zst_ident {
-            fn table(&self) -> &'static dyn #sql_table_info {
-                <Self as #sql_primary_key_info>::table(self)
-            }
-
-            fn name(&self) -> Option<&'static str> {
-                Some(#pk_name)
-            }
-
-            fn kind(&self) -> #sql_constraint_kind {
-                #sql_constraint_kind::PrimaryKey
-            }
-
-            fn columns(&self) -> &'static [&'static str] {
-                <Self as #sql_primary_key_info>::columns(self)
-            }
-
-            fn primary_key(&self) -> Option<&'static dyn #sql_primary_key_info> {
-                #[allow(non_upper_case_globals)]
-                static PK: #pk_zst_ident = #pk_zst_ident;
-                Some(&PK as &'static dyn #sql_primary_key_info)
-            }
         }
 
         impl #sql_constraint for #pk_zst_ident {
@@ -184,11 +202,8 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
         }
     };
 
-    let pk_meta = quote! {
-        #[allow(non_upper_case_globals)]
-        static #pk_static_name: #pk_zst_ident = #pk_zst_ident;
-        ::std::option::Option::Some(&#pk_static_name as &'static dyn #sql_primary_key_info)
-    };
+    // pk_meta is no longer used for dyn dispatch but we keep it for the return type
+    let pk_meta = quote! { ::std::option::Option::None };
 
     (
         pk_impl,
@@ -200,14 +215,13 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
 
 pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
     field_infos: &[F],
-    table_name: &str,
+    _table_name: &str,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    sql_table_info: &TokenStream,
+    _sql_table_info: &TokenStream,
+    _dt: &DialectTypes,
 ) -> (TokenStream, Vec<Ident>) {
-    let sql_constraint_info = core_paths::sql_constraint_info();
     let sql_constraint = core_paths::sql_constraint();
-    let sql_constraint_kind = core_paths::sql_constraint_kind();
     let unique_kind = core_paths::unique_kind();
     let columns_belong_to = core_paths::columns_belong_to();
     let non_empty_col_set = core_paths::non_empty_col_set();
@@ -223,8 +237,6 @@ pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
         let field_pascal = field.ident().to_string().to_upper_camel_case();
         let uq_ident = format_ident!("__Unique_{}_{}", struct_ident, field_pascal);
         let col_ident = format_ident!("{}{}", struct_ident, field_pascal);
-        let constraint_name = format!("{}_{}_unique", table_name, field.column_name());
-        let col_name = field.column_name().to_owned();
 
         impls.push(quote! {
             #[doc(hidden)]
@@ -245,26 +257,6 @@ pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
                 assert_unique();
             };
 
-            impl #sql_constraint_info for #uq_ident {
-                fn table(&self) -> &'static dyn #sql_table_info {
-                    #[allow(non_upper_case_globals)]
-                    static TABLE: #struct_ident = #struct_ident::new();
-                    &TABLE
-                }
-
-                fn name(&self) -> Option<&'static str> {
-                    Some(#constraint_name)
-                }
-
-                fn kind(&self) -> #sql_constraint_kind {
-                    #sql_constraint_kind::Unique
-                }
-
-                fn columns(&self) -> &'static [&'static str] {
-                    &[#col_name]
-                }
-            }
-
             impl #sql_constraint for #uq_ident {
                 type Table = #struct_ident;
                 type Kind = #unique_kind;
@@ -278,20 +270,19 @@ pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
     (quote! { #(#impls)* }, idents)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     field_infos: &[F],
     composite_fks: &[C],
-    table_name: &str,
+    _table_name: &str,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    sql_table_info: &TokenStream,
-    sql_column_info: &TokenStream,
+    _sql_table_info: &TokenStream,
+    _sql_column_info: &TokenStream,
+    _dt: &DialectTypes,
 ) -> Result<(TokenStream, TokenStream, TokenStream, Vec<Ident>)> {
-    let sql_foreign_key_info = core_paths::sql_foreign_key_info();
     let sql_foreign_key = core_paths::sql_foreign_key();
-    let sql_constraint_info = core_paths::sql_constraint_info();
     let sql_constraint = core_paths::sql_constraint();
-    let sql_constraint_kind = core_paths::sql_constraint_kind();
     let foreign_key_kind = core_paths::foreign_key_kind();
     let columns_belong_to = core_paths::columns_belong_to();
     let non_empty_col_set = core_paths::non_empty_col_set();
@@ -301,29 +292,20 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
 
     let mut fk_impls = Vec::new();
     let mut fk_zst_idents = Vec::new();
-    let mut fk_static_names = Vec::new();
 
-    for (idx, field) in field_infos.iter().enumerate() {
+    for field in field_infos.iter() {
         let Some(fk) = field.foreign_key() else {
             continue;
         };
 
         let source_col_pascal = field.ident().to_string().to_upper_camel_case();
         let fk_zst_ident = format_ident!("__Fk_{}_{}", struct_ident, source_col_pascal);
-        let fk_static_name = format_ident!(
-            "__FK_STATIC_{}_{}",
-            struct_ident.to_string().to_ascii_uppercase(),
-            idx
-        );
 
-        let source_column = field.column_name().to_owned();
         let ref_table_ident = fk.ref_table();
         let source_col_zst_ident = format_ident!("{}{}", struct_ident, source_col_pascal);
         let ref_column_ident = fk.ref_column();
         let ref_column_pascal = ref_column_ident.to_string().to_upper_camel_case();
         let ref_column_zst_ident = format_ident!("{}{}", ref_table_ident, ref_column_pascal);
-
-        let constraint_name = format!("{}_{}_fk", table_name, source_column);
 
         let field_span = field.ident().span();
         let type_match_assert = quote_spanned! {field_span=>
@@ -363,61 +345,11 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
 
             #type_match_assert
 
-            impl #sql_foreign_key_info for #fk_zst_ident {
-                fn source_table(&self) -> &'static dyn #sql_table_info {
-                    #[allow(non_upper_case_globals)]
-                    static SOURCE_TABLE: #struct_ident = #struct_ident::new();
-                    &SOURCE_TABLE
-                }
-
-                fn target_table(&self) -> &'static dyn #sql_table_info {
-                    #[allow(non_upper_case_globals)]
-                    static TARGET_TABLE: #ref_table_ident = #ref_table_ident::new();
-                    &TARGET_TABLE
-                }
-
-                fn source_columns(&self) -> &'static [&'static str] {
-                    &[#source_column]
-                }
-
-                fn target_columns(&self) -> &'static [&'static str] {
-                    #[allow(non_upper_case_globals)]
-                    static REF_COLUMN: #ref_column_zst_ident = #ref_column_zst_ident::new();
-                    static REF_COLUMNS: ::std::sync::LazyLock<[&'static str; 1]> =
-                        ::std::sync::LazyLock::new(|| [#sql_column_info::name(&REF_COLUMN)]);
-                    &*REF_COLUMNS
-                }
-            }
-
             impl #sql_foreign_key for #fk_zst_ident {
                 type SourceTable = #struct_ident;
                 type TargetTable = #ref_table_ident;
                 type SourceColumns = (#source_col_zst_ident,);
                 type TargetColumns = (#ref_column_zst_ident,);
-            }
-
-            impl #sql_constraint_info for #fk_zst_ident {
-                fn table(&self) -> &'static dyn #sql_table_info {
-                    <Self as #sql_foreign_key_info>::source_table(self)
-                }
-
-                fn name(&self) -> Option<&'static str> {
-                    Some(#constraint_name)
-                }
-
-                fn kind(&self) -> #sql_constraint_kind {
-                    #sql_constraint_kind::ForeignKey
-                }
-
-                fn columns(&self) -> &'static [&'static str] {
-                    <Self as #sql_foreign_key_info>::source_columns(self)
-                }
-
-                fn foreign_key(&self) -> Option<&'static dyn #sql_foreign_key_info> {
-                    #[allow(non_upper_case_globals)]
-                    static FK: #fk_zst_ident = #fk_zst_ident;
-                    Some(&FK as &'static dyn #sql_foreign_key_info)
-                }
             }
 
             impl #sql_constraint for #fk_zst_ident {
@@ -428,37 +360,12 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
         });
 
         fk_zst_idents.push(fk_zst_ident);
-        fk_static_names.push(fk_static_name);
     }
 
     for (idx, fk) in composite_fks.iter().enumerate() {
         let fk_zst_ident = format_ident!("__FkComposite_{}_{}", struct_ident, idx);
-        let fk_static_name = format_ident!(
-            "__FK_COMPOSITE_STATIC_{}_{}",
-            struct_ident.to_string().to_ascii_uppercase(),
-            idx
-        );
 
         let ref_table_ident = fk.target_table();
-        let source_column_names: Vec<String> = fk
-            .source_columns()
-            .iter()
-            .map(|src| {
-                field_infos
-                    .iter()
-                    .find(|f| f.ident() == src)
-                    .map(|f| f.column_name().to_owned())
-                    .ok_or_else(|| {
-                        syn::Error::new(
-                            src.span(),
-                            format!(
-                                "composite foreign key references field `{}` which does not exist on `{}`",
-                                src, struct_ident
-                            ),
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>>>()?;
 
         let source_col_zst_idents: Vec<Ident> = fk
             .source_columns()
@@ -488,10 +395,6 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
             }
         });
 
-        let source_len = source_column_names.len();
-        let target_len = target_col_zst_idents.len();
-
-        let constraint_name = format!("{}_composite_fk_{}", table_name, idx);
         let src_tuple = quote! { (#(#source_col_zst_idents,)*) };
         let dst_tuple = quote! { (#(#target_col_zst_idents,)*) };
 
@@ -523,62 +426,11 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
             #(#source_checks)*
             #(#target_checks)*
 
-            impl #sql_foreign_key_info for #fk_zst_ident {
-                fn source_table(&self) -> &'static dyn #sql_table_info {
-                    #[allow(non_upper_case_globals)]
-                    static SOURCE_TABLE: #struct_ident = #struct_ident::new();
-                    &SOURCE_TABLE
-                }
-
-                fn target_table(&self) -> &'static dyn #sql_table_info {
-                    #[allow(non_upper_case_globals)]
-                    static TARGET_TABLE: #ref_table_ident = #ref_table_ident::new();
-                    &TARGET_TABLE
-                }
-
-                fn source_columns(&self) -> &'static [&'static str] {
-                    static SRC_COLUMNS: [&str; #source_len] = [#(#source_column_names),*];
-                    &SRC_COLUMNS
-                }
-
-                fn target_columns(&self) -> &'static [&'static str] {
-                    #(#[allow(non_upper_case_globals)] static #target_col_zst_idents: #target_col_zst_idents = #target_col_zst_idents::new();)*
-                    #[allow(non_upper_case_globals)]
-                    static REF_COLUMNS: ::std::sync::LazyLock<[&'static str; #target_len]> =
-                        ::std::sync::LazyLock::new(|| [#(#sql_column_info::name(&#target_col_zst_idents)),*]);
-                    &*REF_COLUMNS
-                }
-            }
-
             impl #sql_foreign_key for #fk_zst_ident {
                 type SourceTable = #struct_ident;
                 type TargetTable = #ref_table_ident;
                 type SourceColumns = (#(#source_col_zst_idents,)*);
                 type TargetColumns = (#(#target_col_zst_idents,)*);
-            }
-
-            impl #sql_constraint_info for #fk_zst_ident {
-                fn table(&self) -> &'static dyn #sql_table_info {
-                    <Self as #sql_foreign_key_info>::source_table(self)
-                }
-
-                fn name(&self) -> Option<&'static str> {
-                    Some(#constraint_name)
-                }
-
-                fn kind(&self) -> #sql_constraint_kind {
-                    #sql_constraint_kind::ForeignKey
-                }
-
-                fn columns(&self) -> &'static [&'static str] {
-                    <Self as #sql_foreign_key_info>::source_columns(self)
-                }
-
-                fn foreign_key(&self) -> Option<&'static dyn #sql_foreign_key_info> {
-                    #[allow(non_upper_case_globals)]
-                    static FK: #fk_zst_ident = #fk_zst_ident;
-                    Some(&FK as &'static dyn #sql_foreign_key_info)
-                }
             }
 
             impl #sql_constraint for #fk_zst_ident {
@@ -589,21 +441,10 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
         });
 
         fk_zst_idents.push(fk_zst_ident);
-        fk_static_names.push(fk_static_name);
     }
 
-    let fk_len = fk_zst_idents.len();
-    let fk_list = if fk_len == 0 {
-        quote! { &[] }
-    } else {
-        quote! {
-            #(#[allow(non_upper_case_globals)] static #fk_static_names: #fk_zst_idents = #fk_zst_idents;)*
-            #[allow(non_upper_case_globals)]
-            static FOREIGN_KEYS: [&'static dyn #sql_foreign_key_info; #fk_len] =
-                [#(&#fk_static_names,)*];
-            &FOREIGN_KEYS
-        }
-    };
+    // fk_list is no longer used for dyn dispatch
+    let fk_list = quote! { &[] };
 
     let fk_types = if fk_zst_idents.is_empty() {
         quote! { () }
@@ -616,10 +457,11 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
 
 pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     field_infos: &[F],
-    table_name: &str,
+    _table_name: &str,
     struct_ident: &Ident,
     has_composite_fks: bool,
     has_check_constraints: bool,
+    dt: &DialectTypes,
 ) -> TokenStream {
     let has_primary_key = core_paths::has_primary_key();
     let has_constraint = core_paths::has_constraint();
@@ -704,7 +546,8 @@ pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
         let col_zst = format_ident!("{}{}", struct_ident, col_pascal);
         let uq_zst = format_ident!("__Unique_{}_{}", struct_ident, col_pascal);
         let col_name = field.column_name();
-        let constraint_name = format!("{}_{}_unique", table_name, field.column_name());
+        let constraint_name =
+            constraint_name_with_col_concatcp(struct_ident, field.ident(), "_unique", dt);
 
         tokens.extend(quote! {
             impl #conflict_target<#struct_ident> for #col_zst {

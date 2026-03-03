@@ -1,13 +1,11 @@
 use drizzle_core::traits::SQLViewInfo;
-use drizzle_core::{SQLIndexInfo, SQLSchemaType};
-
-use crate::traits::SQLiteTableInfo;
+use drizzle_core::{SQLIndexInfo, SQLSchemaType, TableRef};
 
 /// The type of database object
 #[derive(Debug, Clone)]
 pub enum SQLiteSchemaType {
     /// A regular table
-    Table(&'static dyn SQLiteTableInfo),
+    Table(&'static TableRef),
     /// A view
     View(&'static dyn SQLViewInfo),
     /// An index

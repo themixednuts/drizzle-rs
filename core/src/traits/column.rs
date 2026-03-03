@@ -12,10 +12,6 @@ pub trait SQLColumnInfo: Any + Send + Sync {
     fn has_default(&self) -> bool;
 
     fn table(&self) -> &'static dyn SQLTableInfo;
-    /// Returns the foreign key reference if this column has one.
-    fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
-        None
-    }
 }
 
 /// Column trait tying expression lifetimes to parameter values via `'a`.
@@ -83,10 +79,6 @@ impl<T: SQLColumnInfo> SQLColumnInfo for &'static T {
 
     fn table(&self) -> &'static dyn SQLTableInfo {
         (*self).table()
-    }
-
-    fn foreign_key(&self) -> Option<&'static dyn SQLColumnInfo> {
-        (*self).foreign_key()
     }
 }
 
