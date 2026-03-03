@@ -51,9 +51,16 @@ where
     value.into_sql().parens_if_subquery()
 }
 
-/// Operand accepted by comparison helpers.
+/// Type-safe operand for comparison functions.
 ///
-/// Enforces `Expected: Compatible<Rhs::SQLType>` for any expression-like operand.
+/// This trait exists as an indirection layer between comparison functions
+/// (`eq`, `gt`, `like`, etc.) and the `Expr` trait. Rather than accepting
+/// any `Expr` directly, comparisons require `ComparisonOperand<'a, V, Expected>`
+/// where `Expected` is the left-hand side's SQL type.
+///
+/// The blanket impl below only fires when `Expected: Compatible<R::SQLType>`,
+/// so passing an incompatible type (e.g. comparing `Int` with `Text`) fails
+/// at compile time with a clear diagnostic.
 pub trait ComparisonOperand<'a, V, Expected>: ToSQL<'a, V>
 where
     V: SQLParam + 'a,

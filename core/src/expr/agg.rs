@@ -86,6 +86,24 @@ impl CountPolicy for PostgresDialect {
     type Count = drizzle_types::postgres::types::Int8;
 }
 
+#[diagnostic::on_unimplemented(
+    message = "no floating-point return type defined for this dialect",
+    label = "PERCENT_RANK/CUME_DIST result type is not configured for this dialect marker"
+)]
+pub trait FloatPolicy {
+    /// The floating-point type returned by distribution window functions
+    /// like PERCENT_RANK and CUME_DIST (Real on SQLite, Float8 on PostgreSQL).
+    type Float: crate::types::DataType;
+}
+
+impl FloatPolicy for SQLiteDialect {
+    type Float = drizzle_types::sqlite::types::Real;
+}
+
+impl FloatPolicy for PostgresDialect {
+    type Float = drizzle_types::postgres::types::Float8;
+}
+
 impl AggregatePolicy<SQLiteDialect> for SqliteInteger {
     type Sum = SqliteInteger;
     type Avg = SqliteReal;

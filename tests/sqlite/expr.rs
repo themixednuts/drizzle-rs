@@ -1579,3 +1579,76 @@ sqlite_test!(test_window_dense_rank, SimpleSchema, {
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].rnk, 3);
 });
+
+#[derive(Debug, SQLiteFromRow)]
+struct PercentRankResult {
+    name: String,
+    pct: f64,
+}
+
+sqlite_test!(test_window_percent_rank, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let results: Vec<PercentRankResult> = drizzle_exec!(
+        db.select((
+            simple.name,
+            alias(
+                percent_rank().over(window().order_by(asc(simple.id))),
+                "pct",
+            ),
+        ))
+        .from(simple)
+            => all
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alice");
+    assert!((results[0].pct - 0.0).abs() < f64::EPSILON); // first row → 0.0
+    assert!((results[1].pct - 0.5).abs() < f64::EPSILON); // (2-1)/(3-1) = 0.5
+    assert!((results[2].pct - 1.0).abs() < f64::EPSILON); // (3-1)/(3-1) = 1.0
+});
+
+#[derive(Debug, SQLiteFromRow)]
+struct CumeDistResult {
+    name: String,
+    cd: f64,
+}
+
+sqlite_test!(test_window_cume_dist, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let results: Vec<CumeDistResult> = drizzle_exec!(
+        db.select((
+            simple.name,
+            alias(
+                cume_dist().over(window().order_by(asc(simple.id))),
+                "cd",
+            ),
+        ))
+        .from(simple)
+            => all
+    );
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alice");
+    // CUME_DIST = rows_with_value_leq / total_rows
+    assert!((results[0].cd - 1.0 / 3.0).abs() < f64::EPSILON); // 1/3
+    assert!((results[1].cd - 2.0 / 3.0).abs() < f64::EPSILON); // 2/3
+    assert!((results[2].cd - 1.0).abs() < f64::EPSILON); // 3/3
+});
