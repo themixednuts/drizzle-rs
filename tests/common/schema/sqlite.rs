@@ -53,6 +53,10 @@ pub struct Complex {
     pub data_blob: Option<Vec<u8>>,
 
     pub created_at: Option<String>,
+
+    // Self-referential FK for query API testing
+    #[column(REFERENCES = Complex::id)]
+    pub invited_by: Option<Uuid>,
 }
 
 #[cfg(all(feature = "uuid", feature = "serde"))]
@@ -83,6 +87,10 @@ pub struct Complex {
     pub data_blob: Option<Vec<u8>>,
 
     pub created_at: Option<String>,
+
+    // Self-referential FK for query API testing
+    #[column(REFERENCES = Complex::id)]
+    pub invited_by: Option<Uuid>,
 }
 #[cfg(all(not(feature = "uuid"), feature = "serde"))]
 #[SQLiteTable]
@@ -112,6 +120,10 @@ pub struct Complex {
     pub data_blob: Option<Vec<u8>>,
 
     pub created_at: Option<String>,
+
+    // Self-referential FK for query API testing
+    #[column(REFERENCES = Complex::id)]
+    pub invited_by: Option<i64>,
 }
 
 #[cfg(all(not(feature = "uuid"), not(feature = "serde")))]
@@ -134,6 +146,10 @@ pub struct Complex {
     pub data_blob: Option<Vec<u8>>,
 
     pub created_at: Option<String>,
+
+    // Self-referential FK for query API testing
+    #[column(REFERENCES = Complex::id)]
+    pub invited_by: Option<i64>,
 }
 
 #[cfg(not(feature = "uuid"))]
@@ -210,6 +226,15 @@ pub struct Comment {
     pub post_id: Uuid,
 }
 
+#[SQLiteTable(NAME = "replies")]
+pub struct Reply {
+    #[column(PRIMARY)]
+    pub id: i32,
+    pub text: String,
+    #[column(REFERENCES = Comment::id)]
+    pub comment_id: i32,
+}
+
 #[derive(SQLiteSchema)]
 pub struct SimpleComplexSchema {
     pub simple: Simple,
@@ -259,4 +284,5 @@ pub struct FullBlogSchema {
     pub category: Category,
     pub post_category: PostCategory,
     pub comment: Comment,
+    pub reply: Reply,
 }
