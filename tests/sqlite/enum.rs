@@ -59,7 +59,7 @@ fn test_enum() {
 #[test]
 fn test_table_generation() {
     // Just test that the table compiles and has the expected structure
-    let table = UserAccount::new();
+    let _table = UserAccount::new();
 
     // Test that we can create insert and update models
     let insert_model = InsertUserAccount::new("test", UserRole::Member, AccountStatus::Suspended);
@@ -70,8 +70,8 @@ fn test_table_generation() {
     let _update_with_status = update_model.with_status(AccountStatus::Suspended);
 
     // Basic smoke test - if this compiles, the From implementations were generated correctly
-    let columns = table.columns();
-    assert!(!columns.is_empty());
+    let table_ref = &<UserAccount as drizzle::core::DrizzleTable>::TABLE_REF;
+    assert!(!table_ref.columns.is_empty());
 }
 
 // Enum types work directly in FromRow for all drivers (rusqlite, libsql, turso)

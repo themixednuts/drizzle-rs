@@ -50,32 +50,6 @@ pub fn generate_sql_column(
     )
 }
 
-pub fn generate_sqlite_column_info(
-    ident: &Ident,
-    is_autoincrement: TokenStream,
-    table: TokenStream,
-    foreign_key: TokenStream,
-) -> TokenStream {
-    let sqlite_column_info = sqlite_paths::sqlite_column_info();
-    let sqlite_table_info = sqlite_paths::sqlite_table_info();
-
-    quote! {
-        impl #sqlite_column_info for #ident {
-            fn is_autoincrement(&self) -> bool {
-                #is_autoincrement
-            }
-
-            fn table(&self) -> &'static dyn #sqlite_table_info {
-                #table
-            }
-
-            fn foreign_key(&self) -> ::std::option::Option<&'static dyn #sqlite_column_info> {
-                #foreign_key
-            }
-        }
-    }
-}
-
 /// Generate SQLite SQLiteColumn trait implementation
 pub fn generate_sqlite_column(struct_ident: &Ident, is_autoincrement: TokenStream) -> TokenStream {
     let sqlite_column = sqlite_paths::sqlite_column();
@@ -83,42 +57,6 @@ pub fn generate_sqlite_column(struct_ident: &Ident, is_autoincrement: TokenStrea
     quote! {
         impl<'a> #sqlite_column<'a> for #struct_ident {
             const AUTOINCREMENT: bool = #is_autoincrement;
-        }
-    }
-}
-
-/// Generate SQLite SQLiteTableInfo trait implementation
-pub fn generate_sqlite_table_info(
-    struct_ident: &Ident,
-    r#type: TokenStream,
-    strict: TokenStream,
-    without_rowid: TokenStream,
-    columns: TokenStream,
-    dependencies: TokenStream,
-) -> TokenStream {
-    let sqlite_table_info = sqlite_paths::sqlite_table_info();
-    let sqlite_column_info = sqlite_paths::sqlite_column_info();
-    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-
-    quote! {
-        impl #sqlite_table_info for #struct_ident {
-            fn r#type(&self) -> &#sqlite_schema_type {
-                #r#type
-            }
-
-            fn strict(&self) -> bool {
-                #strict
-            }
-            fn without_rowid(&self) -> bool {
-                #without_rowid
-            }
-            fn sqlite_columns(&self) -> &'static [&'static dyn #sqlite_column_info] {
-                #columns
-            }
-
-            fn sqlite_dependencies(&self) -> &'static [&'static dyn #sqlite_table_info] {
-                #dependencies
-            }
         }
     }
 }

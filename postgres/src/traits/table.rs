@@ -1,32 +1,6 @@
-use drizzle_core::{SQLTable, SQLTableInfo};
+use drizzle_core::SQLTable;
 
-use super::PostgresColumnInfo;
 use crate::common::PostgresSchemaType;
 use crate::values::PostgresValue;
 
-pub trait PostgresTable<'a>:
-    SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> + PostgresTableInfo
-{
-}
-
-pub trait PostgresTableInfo: SQLTableInfo {
-    fn r#type(&self) -> &PostgresSchemaType;
-    fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo];
-
-    /// Returns all tables this table depends on via foreign keys.
-    fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo];
-}
-
-impl core::fmt::Debug for dyn PostgresTableInfo {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("PostgresTableInfo")
-            .field("name", &self.name())
-            .field("type", &self.r#type())
-            .field("columns", &PostgresTableInfo::postgres_columns(self))
-            .field(
-                "dependencies",
-                &PostgresTableInfo::postgres_dependencies(self),
-            )
-            .finish()
-    }
-}
+pub trait PostgresTable<'a>: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> {}

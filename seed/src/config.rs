@@ -3,8 +3,7 @@
 use crate::generator::{Generator, GeneratorKind};
 #[cfg(any(feature = "sqlite", feature = "postgres"))]
 use drizzle_core::{Relation, SQLColumn, SQLColumnInfo};
-use drizzle_core::{SQLSchemaImpl, SQLTableInfo, SchemaHasTable};
-use std::any::TypeId;
+use drizzle_core::{SQLSchemaImpl, SQLTableInfo, SchemaHasTable, TableRef};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -16,8 +15,6 @@ use drizzle_sqlite::traits::SQLiteColumn;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::traits::SQLiteTable;
 #[cfg(feature = "sqlite")]
-use drizzle_sqlite::traits::SQLiteTableInfo;
-#[cfg(feature = "sqlite")]
 use drizzle_sqlite::values::SQLiteValue;
 
 #[cfg(feature = "postgres")]
@@ -27,16 +24,14 @@ use drizzle_postgres::traits::PostgresColumn;
 #[cfg(feature = "postgres")]
 use drizzle_postgres::traits::PostgresTable;
 #[cfg(feature = "postgres")]
-use drizzle_postgres::traits::PostgresTableInfo;
-#[cfg(feature = "postgres")]
 use drizzle_postgres::values::PostgresValue;
 
 /// Configuration for seeding a schema.
 pub struct SeedConfig<'a, D, S> {
     /// Source schema.
     pub(crate) schema: &'a S,
-    /// Explicitly skipped tables (by concrete table type).
-    pub(crate) skipped_tables: HashSet<TypeId>,
+    /// Explicitly skipped tables (by table name).
+    pub(crate) skipped_tables: HashSet<&'static str>,
     /// User-provided seed for deterministic RNG.
     pub(crate) seed: u64,
     /// Default number of rows per table if not overridden.
@@ -103,24 +98,24 @@ impl<'a, D, S> SeedConfig<'a, D, S>
 where
     S: SQLSchemaImpl,
 {
-    pub(crate) fn active_tables(&self) -> Vec<&'static dyn SQLTableInfo> {
+    pub(crate) fn active_tables(&self) -> Vec<&'static TableRef> {
         self.schema
-            .tables()
+            .table_refs()
             .iter()
             .copied()
-            .filter(|t| !self.skipped_tables.contains(&t.type_id()))
+            .filter(|t| !self.skipped_tables.contains(t.name))
             .collect()
     }
 }
 
 impl<'a, D, S> SeedConfig<'a, D, S> {
     /// Skip a table from seeding.
-    pub fn skip<T>(mut self, _table: &T) -> Self
+    pub fn skip<T>(mut self, table: &T) -> Self
     where
         T: SQLTableInfo,
         S: SchemaHasTable<T>,
     {
-        self.skipped_tables.insert(TypeId::of::<T>());
+        self.skipped_tables.insert(table.name());
         self
     }
 }
@@ -144,7 +139,7 @@ where
     /// Set the row count for a specific table.
     pub fn count<T>(mut self, table: &T, count: usize) -> Self
     where
-        T: SQLiteTableInfo,
+        T: SQLTableInfo,
         S: SchemaHasTable<T>,
     {
         self.table_counts.insert(table.name().to_string(), count);
@@ -154,8 +149,8 @@ where
     /// Set how many child rows to generate per parent row for a relation.
     pub fn relation<P, C>(mut self, parent: &P, child: &C, count: usize) -> Self
     where
-        P: SQLiteTableInfo + SQLiteTable<'static>,
-        C: SQLiteTableInfo + SQLiteTable<'static> + Relation<P>,
+        P: SQLTableInfo + SQLiteTable<'static>,
+        C: SQLTableInfo + SQLiteTable<'static> + Relation<P>,
         S: SchemaHasTable<P> + SchemaHasTable<C>,
     {
         self.relation_counts
@@ -210,7 +205,7 @@ where
     /// Set the row count for a specific table.
     pub fn count<T>(mut self, table: &T, count: usize) -> Self
     where
-        T: PostgresTableInfo,
+        T: SQLTableInfo,
         S: SchemaHasTable<T>,
     {
         self.table_counts.insert(table.name().to_string(), count);
@@ -220,8 +215,8 @@ where
     /// Set how many child rows to generate per parent row for a relation.
     pub fn relation<P, C>(mut self, parent: &P, child: &C, count: usize) -> Self
     where
-        P: PostgresTableInfo + PostgresTable<'static>,
-        C: PostgresTableInfo + PostgresTable<'static> + Relation<P>,
+        P: SQLTableInfo + PostgresTable<'static>,
+        C: SQLTableInfo + PostgresTable<'static> + Relation<P>,
         S: SchemaHasTable<P> + SchemaHasTable<C>,
     {
         self.relation_counts

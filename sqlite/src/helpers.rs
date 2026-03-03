@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
-use crate::traits::{SQLiteTable, SQLiteTableInfo};
+use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use drizzle_core::{
-    SQL, Token, helpers as core_helpers,
-    traits::{SQLColumnInfo, SQLModel, ToSQL},
+    ColumnRef, SQL, Token, helpers as core_helpers,
+    traits::{SQLModel, ToSQL},
 };
 
 // Re-export core helpers with SQLiteValue type for convenience
@@ -18,19 +18,19 @@ pub use drizzle_core::Join;
 
 drizzle_core::impl_join_arg_trait!(
     table_trait: SQLiteTable<'a>,
-    table_info_trait: SQLiteTableInfo,
+    table_info_trait: drizzle_core::SQLTableInfo,
     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
     value_type: SQLiteValue<'a>,
 );
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, SQLiteValue<'a>> {
+fn columns_info_to_sql<'a>(columns: &[ColumnRef]) -> SQL<'a, SQLiteValue<'a>> {
     let mut sql = SQL::with_capacity_chunks(columns.len().saturating_mul(2));
     for (idx, col) in columns.iter().enumerate() {
         if idx > 0 {
             sql.push_mut(Token::COMMA);
         }
-        sql.append_mut(SQL::ident(col.name()));
+        sql.append_mut(SQL::ident(col.name));
     }
     sql
 }

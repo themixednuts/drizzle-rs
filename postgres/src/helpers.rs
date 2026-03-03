@@ -1,11 +1,8 @@
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
-use crate::traits::{PostgresTable, PostgresTableInfo};
+use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use drizzle_core::{
-    SQL, ToSQL, Token, helpers,
-    traits::{SQLColumnInfo, SQLModel},
-};
+use drizzle_core::{ColumnRef, SQL, SQLTableInfo, ToSQL, Token, helpers, traits::SQLModel};
 
 // Re-export core helpers with PostgresValue type for convenience
 pub(crate) use helpers::{
@@ -18,19 +15,19 @@ pub use drizzle_core::Join;
 
 drizzle_core::impl_join_arg_trait!(
     table_trait: PostgresTable<'a>,
-    table_info_trait: PostgresTableInfo,
+    table_info_trait: SQLTableInfo,
     condition_trait: ToSQL<'a, PostgresValue<'a>>,
     value_type: PostgresValue<'a>,
 );
 
 /// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a>(columns: &[&'static dyn SQLColumnInfo]) -> SQL<'a, PostgresValue<'a>> {
+fn columns_info_to_sql<'a>(columns: &[ColumnRef]) -> SQL<'a, PostgresValue<'a>> {
     let mut sql = SQL::with_capacity_chunks(columns.len().saturating_mul(2));
     for (idx, col) in columns.iter().enumerate() {
         if idx > 0 {
             sql.push_mut(Token::COMMA);
         }
-        sql.append_mut(SQL::ident(col.name()));
+        sql.append_mut(SQL::ident(col.name));
     }
     sql
 }

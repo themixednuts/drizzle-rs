@@ -27,12 +27,6 @@ pub(crate) trait GeneratorPaths {
 
     /// Returns the path to the dialect's table trait
     fn table_trait() -> TokenStream;
-
-    /// Returns the path to the dialect's column info trait
-    fn column_info_trait() -> TokenStream;
-
-    /// Returns the path to the dialect's table info trait
-    fn table_info_trait() -> TokenStream;
 }
 
 /// Type alias for dialect selection
@@ -64,14 +58,6 @@ mod sqlite_impl {
 
         fn table_trait() -> TokenStream {
             crate::paths::sqlite::sqlite_table()
-        }
-
-        fn column_info_trait() -> TokenStream {
-            crate::paths::sqlite::sqlite_column_info()
-        }
-
-        fn table_info_trait() -> TokenStream {
-            crate::paths::sqlite::sqlite_table_info()
         }
     }
 
@@ -107,14 +93,6 @@ mod postgres_impl {
 
         fn table_trait() -> TokenStream {
             crate::paths::postgres::postgres_table()
-        }
-
-        fn column_info_trait() -> TokenStream {
-            crate::paths::postgres::postgres_column_info()
-        }
-
-        fn table_info_trait() -> TokenStream {
-            crate::paths::postgres::postgres_table_info()
         }
     }
 

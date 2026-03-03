@@ -1,8 +1,5 @@
 use crate::prelude::*;
-use crate::{
-    SQL, SQLColumnInfo, SQLConstraintInfo, SQLForeignKeyInfo, SQLParam, SQLPrimaryKeyInfo,
-    SQLSchema, SQLSchemaType, ToSQL,
-};
+use crate::{ColumnRef, SQL, SQLParam, SQLSchema, SQLSchemaType, TableRef, ToSQL};
 use core::any::Any;
 use core::marker::PhantomData;
 use core::ops::Deref;
@@ -86,7 +83,7 @@ impl<T, Name: Tag> Deref for Tagged<T, Name> {
 pub trait SQLModel<'a, V: SQLParam>: ToSQL<'a, V> {
     /// Columns referenced by this model.
     /// Static models can return a borrowed slice; dynamic models can allocate.
-    fn columns(&self) -> Cow<'static, [&'static dyn SQLColumnInfo]>;
+    fn columns(&self) -> Cow<'static, [ColumnRef]>;
     fn values(&self) -> SQL<'a, V>;
 }
 
@@ -135,8 +132,8 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
 /// Compile-time table metadata.
 ///
 /// Provides table name, schema, columns, keys, and constraints as associated
-/// constants and static methods. Implementing this trait automatically provides
-/// [`SQLTableInfo`] via a blanket implementation.
+/// constants. Implementing this trait automatically provides [`SQLTableInfo`]
+/// via a blanket implementation.
 pub trait DrizzleTable: Send + Sync + 'static {
     /// Unqualified table name.
     const NAME: &'static str;
@@ -150,28 +147,8 @@ pub trait DrizzleTable: Send + Sync + 'static {
     /// Names of tables this table depends on via foreign keys.
     const DEPENDENCY_NAMES: &'static [&'static str] = &[];
 
-    /// All columns in this table.
-    fn columns_list() -> &'static [&'static dyn SQLColumnInfo];
-
-    /// Primary key, if defined.
-    fn primary_key_info() -> Option<&'static dyn SQLPrimaryKeyInfo> {
-        None
-    }
-
-    /// Foreign key constraints.
-    fn foreign_keys_list() -> &'static [&'static dyn SQLForeignKeyInfo] {
-        &[]
-    }
-
-    /// All constraints (PK, FK, unique, check).
-    fn constraints_list() -> &'static [&'static dyn SQLConstraintInfo] {
-        &[]
-    }
-
-    /// Tables this table depends on via foreign keys.
-    fn dependencies_list() -> &'static [&'static dyn SQLTableInfo] {
-        &[]
-    }
+    /// Full table metadata as a const Copy struct.
+    const TABLE_REF: TableRef;
 }
 
 /// Blanket: any `DrizzleTable` automatically satisfies `SQLTableInfo`.
@@ -186,26 +163,6 @@ impl<T: DrizzleTable> SQLTableInfo for T {
 
     fn qualified_name(&self) -> Cow<'static, str> {
         Cow::Borrowed(T::QUALIFIED_NAME)
-    }
-
-    fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-        T::columns_list()
-    }
-
-    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-        T::primary_key_info()
-    }
-
-    fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
-        T::foreign_keys_list()
-    }
-
-    fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
-        T::constraints_list()
-    }
-
-    fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
-        T::dependencies_list()
     }
 }
 
@@ -229,18 +186,6 @@ pub trait SQLTableInfo: Any + Send + Sync {
             None => Cow::Borrowed(self.name()),
         }
     }
-
-    fn columns(&self) -> &'static [&'static dyn SQLColumnInfo];
-    fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-        None
-    }
-    fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
-        &[]
-    }
-    fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
-        &[]
-    }
-    fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo];
 }
 
 impl core::fmt::Debug for dyn SQLTableInfo {
@@ -248,10 +193,6 @@ impl core::fmt::Debug for dyn SQLTableInfo {
         f.debug_struct("SQLTableInfo")
             .field("name", &self.name())
             .field("schema", &self.schema())
-            .field("qualified_name", &self.qualified_name())
-            .field("columns", &self.columns())
-            .field("primary_key", &self.primary_key().map(|pk| pk.columns()))
-            .field("constraints", &self.constraints().len())
             .finish()
     }
 }

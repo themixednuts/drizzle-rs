@@ -97,46 +97,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 }
             }
 
-            // Implement PostgreSQL-specific column info traits
-            impl PostgresColumnInfo for #aliased_field_type {
-                fn is_serial(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as PostgresColumnInfo>::is_serial(&ORIGINAL_FIELD)
-                }
-
-                fn is_bigserial(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as PostgresColumnInfo>::is_bigserial(&ORIGINAL_FIELD)
-                }
-
-                fn is_generated_identity(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as PostgresColumnInfo>::is_generated_identity(&ORIGINAL_FIELD)
-                }
-
-                fn is_identity_always(&self) -> bool {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as PostgresColumnInfo>::is_identity_always(&ORIGINAL_FIELD)
-                }
-
-                fn postgres_type(&self) -> &'static str {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as PostgresColumnInfo>::postgres_type(&ORIGINAL_FIELD)
-                }
-
-                fn table(&self) -> &'static dyn PostgresTableInfo {
-                    // Column info requires a static table reference, so runtime alias names are
-                    // intentionally not reflected here.
-                    static ORIGINAL_TABLE: #table_name = #table_name::new();
-                    &ORIGINAL_TABLE
-                }
-
-                fn foreign_key(&self) -> Option<&'static dyn PostgresColumnInfo> {
-                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
-                    <#original_field_type as PostgresColumnInfo>::foreign_key(&ORIGINAL_FIELD)
-                }
-            }
-
             // Implement SQLColumn trait for aliased field
             impl<'a> SQLColumn<'a, PostgresValue<'a>> for #aliased_field_type {
                 type Table = #aliased_table_name;
@@ -231,15 +191,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
         })
         .collect();
-    let tagged_postgres_column_refs: Vec<TokenStream> = aliased_fields
-        .iter()
-        .map(|(field_name, _)| {
-            quote! {
-                &(#tagged_alias_meta_name::<Tag>::#field_name) as &'static dyn PostgresColumnInfo
-            }
-        })
-        .collect();
-
     Ok(quote! {
 
         // Generate all aliased field type definitions
@@ -306,10 +257,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             const SQL_COLUMNS: &'static [&'static dyn SQLColumnInfo] = &[
                 #(#tagged_sql_column_refs,)*
             ];
-
-            const POSTGRES_COLUMNS: &'static [&'static dyn PostgresColumnInfo] = &[
-                #(#tagged_postgres_column_refs,)*
-            ];
         }
 
         // Implement table traits for the aliased table
@@ -321,53 +268,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             fn schema(&self) -> ::std::option::Option<&'static str> {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 <#table_name as SQLTableInfo>::schema(&ORIGINAL_TABLE)
-            }
-
-            fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-                // Runtime aliases cannot expose alias-specific static column descriptors because
-                // this trait requires a `'static` slice; we intentionally forward base metadata.
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as SQLTableInfo>::columns(&ORIGINAL_TABLE)
-            }
-
-            fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as SQLTableInfo>::primary_key(&ORIGINAL_TABLE)
-            }
-
-            fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as SQLTableInfo>::foreign_keys(&ORIGINAL_TABLE)
-            }
-
-            fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as SQLTableInfo>::constraints(&ORIGINAL_TABLE)
-            }
-
-            fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as SQLTableInfo>::dependencies(&ORIGINAL_TABLE)
-            }
-        }
-
-        // Implement PostgreSQL-specific table traits for aliased table
-        impl PostgresTableInfo for #aliased_table_name {
-            fn r#type(&self) -> &PostgresSchemaType {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                ORIGINAL_TABLE.r#type()
-            }
-
-            fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
-                // Runtime aliases cannot expose alias-specific static column descriptors because
-                // this trait requires a `'static` slice; we intentionally forward base metadata.
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as PostgresTableInfo>::postgres_columns(&ORIGINAL_TABLE)
-            }
-
-            fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo] {
-                static ORIGINAL_TABLE: #table_name = #table_name::new();
-                <#table_name as PostgresTableInfo>::postgres_dependencies(&ORIGINAL_TABLE)
             }
         }
 
@@ -418,40 +318,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
             fn schema(&self) -> ::std::option::Option<&'static str> {
                 SQLTableInfo::schema(::core::ops::Deref::deref(self))
-            }
-
-            fn columns(&self) -> &'static [&'static dyn SQLColumnInfo] {
-                #tagged_alias_meta_name::<Tag>::SQL_COLUMNS
-            }
-
-            fn primary_key(&self) -> Option<&'static dyn SQLPrimaryKeyInfo> {
-                SQLTableInfo::primary_key(::core::ops::Deref::deref(self))
-            }
-
-            fn foreign_keys(&self) -> &'static [&'static dyn SQLForeignKeyInfo] {
-                SQLTableInfo::foreign_keys(::core::ops::Deref::deref(self))
-            }
-
-            fn constraints(&self) -> &'static [&'static dyn SQLConstraintInfo] {
-                SQLTableInfo::constraints(::core::ops::Deref::deref(self))
-            }
-
-            fn dependencies(&self) -> &'static [&'static dyn SQLTableInfo] {
-                SQLTableInfo::dependencies(::core::ops::Deref::deref(self))
-            }
-        }
-
-        impl<Tag: #alias_tag + 'static> PostgresTableInfo for #alias_type_name<Tag> {
-            fn r#type(&self) -> &PostgresSchemaType {
-                PostgresTableInfo::r#type(::core::ops::Deref::deref(self))
-            }
-
-            fn postgres_columns(&self) -> &'static [&'static dyn PostgresColumnInfo] {
-                #tagged_alias_meta_name::<Tag>::POSTGRES_COLUMNS
-            }
-
-            fn postgres_dependencies(&self) -> &'static [&'static dyn PostgresTableInfo] {
-                PostgresTableInfo::postgres_dependencies(::core::ops::Deref::deref(self))
             }
         }
 

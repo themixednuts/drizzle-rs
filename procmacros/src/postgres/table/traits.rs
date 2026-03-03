@@ -1,4 +1,5 @@
 use super::context::MacroContext;
+use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKeyRefInput};
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
@@ -41,10 +42,7 @@ pub(super) fn generate_table_impls(
 
     // Generate ToSQL body using TableRef
     let to_sql_body = quote! {
-        #sql::table(#table_ref {
-            name: Self::TABLE_NAME,
-            column_names: &[#(#column_names),*],
-        })
+        #sql::table(#table_ref::sql(Self::TABLE_NAME, &[#(#column_names),*]))
     };
 
     // Generate compile-time SQL for const SQL, using concatcp! for FK references
@@ -56,14 +54,17 @@ pub(super) fn generate_table_impls(
         quote! { #table_name },
         quote! {
             {
-                #[allow(non_upper_case_globals)]
-                static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                #postgres_schema_type::Table(&TABLE_INSTANCE)
+                #postgres_schema_type::Table(&<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF)
             }
         },
         sql_const,
     );
-    let (foreign_key_impls, sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
+    let dialect_types = crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: postgres_paths::postgres_schema_type(),
+        value_type: postgres_paths::postgres_value(),
+    };
+    let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
@@ -72,14 +73,16 @@ pub(super) fn generate_table_impls(
             ctx.struct_vis,
             &sql_table_info,
             &sql_column_info,
+            &dialect_types,
         )?;
-    let (primary_key_impls, sql_primary_key, primary_key_type, pk_constraint_ident) =
+    let (primary_key_impls, _sql_primary_key, primary_key_type, pk_constraint_ident) =
         crate::common::constraints::generate_primary_key(
             ctx.field_infos,
             &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
             &sql_table_info,
+            &dialect_types,
         );
     let (unique_constraint_impls, unique_constraint_idents) =
         crate::common::constraints::generate_unique_constraints(
@@ -88,11 +91,11 @@ pub(super) fn generate_table_impls(
             struct_ident,
             ctx.struct_vis,
             &sql_table_info,
+            &dialect_types,
         );
     let (check_constraint_impls, check_constraint_idents) =
         generate_check_constraints(ctx, struct_ident, ctx.struct_vis, &sql_table_info);
 
-    let sql_constraint_info = core_paths::sql_constraint_info();
     let mut constraint_idents = Vec::new();
     if let Some(pk_ident) = pk_constraint_ident {
         constraint_idents.push(pk_ident);
@@ -105,23 +108,6 @@ pub(super) fn generate_table_impls(
         quote! { #no_constraint }
     } else {
         quote! { (#(#constraint_idents,)*) }
-    };
-    let constraint_len = constraint_idents.len();
-    let constraint_static_names: Vec<Ident> = constraint_idents
-        .iter()
-        .enumerate()
-        .map(|(idx, _)| format_ident!("__CONSTRAINT_STATIC_{}_{}", struct_ident, idx))
-        .collect();
-    let sql_constraints = if constraint_idents.is_empty() {
-        quote! { &[] }
-    } else {
-        quote! {
-            #(#[allow(non_upper_case_globals)] static #constraint_static_names: #constraint_idents = #constraint_idents;)*
-            #[allow(non_upper_case_globals)]
-            static CONSTRAINTS: [&'static dyn #sql_constraint_info; #constraint_len] =
-                [#(&#constraint_static_names,)*];
-            &CONSTRAINTS
-        }
     };
 
     let non_empty_marker = core_paths::non_empty_marker();
@@ -157,28 +143,100 @@ pub(super) fn generate_table_impls(
         .iter()
         .map(|dep| quote! { <#dep as drizzle::core::DrizzleTable>::NAME })
         .collect();
-    let dependencies_len = dependencies.len();
+    let _dependencies_len = dependencies.len();
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
     let qualified_name = format!("{}.{}", schema_name, table_name);
-    let dependency_statics: Vec<_> = dependencies
+
+    // Build TABLE_REF const
+    let column_dialect = core_paths::column_dialect();
+    let table_dialect = core_paths::table_dialect();
+    let table_ref_name_expr = quote! {
+        <Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::NAME
+    };
+    let table_ref_qualified_name_expr = quote! { #qualified_name };
+    let table_ref_schema_expr = quote! { ::core::option::Option::Some(#schema_name) };
+    let table_ref_columns: Vec<ColumnRefInput> = ctx
+        .field_infos
         .iter()
-        .enumerate()
-        .map(|(idx, ident)| format_ident!("__DRIZZLE_DEP_{}_{}", idx, ident))
+        .map(|f| {
+            let pg_type = f.column_type.to_sql_type().to_string();
+            let is_serial = f.is_serial
+                && matches!(
+                    f.column_type,
+                    crate::postgres::field::PostgreSQLType::Serial
+                );
+            let is_bigserial = f.is_serial
+                && matches!(
+                    f.column_type,
+                    crate::postgres::field::PostgreSQLType::Bigserial
+                );
+            let is_generated_identity = f.is_generated_identity;
+            let is_identity_always = f
+                .identity_mode
+                .as_ref()
+                .is_some_and(|m| matches!(m, crate::postgres::field::IdentityMode::Always));
+            ColumnRefInput {
+                column_name: f.column_name.clone(),
+                sql_type: f.column_type.to_sql_type().to_string(),
+                not_null: !f.is_nullable,
+                primary_key: f.is_primary,
+                unique: f.is_unique,
+                has_default: f.has_default,
+                dialect: quote! {
+                    #column_dialect::PostgreSQL {
+                        postgres_type: #pg_type,
+                        is_serial: #is_serial,
+                        is_bigserial: #is_bigserial,
+                        is_generated_identity: #is_generated_identity,
+                        is_identity_always: #is_identity_always,
+                    }
+                },
+            }
+        })
         .collect();
-    let sql_dependencies = quote! {
-        #(#[allow(non_upper_case_globals)] static #dependency_statics: #dependencies = #dependencies::new(); )*
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #sql_table_info; #dependencies_len] =
-            [#(&#dependency_statics,)*];
-        &DEPENDENCIES
-    };
-    let postgres_dependencies = quote! {
-        #(#[allow(non_upper_case_globals)] static #dependency_statics: #dependencies = #dependencies::new(); )*
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn PostgresTableInfo; #dependencies_len] =
-            [#(&#dependency_statics,)*];
-        &DEPENDENCIES
-    };
+    let pk_columns: Vec<String> = ctx
+        .field_infos
+        .iter()
+        .filter(|f| f.is_primary)
+        .map(|f| f.column_name.clone())
+        .collect();
+    let mut table_ref_fks: Vec<ForeignKeyRefInput> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|f| {
+            f.foreign_key.as_ref().map(|fk| {
+                let target_table = &fk.table;
+                ForeignKeyRefInput {
+                    source_columns: vec![f.column_name.clone()],
+                    target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
+                    target_columns: vec![fk.column.to_string()],
+                }
+            })
+        })
+        .collect();
+    for cfk in &ctx.attrs.composite_foreign_keys {
+        let target_table = &cfk.target_table;
+        table_ref_fks.push(ForeignKeyRefInput {
+            source_columns: cfk.source_columns.iter().map(|c| c.to_string()).collect(),
+            target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
+            target_columns: cfk.target_columns.iter().map(|c| c.to_string()).collect(),
+        });
+    }
+    let table_ref_constraints: Vec<ConstraintRefInput> = Vec::new(); // TODO: populate if needed
+    let table_ref_dialect = quote! { #table_dialect::PostgreSQL };
+    let dep_names_expr = quote! { &[#(#dependency_name_exprs),*] };
+    let table_ref_const = ref_gen::generate_table_ref_const(
+        &table_ref_name_expr,
+        &table_ref_qualified_name_expr,
+        &table_ref_schema_expr,
+        &column_names,
+        &table_ref_columns,
+        &pk_columns,
+        &table_ref_fks,
+        &table_ref_constraints,
+        &dep_names_expr,
+        &table_ref_dialect,
+    );
 
     let drizzle_table_impl = generate_drizzle_table(DrizzleTableConfig {
         struct_ident,
@@ -188,39 +246,8 @@ pub(super) fn generate_table_impls(
         qualified_name: quote! { #qualified_name },
         schema: quote! { ::std::option::Option::Some(#schema_name) },
         dependency_names: quote! { &[#(#dependency_name_exprs),*] },
-        columns: quote! {
-            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-            #[allow(non_upper_case_globals)]
-            static COLUMNS: [&'static dyn #sql_column_info; #columns_len] =
-                [#(&#column_zst_idents,)*];
-            &COLUMNS
-        },
-        primary_key: quote! {
-            #sql_primary_key
-        },
-        foreign_keys: quote! {
-            #sql_foreign_keys
-        },
-        constraints: quote! {
-            #sql_constraints
-        },
-        dependencies: sql_dependencies,
+        table_ref_const,
     });
-
-    let postgres_table_info_impl = generate_postgres_table_info(
-        struct_ident,
-        quote! {
-            &<Self as SQLSchema<'_, PostgresSchemaType, PostgresValue<'_>>>::TYPE
-        },
-        quote! {
-            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-            #[allow(non_upper_case_globals)]
-            static POSTGRES_COLUMNS: [&'static dyn PostgresColumnInfo; #columns_len] =
-                [#(&#column_zst_idents,)*];
-            &POSTGRES_COLUMNS
-        },
-        postgres_dependencies,
-    );
 
     let postgres_table_impl = generate_postgres_table(struct_ident);
     let to_sql_impl = generate_to_sql(struct_ident, to_sql_body);
@@ -241,6 +268,7 @@ pub(super) fn generate_table_impls(
         ctx.struct_ident,
         !ctx.attrs.composite_foreign_keys.is_empty(),
         has_check,
+        &dialect_types,
     );
 
     let has_select_model = core_paths::has_select_model();
@@ -258,6 +286,9 @@ pub(super) fn generate_table_impls(
         #drizzle_table_impl
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_cons<#struct_ident, #type_set_nil>;
+            const TABLE_REF_CONST: ::core::option::Option<&'static #table_ref> = {
+                ::core::option::Option::Some(&<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF)
+            };
         }
         impl #has_select_model for #struct_ident {
             type SelectModel = #select_model;
@@ -266,7 +297,6 @@ pub(super) fn generate_table_impls(
         impl #into_select_target for #struct_ident {
             type Marker = #select_star;
         }
-        #postgres_table_info_impl
         #postgres_table_impl
         #to_sql_impl
         #relations_impl

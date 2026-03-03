@@ -28,7 +28,7 @@ pub(crate) mod topology;
 pub use config::SeedConfig;
 pub use generator::{Generator, GeneratorKind, RngCore, SeedValue};
 
-use drizzle_core::{SQLColumnInfo, SQLTableInfo};
+use drizzle_core::{ColumnRef, TableRef};
 use rand::rngs::StdRng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -191,7 +191,7 @@ mod statement {
 // ---------------------------------------------------------------------------
 
 struct GeneratedChunk<'a> {
-    table: &'a dyn SQLTableInfo,
+    table: &'a TableRef,
     rows: Vec<Vec<SeedValue>>,
 }
 
@@ -222,26 +222,26 @@ where
     fn generate_chunks(&self, dialect_max_params: usize) -> Vec<GeneratedChunk<'a>> {
         let active_tables = self.config.active_tables();
         let order = topology::seeding_order(&active_tables);
-        let table_map: HashMap<&str, &dyn SQLTableInfo> =
-            active_tables.iter().map(|t| (t.name(), *t)).collect();
+        let table_map: HashMap<&str, &TableRef> =
+            active_tables.iter().map(|t| (t.name, *t)).collect();
 
         let mut generated_values: HashMap<String, Vec<SeedValue>> = HashMap::new();
         let mut generated_counts: HashMap<String, usize> = HashMap::new();
         let mut chunks_out = Vec::new();
 
-        for table_name in &order {
-            let Some(&table) = table_map.get(table_name.as_str()) else {
+        for &table_name in &order {
+            let Some(&table) = table_map.get(table_name) else {
                 continue;
             };
 
-            let columns = table.columns();
+            let columns = table.columns;
             if columns.is_empty() {
                 continue;
             }
 
             let count = self.derived_count_for(table, &generated_counts);
             if count == 0 {
-                generated_counts.insert(table_name.clone(), 0);
+                generated_counts.insert(table_name.to_string(), 0);
                 continue;
             }
 
@@ -249,14 +249,14 @@ where
             let col_index_map: HashMap<&str, usize> = columns
                 .iter()
                 .enumerate()
-                .map(|(idx, col)| (col.name(), idx))
+                .map(|(idx, col)| (col.name, idx))
                 .collect();
             let relation_specs = self.relation_specs_for(table);
 
             let mut all_rows: Vec<Vec<SeedValue>> = Vec::with_capacity(count);
             let mut col_rngs: Vec<StdRng> = columns
                 .iter()
-                .map(|c| rng::column_rng(table_name, c.name(), self.config.seed))
+                .map(|c| rng::column_rng(table_name, c.name, self.config.seed))
                 .collect();
 
             for row_idx in 0..count {
@@ -265,7 +265,7 @@ where
                     let val = generator.generate(
                         &mut col_rngs[col_idx],
                         row_idx,
-                        columns[col_idx].r#type(),
+                        columns[col_idx].sql_type,
                     );
                     row.push(val);
                 }
@@ -285,10 +285,10 @@ where
             for (col_idx, col) in columns.iter().enumerate() {
                 let vals: Vec<SeedValue> =
                     all_rows.iter().map(|row| row[col_idx].clone()).collect();
-                generated_values.insert(format!("{}.{}", table_name, col.name()), vals);
+                generated_values.insert(format!("{}.{}", table_name, col.name), vals);
             }
 
-            generated_counts.insert(table_name.clone(), count);
+            generated_counts.insert(table_name.to_string(), count);
 
             let param_limit = self
                 .config
@@ -309,10 +309,10 @@ where
 
     fn derived_count_for(
         &self,
-        table: &dyn SQLTableInfo,
+        table: &TableRef,
         generated_counts: &HashMap<String, usize>,
     ) -> usize {
-        if let Some(&count) = self.config.table_counts.get(table.name()) {
+        if let Some(&count) = self.config.table_counts.get(table.name) {
             return count;
         }
 
@@ -322,7 +322,7 @@ where
                 let children_per_parent = self
                     .config
                     .relation_counts
-                    .get(&(parent_name.to_string(), table.name().to_string()))
+                    .get(&(parent_name.to_string(), table.name.to_string()))
                     .copied()
                     .unwrap_or(1);
                 let child_count = parent_count.saturating_mul(children_per_parent);
@@ -330,16 +330,16 @@ where
             }
         }
 
-        derived.unwrap_or_else(|| self.config.count_for(table.name()))
+        derived.unwrap_or_else(|| self.config.count_for(table.name))
     }
 
-    fn parent_table_names(table: &dyn SQLTableInfo) -> Vec<&str> {
+    fn parent_table_names(table: &TableRef) -> Vec<&str> {
         let mut seen = HashSet::new();
         let mut parent_names = Vec::new();
 
-        for fk in table.foreign_keys() {
-            let parent = fk.target_table().name();
-            if parent != table.name() && seen.insert(parent) {
+        for fk in table.foreign_keys {
+            let parent = fk.target_table;
+            if parent != table.name && seen.insert(parent) {
                 parent_names.push(parent);
             }
         }
@@ -347,13 +347,13 @@ where
         parent_names
     }
 
-    fn build_generators(&self, table: &dyn SQLTableInfo) -> Vec<Box<dyn Generator>> {
-        let table_name = table.name();
+    fn build_generators(&self, table: &TableRef) -> Vec<Box<dyn Generator>> {
+        let table_name = table.name;
         table
-            .columns()
+            .columns
             .iter()
             .map(|col| {
-                let col_name = col.name();
+                let col_name = col.name;
                 let key = (table_name.to_string(), col_name.to_string());
 
                 if let Some(custom) = self.config.column_generators.get(&key) {
@@ -364,22 +364,22 @@ where
                     return kind.into_generator();
                 }
 
-                if col.has_default() && !col.is_primary_key() {
+                if col.has_default && !col.primary_key {
                     return Box::new(DefaultGen);
                 }
 
-                inference::infer_generator(*col).into_generator()
+                inference::infer_generator(col).into_generator()
             })
             .collect()
     }
 
-    fn relation_specs_for(&self, source_table: &dyn SQLTableInfo) -> Vec<RelationSpec> {
+    fn relation_specs_for(&self, source_table: &TableRef) -> Vec<RelationSpec> {
         source_table
-            .foreign_keys()
+            .foreign_keys
             .iter()
             .map(|fk| {
-                let target = fk.target_table().name().to_string();
-                let source = source_table.name().to_string();
+                let target = fk.target_table.to_string();
+                let source = source_table.name.to_string();
                 let children_per_parent = self
                     .config
                     .relation_counts
@@ -389,16 +389,8 @@ where
 
                 RelationSpec {
                     target_table: target,
-                    fk_columns: fk
-                        .source_columns()
-                        .iter()
-                        .map(|s| (*s).to_string())
-                        .collect(),
-                    ref_columns: fk
-                        .target_columns()
-                        .iter()
-                        .map(|s| (*s).to_string())
-                        .collect(),
+                    fk_columns: fk.source_columns.iter().map(|s| (*s).to_string()).collect(),
+                    ref_columns: fk.target_columns.iter().map(|s| (*s).to_string()).collect(),
                     children_per_parent,
                 }
             })
@@ -532,22 +524,22 @@ fn batch_ranges_by_param_limit(rows: &[Vec<SeedValue>], param_limit: usize) -> V
 // ---------------------------------------------------------------------------
 
 #[cfg(any(feature = "sqlite", feature = "postgres"))]
-fn build_insert_sql<V>(table: &dyn SQLTableInfo, rows: &[Vec<SQL<'static, V>>]) -> OwnedSQL<V>
+fn build_insert_sql<V>(table: &TableRef, rows: &[Vec<SQL<'static, V>>]) -> OwnedSQL<V>
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
 {
-    let columns = table.columns();
+    let columns = table.columns;
 
     let column_idents = SQL::join(
         columns
             .iter()
-            .map(|c| SQL::<'static, V>::ident(c.name().to_string())),
+            .map(|c| SQL::<'static, V>::ident(c.name.to_string())),
         Token::COMMA,
     );
 
     let sql = SQL::<'static, V>::token(Token::INSERT)
         .push(Token::INTO)
-        .append(SQL::<'static, V>::ident(table.name().to_string()))
+        .append(SQL::<'static, V>::ident(table.name.to_string()))
         .append(column_idents.parens())
         .push(Token::VALUES);
 
@@ -599,13 +591,13 @@ fn build_sqlite_statement(chunk: &GeneratedChunk<'_>) -> SQLiteSeedStatement {
 #[cfg(feature = "postgres")]
 fn seed_value_to_postgres_sql(
     value: &SeedValue,
-    col: &dyn drizzle_core::SQLColumnInfo,
+    col: &ColumnRef,
 ) -> SQL<'static, OwnedPostgresValue> {
     match value {
         SeedValue::Default => SQL::token(Token::DEFAULT),
         SeedValue::Null => SQL::param(Cow::Owned(OwnedPostgresValue::Null)),
         SeedValue::Integer(v) => {
-            let ty = normalize_pg_type(col.r#type());
+            let ty = normalize_pg_type(col.sql_type);
             let owned = if ty.contains("SMALLINT") {
                 OwnedPostgresValue::Smallint((*v).clamp(i16::MIN as i64, i16::MAX as i64) as i16)
             } else if ty.contains("INT") || ty.contains("SERIAL") {
@@ -643,14 +635,14 @@ fn normalize_pg_type(sql_type: &str) -> String {
 
 #[cfg(feature = "postgres")]
 fn build_postgres_statement(chunk: &GeneratedChunk<'_>) -> PostgresSeedStatement {
-    let columns = chunk.table.columns();
+    let columns = chunk.table.columns;
     let rows: Vec<Vec<SQL<'static, OwnedPostgresValue>>> = chunk
         .rows
         .iter()
         .map(|row| {
             row.iter()
                 .enumerate()
-                .map(|(idx, value)| seed_value_to_postgres_sql(value, columns[idx]))
+                .map(|(idx, value)| seed_value_to_postgres_sql(value, &columns[idx]))
                 .collect()
         })
         .collect();
@@ -707,7 +699,7 @@ impl Generator for DefaultGen {
 
 impl<C> Generator for &'static C
 where
-    C: SQLColumnInfo,
+    C: drizzle_core::SQLColumnInfo,
 {
     fn generate(
         &self,
@@ -715,7 +707,20 @@ where
         index: usize,
         sql_type: &str,
     ) -> SeedValue {
-        inference::infer_generator(*self)
+        // Create a temporary ColumnRef for inference
+        let col_ref = ColumnRef {
+            table: "",
+            name: self.name(),
+            sql_type: self.r#type(),
+            not_null: false,
+            primary_key: self.is_primary_key(),
+            unique: false,
+            has_default: self.has_default(),
+            dialect: drizzle_core::ColumnDialect::SQLite {
+                autoincrement: false,
+            },
+        };
+        inference::infer_generator(&col_ref)
             .into_generator()
             .generate(rng, index, sql_type)
     }

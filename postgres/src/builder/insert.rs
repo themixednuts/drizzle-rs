@@ -257,7 +257,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
     /// #             pub use drizzle_postgres::attrs::*;
     /// #             pub use drizzle_postgres::common::PostgresSchemaType;
-    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
     /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
     /// #             pub use drizzle_core::*;
     /// #         }
@@ -347,7 +347,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
     /// #             pub use drizzle_postgres::attrs::*;
     /// #             pub use drizzle_postgres::common::PostgresSchemaType;
-    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresColumnInfo, PostgresTable, PostgresTableInfo};
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
     /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
     /// #             pub use drizzle_core::*;
     /// #         }

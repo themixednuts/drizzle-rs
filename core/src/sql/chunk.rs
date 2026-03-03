@@ -1,25 +1,152 @@
+use crate::SQLConstraintKind;
 use crate::prelude::*;
 use crate::{Param, Placeholder, SQLParam, sql::tokens::Token};
 
-/// Lightweight table reference for SQL rendering.
-///
-/// Contains the table name and column names needed for SQL generation
-/// (e.g. SELECT * expansion) without dynamic dispatch.
-#[derive(Clone, Copy, Debug)]
-pub struct TableRef {
-    pub name: &'static str,
-    pub column_names: &'static [&'static str],
+// ==================== Dialect enums ====================
+
+/// Dialect-specific column metadata. Const-compatible enum grouping
+/// fields that only apply to one dialect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColumnDialect {
+    SQLite {
+        autoincrement: bool,
+    },
+    PostgreSQL {
+        postgres_type: &'static str,
+        is_serial: bool,
+        is_bigserial: bool,
+        is_generated_identity: bool,
+        is_identity_always: bool,
+    },
 }
 
-/// Lightweight column reference for SQL rendering.
-///
-/// Contains the table and column names needed for qualified column
-/// references (e.g. `"table"."column"`) without dynamic dispatch.
-#[derive(Clone, Copy, Debug)]
-pub struct ColumnRef {
-    pub table_name: &'static str,
-    pub column_name: &'static str,
+/// Dialect-specific table metadata.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TableDialect {
+    #[default]
+    PostgreSQL,
+    SQLite {
+        without_rowid: bool,
+        strict: bool,
+    },
 }
+
+// ==================== Ref structs ====================
+
+/// Foreign key reference as a const Copy struct.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForeignKeyRef {
+    pub target_table: &'static str,
+    pub source_columns: &'static [&'static str],
+    pub target_columns: &'static [&'static str],
+}
+
+/// Primary key reference as a const Copy struct.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrimaryKeyRef {
+    pub columns: &'static [&'static str],
+}
+
+/// Constraint reference as a const Copy struct.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstraintRef {
+    pub name: Option<&'static str>,
+    pub kind: SQLConstraintKind,
+    pub columns: &'static [&'static str],
+    pub check_expression: Option<&'static str>,
+}
+
+// ==================== Enhanced TableRef and ColumnRef ====================
+
+/// Table reference with full schema metadata.
+///
+/// Carries both the SQL rendering fields (`name`, `column_names`) and
+/// complete schema metadata (columns, keys, constraints). SQL rendering
+/// code only uses `name`/`column_names` and ignores extra fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableRef {
+    // SQL rendering fields
+    pub name: &'static str,
+    pub column_names: &'static [&'static str],
+
+    // Schema metadata
+    pub schema: Option<&'static str>,
+    pub qualified_name: &'static str,
+    pub columns: &'static [ColumnRef],
+    pub primary_key: Option<PrimaryKeyRef>,
+    pub foreign_keys: &'static [ForeignKeyRef],
+    pub constraints: &'static [ConstraintRef],
+    pub dependency_names: &'static [&'static str],
+
+    // Dialect-specific
+    pub dialect: TableDialect,
+}
+
+impl TableRef {
+    /// Creates a lightweight `TableRef` for SQL rendering only.
+    ///
+    /// Only `name` and `column_names` are populated; metadata fields use
+    /// empty defaults. Use a full struct literal for metadata-carrying refs.
+    pub const fn sql(name: &'static str, column_names: &'static [&'static str]) -> Self {
+        Self {
+            name,
+            column_names,
+            schema: None,
+            qualified_name: "",
+            columns: &[],
+            primary_key: None,
+            foreign_keys: &[],
+            constraints: &[],
+            dependency_names: &[],
+            dialect: TableDialect::PostgreSQL,
+        }
+    }
+}
+
+/// Column reference with full schema metadata.
+///
+/// Carries both the SQL rendering fields (`table`, `name`) and
+/// complete column metadata. SQL rendering code only uses the name fields
+/// and ignores extra metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ColumnRef {
+    // SQL rendering fields
+    pub table: &'static str,
+    pub name: &'static str,
+
+    // Schema metadata
+    pub sql_type: &'static str,
+    pub not_null: bool,
+    pub primary_key: bool,
+    pub unique: bool,
+    pub has_default: bool,
+
+    // Dialect-specific
+    pub dialect: ColumnDialect,
+}
+
+impl ColumnRef {
+    /// Creates a lightweight `ColumnRef` for SQL rendering only.
+    ///
+    /// Only `table` and `name` are populated; metadata fields
+    /// use empty defaults. Use a full struct literal for metadata-carrying refs.
+    pub const fn sql(table: &'static str, name: &'static str) -> Self {
+        Self {
+            table,
+            name,
+            sql_type: "",
+            not_null: false,
+            primary_key: false,
+            unique: false,
+            has_default: false,
+            dialect: ColumnDialect::SQLite {
+                autoincrement: false,
+            },
+        }
+    }
+}
+
+// ==================== SQLChunk ====================
 
 /// A SQL chunk represents a part of an SQL statement.
 ///
@@ -28,8 +155,8 @@ pub struct ColumnRef {
 /// - `Ident` - Quoted identifiers ("table_name", "column_name")
 /// - `Raw` - Unquoted raw SQL text (function names, expressions)
 /// - `Param` - Parameter placeholders with values
-/// - `Table` - Table reference via lightweight `TableRef`
-/// - `Column` - Column reference via lightweight `ColumnRef`
+/// - `Table` - Table reference via `TableRef`
+/// - `Column` - Column reference via `ColumnRef`
 #[derive(Clone)]
 pub enum SQLChunk<'a, V: SQLParam> {
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
@@ -166,9 +293,9 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
             }
             SQLChunk::Column(c) => {
                 let _ = buf.write_char('"');
-                let _ = buf.write_str(c.table_name);
+                let _ = buf.write_str(c.table);
                 let _ = buf.write_str("\".\"");
-                let _ = buf.write_str(c.column_name);
+                let _ = buf.write_str(c.name);
                 let _ = buf.write_char('"');
             }
         }
@@ -200,7 +327,7 @@ impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
             SQLChunk::Table(t) => f.debug_tuple("Table").field(&t.name).finish(),
             SQLChunk::Column(c) => f
                 .debug_tuple("Column")
-                .field(&format!("{}.{}", c.table_name, c.column_name))
+                .field(&format!("{}.{}", c.table, c.name))
                 .finish(),
         }
     }

@@ -1,8 +1,8 @@
 use super::context::MacroContext;
 use super::ddl::generate_schema_sql_const;
+use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKeyRefInput};
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::core as core_paths;
-#[allow(unused_imports)]
 use crate::paths::sqlite as sqlite_paths;
 use crate::sqlite::generators::*;
 use proc_macro2::{Ident, TokenStream};
@@ -39,8 +39,6 @@ pub(crate) fn generate_table_impls(
     let table_ref = core_paths::table_ref();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let sqlite_column_info = sqlite_paths::sqlite_column_info();
-    let sqlite_table_info = sqlite_paths::sqlite_table_info();
 
     // Generate compile-time SQL using concatcp! for FK tables, literal for non-FK
     let schema_sql_const = generate_schema_sql_const(ctx);
@@ -49,10 +47,7 @@ pub(crate) fn generate_table_impls(
     let column_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();
 
     let to_sql_body = quote! {
-        #sql::table(#table_ref {
-            name: Self::TABLE_NAME,
-            column_names: &[#(#column_names),*],
-        })
+        #sql::table(#table_ref::sql(Self::TABLE_NAME, &[#(#column_names),*]))
     };
 
     let sql_schema_impl = generate_sql_schema(
@@ -60,14 +55,17 @@ pub(crate) fn generate_table_impls(
         quote! {#table_name},
         quote! {
             {
-                #[allow(non_upper_case_globals)]
-                static TABLE_INSTANCE: #struct_ident = #struct_ident::new();
-                #sqlite_schema_type::Table(&TABLE_INSTANCE)
+                #sqlite_schema_type::Table(&<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF)
             }
         },
         quote! {#schema_sql_const},
     );
-    let (foreign_key_impls, sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
+    let dialect_types = crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: sqlite_paths::sqlite_schema_type(),
+        value_type: sqlite_paths::sqlite_value(),
+    };
+    let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
@@ -76,14 +74,16 @@ pub(crate) fn generate_table_impls(
             ctx.struct_vis,
             &sql_table_info,
             &sql_column_info,
+            &dialect_types,
         )?;
-    let (primary_key_impls, sql_primary_key, primary_key_type, pk_constraint_ident) =
+    let (primary_key_impls, _sql_primary_key, primary_key_type, pk_constraint_ident) =
         crate::common::constraints::generate_primary_key(
             ctx.field_infos,
             &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
             &sql_table_info,
+            &dialect_types,
         );
     let (unique_constraint_impls, unique_constraint_idents) =
         crate::common::constraints::generate_unique_constraints(
@@ -92,9 +92,9 @@ pub(crate) fn generate_table_impls(
             struct_ident,
             ctx.struct_vis,
             &sql_table_info,
+            &dialect_types,
         );
 
-    let sql_constraint_info = core_paths::sql_constraint_info();
     let mut constraint_idents = Vec::new();
     if let Some(pk_ident) = pk_constraint_ident {
         constraint_idents.push(pk_ident);
@@ -106,23 +106,6 @@ pub(crate) fn generate_table_impls(
         quote! { #no_constraint }
     } else {
         quote! { (#(#constraint_idents,)*) }
-    };
-    let constraint_len = constraint_idents.len();
-    let constraint_static_names: Vec<Ident> = constraint_idents
-        .iter()
-        .enumerate()
-        .map(|(idx, _)| format_ident!("__CONSTRAINT_STATIC_{}_{}", struct_ident, idx))
-        .collect();
-    let sql_constraints = if constraint_idents.is_empty() {
-        quote! { &[] }
-    } else {
-        quote! {
-            #(#[allow(non_upper_case_globals)] static #constraint_static_names: #constraint_idents = #constraint_idents;)*
-            #[allow(non_upper_case_globals)]
-            static CONSTRAINTS: [&'static dyn #sql_constraint_info; #constraint_len] =
-                [#(&#constraint_static_names,)*];
-            &CONSTRAINTS
-        }
     };
 
     let alias_type_ident = format_ident!("{}Alias", struct_ident);
@@ -159,26 +142,77 @@ pub(crate) fn generate_table_impls(
         .iter()
         .map(|dep| quote! { <#dep as drizzle::core::DrizzleTable>::NAME })
         .collect();
-    let dependencies_len = dependencies.len();
-    let dependency_statics: Vec<_> = dependencies
+    // Build TABLE_REF const
+    let column_dialect = core_paths::column_dialect();
+    let table_dialect = core_paths::table_dialect();
+    let table_ref_name_expr = quote! {
+        <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME
+    };
+    let table_ref_qualified_name_expr = quote! {
+        <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME
+    };
+    let table_ref_schema_expr = quote! { ::core::option::Option::None };
+    let table_ref_columns: Vec<ColumnRefInput> = ctx
+        .field_infos
         .iter()
-        .enumerate()
-        .map(|(idx, ident)| format_ident!("__DRIZZLE_DEP_{}_{}", idx, ident))
+        .map(|f| {
+            let autoincrement = f.is_autoincrement;
+            ColumnRefInput {
+                column_name: f.column_name.clone(),
+                sql_type: f.column_type.to_sql_type().to_string(),
+                not_null: !f.is_nullable,
+                primary_key: f.is_primary,
+                unique: f.is_unique,
+                has_default: f.has_default,
+                dialect: quote! { #column_dialect::SQLite { autoincrement: #autoincrement } },
+            }
+        })
         .collect();
-    let sql_dependencies = quote! {
-        #(#[allow(non_upper_case_globals)] static #dependency_statics: #dependencies = #dependencies::new(); )*
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #sql_table_info; #dependencies_len] =
-            [#(&#dependency_statics,)*];
-        &DEPENDENCIES
-    };
-    let sqlite_dependencies = quote! {
-        #(#[allow(non_upper_case_globals)] static #dependency_statics: #dependencies = #dependencies::new(); )*
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #sqlite_table_info; #dependencies_len] =
-            [#(&#dependency_statics,)*];
-        &DEPENDENCIES
-    };
+    let pk_columns: Vec<String> = ctx
+        .field_infos
+        .iter()
+        .filter(|f| f.is_primary)
+        .map(|f| f.column_name.clone())
+        .collect();
+    let mut table_ref_fks: Vec<ForeignKeyRefInput> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|f| {
+            f.foreign_key.as_ref().map(|fk| {
+                let target_table = &fk.table_ident;
+                ForeignKeyRefInput {
+                    source_columns: vec![f.column_name.clone()],
+                    target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
+                    target_columns: vec![fk.column_ident.to_string()],
+                }
+            })
+        })
+        .collect();
+    for cfk in &ctx.attrs.composite_foreign_keys {
+        let target_table = &cfk.target_table;
+        table_ref_fks.push(ForeignKeyRefInput {
+            source_columns: cfk.source_columns.iter().map(|c| c.to_string()).collect(),
+            target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
+            target_columns: cfk.target_columns.iter().map(|c| c.to_string()).collect(),
+        });
+    }
+    let table_ref_constraints: Vec<ConstraintRefInput> = Vec::new(); // TODO: populate if needed
+    let table_ref_dialect =
+        quote! { #table_dialect::SQLite { without_rowid: #without_rowid, strict: #strict } };
+    let dep_names_expr = quote! { &[#(#dependency_name_exprs),*] };
+    let table_ref_const = ref_gen::generate_table_ref_const(
+        &table_ref_name_expr,
+        &table_ref_qualified_name_expr,
+        &table_ref_schema_expr,
+        &column_names,
+        &table_ref_columns,
+        &pk_columns,
+        &table_ref_fks,
+        &table_ref_constraints,
+        &dep_names_expr,
+        &table_ref_dialect,
+    );
+
     let drizzle_table_impl = generate_drizzle_table(DrizzleTableConfig {
         struct_ident,
         name: quote! {
@@ -189,40 +223,8 @@ pub(crate) fn generate_table_impls(
         },
         schema: quote! { ::std::option::Option::None },
         dependency_names: quote! { &[#(#dependency_name_exprs),*] },
-        columns: quote! {
-            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-            #[allow(non_upper_case_globals)]
-            static COLUMNS: [&'static dyn #sql_column_info; #columns_len] =
-                [#(&#column_zst_idents,)*];
-            &COLUMNS
-        },
-        primary_key: quote! {
-            #sql_primary_key
-        },
-        foreign_keys: quote! {
-            #sql_foreign_keys
-        },
-        constraints: quote! {
-            #sql_constraints
-        },
-        dependencies: sql_dependencies,
+        table_ref_const,
     });
-    let sqlite_table_info_impl = generate_sqlite_table_info(
-        struct_ident,
-        quote! {
-            &<Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE
-        },
-        quote! {#strict},
-        quote! {#without_rowid},
-        quote! {
-            #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-            #[allow(non_upper_case_globals)]
-            static SQLITE_COLUMNS: [&'static dyn #sqlite_column_info; #columns_len] =
-                [#(&#column_zst_idents,)*];
-            &SQLITE_COLUMNS
-        },
-        sqlite_dependencies,
-    );
     let sqlite_table_impl =
         generate_sqlite_table(struct_ident, quote! {#without_rowid}, quote! {#strict});
     let to_sql_impl = generate_to_sql(struct_ident, to_sql_body);
@@ -239,6 +241,7 @@ pub(crate) fn generate_table_impls(
         ctx.struct_ident,
         !ctx.attrs.composite_foreign_keys.is_empty(),
         false, // SQLite doesn't have CHECK constraints via attributes
+        &dialect_types,
     );
 
     let has_select_model = core_paths::has_select_model();
@@ -255,6 +258,9 @@ pub(crate) fn generate_table_impls(
         #drizzle_table_impl
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_cons<#struct_ident, #type_set_nil>;
+            const TABLE_REF_CONST: ::core::option::Option<&'static #table_ref> = {
+                ::core::option::Option::Some(&<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF)
+            };
         }
         impl #has_select_model for #struct_ident {
             type SelectModel = #select_model;
@@ -263,7 +269,6 @@ pub(crate) fn generate_table_impls(
         impl #into_select_target for #struct_ident {
             type Marker = #select_star;
         }
-        #sqlite_table_info_impl
         #sqlite_table_impl
         #to_sql_impl
         #relations_impl

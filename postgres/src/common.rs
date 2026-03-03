@@ -2,13 +2,11 @@ use drizzle_core::schema::SQLEnumInfo;
 use drizzle_core::traits::SQLViewInfo;
 use drizzle_core::{SQLIndexInfo, SQLSchemaType};
 
-use crate::traits::PostgresTableInfo;
-
 /// The type of database object
 #[derive(Debug, Clone)]
 pub enum PostgresSchemaType {
     /// A regular table
-    Table(&'static dyn PostgresTableInfo),
+    Table(&'static drizzle_core::TableRef),
     /// A view
     View(&'static dyn SQLViewInfo),
     /// An index

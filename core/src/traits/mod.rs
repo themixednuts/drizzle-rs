@@ -1,5 +1,6 @@
 //! Core traits for SQL generation.
 
+use crate::TableRef;
 use crate::prelude::*;
 use core::any::Any;
 
@@ -52,6 +53,9 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
 )]
 pub trait SchemaItemTables {
     type Tables: TypeSet;
+    /// For table items, a reference to the const `TableRef` metadata.
+    /// Non-table items (views, indexes, enums) use the default `None`.
+    const TABLE_REF_CONST: Option<&'static TableRef> = None;
 }
 
 /// Marker trait for schema types (used for type-level discrimination).
@@ -63,6 +67,6 @@ pub trait SQLSchemaType: core::fmt::Debug + Any + Send + Sync {}
 
 /// Trait for schema implementations that can generate CREATE statements.
 pub trait SQLSchemaImpl: Any + Send + Sync {
-    fn tables(&self) -> &'static [&'static dyn crate::traits::table::SQLTableInfo];
+    fn table_refs(&self) -> &'static [&'static TableRef];
     fn create_statements(&self) -> crate::error::Result<impl Iterator<Item = String>>;
 }

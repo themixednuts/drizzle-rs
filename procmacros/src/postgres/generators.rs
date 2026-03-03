@@ -56,33 +56,6 @@ pub fn generate_sql_column(
 // PostgreSQL-Specific Generators
 // =============================================================================
 
-/// Generate PostgresColumnInfo trait implementation
-pub fn generate_postgres_column_info(
-    ident: &Ident,
-    is_serial: TokenStream,
-    table: TokenStream,
-    foreign_key: TokenStream,
-) -> TokenStream {
-    let postgres_column_info = postgres_paths::postgres_column_info();
-    let postgres_table_info = postgres_paths::postgres_table_info();
-
-    quote! {
-        impl #postgres_column_info for #ident {
-            fn is_serial(&self) -> bool {
-                #is_serial
-            }
-
-            fn table(&self) -> &'static dyn #postgres_table_info {
-                #table
-            }
-
-            fn foreign_key(&self) -> ::std::option::Option<&'static dyn #postgres_column_info> {
-                #foreign_key
-            }
-        }
-    }
-}
-
 /// Generate PostgresColumn trait implementation
 pub fn generate_postgres_column(struct_ident: &Ident, is_serial: TokenStream) -> TokenStream {
     let postgres_column = postgres_paths::postgres_column();
@@ -90,34 +63,6 @@ pub fn generate_postgres_column(struct_ident: &Ident, is_serial: TokenStream) ->
     quote! {
         impl<'a> #postgres_column<'a> for #struct_ident {
             const SERIAL: bool = #is_serial;
-        }
-    }
-}
-
-/// Generate PostgresTableInfo trait implementation
-pub fn generate_postgres_table_info(
-    struct_ident: &Ident,
-    r#type: TokenStream,
-    columns: TokenStream,
-    dependencies: TokenStream,
-) -> TokenStream {
-    let postgres_table_info = postgres_paths::postgres_table_info();
-    let postgres_column_info = postgres_paths::postgres_column_info();
-    let postgres_schema_type = postgres_paths::postgres_schema_type();
-
-    quote! {
-        impl #postgres_table_info for #struct_ident {
-            fn r#type(&self) -> &#postgres_schema_type {
-                #r#type
-            }
-
-            fn postgres_columns(&self) -> &'static [&'static dyn #postgres_column_info] {
-                #columns
-            }
-
-            fn postgres_dependencies(&self) -> &'static [&'static dyn #postgres_table_info] {
-                #dependencies
-            }
         }
     }
 }

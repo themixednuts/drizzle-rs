@@ -444,13 +444,8 @@ pub fn generate_enum_impl(name: &Ident, data: &DataEnum) -> syn::Result<TokenStr
             }
 
             fn create_type_sql(&self) -> ::std::string::String {
-                let variants = #sql_enum_info::variants(self);
-                let variants_str = variants
-                    .iter()
-                    .map(|v| ::std::format!("'{}'", v))
-                    .collect::<::std::vec::Vec<_>>()
-                    .join(", ");
-                ::std::format!("CREATE TYPE {} AS ENUM ({})", stringify!(#name), variants_str)
+                // Reuse the compile-time const SQL instead of rebuilding at runtime
+                <#name as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string()
             }
 
             fn variants(&self) -> &'static [&'static str] {

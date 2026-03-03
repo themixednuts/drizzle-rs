@@ -85,8 +85,24 @@ pub mod core {
         quote!(drizzle::core::ColumnRef)
     }
 
-    pub fn sql_foreign_key_info() -> TokenStream {
-        quote!(drizzle::core::SQLForeignKeyInfo)
+    pub fn column_dialect() -> TokenStream {
+        quote!(drizzle::core::ColumnDialect)
+    }
+
+    pub fn table_dialect() -> TokenStream {
+        quote!(drizzle::core::TableDialect)
+    }
+
+    pub fn foreign_key_ref() -> TokenStream {
+        quote!(drizzle::core::ForeignKeyRef)
+    }
+
+    pub fn primary_key_ref() -> TokenStream {
+        quote!(drizzle::core::PrimaryKeyRef)
+    }
+
+    pub fn constraint_ref() -> TokenStream {
+        quote!(drizzle::core::ConstraintRef)
     }
 
     pub fn sql_foreign_key() -> TokenStream {
@@ -95,10 +111,6 @@ pub mod core {
 
     pub fn no_foreign_key() -> TokenStream {
         quote!(drizzle::core::NoForeignKey)
-    }
-
-    pub fn sql_primary_key_info() -> TokenStream {
-        quote!(drizzle::core::SQLPrimaryKeyInfo)
     }
 
     pub fn sql_primary_key() -> TokenStream {
@@ -425,16 +437,8 @@ pub mod sqlite {
         quote!(drizzle::sqlite::traits::SQLiteTable)
     }
 
-    pub fn sqlite_table_info() -> TokenStream {
-        quote!(drizzle::sqlite::traits::SQLiteTableInfo)
-    }
-
     pub fn sqlite_column() -> TokenStream {
         quote!(drizzle::sqlite::traits::SQLiteColumn)
-    }
-
-    pub fn sqlite_column_info() -> TokenStream {
-        quote!(drizzle::sqlite::traits::SQLiteColumnInfo)
     }
 
     pub fn from_sqlite_value() -> TokenStream {
@@ -818,16 +822,8 @@ pub mod postgres {
         quote!(drizzle::postgres::traits::PostgresTable)
     }
 
-    pub fn postgres_table_info() -> TokenStream {
-        quote!(drizzle::postgres::traits::PostgresTableInfo)
-    }
-
     pub fn postgres_column() -> TokenStream {
         quote!(drizzle::postgres::traits::PostgresColumn)
-    }
-
-    pub fn postgres_column_info() -> TokenStream {
-        quote!(drizzle::postgres::traits::PostgresColumnInfo)
     }
 
     pub fn from_postgres_value() -> TokenStream {

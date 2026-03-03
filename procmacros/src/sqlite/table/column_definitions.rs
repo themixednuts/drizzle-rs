@@ -61,7 +61,7 @@ pub(crate) fn generate_column_definitions<'a>(
     let into_select_target = core_paths::into_select_target();
     let select_cols = core_paths::select_cols();
     let column_ref = core_paths::column_ref();
-    let sqlite_column = sqlite_paths::sqlite_column();
+    let _sqlite_column = sqlite_paths::sqlite_column();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
 
@@ -95,8 +95,8 @@ pub(crate) fn generate_column_definitions<'a>(
         // Generate enum implementations using the shared generator
         let enum_impl = super::enum_impls::generate_enum_impls_for_field(info)?;
 
-        // Generate foreign key reference implementation
-        let foreign_key_impl = if let Some(ref fk) = info.foreign_key {
+        // Generate foreign key reference implementation (kept for FK const validation)
+        let _foreign_key_impl = if let Some(ref fk) = info.foreign_key {
             let table_ident = &fk.table_ident;
             let column_ident = &fk.column_ident;
             let column_pascal_case = column_ident.to_string().to_upper_camel_case();
@@ -128,21 +128,11 @@ pub(crate) fn generate_column_definitions<'a>(
             },
         );
 
-        let sqlite_column_info_impl = generate_sqlite_column_info(
-            &zst_ident,
-            quote! {<Self as #sqlite_column<'_>>::AUTOINCREMENT},
-            quote! {
-                static TABLE: #struct_ident = #struct_ident::new();
-                &TABLE
-            },
-            quote! {#foreign_key_impl},
-        );
-
         let to_sql_body = quote! {
-            #sql::column(#column_ref {
-                table_name: <#struct_ident as drizzle::core::DrizzleTable>::NAME,
-                column_name: #name,
-            })
+            #sql::column(#column_ref::sql(
+                <#struct_ident as drizzle::core::DrizzleTable>::NAME,
+                #name,
+            ))
         };
 
         let into_sqlite_value_impl = quote! {
@@ -179,9 +169,6 @@ pub(crate) fn generate_column_definitions<'a>(
             },
             quote! {
                 #has_default
-            },
-            quote! {
-                #foreign_key_impl
             },
             quote! {
                 static TABLE: #struct_ident = #struct_ident::new();
@@ -280,7 +267,6 @@ pub(crate) fn generate_column_definitions<'a>(
 
             #sql_schema_field_impl
             #sql_column_info_impl
-            #sqlite_column_info_impl
             #sql_column_impl
             #sqlite_column_impl
             #column_membership_impl
