@@ -31,7 +31,7 @@ pub const POSTGRES_MIN_SUPPORTED_VERSION: u32 = 5;
 pub const MYSQL_MIN_SUPPORTED_VERSION: u32 = 5;
 
 /// Get the current snapshot version for a dialect
-pub fn snapshot_version(dialect: Dialect) -> &'static str {
+pub const fn snapshot_version(dialect: Dialect) -> &'static str {
     match dialect {
         Dialect::SQLite => SQLITE_SNAPSHOT_VERSION,
         Dialect::PostgreSQL => POSTGRES_SNAPSHOT_VERSION,
@@ -40,8 +40,21 @@ pub fn snapshot_version(dialect: Dialect) -> &'static str {
 }
 
 /// Check if a snapshot version is the latest for a given dialect
-pub fn is_latest_version(dialect: Dialect, version: &str) -> bool {
-    version == snapshot_version(dialect)
+pub const fn is_latest_version(dialect: Dialect, version: &str) -> bool {
+    // Use const-compatible byte comparison since str::eq is not const
+    let a = version.as_bytes();
+    let b = snapshot_version(dialect).as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 /// Check if a snapshot version is supported for a given dialect.
