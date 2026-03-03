@@ -40,14 +40,16 @@ where
             DrizzleError::Other(format!("missing JSON column at index {}", *col).into())
         })?;
         *col += 1;
-        let data = Data::from_value(val)?;
+        let data = Data::from_value(val)
+            .map_err(|e| DrizzleError::Other(format!("relation '{}': {e}", Rel::NAME).into()))?;
         let rest = Rest::from_values(values, col)?;
         Ok(RelEntry::new(data, rest))
     }
 
     fn from_parent_json(parent: &serde_json::Value) -> Result<Self, DrizzleError> {
         let nested_val = parent.get(Rel::NAME).unwrap_or(&serde_json::Value::Null);
-        let data = Data::from_value(nested_val)?;
+        let data = Data::from_value(nested_val)
+            .map_err(|e| DrizzleError::Other(format!("relation '{}': {e}", Rel::NAME).into()))?;
         let rest = Rest::from_parent_json(parent)?;
         Ok(RelEntry::new(data, rest))
     }
