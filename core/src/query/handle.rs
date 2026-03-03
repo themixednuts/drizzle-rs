@@ -165,6 +165,14 @@ impl<V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
             _marker: PhantomData,
         }
     }
+
+    /// Sugar for `.limit(1)`. Limits the relation subquery to at most one row.
+    ///
+    /// The result is still `Vec<T>` — call `Vec::first()` on the result to
+    /// get `Option<&T>`.
+    pub fn first(self) -> RelationHandle<V, R, Nested, Cols, Clauses<W, Ord, HasLimit>> {
+        self.limit(1)
+    }
 }
 
 /// OFFSET requires LIMIT to have been set first.
