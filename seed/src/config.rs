@@ -37,13 +37,13 @@ pub struct SeedConfig<'a, D, S> {
     /// Default number of rows per table if not overridden.
     pub(crate) default_count: usize,
     /// Per-table row count overrides.
-    pub(crate) table_counts: HashMap<String, usize>,
+    pub(crate) table_counts: HashMap<&'static str, usize>,
     /// Per-column generator overrides.
-    pub(crate) column_generators: HashMap<(String, String), Arc<dyn Generator>>,
+    pub(crate) column_generators: HashMap<(&'static str, &'static str), Arc<dyn Generator>>,
     /// Per-column generator kind overrides.
-    pub(crate) column_kinds: HashMap<(String, String), GeneratorKind>,
+    pub(crate) column_kinds: HashMap<(&'static str, &'static str), GeneratorKind>,
     /// Relation cardinality overrides. Key: (parent_table, child_table).
-    pub(crate) relation_counts: HashMap<(String, String), usize>,
+    pub(crate) relation_counts: HashMap<(&'static str, &'static str), usize>,
     /// Optional override for maximum parameters per INSERT statement batch.
     pub(crate) max_params_per_batch: Option<usize>,
     _dialect: PhantomData<D>,
@@ -142,7 +142,7 @@ where
         T: SQLTableInfo,
         S: SchemaHasTable<T>,
     {
-        self.table_counts.insert(table.name().to_string(), count);
+        self.table_counts.insert(table.name(), count);
         self
     }
 
@@ -154,7 +154,7 @@ where
         S: SchemaHasTable<P> + SchemaHasTable<C>,
     {
         self.relation_counts
-            .insert((parent.name().to_string(), child.name().to_string()), count);
+            .insert((parent.name(), child.name()), count);
         self
     }
 
@@ -164,7 +164,7 @@ where
         C: SQLColumnInfo + SQLiteColumn<'static>,
         S: SchemaHasTable<<C as SQLColumn<'static, SQLiteValue<'static>>>::Table>,
     {
-        let key = (column.table().name().to_string(), column.name().to_string());
+        let key = (column.table().name(), column.name());
         self.column_kinds.insert(key, kind);
         self
     }
@@ -175,7 +175,7 @@ where
         C: SQLColumnInfo + SQLiteColumn<'static>,
         S: SchemaHasTable<<C as SQLColumn<'static, SQLiteValue<'static>>>::Table>,
     {
-        let key = (column.table().name().to_string(), column.name().to_string());
+        let key = (column.table().name(), column.name());
         self.column_generators.insert(key, Arc::new(g));
         self
     }
@@ -208,7 +208,7 @@ where
         T: SQLTableInfo,
         S: SchemaHasTable<T>,
     {
-        self.table_counts.insert(table.name().to_string(), count);
+        self.table_counts.insert(table.name(), count);
         self
     }
 
@@ -220,7 +220,7 @@ where
         S: SchemaHasTable<P> + SchemaHasTable<C>,
     {
         self.relation_counts
-            .insert((parent.name().to_string(), child.name().to_string()), count);
+            .insert((parent.name(), child.name()), count);
         self
     }
 
@@ -230,7 +230,7 @@ where
         C: SQLColumnInfo + PostgresColumn<'static>,
         S: SchemaHasTable<<C as SQLColumn<'static, PostgresValue<'static>>>::Table>,
     {
-        let key = (column.table().name().to_string(), column.name().to_string());
+        let key = (column.table().name(), column.name());
         self.column_kinds.insert(key, kind);
         self
     }
@@ -241,7 +241,7 @@ where
         C: SQLColumnInfo + PostgresColumn<'static>,
         S: SchemaHasTable<<C as SQLColumn<'static, PostgresValue<'static>>>::Table>,
     {
-        let key = (column.table().name().to_string(), column.name().to_string());
+        let key = (column.table().name(), column.name());
         self.column_generators.insert(key, Arc::new(g));
         self
     }

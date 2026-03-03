@@ -85,7 +85,7 @@ pub fn seeding_order<'a>(tables: &[&'a TableRef]) -> Vec<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use drizzle_core::{ColumnDialect, ForeignKeyRef, TableDialect};
+    use drizzle_core::{ForeignKeyRef, TableDialect};
 
     const fn test_table(name: &'static str, foreign_keys: &'static [ForeignKeyRef]) -> TableRef {
         TableRef {
