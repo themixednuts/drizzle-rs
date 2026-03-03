@@ -1108,7 +1108,7 @@ sqlite_test!(query_columns_whitelist, ComplexPostQuerySchema, {
     // Select only id and name (omitting invited_by)
     let users = drizzle_exec!(
         db.query(complex)
-            .columns(complex.select_columns().id().name())
+            .columns(complex.columns().id().name())
             .find_many()
     );
 
@@ -1136,7 +1136,7 @@ sqlite_test!(query_omit_blacklist, ComplexPostQuerySchema, {
     // Omit invited_by — should still return id and name
     let users = drizzle_exec!(
         db.query(complex)
-            .omit(complex.select_columns().invited_by())
+            .omit(complex.columns().invited_by())
             .find_many()
     );
 
@@ -1172,7 +1172,7 @@ sqlite_test!(query_columns_with_relations, ComplexPostQuerySchema, {
     // Partial columns on base, full relations
     let users = drizzle_exec!(
         db.query(complex)
-            .columns(complex.select_columns().id().name())
+            .columns(complex.columns().id().name())
             .with(complex.posts())
             .find_many()
     );
@@ -1210,7 +1210,7 @@ sqlite_test!(query_relation_columns, ComplexPostQuerySchema, {
     // Full base, partial columns on relation
     let users = drizzle_exec!(
         db.query(complex)
-            .with(complex.posts().columns(post.select_columns().id().title()))
+            .with(complex.posts().columns(post.columns().id().title()))
             .find_many()
     );
 
@@ -1237,7 +1237,7 @@ sqlite_test!(query_columns_find_first, ComplexPostQuerySchema, {
 
     let user = drizzle_exec!(
         db.query(complex)
-            .columns(complex.select_columns().name())
+            .columns(complex.columns().name())
             .find_first()
     );
 

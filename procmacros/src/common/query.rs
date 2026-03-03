@@ -625,11 +625,11 @@ fn generate_column_selector(
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
         #vis trait #accessor_trait_ident {
-            fn select_columns(&self) -> #selector_ident;
+            fn columns(&self) -> #selector_ident;
         }
 
         impl #accessor_trait_ident for #struct_ident {
-            fn select_columns(&self) -> #selector_ident {
+            fn columns(&self) -> #selector_ident {
                 #selector_ident { selected: ::std::vec::Vec::new() }
             }
         }
