@@ -13,12 +13,9 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let sql_schema_impl = core_paths::sql_schema_impl();
     let validate_schema_item_foreign_keys = core_paths::validate_schema_item_foreign_keys();
     let sql_table_info = core_paths::sql_table_info();
-    let _sql_column_info = core_paths::sql_column_info();
     let sql_index_info = core_paths::sql_index_info();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
-    let postgres_table_info = postgres_paths::postgres_table_info();
-    let _postgres_column_info = postgres_paths::postgres_column_info();
 
     // Extract fields from the struct
     let fields = match &input.data {
@@ -98,7 +95,7 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
     let mig_pg_enum = mig_paths::postgres::enum_type();
     let mig_pg_view = mig_paths::postgres::view();
 
-    let schema_tables_method = generate_schema_tables_method(&all_fields);
+    let schema_table_refs_method = generate_schema_table_refs_method(&all_fields);
     let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &all_fields);
     let schema_fk_validation_asserts = generate_schema_fk_validation_asserts(
         &all_fields,
@@ -140,8 +137,8 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
 
         // Implement SQLSchemaImpl trait
         impl #sql_schema_impl for #struct_name {
-            fn tables(&self) -> &'static [&'static dyn #sql_table_info] {
-                #schema_tables_method
+            fn table_refs(&self) -> &'static [&'static drizzle::core::TableRef] {
+                #schema_table_refs_method
             }
 
             fn create_statements(&self) -> ::std::result::Result<impl ::std::iter::Iterator<Item = ::std::string::String>, drizzle::error::DrizzleError> {
@@ -189,28 +186,38 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                 // Iterate through all schema fields and add DDL entities
                 #(
                     match <#field_types_for_snapshot as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
-                        #postgres_schema_type::Table(table_info) => {
-                            // Add table entity
-                            let table_name = #sql_table_info::name(table_info);
-                            let table_schema = #sql_table_info::schema(table_info).unwrap_or("public");
+                        #postgres_schema_type::Table(_table_info) => {
+                            // Use const TABLE_REF for column metadata instead of dyn traits
+                            let table_ref = <#field_types_for_snapshot as drizzle::core::SchemaItemTables>::TABLE_REF_CONST
+                                .expect("table must have TABLE_REF_CONST");
+                            let table_name = table_ref.name;
+                            let table_schema = table_ref.schema.unwrap_or("public");
                             // Add schema entity if not already added
                             if seen_schemas.insert(table_schema) {
                                 snapshot.add_entity(MigEntity::Schema(MigSchema::new(table_schema)));
                             }
                             snapshot.add_entity(MigEntity::Table(MigTable::new(table_schema, table_name)));
 
-                            // Add column entities using PostgresTableInfo::postgres_columns
-                            for col in #postgres_table_info::postgres_columns(table_info) {
-                                // col is &dyn PostgresColumnInfo which extends SQLColumnInfo
-                                // Use method syntax since trait object vtable includes supertrait methods
+                            // Add column entities from TABLE_REF
+                            for col in table_ref.columns {
+                                let (pg_type, is_generated_identity, is_identity_always) = match col.dialect {
+                                    drizzle::core::ColumnDialect::PostgreSQL {
+                                        postgres_type,
+                                        is_generated_identity,
+                                        is_identity_always,
+                                        ..
+                                    } => (postgres_type, is_generated_identity, is_identity_always),
+                                    _ => (col.sql_type, false, false),
+                                };
+
                                 let mut column = MigColumn::new(
                                     table_schema,
                                     table_name,
-                                    col.name(),
-                                    col.postgres_type(),
+                                    col.name,
+                                    pg_type,
                                 );
 
-                                if col.is_not_null() {
+                                if col.not_null {
                                     column = column.not_null();
                                 }
 
@@ -218,9 +225,9 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                 // the SERIAL pseudo-type which implies its own sequence
                                 // via DEFAULT nextval(...); combining it with GENERATED
                                 // AS IDENTITY is invalid in PostgreSQL).
-                                if col.is_generated_identity() {
-                                    let seq_name = ::std::format!("{}_{}_seq", table_name, col.name());
-                                    let identity = if col.is_identity_always() {
+                                if is_generated_identity {
+                                    let seq_name = ::std::format!("{}_{}_seq", table_name, col.name);
+                                    let identity = if is_identity_always {
                                         MigIdentity::always(seq_name)
                                     } else {
                                         MigIdentity::by_default(seq_name)
@@ -231,33 +238,33 @@ pub fn generate_postgres_schema_derive_impl(input: DeriveInput) -> Result<TokenS
                                 snapshot.add_entity(MigEntity::Column(column));
 
                                 // Add primary key entity if this is a primary key column
-                                if col.is_primary_key() {
+                                if col.primary_key {
                                     snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
                                         table_schema.to_string(),
                                         table_name.to_string(),
                                         ::std::format!("{}_pkey", table_name),
-                                        ::std::vec![col.name().to_string()],
+                                        ::std::vec![col.name.to_string()],
                                     )));
                                 }
 
                                 // Add unique constraint entity if this column is unique
-                                if col.is_unique() {
+                                if col.unique {
                                     snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
                                         table_schema.to_string(),
                                         table_name.to_string(),
-                                        ::std::format!("{}_{}_key", table_name, col.name()),
-                                        ::std::vec![col.name().to_string()],
+                                        ::std::format!("{}_{}_key", table_name, col.name),
+                                        ::std::vec![col.name.to_string()],
                                     )));
                                 }
                             }
                         }
                         #postgres_schema_type::Index(index_info) => {
                             // Add index entity
-                            let table = #sql_index_info::table(index_info);
-                            let table_schema = #sql_table_info::schema(table).unwrap_or("public");
+                            let table_ref = #sql_index_info::table(index_info);
+                            let table_schema = table_ref.schema.unwrap_or("public");
                             let mut index = MigIndex::new(
                                 table_schema,
-                                #sql_table_info::name(table),
+                                table_ref.name,
                                 #sql_index_info::name(index_info),
                                 #sql_index_info::columns(index_info)
                                     .iter()
@@ -331,10 +338,11 @@ fn generate_schema_fk_validation_asserts(
 fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     // Get paths for fully-qualified types
     let sql_schema = core_paths::sql_schema();
-    let sql_table_info = core_paths::sql_table_info();
     let sql_index_info = core_paths::sql_index_info();
+    let sql_table_info = core_paths::sql_table_info();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let schema_item_tables = core_paths::schema_item_tables();
 
     // Extract field names and types for easier iteration
     #[allow(unused_variables)]
@@ -342,7 +350,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
+        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &'static drizzle::core::TableRef)> = ::std::vec::Vec::new();
         let mut indexes: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
         let mut index_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
         let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
@@ -351,14 +359,17 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Collect all tables, indexes, and enums
         #(
             match <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
-                #postgres_schema_type::Table(table_info) => {
-                    let table_name = #sql_table_info::qualified_name(table_info).into_owned();
+                #postgres_schema_type::Table(_table_info) => {
+                    let table_ref = <#field_types as #schema_item_tables>::TABLE_REF_CONST
+                        .expect("table must have TABLE_REF_CONST");
+                    let table_name = table_ref.qualified_name.to_string();
                     let table_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
-                    tables.push((table_name, table_sql, table_info));
+                    tables.push((table_name, table_sql, table_ref));
                 }
                 #postgres_schema_type::Index(index_info) => {
                     let index_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
-                    let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
+                    let idx_table_ref = #sql_index_info::table(index_info);
+                    let table_name = idx_table_ref.qualified_name.to_string();
                     let index_name = #sql_index_info::name(index_info);
                     let index_key = ::std::format!("{}::{}", table_name, index_name);
                     if !index_keys.insert(index_key) {
@@ -437,14 +448,19 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         let mut reverse_edges: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> =
             ::std::collections::HashMap::new();
 
-        for (table_name, _, table_info) in &tables {
+        // Map unqualified name → qualified name for dependency resolution
+        let name_to_qualified: ::std::collections::HashMap<::std::string::String, ::std::string::String> =
+            tables.iter().map(|(qname, _, tref)| (tref.name.to_string(), qname.clone())).collect();
+
+        for (table_name, _, table_ref) in &tables {
             indegree.entry(table_name.clone()).or_insert(0);
 
-            for dep_name in #sql_table_info::dependencies(*table_info)
+            for dep_name in table_ref.dependency_names
                 .iter()
-                .map(|dep| #sql_table_info::qualified_name(*dep).into_owned())
-                .filter(|dep_name| dep_name != table_name)
-                .filter(|dep_name| table_names.contains(dep_name))
+                .filter_map(|dep| name_to_qualified.get(*dep))
+                .filter(|dep_name| *dep_name != table_name)
+                .filter(|dep_name| table_names.contains(*dep_name))
+                .cloned()
             {
                 *indegree
                     .get_mut(table_name)
@@ -497,10 +513,10 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         let mut table_by_name: ::std::collections::HashMap<
             ::std::string::String,
-            (::std::string::String, &dyn #sql_table_info),
+            ::std::string::String,
         > = ::std::collections::HashMap::with_capacity(tables.len());
-        for (table_name, table_sql, table_info) in tables {
-            table_by_name.insert(table_name, (table_sql, table_info));
+        for (table_name, table_sql, _table_ref) in tables {
+            table_by_name.insert(table_name, table_sql);
         }
 
         // Build final SQL statements: enums first, then tables in dependency order, then their indexes
@@ -511,7 +527,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         // Add tables and their indexes
         for table_name in ordered_names {
-            let (table_sql, _) = table_by_name
+            let table_sql = table_by_name
                 .remove(&table_name)
                 .expect("table exists after topological ordering");
             sql_statements.push(table_sql);
@@ -544,29 +560,49 @@ fn generate_items_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     }
 }
 
-fn generate_schema_tables_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
-    let sql_schema = core_paths::sql_schema();
-    let sql_table_info = core_paths::sql_table_info();
-    let postgres_schema_type = postgres_paths::postgres_schema_type();
-    let postgres_value = postgres_paths::postgres_value();
+fn generate_schema_table_refs_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    let table_ref = core_paths::table_ref();
+    let schema_item_tables = core_paths::schema_item_tables();
 
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
+    let n_total = fields.len();
 
     quote! {
-        static TABLES: ::std::sync::LazyLock<::std::vec::Vec<&'static dyn #sql_table_info>> =
-            ::std::sync::LazyLock::new(|| {
-                let mut tables: ::std::vec::Vec<&'static dyn #sql_table_info> = ::std::vec::Vec::new();
-                #(
-                    if let #postgres_schema_type::Table(table_info) =
-                        <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE
-                    {
-                        tables.push(table_info);
-                    }
-                )*
-                tables
-            });
+        static TABLE_REF_OPTIONS: [::core::option::Option<&'static #table_ref>; #n_total] = [
+            #(
+                <#field_types as #schema_item_tables>::TABLE_REF_CONST,
+            )*
+        ];
 
-        TABLES.as_slice()
+        const TABLE_REF_COUNT: usize = {
+            let mut count = 0usize;
+            let mut i = 0usize;
+            while i < #n_total {
+                if TABLE_REF_OPTIONS[i].is_some() {
+                    count += 1;
+                }
+                i += 1;
+            }
+            count
+        };
+
+        static TABLE_REFS: [&'static #table_ref; TABLE_REF_COUNT] = {
+            let mut result: [::core::mem::MaybeUninit<&'static #table_ref>; TABLE_REF_COUNT] =
+                [::core::mem::MaybeUninit::uninit(); TABLE_REF_COUNT];
+            let mut out = 0usize;
+            let mut i = 0usize;
+            while i < #n_total {
+                if let ::core::option::Option::Some(t) = TABLE_REF_OPTIONS[i] {
+                    result[out] = ::core::mem::MaybeUninit::new(t);
+                    out += 1;
+                }
+                i += 1;
+            }
+            // SAFETY: exactly TABLE_REF_COUNT elements are initialized
+            unsafe { ::core::mem::transmute(result) }
+        };
+
+        &TABLE_REFS
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::common::view_query::{self, ViewQuery};
 use crate::common::{
     count_primary_keys, make_uppercase_path, required_fields_pattern, struct_fields,
     table_name_from_attrs,
@@ -8,8 +9,8 @@ use crate::paths::{
 };
 use crate::postgres::field::FieldInfo;
 use crate::postgres::generators::{
-    SQLTableConfig, generate_postgres_table, generate_postgres_table_info, generate_sql_schema,
-    generate_sql_table, generate_to_sql,
+    SQLTableConfig, generate_postgres_table, generate_sql_schema, generate_sql_table,
+    generate_to_sql,
 };
 use crate::postgres::table::{
     alias, attributes::TableAttributes, column_definitions, context::MacroContext, drivers, models,
@@ -34,10 +35,10 @@ pub struct ViewAttributes {
     pub(crate) marker_exprs: Vec<ExprPath>,
 }
 
-#[derive(Clone)]
 pub enum ViewDefinition {
     Literal(String),
     Expr(Expr),
+    Query(ViewQuery),
 }
 
 impl Parse for ViewAttributes {
@@ -139,6 +140,22 @@ impl Parse for ViewAttributes {
                         }
                     }
                 }
+                Meta::List(list) => {
+                    if let Some(ident) = list.path.get_ident() {
+                        let lower = ident.to_string().to_ascii_lowercase();
+                        if lower == "query" {
+                            if attrs.definition.is_some() {
+                                return Err(syn::Error::new(
+                                    ident.span(),
+                                    "cannot use both `query(...)` and `DEFINITION`",
+                                ));
+                            }
+                            let query: ViewQuery = syn::parse2(list.tokens.clone())?;
+                            attrs.definition = Some(ViewDefinition::Query(query));
+                            continue;
+                        }
+                    }
+                }
                 Meta::Path(path) => {
                     if let Some(ident) = path.get_ident() {
                         let upper = ident.to_string().to_ascii_uppercase();
@@ -168,7 +185,6 @@ impl Parse for ViewAttributes {
                         }
                     }
                 }
-                _ => {}
             }
             return Err(syn::Error::new(
                 meta.span(),
@@ -178,6 +194,7 @@ impl Parse for ViewAttributes {
                  - SCHEMA: Custom schema name (e.g., #[PostgresView(SCHEMA = \"auth\")])\n\
                  - DEFINITION: View definition SQL string or expression\n\
                    (e.g., #[PostgresView(DEFINITION = \"SELECT ...\")])\n\
+                 - query(...): Type-safe query DSL with compile-time SQL\n\
                  - MATERIALIZED: Mark as materialized view\n\
                  - WITH/WITH_OPTIONS: ViewWithOptionDef expression (e.g., #[PostgresView(WITH = ViewWithOptionDef::new().security_barrier())])\n\
                  - WITH_NO_DATA: Create materialized view WITH NO DATA\n\
@@ -259,7 +276,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     // Generate FK ZSTs and relation impls (logical-only, no SQL constraints in views)
     let sql_table_info_path = core_paths::sql_table_info();
     let sql_column_info_path = core_paths::sql_column_info();
-    let (foreign_key_impls, sql_foreign_keys, foreign_keys_type, _fk_idents) =
+    let dialect_types = crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: postgres_paths::postgres_schema_type(),
+        value_type: postgres_paths::postgres_value(),
+    };
+    let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, _fk_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
@@ -268,6 +290,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             &input.vis,
             &sql_table_info_path,
             &sql_column_info_path,
+            &dialect_types,
         )?;
     let relations_impl = crate::common::constraints::generate_relations(
         ctx.field_infos,
@@ -278,12 +301,48 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
     let view_name_lit = syn::LitStr::new(&view_name, proc_macro2::Span::call_site());
     let view_schema_lit = syn::LitStr::new(&view_schema, proc_macro2::Span::call_site());
-    let (definition_sql, definition_expr) = match &attrs.definition {
-        Some(ViewDefinition::Literal(sql)) => (sql.clone(), None),
-        Some(ViewDefinition::Expr(expr)) => (String::new(), Some(expr.clone())),
-        None => (String::new(), None),
+    let (definition_sql, definition_expr, query_def) = match &attrs.definition {
+        Some(ViewDefinition::Literal(sql)) => (sql.clone(), None, None),
+        Some(ViewDefinition::Expr(expr)) => (String::new(), Some(expr.clone()), None),
+        Some(ViewDefinition::Query(q)) => (String::new(), None, Some(q)),
+        None => (String::new(), None, None),
     };
+
+    // For query definitions, generate the concatcp! expression for the SELECT SQL
+    let query_const_select_sql = if let Some(q) = query_def {
+        let field_names: Vec<String> = ctx
+            .field_infos
+            .iter()
+            .map(|f| f.column_name.clone())
+            .collect();
+        Some(view_query::generate_const_sql(
+            q,
+            &field_names,
+            view_query::Dialect::Postgres,
+        )?)
+    } else {
+        None
+    };
+
+    // For query definitions, generate a validation block
+    let query_validation = if let Some(q) = query_def {
+        Some(view_query::generate_validation(
+            q,
+            ctx.field_infos.len(),
+            view_query::Dialect::Postgres,
+        )?)
+    } else {
+        None
+    };
+
     let definition_lit = syn::LitStr::new(&definition_sql, proc_macro2::Span::call_site());
+    // The const for VIEW_DEFINITION_SQL: either a string literal or a concatcp! expression
+    let view_definition_sql_const: TokenStream =
+        if let Some(ref select_sql) = query_const_select_sql {
+            select_sql.clone()
+        } else {
+            quote! { #definition_lit }
+        };
     let has_definition_literal = matches!(attrs.definition, Some(ViewDefinition::Literal(_)));
     let is_existing = attrs.existing;
     let is_materialized = attrs.materialized;
@@ -329,8 +388,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
-    let sql_table_info = core_paths::sql_table_info();
-    let sql_column_info = core_paths::sql_column_info();
+    let _sql_table_info = core_paths::sql_table_info();
+    let _sql_column_info = core_paths::sql_column_info();
     let sql_view = core_paths::sql_view();
     let sql_view_info = core_paths::sql_view_info();
     let no_primary_key = core_paths::no_primary_key();
@@ -341,55 +400,77 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let std_cow = std_paths::cow();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
-    let postgres_table_info = postgres_paths::postgres_table_info();
-    let postgres_column_info = postgres_paths::postgres_column_info();
 
     let columns_len = column_zst_idents.len();
-    let sql_columns = quote! {
-        #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-        #[allow(non_upper_case_globals)]
-        static COLUMNS: [&'static dyn #sql_column_info; #columns_len] =
-            [#(&#column_zst_idents,)*];
-        &COLUMNS
-    };
-    let postgres_columns = quote! {
-        #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-        #[allow(non_upper_case_globals)]
-        static POSTGRES_COLUMNS: [&'static dyn #postgres_column_info; #columns_len] =
-            [#(&#column_zst_idents,)*];
-        &POSTGRES_COLUMNS
-    };
-    let sql_dependencies = quote! {
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #sql_table_info; 0] = [];
-        &DEPENDENCIES
-    };
-    let postgres_dependencies = quote! {
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #postgres_table_info; 0] = [];
-        &DEPENDENCIES
-    };
 
     let qualified_view_name = format!("{}.{}", view_schema, view_name);
+
+    // Generate TABLE_REF for view (minimal metadata)
+    let table_ref_path = core_paths::table_ref();
+    let column_ref_path = core_paths::column_ref();
+    let column_dialect_path = core_paths::column_dialect();
+    let table_dialect_path = core_paths::table_dialect();
+    let view_column_ref_literals: Vec<proc_macro2::TokenStream> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let col_name = &f.column_name;
+            let pg_type = f.column_type.to_sql_type();
+            let not_null = !f.is_nullable;
+            let primary_key = f.is_primary;
+            let unique = f.is_unique;
+            let has_default = f.has_default;
+            let is_serial = f.is_serial;
+            let is_bigserial = false;
+            let is_generated_identity = f.is_generated_identity;
+            let is_identity_always = f
+                .identity_mode
+                .as_ref()
+                .is_some_and(|m| matches!(m, crate::postgres::field::IdentityMode::Always));
+            quote! {
+                #column_ref_path {
+                    table: Self::VIEW_NAME,
+                    name: #col_name,
+                    sql_type: #pg_type,
+                    not_null: #not_null,
+                    primary_key: #primary_key,
+                    unique: #unique,
+                    has_default: #has_default,
+                    dialect: #column_dialect_path::PostgreSQL {
+                        postgres_type: #pg_type,
+                        is_serial: #is_serial,
+                        is_bigserial: #is_bigserial,
+                        is_generated_identity: #is_generated_identity,
+                        is_identity_always: #is_identity_always,
+                    },
+                }
+            }
+        })
+        .collect();
+    let view_col_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();
+    let view_table_ref_const = quote! {
+        const TABLE_REF: #table_ref_path = #table_ref_path {
+            name: Self::VIEW_NAME,
+            column_names: &[#(#view_col_names),*],
+            schema: ::core::option::Option::Some(Self::VIEW_SCHEMA),
+            qualified_name: #qualified_view_name,
+            columns: &[#(#view_column_ref_literals),*],
+            primary_key: ::core::option::Option::None,
+            foreign_keys: &[],
+            constraints: &[],
+            dependency_names: &[],
+            dialect: #table_dialect_path::PostgreSQL,
+        };
+    };
+
     let drizzle_table_impl = generate_drizzle_table(DrizzleTableConfig {
         struct_ident,
         name: quote! { Self::VIEW_NAME },
         qualified_name: quote! { #qualified_view_name },
         schema: quote! { ::std::option::Option::Some(Self::VIEW_SCHEMA) },
         dependency_names: quote! { &[] },
-        columns: sql_columns,
-        primary_key: quote! { ::std::option::Option::None },
-        foreign_keys: sql_foreign_keys,
-        constraints: quote! { &[] },
-        dependencies: sql_dependencies,
+        table_ref_const: view_table_ref_const,
     });
-    let postgres_table_info_impl = generate_postgres_table_info(
-        struct_ident,
-        quote! { &<Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE },
-        postgres_columns,
-        postgres_dependencies,
-    );
-
     let alias_type_ident = format_ident!("{}Alias", struct_ident);
     let select_model_ident = &ctx.select_model_ident;
     let insert_model_ident = &ctx.insert_model_ident;
@@ -432,6 +513,37 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         }
 
         quote! { #sql }
+    } else if query_const_select_sql.is_some() && attrs.with_options.is_none() {
+        // Query DSL: build CREATE VIEW using concatcp! with the generated SELECT SQL
+        let create_kw = if attrs.materialized {
+            "CREATE MATERIALIZED VIEW"
+        } else {
+            "CREATE VIEW"
+        };
+
+        let mut prefix = if view_schema != "public" {
+            format!("{} \"{}\".\"{}\"", create_kw, view_schema, view_name)
+        } else {
+            format!("{} \"{}\"", create_kw, view_name)
+        };
+        if let Some(ref using) = attrs.using {
+            prefix.push_str(&format!(" USING {}", using));
+        }
+        if let Some(ref tablespace) = attrs.tablespace {
+            prefix.push_str(&format!(" TABLESPACE {}", tablespace));
+        }
+        prefix.push_str(" AS ");
+
+        let select_sql = query_const_select_sql.as_ref().unwrap();
+        if attrs.with_no_data {
+            quote! {
+                ::drizzle::const_format::concatcp!(#prefix, #select_sql, " WITH NO DATA")
+            }
+        } else {
+            quote! {
+                ::drizzle::const_format::concatcp!(#prefix, #select_sql)
+            }
+        }
     } else {
         quote! { "" }
     };
@@ -452,16 +564,14 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let to_sql_impl = generate_to_sql(
         struct_ident,
         quote! {
-            #sql::table(#table_ref {
-                name: Self::VIEW_NAME,
-                column_names: &[#(#view_column_names),*],
-            })
+            #sql::table(#table_ref::sql(Self::VIEW_NAME, &[#(#view_column_names),*]))
         },
     );
 
     let sql_view_definition = if let Some(definition_expr) = definition_expr.as_ref() {
         quote! { #sql_to_sql::to_sql(&#definition_expr) }
     } else {
+        // Both literal and query definitions use VIEW_DEFINITION_SQL (which is const)
         quote! { #sql::raw(Self::VIEW_DEFINITION_SQL) }
     };
     let sql_view_definition_sql = if definition_expr.is_some() {
@@ -535,7 +645,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         impl #struct_ident {
             pub const VIEW_NAME: &'static str = #view_name_lit;
             pub const VIEW_SCHEMA: &'static str = #view_schema_lit;
-            pub const VIEW_DEFINITION_SQL: &'static str = #definition_lit;
+            pub const VIEW_DEFINITION_SQL: &'static str = #view_definition_sql_const;
             pub const DDL_VIEW: #ddl_view_def = #ddl_view_expr;
 
             pub fn create_view_sql() -> ::std::string::String {
@@ -571,7 +681,6 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         #sql_schema_impl
         #sql_table_impl
         #drizzle_table_impl
-        #postgres_table_info_impl
         #postgres_table_impl
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_nil;
@@ -589,6 +698,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         impl drizzle::core::IntoSelectTarget for #struct_ident {
             type Marker = drizzle::core::SelectStar;
         }
+
+        #query_validation
 
     })
 }

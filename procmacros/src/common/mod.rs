@@ -15,6 +15,7 @@ pub(crate) mod ref_gen;
 mod table_pipeline;
 pub(crate) mod type_mapping;
 mod type_utils;
+pub(crate) mod view_query;
 
 pub(crate) use context::ModelType;
 pub(crate) use diagnostics::references_required_message;

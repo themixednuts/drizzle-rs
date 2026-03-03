@@ -135,6 +135,14 @@ fn boolean_enforcement_sqlite_ui() {
 
 #[cfg(feature = "rusqlite")]
 #[test]
+fn view_query_sqlite_ui() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/view_query_sqlite/pass/*.rs");
+    t.compile_fail("tests/ui/view_query_sqlite/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
 fn aggregate_propagation_ui() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/aggregate_propagation/pass/*.rs");

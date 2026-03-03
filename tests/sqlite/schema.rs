@@ -412,54 +412,60 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
         department,
     ) = schema.items();
 
-    // Test Department (no dependencies)
+    // Test Department (no dependencies) using TABLE_REF
     assert_eq!(department.name(), "departments");
-    assert_eq!(department.dependencies().len(), 0);
+    let dept_ref = &<Department as drizzle::core::DrizzleTable>::TABLE_REF;
+    assert_eq!(dept_ref.dependency_names.len(), 0);
 
     // Test Employee (depends on Department and itself)
     assert_eq!(employee.name(), "employees");
-    let emp_deps = employee.dependencies();
-    assert_eq!(emp_deps.len(), 2); // Department and Employee (self-reference)
+    let emp_ref = &<Employee as drizzle::core::DrizzleTable>::TABLE_REF;
+    assert_eq!(emp_ref.dependency_names.len(), 2); // Department and Employee (self-reference)
     // Dependencies should be sorted by name for deterministic order
-    assert_eq!(emp_deps[0].name(), "departments");
-    assert_eq!(emp_deps[1].name(), "employees");
+    let mut emp_dep_names: Vec<&str> = emp_ref.dependency_names.to_vec();
+    emp_dep_names.sort();
+    assert_eq!(emp_dep_names[0], "departments");
+    assert_eq!(emp_dep_names[1], "employees");
 
     // Test Project (depends on Employee)
     assert_eq!(project.name(), "projects");
-    let proj_deps = project.dependencies();
-    assert_eq!(proj_deps.len(), 1);
-    assert_eq!(proj_deps[0].name(), "employees");
+    let proj_ref = &<Project as drizzle::core::DrizzleTable>::TABLE_REF;
+    assert_eq!(proj_ref.dependency_names.len(), 1);
+    assert_eq!(proj_ref.dependency_names[0], "employees");
 
-    // Test foreign key column references
-    let dept_id_col = &employee.columns()[2]; // department_id column
-    assert_eq!(dept_id_col.name(), "department_id");
+    // Test foreign key column references via TABLE_REF
+    let dept_id_col = &emp_ref.columns[2]; // department_id column
+    assert_eq!(dept_id_col.name, "department_id");
 
-    if let Some(fk_col) = dept_id_col.foreign_key() {
-        assert_eq!(fk_col.name(), "id");
-        assert_eq!(fk_col.table().name(), "departments");
-    } else {
-        panic!("department_id should have foreign key reference");
-    }
+    // FK info is now on TableRef.foreign_keys, not on ColumnRef
+    let emp_fks = emp_ref.foreign_keys;
+    let dept_fk = emp_fks
+        .iter()
+        .find(|fk| fk.source_columns.contains(&"department_id"))
+        .unwrap();
+    assert_eq!(dept_fk.target_table, "departments");
+    assert_eq!(dept_fk.target_columns, &["id"]);
 
-    let manager_id_col = &employee.columns()[3]; // manager_id column
-    assert_eq!(manager_id_col.name(), "manager_id");
+    let manager_id_col = &emp_ref.columns[3]; // manager_id column
+    assert_eq!(manager_id_col.name, "manager_id");
 
-    if let Some(fk_col) = manager_id_col.foreign_key() {
-        assert_eq!(fk_col.name(), "id");
-        assert_eq!(fk_col.table().name(), "employees"); // Self-reference
-    } else {
-        panic!("manager_id should have foreign key reference");
-    }
+    let mgr_fk = emp_fks
+        .iter()
+        .find(|fk| fk.source_columns.contains(&"manager_id"))
+        .unwrap();
+    assert_eq!(mgr_fk.target_table, "employees"); // Self-reference
+    assert_eq!(mgr_fk.target_columns, &["id"]);
 
-    let lead_id_col = &project.columns()[2]; // lead_id column
-    assert_eq!(lead_id_col.name(), "lead_id");
+    let lead_id_col = &proj_ref.columns[2]; // lead_id column
+    assert_eq!(lead_id_col.name, "lead_id");
 
-    if let Some(fk_col) = lead_id_col.foreign_key() {
-        assert_eq!(fk_col.name(), "id");
-        assert_eq!(fk_col.table().name(), "employees");
-    } else {
-        panic!("lead_id should have foreign key reference");
-    }
+    let proj_fks = proj_ref.foreign_keys;
+    let lead_fk = proj_fks
+        .iter()
+        .find(|fk| fk.source_columns.contains(&"lead_id"))
+        .unwrap();
+    assert_eq!(lead_fk.target_table, "employees");
+    assert_eq!(lead_fk.target_columns, &["id"]);
 });
 
 #[SQLiteTable(NAME = "cycle_a")]
@@ -569,3 +575,463 @@ fn sqlite_duplicate_index_reports_error() {
         "unexpected error: {err}"
     );
 }
+
+// =============================================================================
+// View query DSL tests
+// =============================================================================
+
+#[SQLiteTable(NAME = "vq_users")]
+struct VqUser {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    email: String,
+    active: bool,
+    age: Option<i32>,
+}
+
+#[SQLiteTable(NAME = "vq_posts")]
+struct VqPost {
+    #[column(PRIMARY)]
+    id: i32,
+    title: String,
+    #[column(REFERENCES = VqUser::id)]
+    author_id: i32,
+    published: bool,
+}
+
+// 1. Simple view — basic column selection
+#[SQLiteView(
+    query(select(VqUser::id, VqUser::name), from(VqUser),),
+    NAME = "vq_simple_view"
+)]
+struct VqSimpleView {
+    id: i32,
+    name: String,
+}
+
+// 2. Filtered view — WHERE clause
+#[SQLiteView(
+    query(
+        select(VqUser::id, VqUser::name, VqUser::email),
+        from(VqUser),
+        filter(eq(VqUser::active, true)),
+    ),
+    NAME = "vq_active_users"
+)]
+struct VqActiveUsersView {
+    id: i32,
+    name: String,
+    email: String,
+}
+
+// 3. Join view — LEFT JOIN with condition
+#[SQLiteView(
+    query(
+        select(VqUser::id, VqUser::name, VqPost::title),
+        from(VqUser),
+        left_join(VqPost, eq(VqUser::id, VqPost::author_id)),
+    ),
+    NAME = "vq_user_posts"
+)]
+struct VqUserPostsView {
+    id: i32,
+    name: String,
+    title: Option<String>,
+}
+
+// 4. Aggregate view with GROUP BY
+#[SQLiteView(
+    query(
+        select(VqUser::name, count(VqPost::id)),
+        from(VqUser),
+        left_join(VqPost, eq(VqUser::id, VqPost::author_id)),
+        group_by(VqUser::name),
+    ),
+    NAME = "vq_post_counts"
+)]
+struct VqPostCountsView {
+    name: String,
+    post_count: i32,
+}
+
+// 5. Order + limit + offset
+#[SQLiteView(
+    query(
+        select(VqUser::id, VqUser::name),
+        from(VqUser),
+        order_by(asc(VqUser::name)),
+        limit(10),
+        offset(5),
+    ),
+    NAME = "vq_ordered_users"
+)]
+struct VqOrderedUsersView {
+    id: i32,
+    name: String,
+}
+
+// 6. Complex filter — AND/OR/IS_NULL
+#[SQLiteView(
+    query(
+        select(VqUser::id, VqUser::name),
+        from(VqUser),
+        filter(and(eq(VqUser::active, true), or(gt(VqUser::id, 0), is_null(VqUser::age)))),
+    ),
+    NAME = "vq_complex_filter"
+)]
+struct VqComplexFilterView {
+    id: i32,
+    name: String,
+}
+
+// 7. Between expression
+#[SQLiteView(
+    query(
+        select(VqUser::id, VqUser::name, VqUser::age),
+        from(VqUser),
+        filter(between(VqUser::id, 1, 100)),
+    ),
+    NAME = "vq_between_view"
+)]
+struct VqBetweenView {
+    id: i32,
+    name: String,
+    age: Option<i32>,
+}
+
+// 8. Having clause
+#[SQLiteView(
+    query(
+        select(VqUser::name, count(VqPost::id)),
+        from(VqUser),
+        left_join(VqPost, eq(VqUser::id, VqPost::author_id)),
+        group_by(VqUser::name),
+        having(gt(count(VqPost::id), 0)),
+    ),
+    NAME = "vq_having_view"
+)]
+struct VqHavingView {
+    name: String,
+    post_count: i32,
+}
+
+// 9. Multi-join
+#[SQLiteView(
+    query(
+        select(VqUser::name, VqPost::title),
+        from(VqUser),
+        join(VqPost, eq(VqUser::id, VqPost::author_id)),
+    ),
+    NAME = "vq_inner_join"
+)]
+struct VqInnerJoinView {
+    name: String,
+    title: String,
+}
+
+// 10. Desc ordering
+#[SQLiteView(
+    query(
+        select(VqUser::id, VqUser::name),
+        from(VqUser),
+        filter(eq(VqUser::active, true)),
+        order_by(desc(VqUser::name)),
+    ),
+    NAME = "vq_desc_view"
+)]
+struct VqDescView {
+    id: i32,
+    name: String,
+}
+
+#[derive(SQLiteSchema)]
+struct VqTestSchema {
+    vq_user: VqUser,
+    vq_post: VqPost,
+    vq_simple_view: VqSimpleView,
+    vq_active_users: VqActiveUsersView,
+    vq_user_posts: VqUserPostsView,
+    vq_post_counts: VqPostCountsView,
+    vq_ordered_users: VqOrderedUsersView,
+    vq_complex_filter: VqComplexFilterView,
+    vq_between_view: VqBetweenView,
+    vq_having_view: VqHavingView,
+    vq_inner_join: VqInnerJoinView,
+    vq_desc_view: VqDescView,
+}
+
+#[test]
+fn view_query_simple_const_sql() {
+    let sql = VqSimpleView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("SELECT") && sql.contains("AS \"id\"") && sql.contains("AS \"name\""),
+        "Expected SELECT with AS aliases, got: {sql}"
+    );
+    assert!(
+        sql.contains("FROM \"vq_users\""),
+        "Expected FROM clause, got: {sql}"
+    );
+
+    let ddl = VqSimpleView::ddl_sql();
+    assert!(
+        ddl.contains("CREATE VIEW \"vq_simple_view\" AS SELECT"),
+        "Expected CREATE VIEW DDL, got: {ddl}"
+    );
+}
+
+#[test]
+fn view_query_filter_const_sql() {
+    let sql = VqActiveUsersView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("WHERE"), "Expected WHERE clause, got: {sql}");
+    assert!(
+        sql.contains("\"active\"") && (sql.contains("= 1") || sql.contains("= true")),
+        "Expected active = 1 filter, got: {sql}"
+    );
+}
+
+#[test]
+fn view_query_join_const_sql() {
+    let sql = VqUserPostsView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("LEFT JOIN"), "Expected LEFT JOIN, got: {sql}");
+    assert!(sql.contains("ON"), "Expected ON clause, got: {sql}");
+}
+
+#[test]
+fn view_query_aggregate_const_sql() {
+    let sql = VqPostCountsView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("COUNT("),
+        "Expected COUNT aggregate, got: {sql}"
+    );
+    assert!(sql.contains("GROUP BY"), "Expected GROUP BY, got: {sql}");
+}
+
+#[test]
+fn view_query_order_limit_offset_const_sql() {
+    let sql = VqOrderedUsersView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("ORDER BY"), "Expected ORDER BY, got: {sql}");
+    assert!(sql.contains("ASC"), "Expected ASC, got: {sql}");
+    assert!(sql.contains("LIMIT 10"), "Expected LIMIT 10, got: {sql}");
+    assert!(sql.contains("OFFSET 5"), "Expected OFFSET 5, got: {sql}");
+}
+
+#[test]
+fn view_query_complex_filter_const_sql() {
+    let sql = VqComplexFilterView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("WHERE"), "Expected WHERE clause, got: {sql}");
+    assert!(sql.contains("AND"), "Expected AND, got: {sql}");
+    assert!(sql.contains("OR"), "Expected OR, got: {sql}");
+    assert!(sql.contains("IS NULL"), "Expected IS NULL, got: {sql}");
+}
+
+#[test]
+fn view_query_between_const_sql() {
+    let sql = VqBetweenView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("BETWEEN") && sql.contains("1") && sql.contains("100"),
+        "Expected BETWEEN 1 AND 100, got: {sql}"
+    );
+}
+
+#[test]
+fn view_query_having_const_sql() {
+    let sql = VqHavingView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("HAVING"), "Expected HAVING clause, got: {sql}");
+    assert!(
+        sql.contains("COUNT("),
+        "Expected COUNT in HAVING, got: {sql}"
+    );
+}
+
+#[test]
+fn view_query_inner_join_const_sql() {
+    let sql = VqInnerJoinView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("INNER JOIN") || sql.contains("JOIN \"vq_posts\""),
+        "Expected INNER JOIN, got: {sql}"
+    );
+}
+
+#[test]
+fn view_query_desc_const_sql() {
+    let sql = VqDescView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("ORDER BY") && sql.contains("DESC"),
+        "Expected ORDER BY ... DESC, got: {sql}"
+    );
+}
+
+sqlite_test!(test_view_query_simple, VqTestSchema, {
+    let VqTestSchema {
+        vq_user,
+        vq_simple_view,
+        ..
+    } = schema;
+
+    let insert_data = [
+        InsertVqUser::new("Alice", "alice@example.com", true),
+        InsertVqUser::new("Bob", "bob@example.com", false),
+    ];
+    let result = drizzle_exec!(db.insert(vq_user).values(insert_data) => execute);
+    assert_eq!(result, 2);
+
+    let results: Vec<SelectVqSimpleView> = drizzle_exec!(
+        db.select(())
+            .from(vq_simple_view)
+            .order_by([asc(vq_simple_view.id)])
+            => all
+    );
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[1].name, "Bob");
+});
+
+sqlite_test!(test_view_query_filter, VqTestSchema, {
+    let VqTestSchema {
+        vq_user,
+        vq_active_users,
+        ..
+    } = schema;
+
+    let insert_data = [
+        InsertVqUser::new("Alice", "alice@example.com", true),
+        InsertVqUser::new("Bob", "bob@example.com", false),
+        InsertVqUser::new("Charlie", "charlie@example.com", true),
+    ];
+    drizzle_exec!(db.insert(vq_user).values(insert_data) => execute);
+
+    let results: Vec<SelectVqActiveUsersView> = drizzle_exec!(
+        db.select(())
+            .from(vq_active_users)
+            .order_by([asc(vq_active_users.id)])
+            => all
+    );
+
+    assert_eq!(results.len(), 2, "Should only see active users");
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[1].name, "Charlie");
+});
+
+sqlite_test!(test_view_query_join, VqTestSchema, {
+    let VqTestSchema {
+        vq_user,
+        vq_post,
+        vq_user_posts,
+        ..
+    } = schema;
+
+    drizzle_exec!(db.insert(vq_user).values([
+        InsertVqUser::new("Alice", "alice@example.com", true),
+        InsertVqUser::new("Bob", "bob@example.com", true),
+    ]) => execute);
+    drizzle_exec!(db.insert(vq_post).values([
+        InsertVqPost::new("Post 1", 1, true),
+        InsertVqPost::new("Post 2", 1, false),
+    ]) => execute);
+
+    let results: Vec<SelectVqUserPostsView> = drizzle_exec!(
+        db.select(())
+            .from(vq_user_posts)
+            .order_by([asc(vq_user_posts.id)])
+            => all
+    );
+
+    // Alice has 2 posts, Bob has 0 (LEFT JOIN → Bob row with NULL title)
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[0].title, Some("Post 1".to_string()));
+    assert_eq!(results[2].name, "Bob");
+    assert_eq!(results[2].title, None);
+});
+
+sqlite_test!(test_view_query_aggregate, VqTestSchema, {
+    let VqTestSchema {
+        vq_user,
+        vq_post,
+        vq_post_counts,
+        ..
+    } = schema;
+
+    drizzle_exec!(db.insert(vq_user).values([
+        InsertVqUser::new("Alice", "alice@example.com", true),
+        InsertVqUser::new("Bob", "bob@example.com", true),
+    ]) => execute);
+    drizzle_exec!(db.insert(vq_post).values([
+        InsertVqPost::new("Post A", 1, true),
+        InsertVqPost::new("Post B", 1, false),
+        InsertVqPost::new("Post C", 2, true),
+    ]) => execute);
+
+    let results: Vec<SelectVqPostCountsView> = drizzle_exec!(
+        db.select(())
+            .from(vq_post_counts)
+            .order_by([desc(vq_post_counts.post_count)])
+            => all
+    );
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[0].post_count, 2);
+    assert_eq!(results[1].name, "Bob");
+    assert_eq!(results[1].post_count, 1);
+});
+
+sqlite_test!(test_view_query_complex_filter, VqTestSchema, {
+    let VqTestSchema {
+        vq_user,
+        vq_complex_filter,
+        ..
+    } = schema;
+
+    drizzle_exec!(db.insert(vq_user).values([
+        InsertVqUser::new("Alice", "alice@example.com", true),
+        InsertVqUser::new("Bob", "bob@example.com", false),
+        InsertVqUser::new("Charlie", "charlie@example.com", true),
+    ]) => execute);
+
+    let results: Vec<SelectVqComplexFilterView> = drizzle_exec!(
+        db.select(())
+            .from(vq_complex_filter)
+            .order_by([asc(vq_complex_filter.id)])
+            => all
+    );
+
+    // active=true AND (id>0 OR age IS NULL) — Alice and Charlie match
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[1].name, "Charlie");
+});
+
+sqlite_test!(test_view_query_having, VqTestSchema, {
+    let VqTestSchema {
+        vq_user,
+        vq_post,
+        vq_having_view,
+        ..
+    } = schema;
+
+    drizzle_exec!(db.insert(vq_user).values([
+        InsertVqUser::new("Alice", "alice@example.com", true),
+        InsertVqUser::new("Bob", "bob@example.com", true),
+        InsertVqUser::new("Charlie", "charlie@example.com", true),
+    ]) => execute);
+    // Only Alice and Bob get posts
+    drizzle_exec!(db.insert(vq_post).values([
+        InsertVqPost::new("Post 1", 1, true),
+        InsertVqPost::new("Post 2", 2, true),
+    ]) => execute);
+
+    let results: Vec<SelectVqHavingView> = drizzle_exec!(
+        db.select(())
+            .from(vq_having_view)
+            .order_by([asc(vq_having_view.name)])
+            => all
+    );
+
+    // HAVING COUNT(posts.id) > 0 — Charlie has 0 posts, so excluded
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "Alice");
+    assert_eq!(results[1].name, "Bob");
+});

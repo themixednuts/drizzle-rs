@@ -14,11 +14,8 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     let validate_schema_item_foreign_keys = core_paths::validate_schema_item_foreign_keys();
     let sql_table_info = core_paths::sql_table_info();
     let sql_index_info = core_paths::sql_index_info();
-    let _sql_column_info = core_paths::sql_column_info();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let sqlite_table_info = sqlite_paths::sqlite_table_info();
-    let _sqlite_column_info = sqlite_paths::sqlite_column_info();
 
     // Extract fields from the struct
     let fields = match &input.data {
@@ -91,7 +88,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
     let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
     let mig_sqlite_view = mig_paths::sqlite::view();
 
-    let schema_tables_method = generate_schema_tables_method(&all_fields);
+    let schema_table_refs_method = generate_schema_table_refs_method(&all_fields);
     let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &all_fields);
     let schema_fk_validation_asserts = generate_schema_fk_validation_asserts(
         &all_fields,
@@ -133,8 +130,8 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
 
         // Implement SQLSchemaImpl trait
         impl #sql_schema_impl for #struct_name {
-            fn tables(&self) -> &'static [&'static dyn #sql_table_info] {
-                #schema_tables_method
+            fn table_refs(&self) -> &'static [&'static drizzle::core::TableRef] {
+                #schema_table_refs_method
             }
 
             fn create_statements(&self) -> ::std::result::Result<impl ::std::iter::Iterator<Item = ::std::string::String>, drizzle::error::DrizzleError> {
@@ -177,55 +174,52 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                 // Iterate through all schema fields and add DDL entities
                 #(
                     match <#field_types_for_snapshot as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE {
-                        #sqlite_schema_type::Table(table_info) => {
-                            // Add table entity
-                            let table_name = #sql_table_info::name(table_info);
+                        #sqlite_schema_type::Table(_table_info) => {
+                            // Use const TABLE_REF for column metadata instead of dyn traits
+                            let table_ref = <#field_types_for_snapshot as drizzle::core::SchemaItemTables>::TABLE_REF_CONST
+                                .expect("table must have TABLE_REF_CONST");
+                            let table_name = table_ref.name;
                             snapshot.add_entity(MigEntity::Table(MigTable::new(table_name)));
 
-                            // Add column entities
-                            for col in #sqlite_table_info::sqlite_columns(table_info) {
-                                // col is &dyn SQLiteColumnInfo which extends SQLColumnInfo
-                                // Use method syntax since trait object vtable includes supertrait methods
+                            // Add column entities from TABLE_REF
+                            for col in table_ref.columns {
                                 let mut column = MigColumn::new(
                                     table_name,
-                                    col.name(),
-                                    col.r#type(),
+                                    col.name,
+                                    col.sql_type,
                                 );
-                                if col.is_not_null() {
+                                if col.not_null {
                                     column = column.not_null();
                                 }
-                                if col.is_autoincrement() {
+                                if let drizzle::core::ColumnDialect::SQLite { autoincrement: true } = col.dialect {
                                     column = column.autoincrement();
                                 }
-                                // Note: primary_key and unique constraints are handled
-                                // separately via PrimaryKey and UniqueConstraint entities
-                                // rather than column-level flags in the DDL format
                                 snapshot.add_entity(MigEntity::Column(column));
 
                                 // Add primary key entity if this is a primary key column
-                                if col.is_primary_key() {
+                                if col.primary_key {
                                     snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
                                         table_name.to_string(),
                                         ::std::format!("{}_pk", table_name),
-                                        ::std::vec![col.name().to_string()],
+                                        ::std::vec![col.name.to_string()],
                                     )));
                                 }
 
                                 // Add unique constraint entity if this column is unique
-                                if col.is_unique() {
+                                if col.unique {
                                     snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
                                         table_name.to_string(),
-                                        ::std::format!("{}_{}_unique", table_name, col.name()),
-                                        ::std::vec![col.name().to_string()],
+                                        ::std::format!("{}_{}_unique", table_name, col.name),
+                                        ::std::vec![col.name.to_string()],
                                     )));
                                 }
                             }
                         }
                         #sqlite_schema_type::Index(index_info) => {
                             // Add index entity
-                            let table = #sql_index_info::table(index_info);
+                            let idx_table_ref = #sql_index_info::table(index_info);
                             let mut idx = MigIndex::new(
-                                #sql_table_info::name(table),
+                                idx_table_ref.name,
                                 #sql_index_info::name(index_info),
                                 #sql_index_info::columns(index_info)
                                     .iter()
@@ -290,6 +284,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let sql_index_info = core_paths::sql_index_info();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
+    let table_ref = core_paths::table_ref();
 
     // Extract field names and types for easier iteration
     #[allow(unused_variables)]
@@ -300,7 +295,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     // Generate different implementations based on available features
     #[cfg(feature = "sqlite")]
     let impl_tokens = quote! {
-        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &dyn #sql_table_info)> = ::std::vec::Vec::new();
+        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &'static #table_ref)> = ::std::vec::Vec::new();
         let mut indexes: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
         let mut index_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
         let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
@@ -308,14 +303,15 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Collect all tables and indexes
         #(
             match <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE {
-                #sqlite_schema_type::Table(table_info) => {
-                    let table_name = #sql_table_info::qualified_name(table_info).into_owned();
+                #sqlite_schema_type::Table(table_ref) => {
+                    let table_name = table_ref.qualified_name.to_string();
                     let table_sql = <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL.to_string();
-                    tables.push((table_name, table_sql, table_info));
+                    tables.push((table_name, table_sql, table_ref));
                 }
                 #sqlite_schema_type::Index(index_info) => {
                     let index_sql = <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL.to_string();
-                    let table_name = #sql_table_info::qualified_name(#sql_index_info::table(index_info)).into_owned();
+                    let idx_table_ref = #sql_index_info::table(index_info);
+                    let table_name = idx_table_ref.qualified_name.to_string();
                     let index_name = #sql_index_info::name(index_info);
                     let index_key = ::std::format!("{}::{}", table_name, index_name);
                     if !index_keys.insert(index_key) {
@@ -366,12 +362,12 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         let mut reverse_edges: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> =
             ::std::collections::HashMap::new();
 
-        for (table_name, _, table_info) in &tables {
+        for (table_name, _, table_ref) in &tables {
             indegree.entry(table_name.clone()).or_insert(0);
 
-            for dep_name in #sql_table_info::dependencies(*table_info)
+            for dep_name in table_ref.dependency_names
                 .iter()
-                .map(|dep| #sql_table_info::qualified_name(*dep).into_owned())
+                .map(|dep| dep.to_string())
                 .filter(|dep_name| dep_name != table_name)
                 .filter(|dep_name| table_names.contains(dep_name))
             {
@@ -426,16 +422,16 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         let mut table_by_name: ::std::collections::HashMap<
             ::std::string::String,
-            (::std::string::String, &dyn #sql_table_info),
+            ::std::string::String,
         > = ::std::collections::HashMap::with_capacity(tables.len());
-        for (table_name, table_sql, table_info) in tables {
-            table_by_name.insert(table_name, (table_sql, table_info));
+        for (table_name, table_sql, _) in tables {
+            table_by_name.insert(table_name, table_sql);
         }
 
         // Build final SQL statements: tables in dependency order, then their indexes
         let mut sql_statements = ::std::vec::Vec::<::std::string::String>::new();
         for table_name in ordered_names {
-            let (table_sql, _) = table_by_name
+            let table_sql = table_by_name
                 .remove(&table_name)
                 .expect("table exists after topological ordering");
             sql_statements.push(table_sql);
@@ -475,29 +471,49 @@ fn generate_items_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     }
 }
 
-fn generate_schema_tables_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
-    let sql_schema = core_paths::sql_schema();
-    let sql_table_info = core_paths::sql_table_info();
-    let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let sqlite_value = sqlite_paths::sqlite_value();
+fn generate_schema_table_refs_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
+    let table_ref = core_paths::table_ref();
+    let schema_item_tables = core_paths::schema_item_tables();
 
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
+    let n_total = fields.len();
 
     quote! {
-        static TABLES: ::std::sync::LazyLock<::std::vec::Vec<&'static dyn #sql_table_info>> =
-            ::std::sync::LazyLock::new(|| {
-                let mut tables: ::std::vec::Vec<&'static dyn #sql_table_info> = ::std::vec::Vec::new();
-                #(
-                    if let #sqlite_schema_type::Table(table_info) =
-                        <#field_types as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE
-                    {
-                        tables.push(table_info);
-                    }
-                )*
-                tables
-            });
+        static TABLE_REF_OPTIONS: [::core::option::Option<&'static #table_ref>; #n_total] = [
+            #(
+                <#field_types as #schema_item_tables>::TABLE_REF_CONST,
+            )*
+        ];
 
-        TABLES.as_slice()
+        const TABLE_REF_COUNT: usize = {
+            let mut count = 0usize;
+            let mut i = 0usize;
+            while i < #n_total {
+                if TABLE_REF_OPTIONS[i].is_some() {
+                    count += 1;
+                }
+                i += 1;
+            }
+            count
+        };
+
+        static TABLE_REFS: [&'static #table_ref; TABLE_REF_COUNT] = {
+            let mut result: [::core::mem::MaybeUninit<&'static #table_ref>; TABLE_REF_COUNT] =
+                [::core::mem::MaybeUninit::uninit(); TABLE_REF_COUNT];
+            let mut out = 0usize;
+            let mut i = 0usize;
+            while i < #n_total {
+                if let ::core::option::Option::Some(t) = TABLE_REF_OPTIONS[i] {
+                    result[out] = ::core::mem::MaybeUninit::new(t);
+                    out += 1;
+                }
+                i += 1;
+            }
+            // SAFETY: exactly TABLE_REF_COUNT elements are initialized
+            unsafe { ::core::mem::transmute(result) }
+        };
+
+        &TABLE_REFS
     }
 }
 
