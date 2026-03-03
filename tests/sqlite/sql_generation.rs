@@ -38,13 +38,13 @@ sqlite_test!(test_complex_select_all_sql_generation, ComplexSchema, {
     #[cfg(not(feature = "serde"))]
     assert_eq!(
         sql_string,
-        r#"SELECT "complex"."id", "complex"."name", "complex"."email", "complex"."age", "complex"."score", "complex"."active", "complex"."role", "complex"."description", "complex"."data_blob", "complex"."created_at" FROM "complex""#
+        r#"SELECT "complex"."id", "complex"."name", "complex"."email", "complex"."age", "complex"."score", "complex"."active", "complex"."role", "complex"."description", "complex"."data_blob", "complex"."created_at", "complex"."invited_by" FROM "complex""#
     );
 
     #[cfg(feature = "serde")]
     assert_eq!(
         sql_string,
-        r#"SELECT "complex"."id", "complex"."name", "complex"."email", "complex"."age", "complex"."score", "complex"."active", "complex"."role", "complex"."description", "complex"."metadata", "complex"."config", "complex"."data_blob", "complex"."created_at" FROM "complex""#
+        r#"SELECT "complex"."id", "complex"."name", "complex"."email", "complex"."age", "complex"."score", "complex"."active", "complex"."role", "complex"."description", "complex"."metadata", "complex"."config", "complex"."data_blob", "complex"."created_at", "complex"."invited_by" FROM "complex""#
     );
 });
 

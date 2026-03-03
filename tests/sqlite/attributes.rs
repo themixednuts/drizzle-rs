@@ -392,6 +392,66 @@ sqlite_test!(test_enum_storage_types, EnumFieldsSchema, {
     assert_eq!(results[0].3, "text"); // text(enum) stores as TEXT
 });
 
+// Verify full SelectEnumFields round-trip: INTEGER enum (Priority) and TEXT enum (TaskStatus)
+// are correctly deserialized back to their Rust enum types.
+sqlite_test!(test_enum_full_round_trip, EnumFieldsSchema, {
+    let enum_table = schema.enum_fields;
+
+    // Insert all variants of both enums
+    let data = vec![
+        InsertEnumFields::new(Priority::High, TaskStatus::Done, "urgent"),
+        InsertEnumFields::new(Priority::Medium, TaskStatus::InProgress, "normal"),
+        InsertEnumFields::new(Priority::Low, TaskStatus::Todo, "backlog"),
+    ];
+    drizzle_exec!(db.insert(enum_table).values(data) => execute);
+
+    // Full select returning SelectEnumFields (includes both enum columns)
+    let results: Vec<SelectEnumFields> = drizzle_exec!(
+        db.select(()).from(enum_table).order_by(asc(enum_table.id)) => all
+    );
+    assert_eq!(results.len(), 3);
+
+    // Verify INTEGER-stored enum (Priority) round-trips correctly
+    assert_eq!(results[0].priority, Priority::High);
+    assert_eq!(results[1].priority, Priority::Medium);
+    assert_eq!(results[2].priority, Priority::Low);
+
+    // Verify TEXT-stored enum (TaskStatus) round-trips correctly
+    assert_eq!(results[0].status, TaskStatus::Done);
+    assert_eq!(results[1].status, TaskStatus::InProgress);
+    assert_eq!(results[2].status, TaskStatus::Todo);
+});
+
+// Verify enum WHERE conditions work with both INTEGER and TEXT storage.
+sqlite_test!(test_enum_where_conditions, EnumFieldsSchema, {
+    let enum_table = schema.enum_fields;
+
+    let data = vec![
+        InsertEnumFields::new(Priority::High, TaskStatus::Done, "task 1"),
+        InsertEnumFields::new(Priority::High, TaskStatus::Todo, "task 2"),
+        InsertEnumFields::new(Priority::Low, TaskStatus::Done, "task 3"),
+    ];
+    drizzle_exec!(db.insert(enum_table).values(data) => execute);
+
+    // Filter by INTEGER enum
+    let results: Vec<SelectEnumFields> = drizzle_exec!(
+        db.select(()).from(enum_table)
+            .r#where(eq(enum_table.priority, Priority::High))
+            => all
+    );
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r.priority == Priority::High));
+
+    // Filter by TEXT enum
+    let results: Vec<SelectEnumFields> = drizzle_exec!(
+        db.select(()).from(enum_table)
+            .r#where(eq(enum_table.status, TaskStatus::Done))
+            => all
+    );
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r.status == TaskStatus::Done));
+});
+
 #[cfg(feature = "serde")]
 sqlite_test!(test_json_storage_types, JsonFieldsSchema, {
     let json_table = schema.json_fields;
