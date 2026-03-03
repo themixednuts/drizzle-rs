@@ -78,6 +78,26 @@ pub(crate) fn generate_field_conversion_with_index<D: DriverConfig>(
         ));
     }
 
+    // Custom types (auto-detected enums): use DrizzleRowByIndex for driver-agnostic conversion
+    if info.is_custom_type {
+        let base_type = info.base_type;
+        if is_optional {
+            return Ok(quote! {
+                #name: {
+                    use drizzle::sqlite::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx_tokens)?
+                },
+            });
+        } else {
+            return Ok(quote! {
+                #name: {
+                    use drizzle::sqlite::traits::DrizzleRowByIndex;
+                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx_tokens)?
+                },
+            });
+        }
+    }
+
     // Dispatch based on type category
     let converted = match info.type_category() {
         TypeCategory::Json => generate_json_conversion::<D>(&idx_tokens, info, is_optional)?,

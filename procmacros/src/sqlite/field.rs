@@ -210,6 +210,9 @@ pub(crate) struct FieldInfo<'a> {
     pub(crate) is_json: bool,
     pub(crate) is_enum: bool,
     pub(crate) is_uuid: bool,
+    /// True when the type is unknown to the macro (e.g., a user-defined enum type).
+    /// The type is validated at type-check time via `DrizzleSQLiteColumn` trait bounds.
+    pub(crate) is_custom_type: bool,
     pub(crate) column_type: SQLiteType,
 
     // Foreign key support
@@ -607,22 +610,20 @@ impl<'a> FieldInfo<'a> {
             type_category_from_type(base_type)
         };
 
+        // Track whether this is a custom type (unknown to the macro, validated via trait bounds)
+        let mut is_custom_type = false;
+
         let column_type = if attrs.has_explicit_type {
             // Use the explicit type from the attribute
             attrs.column_type.clone()
-        } else {
+        } else if let Some(sqlite_type) = type_category_to_sqlite(&type_category) {
             // Infer from Rust type
-            type_category_to_sqlite(&type_category).ok_or_else(|| {
-                let base_type_str = quote!(#base_type).to_string().replace(' ', "");
-                Error::new(
-                    field_name.span(),
-                    format!(
-                        "Cannot infer SQLite type for Rust type '{}'. \
-Use a supported Rust type or add an explicit column type override (e.g. #[column(any)]).",
-                        base_type_str
-                    ),
-                )
-            })?
+            sqlite_type
+        } else {
+            // Unknown type — deferred to DrizzleSQLiteColumn trait at type-check time.
+            // Use Any as placeholder; real SQL_TYPE comes from the trait const.
+            is_custom_type = true;
+            SQLiteType::Any
         };
 
         Self::validate_constraints(
@@ -668,6 +669,7 @@ Use a supported Rust type or add an explicit column type override (e.g. #[column
             is_json: properties.is_json,
             is_enum: properties.is_enum,
             is_uuid: properties.is_uuid,
+            is_custom_type,
             column_type,
             foreign_key,
             default_value: attrs.default_value,
@@ -814,7 +816,7 @@ impl<'a> FieldInfo<'a> {
         if self.is_json {
             return TypeCategory::Json;
         }
-        if self.is_enum {
+        if self.is_enum || self.is_custom_type {
             return TypeCategory::Enum;
         }
         if self.is_uuid {
