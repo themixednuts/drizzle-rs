@@ -580,458 +580,458 @@ fn sqlite_duplicate_index_reports_error() {
 // View query DSL tests
 // =============================================================================
 
-#[SQLiteTable(NAME = "vq_users")]
-struct VqUser {
-    #[column(PRIMARY)]
-    id: i32,
-    name: String,
-    email: String,
-    active: bool,
-    age: Option<i32>,
+#[cfg(feature = "uuid")]
+mod view_query {
+    use super::*;
+    use crate::common::schema::sqlite::{
+        Complex, InsertComplex, InsertPost, Post, Role, SelectComplex,
+    };
+    use uuid::Uuid;
+
+    // 1. Simple view — basic column selection
+    #[SQLiteView(
+        query(select(Complex::id, Complex::name), from(Complex)),
+        NAME = "vq_simple_view"
+    )]
+    struct VqSimpleView {
+        id: Uuid,
+        name: String,
+    }
+
+    // 2. Filtered view — WHERE clause
+    #[SQLiteView(
+        query(
+            select(Complex::id, Complex::name, Complex::email),
+            from(Complex),
+            filter(eq(Complex::active, true)),
+        ),
+        NAME = "vq_active_users"
+    )]
+    struct VqActiveUsersView {
+        id: Uuid,
+        name: String,
+        email: Option<String>,
+    }
+
+    // 3. Join view — LEFT JOIN with condition
+    #[SQLiteView(
+        query(
+            select(Complex::id, Complex::name, Post::title),
+            from(Complex),
+            left_join(Post, eq(Complex::id, Post::author_id)),
+        ),
+        NAME = "vq_user_posts"
+    )]
+    struct VqUserPostsView {
+        id: Uuid,
+        name: String,
+        title: Option<String>,
+    }
+
+    // 4. Aggregate view with GROUP BY
+    #[SQLiteView(
+        query(
+            select(Complex::name, count(Post::id)),
+            from(Complex),
+            left_join(Post, eq(Complex::id, Post::author_id)),
+            group_by(Complex::name),
+        ),
+        NAME = "vq_post_counts"
+    )]
+    struct VqPostCountsView {
+        name: String,
+        post_count: i32,
+    }
+
+    // 5. Order + limit + offset
+    #[SQLiteView(
+        query(
+            select(Complex::id, Complex::name),
+            from(Complex),
+            order_by(asc(Complex::name)),
+            limit(10),
+            offset(5),
+        ),
+        NAME = "vq_ordered_users"
+    )]
+    struct VqOrderedUsersView {
+        id: Uuid,
+        name: String,
+    }
+
+    // 6. Complex filter — AND/OR/IS_NULL
+    #[SQLiteView(
+        query(
+            select(Complex::id, Complex::name),
+            from(Complex),
+            filter(and(
+                eq(Complex::active, true),
+                or(gt(Complex::age, 0), is_null(Complex::age))
+            )),
+        ),
+        NAME = "vq_complex_filter"
+    )]
+    struct VqComplexFilterView {
+        id: Uuid,
+        name: String,
+    }
+
+    // 7. Between expression — uses age (integer) instead of id (UUID)
+    #[SQLiteView(
+        query(
+            select(Complex::id, Complex::name, Complex::age),
+            from(Complex),
+            filter(between(Complex::age, 18, 65)),
+        ),
+        NAME = "vq_between_view"
+    )]
+    struct VqBetweenView {
+        id: Uuid,
+        name: String,
+        age: Option<i32>,
+    }
+
+    // 8. Having clause
+    #[SQLiteView(
+        query(
+            select(Complex::name, count(Post::id)),
+            from(Complex),
+            left_join(Post, eq(Complex::id, Post::author_id)),
+            group_by(Complex::name),
+            having(gt(count(Post::id), 0)),
+        ),
+        NAME = "vq_having_view"
+    )]
+    struct VqHavingView {
+        name: String,
+        post_count: i32,
+    }
+
+    // 9. Inner join
+    #[SQLiteView(
+        query(
+            select(Complex::name, Post::title),
+            from(Complex),
+            join(Post, eq(Complex::id, Post::author_id)),
+        ),
+        NAME = "vq_inner_join"
+    )]
+    struct VqInnerJoinView {
+        name: String,
+        title: String,
+    }
+
+    // 10. Desc ordering
+    #[SQLiteView(
+        query(
+            select(Complex::id, Complex::name),
+            from(Complex),
+            filter(eq(Complex::active, true)),
+            order_by(desc(Complex::name)),
+        ),
+        NAME = "vq_desc_view"
+    )]
+    struct VqDescView {
+        id: Uuid,
+        name: String,
+    }
+
+    #[derive(SQLiteSchema)]
+    struct VqTestSchema {
+        complex: Complex,
+        post: Post,
+        vq_simple_view: VqSimpleView,
+        vq_active_users: VqActiveUsersView,
+        vq_user_posts: VqUserPostsView,
+        vq_post_counts: VqPostCountsView,
+        vq_ordered_users: VqOrderedUsersView,
+        vq_complex_filter: VqComplexFilterView,
+        vq_between_view: VqBetweenView,
+        vq_having_view: VqHavingView,
+        vq_inner_join: VqInnerJoinView,
+        vq_desc_view: VqDescView,
+    }
+
+    #[test]
+    fn view_query_simple_const_sql() {
+        assert_eq!(
+            VqSimpleView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name" FROM "complex""#
+        );
+        assert_eq!(
+            VqSimpleView::ddl_sql(),
+            r#"CREATE VIEW "vq_simple_view" AS SELECT "complex"."id" AS "id", "complex"."name" AS "name" FROM "complex""#
+        );
+    }
+
+    #[test]
+    fn view_query_filter_const_sql() {
+        assert_eq!(
+            VqActiveUsersView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name", "complex"."email" AS "email" FROM "complex" WHERE "complex"."active" = 1"#
+        );
+    }
+
+    #[test]
+    fn view_query_join_const_sql() {
+        assert_eq!(
+            VqUserPostsView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name", "posts"."title" AS "title" FROM "complex" LEFT JOIN "posts" ON "complex"."id" = "posts"."author_id""#
+        );
+    }
+
+    #[test]
+    fn view_query_aggregate_const_sql() {
+        assert_eq!(
+            VqPostCountsView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."name" AS "name", COUNT("posts"."id") AS "post_count" FROM "complex" LEFT JOIN "posts" ON "complex"."id" = "posts"."author_id" GROUP BY "complex"."name""#
+        );
+    }
+
+    #[test]
+    fn view_query_order_limit_offset_const_sql() {
+        assert_eq!(
+            VqOrderedUsersView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name" FROM "complex" ORDER BY "complex"."name" ASC LIMIT 10 OFFSET 5"#
+        );
+    }
+
+    #[test]
+    fn view_query_complex_filter_const_sql() {
+        assert_eq!(
+            VqComplexFilterView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name" FROM "complex" WHERE ("complex"."active" = 1 AND ("complex"."age" > 0 OR "complex"."age" IS NULL))"#
+        );
+    }
+
+    #[test]
+    fn view_query_between_const_sql() {
+        assert_eq!(
+            VqBetweenView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name", "complex"."age" AS "age" FROM "complex" WHERE "complex"."age" BETWEEN 18 AND 65"#
+        );
+    }
+
+    #[test]
+    fn view_query_having_const_sql() {
+        assert_eq!(
+            VqHavingView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."name" AS "name", COUNT("posts"."id") AS "post_count" FROM "complex" LEFT JOIN "posts" ON "complex"."id" = "posts"."author_id" GROUP BY "complex"."name" HAVING COUNT("posts"."id") > 0"#
+        );
+    }
+
+    #[test]
+    fn view_query_inner_join_const_sql() {
+        assert_eq!(
+            VqInnerJoinView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."name" AS "name", "posts"."title" AS "title" FROM "complex" JOIN "posts" ON "complex"."id" = "posts"."author_id""#
+        );
+    }
+
+    #[test]
+    fn view_query_desc_const_sql() {
+        assert_eq!(
+            VqDescView::VIEW_DEFINITION_SQL,
+            r#"SELECT "complex"."id" AS "id", "complex"."name" AS "name" FROM "complex" WHERE "complex"."active" = 1 ORDER BY "complex"."name" DESC"#
+        );
+    }
+
+    sqlite_test!(test_view_query_simple, VqTestSchema, {
+        let VqTestSchema {
+            complex,
+            vq_simple_view,
+            ..
+        } = schema;
+
+        let insert_data = [
+            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+            InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
+        ];
+        let result = drizzle_exec!(db.insert(complex).values(insert_data) => execute);
+        assert_eq!(result, 2);
+
+        let results: Vec<SelectVqSimpleView> = drizzle_exec!(
+            db.select(())
+                .from(vq_simple_view)
+                .order_by([asc(vq_simple_view.name)])
+                => all
+        );
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "Alice");
+        assert_eq!(results[1].name, "Bob");
+    });
+
+    sqlite_test!(test_view_query_filter, VqTestSchema, {
+        let VqTestSchema {
+            complex,
+            vq_active_users,
+            ..
+        } = schema;
+
+        let insert_data = [
+            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+            InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
+            InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
+        ];
+        drizzle_exec!(db.insert(complex).values(insert_data) => execute);
+
+        let results: Vec<SelectVqActiveUsersView> = drizzle_exec!(
+            db.select(())
+                .from(vq_active_users)
+                .order_by([asc(vq_active_users.name)])
+                => all
+        );
+
+        assert_eq!(results.len(), 2, "Should only see active users");
+        assert_eq!(results[0].name, "Alice");
+        assert_eq!(results[1].name, "Charlie");
+    });
+
+    sqlite_test!(test_view_query_join, VqTestSchema, {
+        let VqTestSchema {
+            complex,
+            post,
+            vq_user_posts,
+            ..
+        } = schema;
+
+        drizzle_exec!(db.insert(complex).values([
+            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+            InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
+        ]) => execute);
+
+        // Get inserted user IDs for FK references
+        let users: Vec<SelectComplex> = drizzle_exec!(
+            db.select(()).from(complex).order_by([asc(complex.name)]) => all
+        );
+        let alice_id = users[0].id;
+
+        drizzle_exec!(db.insert(post).values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", false).with_author_id(alice_id),
+        ]) => execute);
+
+        let results: Vec<SelectVqUserPostsView> = drizzle_exec!(
+            db.select(())
+                .from(vq_user_posts)
+                .order_by([asc(vq_user_posts.name), asc(vq_user_posts.title)])
+                => all
+        );
+
+        // Alice has 2 posts, Bob has 0 (LEFT JOIN -> Bob row with NULL title)
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].name, "Alice");
+        assert_eq!(results[0].title, Some("Post 1".to_string()));
+        assert_eq!(results[1].name, "Alice");
+        assert_eq!(results[1].title, Some("Post 2".to_string()));
+        assert_eq!(results[2].name, "Bob");
+        assert_eq!(results[2].title, None);
+    });
+
+    sqlite_test!(test_view_query_aggregate, VqTestSchema, {
+        let VqTestSchema {
+            complex,
+            post,
+            vq_post_counts,
+            ..
+        } = schema;
+
+        drizzle_exec!(db.insert(complex).values([
+            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+            InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
+        ]) => execute);
+
+        // Get inserted user IDs for FK references
+        let users: Vec<SelectComplex> = drizzle_exec!(
+            db.select(()).from(complex).order_by([asc(complex.name)]) => all
+        );
+        let alice_id = users[0].id;
+        let bob_id = users[1].id;
+
+        drizzle_exec!(db.insert(post).values([
+            InsertPost::new("Post A", true).with_author_id(alice_id),
+            InsertPost::new("Post B", false).with_author_id(alice_id),
+            InsertPost::new("Post C", true).with_author_id(bob_id),
+        ]) => execute);
+
+        let results: Vec<SelectVqPostCountsView> = drizzle_exec!(
+            db.select(())
+                .from(vq_post_counts)
+                .order_by([desc(vq_post_counts.post_count)])
+                => all
+        );
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "Alice");
+        assert_eq!(results[0].post_count, 2);
+        assert_eq!(results[1].name, "Bob");
+        assert_eq!(results[1].post_count, 1);
+    });
+
+    sqlite_test!(test_view_query_complex_filter, VqTestSchema, {
+        let VqTestSchema {
+            complex,
+            vq_complex_filter,
+            ..
+        } = schema;
+
+        drizzle_exec!(db.insert(complex).values([
+            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+            InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
+            InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
+        ]) => execute);
+
+        let results: Vec<SelectVqComplexFilterView> = drizzle_exec!(
+            db.select(())
+                .from(vq_complex_filter)
+                .order_by([asc(vq_complex_filter.name)])
+                => all
+        );
+
+        // active=true AND (age>0 OR age IS NULL) — Alice and Charlie match
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "Alice");
+        assert_eq!(results[1].name, "Charlie");
+    });
+
+    sqlite_test!(test_view_query_having, VqTestSchema, {
+        let VqTestSchema {
+            complex,
+            post,
+            vq_having_view,
+            ..
+        } = schema;
+
+        drizzle_exec!(db.insert(complex).values([
+            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+            InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
+            InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
+        ]) => execute);
+
+        // Get inserted user IDs for FK references
+        let users: Vec<SelectComplex> = drizzle_exec!(
+            db.select(()).from(complex).order_by([asc(complex.name)]) => all
+        );
+        let alice_id = users[0].id;
+        let bob_id = users[1].id;
+
+        // Only Alice and Bob get posts
+        drizzle_exec!(db.insert(post).values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(bob_id),
+        ]) => execute);
+
+        let results: Vec<SelectVqHavingView> = drizzle_exec!(
+            db.select(())
+                .from(vq_having_view)
+                .order_by([asc(vq_having_view.name)])
+                => all
+        );
+
+        // HAVING COUNT(posts.id) > 0 — Charlie has 0 posts, so excluded
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "Alice");
+        assert_eq!(results[1].name, "Bob");
+    });
 }
-
-#[SQLiteTable(NAME = "vq_posts")]
-struct VqPost {
-    #[column(PRIMARY)]
-    id: i32,
-    title: String,
-    #[column(REFERENCES = VqUser::id)]
-    author_id: i32,
-    published: bool,
-}
-
-// 1. Simple view — basic column selection
-#[SQLiteView(
-    query(select(VqUser::id, VqUser::name), from(VqUser),),
-    NAME = "vq_simple_view"
-)]
-struct VqSimpleView {
-    id: i32,
-    name: String,
-}
-
-// 2. Filtered view — WHERE clause
-#[SQLiteView(
-    query(
-        select(VqUser::id, VqUser::name, VqUser::email),
-        from(VqUser),
-        filter(eq(VqUser::active, true)),
-    ),
-    NAME = "vq_active_users"
-)]
-struct VqActiveUsersView {
-    id: i32,
-    name: String,
-    email: String,
-}
-
-// 3. Join view — LEFT JOIN with condition
-#[SQLiteView(
-    query(
-        select(VqUser::id, VqUser::name, VqPost::title),
-        from(VqUser),
-        left_join(VqPost, eq(VqUser::id, VqPost::author_id)),
-    ),
-    NAME = "vq_user_posts"
-)]
-struct VqUserPostsView {
-    id: i32,
-    name: String,
-    title: Option<String>,
-}
-
-// 4. Aggregate view with GROUP BY
-#[SQLiteView(
-    query(
-        select(VqUser::name, count(VqPost::id)),
-        from(VqUser),
-        left_join(VqPost, eq(VqUser::id, VqPost::author_id)),
-        group_by(VqUser::name),
-    ),
-    NAME = "vq_post_counts"
-)]
-struct VqPostCountsView {
-    name: String,
-    post_count: i32,
-}
-
-// 5. Order + limit + offset
-#[SQLiteView(
-    query(
-        select(VqUser::id, VqUser::name),
-        from(VqUser),
-        order_by(asc(VqUser::name)),
-        limit(10),
-        offset(5),
-    ),
-    NAME = "vq_ordered_users"
-)]
-struct VqOrderedUsersView {
-    id: i32,
-    name: String,
-}
-
-// 6. Complex filter — AND/OR/IS_NULL
-#[SQLiteView(
-    query(
-        select(VqUser::id, VqUser::name),
-        from(VqUser),
-        filter(and(eq(VqUser::active, true), or(gt(VqUser::id, 0), is_null(VqUser::age)))),
-    ),
-    NAME = "vq_complex_filter"
-)]
-struct VqComplexFilterView {
-    id: i32,
-    name: String,
-}
-
-// 7. Between expression
-#[SQLiteView(
-    query(
-        select(VqUser::id, VqUser::name, VqUser::age),
-        from(VqUser),
-        filter(between(VqUser::id, 1, 100)),
-    ),
-    NAME = "vq_between_view"
-)]
-struct VqBetweenView {
-    id: i32,
-    name: String,
-    age: Option<i32>,
-}
-
-// 8. Having clause
-#[SQLiteView(
-    query(
-        select(VqUser::name, count(VqPost::id)),
-        from(VqUser),
-        left_join(VqPost, eq(VqUser::id, VqPost::author_id)),
-        group_by(VqUser::name),
-        having(gt(count(VqPost::id), 0)),
-    ),
-    NAME = "vq_having_view"
-)]
-struct VqHavingView {
-    name: String,
-    post_count: i32,
-}
-
-// 9. Multi-join
-#[SQLiteView(
-    query(
-        select(VqUser::name, VqPost::title),
-        from(VqUser),
-        join(VqPost, eq(VqUser::id, VqPost::author_id)),
-    ),
-    NAME = "vq_inner_join"
-)]
-struct VqInnerJoinView {
-    name: String,
-    title: String,
-}
-
-// 10. Desc ordering
-#[SQLiteView(
-    query(
-        select(VqUser::id, VqUser::name),
-        from(VqUser),
-        filter(eq(VqUser::active, true)),
-        order_by(desc(VqUser::name)),
-    ),
-    NAME = "vq_desc_view"
-)]
-struct VqDescView {
-    id: i32,
-    name: String,
-}
-
-#[derive(SQLiteSchema)]
-struct VqTestSchema {
-    vq_user: VqUser,
-    vq_post: VqPost,
-    vq_simple_view: VqSimpleView,
-    vq_active_users: VqActiveUsersView,
-    vq_user_posts: VqUserPostsView,
-    vq_post_counts: VqPostCountsView,
-    vq_ordered_users: VqOrderedUsersView,
-    vq_complex_filter: VqComplexFilterView,
-    vq_between_view: VqBetweenView,
-    vq_having_view: VqHavingView,
-    vq_inner_join: VqInnerJoinView,
-    vq_desc_view: VqDescView,
-}
-
-#[test]
-fn view_query_simple_const_sql() {
-    let sql = VqSimpleView::VIEW_DEFINITION_SQL;
-    assert!(
-        sql.contains("SELECT") && sql.contains("AS \"id\"") && sql.contains("AS \"name\""),
-        "Expected SELECT with AS aliases, got: {sql}"
-    );
-    assert!(
-        sql.contains("FROM \"vq_users\""),
-        "Expected FROM clause, got: {sql}"
-    );
-
-    let ddl = VqSimpleView::ddl_sql();
-    assert!(
-        ddl.contains("CREATE VIEW \"vq_simple_view\" AS SELECT"),
-        "Expected CREATE VIEW DDL, got: {ddl}"
-    );
-}
-
-#[test]
-fn view_query_filter_const_sql() {
-    let sql = VqActiveUsersView::VIEW_DEFINITION_SQL;
-    assert!(sql.contains("WHERE"), "Expected WHERE clause, got: {sql}");
-    assert!(
-        sql.contains("\"active\"") && (sql.contains("= 1") || sql.contains("= true")),
-        "Expected active = 1 filter, got: {sql}"
-    );
-}
-
-#[test]
-fn view_query_join_const_sql() {
-    let sql = VqUserPostsView::VIEW_DEFINITION_SQL;
-    assert!(sql.contains("LEFT JOIN"), "Expected LEFT JOIN, got: {sql}");
-    assert!(sql.contains("ON"), "Expected ON clause, got: {sql}");
-}
-
-#[test]
-fn view_query_aggregate_const_sql() {
-    let sql = VqPostCountsView::VIEW_DEFINITION_SQL;
-    assert!(
-        sql.contains("COUNT("),
-        "Expected COUNT aggregate, got: {sql}"
-    );
-    assert!(sql.contains("GROUP BY"), "Expected GROUP BY, got: {sql}");
-}
-
-#[test]
-fn view_query_order_limit_offset_const_sql() {
-    let sql = VqOrderedUsersView::VIEW_DEFINITION_SQL;
-    assert!(sql.contains("ORDER BY"), "Expected ORDER BY, got: {sql}");
-    assert!(sql.contains("ASC"), "Expected ASC, got: {sql}");
-    assert!(sql.contains("LIMIT 10"), "Expected LIMIT 10, got: {sql}");
-    assert!(sql.contains("OFFSET 5"), "Expected OFFSET 5, got: {sql}");
-}
-
-#[test]
-fn view_query_complex_filter_const_sql() {
-    let sql = VqComplexFilterView::VIEW_DEFINITION_SQL;
-    assert!(sql.contains("WHERE"), "Expected WHERE clause, got: {sql}");
-    assert!(sql.contains("AND"), "Expected AND, got: {sql}");
-    assert!(sql.contains("OR"), "Expected OR, got: {sql}");
-    assert!(sql.contains("IS NULL"), "Expected IS NULL, got: {sql}");
-}
-
-#[test]
-fn view_query_between_const_sql() {
-    let sql = VqBetweenView::VIEW_DEFINITION_SQL;
-    assert!(
-        sql.contains("BETWEEN") && sql.contains("1") && sql.contains("100"),
-        "Expected BETWEEN 1 AND 100, got: {sql}"
-    );
-}
-
-#[test]
-fn view_query_having_const_sql() {
-    let sql = VqHavingView::VIEW_DEFINITION_SQL;
-    assert!(sql.contains("HAVING"), "Expected HAVING clause, got: {sql}");
-    assert!(
-        sql.contains("COUNT("),
-        "Expected COUNT in HAVING, got: {sql}"
-    );
-}
-
-#[test]
-fn view_query_inner_join_const_sql() {
-    let sql = VqInnerJoinView::VIEW_DEFINITION_SQL;
-    assert!(
-        sql.contains("INNER JOIN") || sql.contains("JOIN \"vq_posts\""),
-        "Expected INNER JOIN, got: {sql}"
-    );
-}
-
-#[test]
-fn view_query_desc_const_sql() {
-    let sql = VqDescView::VIEW_DEFINITION_SQL;
-    assert!(
-        sql.contains("ORDER BY") && sql.contains("DESC"),
-        "Expected ORDER BY ... DESC, got: {sql}"
-    );
-}
-
-sqlite_test!(test_view_query_simple, VqTestSchema, {
-    let VqTestSchema {
-        vq_user,
-        vq_simple_view,
-        ..
-    } = schema;
-
-    let insert_data = [
-        InsertVqUser::new("Alice", "alice@example.com", true),
-        InsertVqUser::new("Bob", "bob@example.com", false),
-    ];
-    let result = drizzle_exec!(db.insert(vq_user).values(insert_data) => execute);
-    assert_eq!(result, 2);
-
-    let results: Vec<SelectVqSimpleView> = drizzle_exec!(
-        db.select(())
-            .from(vq_simple_view)
-            .order_by([asc(vq_simple_view.id)])
-            => all
-    );
-
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].name, "Alice");
-    assert_eq!(results[1].name, "Bob");
-});
-
-sqlite_test!(test_view_query_filter, VqTestSchema, {
-    let VqTestSchema {
-        vq_user,
-        vq_active_users,
-        ..
-    } = schema;
-
-    let insert_data = [
-        InsertVqUser::new("Alice", "alice@example.com", true),
-        InsertVqUser::new("Bob", "bob@example.com", false),
-        InsertVqUser::new("Charlie", "charlie@example.com", true),
-    ];
-    drizzle_exec!(db.insert(vq_user).values(insert_data) => execute);
-
-    let results: Vec<SelectVqActiveUsersView> = drizzle_exec!(
-        db.select(())
-            .from(vq_active_users)
-            .order_by([asc(vq_active_users.id)])
-            => all
-    );
-
-    assert_eq!(results.len(), 2, "Should only see active users");
-    assert_eq!(results[0].name, "Alice");
-    assert_eq!(results[1].name, "Charlie");
-});
-
-sqlite_test!(test_view_query_join, VqTestSchema, {
-    let VqTestSchema {
-        vq_user,
-        vq_post,
-        vq_user_posts,
-        ..
-    } = schema;
-
-    drizzle_exec!(db.insert(vq_user).values([
-        InsertVqUser::new("Alice", "alice@example.com", true),
-        InsertVqUser::new("Bob", "bob@example.com", true),
-    ]) => execute);
-    drizzle_exec!(db.insert(vq_post).values([
-        InsertVqPost::new("Post 1", 1, true),
-        InsertVqPost::new("Post 2", 1, false),
-    ]) => execute);
-
-    let results: Vec<SelectVqUserPostsView> = drizzle_exec!(
-        db.select(())
-            .from(vq_user_posts)
-            .order_by([asc(vq_user_posts.id)])
-            => all
-    );
-
-    // Alice has 2 posts, Bob has 0 (LEFT JOIN → Bob row with NULL title)
-    assert_eq!(results.len(), 3);
-    assert_eq!(results[0].name, "Alice");
-    assert_eq!(results[0].title, Some("Post 1".to_string()));
-    assert_eq!(results[2].name, "Bob");
-    assert_eq!(results[2].title, None);
-});
-
-sqlite_test!(test_view_query_aggregate, VqTestSchema, {
-    let VqTestSchema {
-        vq_user,
-        vq_post,
-        vq_post_counts,
-        ..
-    } = schema;
-
-    drizzle_exec!(db.insert(vq_user).values([
-        InsertVqUser::new("Alice", "alice@example.com", true),
-        InsertVqUser::new("Bob", "bob@example.com", true),
-    ]) => execute);
-    drizzle_exec!(db.insert(vq_post).values([
-        InsertVqPost::new("Post A", 1, true),
-        InsertVqPost::new("Post B", 1, false),
-        InsertVqPost::new("Post C", 2, true),
-    ]) => execute);
-
-    let results: Vec<SelectVqPostCountsView> = drizzle_exec!(
-        db.select(())
-            .from(vq_post_counts)
-            .order_by([desc(vq_post_counts.post_count)])
-            => all
-    );
-
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].name, "Alice");
-    assert_eq!(results[0].post_count, 2);
-    assert_eq!(results[1].name, "Bob");
-    assert_eq!(results[1].post_count, 1);
-});
-
-sqlite_test!(test_view_query_complex_filter, VqTestSchema, {
-    let VqTestSchema {
-        vq_user,
-        vq_complex_filter,
-        ..
-    } = schema;
-
-    drizzle_exec!(db.insert(vq_user).values([
-        InsertVqUser::new("Alice", "alice@example.com", true),
-        InsertVqUser::new("Bob", "bob@example.com", false),
-        InsertVqUser::new("Charlie", "charlie@example.com", true),
-    ]) => execute);
-
-    let results: Vec<SelectVqComplexFilterView> = drizzle_exec!(
-        db.select(())
-            .from(vq_complex_filter)
-            .order_by([asc(vq_complex_filter.id)])
-            => all
-    );
-
-    // active=true AND (id>0 OR age IS NULL) — Alice and Charlie match
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].name, "Alice");
-    assert_eq!(results[1].name, "Charlie");
-});
-
-sqlite_test!(test_view_query_having, VqTestSchema, {
-    let VqTestSchema {
-        vq_user,
-        vq_post,
-        vq_having_view,
-        ..
-    } = schema;
-
-    drizzle_exec!(db.insert(vq_user).values([
-        InsertVqUser::new("Alice", "alice@example.com", true),
-        InsertVqUser::new("Bob", "bob@example.com", true),
-        InsertVqUser::new("Charlie", "charlie@example.com", true),
-    ]) => execute);
-    // Only Alice and Bob get posts
-    drizzle_exec!(db.insert(vq_post).values([
-        InsertVqPost::new("Post 1", 1, true),
-        InsertVqPost::new("Post 2", 2, true),
-    ]) => execute);
-
-    let results: Vec<SelectVqHavingView> = drizzle_exec!(
-        db.select(())
-            .from(vq_having_view)
-            .order_by([asc(vq_having_view.name)])
-            => all
-    );
-
-    // HAVING COUNT(posts.id) > 0 — Charlie has 0 posts, so excluded
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0].name, "Alice");
-    assert_eq!(results[1].name, "Bob");
-});
