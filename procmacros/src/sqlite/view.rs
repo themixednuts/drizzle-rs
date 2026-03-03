@@ -1,3 +1,4 @@
+use crate::common::view_query::{self, ViewQuery};
 use crate::common::{
     count_primary_keys, make_uppercase_path, required_fields_pattern, struct_fields,
     table_name_from_attrs,
@@ -8,8 +9,7 @@ use crate::paths::{
 };
 use crate::sqlite::field::{FieldInfo, SQLiteType};
 use crate::sqlite::generators::{
-    SQLTableConfig, generate_sql_schema, generate_sql_table, generate_sqlite_table,
-    generate_sqlite_table_info, generate_to_sql,
+    SQLTableConfig, generate_sql_schema, generate_sql_table, generate_sqlite_table, generate_to_sql,
 };
 #[cfg(feature = "libsql")]
 use crate::sqlite::table::libsql;
@@ -34,10 +34,10 @@ pub struct ViewAttributes {
     pub(crate) marker_exprs: Vec<ExprPath>,
 }
 
-#[derive(Clone)]
 pub enum ViewDefinition {
     Literal(String),
     Expr(Expr),
+    Query(ViewQuery),
 }
 
 impl Parse for ViewAttributes {
@@ -86,6 +86,22 @@ impl Parse for ViewAttributes {
                         }
                     }
                 }
+                Meta::List(list) => {
+                    if let Some(ident) = list.path.get_ident() {
+                        let lower = ident.to_string().to_ascii_lowercase();
+                        if lower == "query" {
+                            if attrs.definition.is_some() {
+                                return Err(syn::Error::new(
+                                    ident.span(),
+                                    "cannot use both `query(...)` and `DEFINITION`",
+                                ));
+                            }
+                            let query: ViewQuery = syn::parse2(list.tokens.clone())?;
+                            attrs.definition = Some(ViewDefinition::Query(query));
+                            continue;
+                        }
+                    }
+                }
                 Meta::Path(path) => {
                     if let Some(ident) = path.get_ident() {
                         let upper = ident.to_string().to_ascii_uppercase();
@@ -98,7 +114,6 @@ impl Parse for ViewAttributes {
                         }
                     }
                 }
-                _ => {}
             }
             return Err(syn::Error::new(
                 meta.span(),
@@ -107,6 +122,7 @@ impl Parse for ViewAttributes {
                  - NAME: Custom view name (e.g., #[SQLiteView(NAME = \"active_users\")])\n\
                  - DEFINITION: View definition SQL string or expression\n\
                    (e.g., #[SQLiteView(DEFINITION = \"SELECT ...\")])\n\
+                 - query(...): Type-safe query DSL with compile-time SQL\n\
                  - EXISTING: Mark view as existing (skip creation)\n\
                  ",
             ));
@@ -185,7 +201,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     // Generate FK ZSTs and relation impls (logical-only, no SQL constraints in views)
     let sql_table_info_path = core_paths::sql_table_info();
     let sql_column_info_path = core_paths::sql_column_info();
-    let (foreign_key_impls, sql_foreign_keys, foreign_keys_type, _fk_idents) =
+    let dialect_types = crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: sqlite_paths::sqlite_schema_type(),
+        value_type: sqlite_paths::sqlite_value(),
+    };
+    let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, _fk_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
@@ -194,6 +215,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             struct_vis,
             &sql_table_info_path,
             &sql_column_info_path,
+            &dialect_types,
         )?;
     let relations_impl = crate::common::constraints::generate_relations(
         ctx.field_infos,
@@ -220,12 +242,48 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let view_marker_const = generate_view_marker_const(struct_ident, &attrs.marker_exprs);
 
     let view_name_lit = syn::LitStr::new(&view_name, proc_macro2::Span::call_site());
-    let (definition_sql, definition_expr) = match &attrs.definition {
-        Some(ViewDefinition::Literal(sql)) => (sql.clone(), None),
-        Some(ViewDefinition::Expr(expr)) => (String::new(), Some(expr.clone())),
-        None => (String::new(), None),
+    let (definition_sql, definition_expr, query_def) = match &attrs.definition {
+        Some(ViewDefinition::Literal(sql)) => (sql.clone(), None, None),
+        Some(ViewDefinition::Expr(expr)) => (String::new(), Some(expr.clone()), None),
+        Some(ViewDefinition::Query(q)) => (String::new(), None, Some(q)),
+        None => (String::new(), None, None),
     };
+
+    // For query definitions, generate the concatcp! expression for the SELECT SQL
+    let query_const_select_sql = if let Some(q) = query_def {
+        let field_names: Vec<String> = ctx
+            .field_infos
+            .iter()
+            .map(|f| f.column_name.clone())
+            .collect();
+        Some(view_query::generate_const_sql(
+            q,
+            &field_names,
+            view_query::Dialect::SQLite,
+        )?)
+    } else {
+        None
+    };
+
+    // For query definitions, generate a validation block
+    let query_validation = if let Some(q) = query_def {
+        Some(view_query::generate_validation(
+            q,
+            ctx.field_infos.len(),
+            view_query::Dialect::SQLite,
+        )?)
+    } else {
+        None
+    };
+
     let definition_lit = syn::LitStr::new(&definition_sql, proc_macro2::Span::call_site());
+    // The const for VIEW_DEFINITION_SQL: either a string literal or a concatcp! expression
+    let view_definition_sql_const: TokenStream =
+        if let Some(ref select_sql) = query_const_select_sql {
+            select_sql.clone()
+        } else {
+            quote! { #definition_lit }
+        };
     let has_definition_literal = matches!(attrs.definition, Some(ViewDefinition::Literal(_)));
     let is_existing = attrs.existing;
 
@@ -234,14 +292,15 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     if has_definition_literal {
         ddl_view_expr = quote! { #ddl_view_expr.definition(#definition_lit) };
     }
+    // Query definitions: DDL definition is set at runtime from the const SQL
     if attrs.existing {
         ddl_view_expr = quote! { #ddl_view_expr.existing() };
     }
 
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
-    let sql_table_info = core_paths::sql_table_info();
-    let sql_column_info = core_paths::sql_column_info();
+    let _sql_table_info = core_paths::sql_table_info();
+    let _sql_column_info = core_paths::sql_column_info();
     let sql_view = core_paths::sql_view();
     let sql_view_info = core_paths::sql_view_info();
     let no_primary_key = core_paths::no_primary_key();
@@ -252,34 +311,52 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let std_cow = std_paths::cow();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
-    let _sqlite_table = sqlite_paths::sqlite_table();
-    let sqlite_table_info = sqlite_paths::sqlite_table_info();
-    let sqlite_column_info = sqlite_paths::sqlite_column_info();
-
     let columns_len = column_zst_idents.len();
-    let sql_columns = quote! {
-        #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-        #[allow(non_upper_case_globals)]
-        static COLUMNS: [&'static dyn #sql_column_info; #columns_len] =
-            [#(&#column_zst_idents,)*];
-        &COLUMNS
-    };
-    let sqlite_columns = quote! {
-        #(#[allow(non_upper_case_globals)] static #column_zst_idents: #column_zst_idents = #column_zst_idents::new();)*
-        #[allow(non_upper_case_globals)]
-        static SQLITE_COLUMNS: [&'static dyn #sqlite_column_info; #columns_len] =
-            [#(&#column_zst_idents,)*];
-        &SQLITE_COLUMNS
-    };
-    let sql_dependencies = quote! {
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #sql_table_info; 0] = [];
-        &DEPENDENCIES
-    };
-    let sqlite_dependencies = quote! {
-        #[allow(non_upper_case_globals)]
-        static DEPENDENCIES: [&'static dyn #sqlite_table_info; 0] = [];
-        &DEPENDENCIES
+
+    // Generate TABLE_REF for view (minimal metadata)
+    let table_ref_path = core_paths::table_ref();
+    let column_ref_path = core_paths::column_ref();
+    let column_dialect_path = core_paths::column_dialect();
+    let table_dialect_path = core_paths::table_dialect();
+    let view_column_ref_literals: Vec<proc_macro2::TokenStream> = ctx
+        .field_infos
+        .iter()
+        .map(|f| {
+            let col_name = &f.column_name;
+            let sql_type = f.column_type.to_sql_type();
+            let not_null = !f.is_nullable;
+            let primary_key = f.is_primary;
+            let unique = f.is_unique;
+            let has_default = f.has_default;
+            let autoincrement = f.is_autoincrement;
+            quote! {
+                #column_ref_path {
+                    table: Self::VIEW_NAME,
+                    name: #col_name,
+                    sql_type: #sql_type,
+                    not_null: #not_null,
+                    primary_key: #primary_key,
+                    unique: #unique,
+                    has_default: #has_default,
+                    dialect: #column_dialect_path::SQLite { autoincrement: #autoincrement },
+                }
+            }
+        })
+        .collect();
+    let view_col_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();
+    let view_table_ref_const = quote! {
+        const TABLE_REF: #table_ref_path = #table_ref_path {
+            name: Self::VIEW_NAME,
+            column_names: &[#(#view_col_names),*],
+            schema: ::core::option::Option::None,
+            qualified_name: Self::VIEW_NAME,
+            columns: &[#(#view_column_ref_literals),*],
+            primary_key: ::core::option::Option::None,
+            foreign_keys: &[],
+            constraints: &[],
+            dependency_names: &[],
+            dialect: #table_dialect_path::SQLite { without_rowid: false, strict: false },
+        };
     };
 
     let drizzle_table_impl = generate_drizzle_table(DrizzleTableConfig {
@@ -288,20 +365,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         qualified_name: quote! { Self::VIEW_NAME },
         schema: quote! { ::std::option::Option::None },
         dependency_names: quote! { &[] },
-        columns: sql_columns,
-        primary_key: quote! { ::std::option::Option::None },
-        foreign_keys: sql_foreign_keys,
-        constraints: quote! { &[] },
-        dependencies: sql_dependencies,
+        table_ref_const: view_table_ref_const,
     });
-    let sqlite_table_info_impl = generate_sqlite_table_info(
-        struct_ident,
-        quote! { &<Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::TYPE },
-        quote! { false },
-        quote! { false },
-        sqlite_columns,
-        sqlite_dependencies,
-    );
 
     let alias_type_ident = format_ident!("{}Alias", struct_ident);
     let select_model_ident = &ctx.select_model_ident;
@@ -324,6 +389,12 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         // Literal definition: build the entire CREATE VIEW SQL at proc-macro time
         let sql = format!("CREATE VIEW \"{}\" AS {}", view_name, definition_sql);
         quote! { #sql }
+    } else if let Some(ref select_sql) = query_const_select_sql {
+        // Query DSL: build CREATE VIEW using concatcp! with the generated SELECT SQL
+        let create_prefix = format!("CREATE VIEW \"{}\" AS ", view_name);
+        quote! {
+            ::drizzle::const_format::concatcp!(#create_prefix, #select_sql)
+        }
     } else {
         quote! { "" }
     };
@@ -344,16 +415,14 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     let to_sql_impl = generate_to_sql(
         struct_ident,
         quote! {
-            #sql::table(#table_ref {
-                name: Self::VIEW_NAME,
-                column_names: &[#(#view_column_names),*],
-            })
+            #sql::table(#table_ref::sql(Self::VIEW_NAME, &[#(#view_column_names),*]))
         },
     );
 
     let sql_view_definition = if let Some(definition_expr) = definition_expr.as_ref() {
         quote! { #sql_to_sql::to_sql(&#definition_expr) }
     } else {
+        // Both literal and query definitions use VIEW_DEFINITION_SQL (which is const)
         quote! { #sql::raw(Self::VIEW_DEFINITION_SQL) }
     };
     let sql_view_definition_sql = if definition_expr.is_some() {
@@ -406,7 +475,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
         impl #struct_ident {
             pub const VIEW_NAME: &'static str = #view_name_lit;
-            pub const VIEW_DEFINITION_SQL: &'static str = #definition_lit;
+            pub const VIEW_DEFINITION_SQL: &'static str = #view_definition_sql_const;
             pub const DDL_VIEW: #ddl_view_def = #ddl_view_expr;
 
             pub fn create_view_sql() -> ::std::string::String {
@@ -444,7 +513,6 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         #sql_schema_impl
         #sql_table_impl
         #drizzle_table_impl
-        #sqlite_table_info_impl
         #sqlite_table_impl
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_nil;
@@ -462,6 +530,8 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         impl drizzle::core::IntoSelectTarget for #struct_ident {
             type Marker = drizzle::core::SelectStar;
         }
+
+        #query_validation
 
     })
 }

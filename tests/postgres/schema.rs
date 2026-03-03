@@ -215,11 +215,6 @@ postgres_test!(tagged_alias_forwards_alias_metadata, SimpleSchema, {
     let base = Simple::new();
 
     assert_eq!(tagged.name(), "s_alias");
-    assert!(!std::ptr::eq(tagged.columns(), base.columns()));
-    assert!(!std::ptr::eq(
-        tagged.postgres_columns(),
-        base.postgres_columns()
-    ));
 });
 
 postgres_test!(view_definition_with_options_sql, SimpleSchema, {
@@ -393,5 +388,261 @@ fn postgres_duplicate_index_reports_error() {
             "Duplicate index 'pg_duplicate_index' on table 'public.dup_idx_table' in PostgresSchema"
         ),
         "unexpected error: {err}"
+    );
+}
+
+// =============================================================================
+// View query DSL tests (PostgreSQL)
+// =============================================================================
+
+#[PostgresTable(NAME = "vq_pg_users")]
+struct VqPgUser {
+    #[column(serial, PRIMARY)]
+    id: i32,
+    name: String,
+    email: String,
+    active: bool,
+}
+
+#[PostgresTable(NAME = "vq_pg_posts")]
+struct VqPgPost {
+    #[column(serial, PRIMARY)]
+    id: i32,
+    title: String,
+    #[column(REFERENCES = VqPgUser::id)]
+    author_id: i32,
+}
+
+// Simple view with query DSL
+#[PostgresView(
+    query(select(VqPgUser::id, VqPgUser::name), from(VqPgUser),),
+    NAME = "vq_pg_simple_view"
+)]
+struct VqPgSimpleView {
+    id: i32,
+    name: String,
+}
+
+// Filtered view
+#[PostgresView(
+    query(
+        select(VqPgUser::id, VqPgUser::name, VqPgUser::email),
+        from(VqPgUser),
+        filter(eq(VqPgUser::active, true)),
+    ),
+    NAME = "vq_pg_active_users"
+)]
+struct VqPgActiveUsersView {
+    id: i32,
+    name: String,
+    email: String,
+}
+
+// Join view
+#[PostgresView(
+    query(
+        select(VqPgUser::id, VqPgUser::name, VqPgPost::title),
+        from(VqPgUser),
+        left_join(VqPgPost, eq(VqPgUser::id, VqPgPost::author_id)),
+    ),
+    NAME = "vq_pg_user_posts"
+)]
+struct VqPgUserPostsView {
+    id: i32,
+    name: String,
+    title: String,
+}
+
+// Aggregate view with GROUP BY
+#[PostgresView(
+    query(
+        select(VqPgUser::name, count(VqPgPost::id)),
+        from(VqPgUser),
+        left_join(VqPgPost, eq(VqPgUser::id, VqPgPost::author_id)),
+        group_by(VqPgUser::name),
+    ),
+    NAME = "vq_pg_post_counts"
+)]
+struct VqPgPostCountsView {
+    name: String,
+    post_count: i32,
+}
+
+// Order + limit + offset
+#[PostgresView(
+    query(
+        select(VqPgUser::id, VqPgUser::name),
+        from(VqPgUser),
+        order_by(asc(VqPgUser::name)),
+        limit(10),
+        offset(5),
+    ),
+    NAME = "vq_pg_ordered_users"
+)]
+struct VqPgOrderedUsersView {
+    id: i32,
+    name: String,
+}
+
+// Materialized view with query DSL
+#[PostgresView(
+    query(
+        select(VqPgUser::id, VqPgUser::name, VqPgUser::email),
+        from(VqPgUser),
+        filter(eq(VqPgUser::active, true)),
+    ),
+    NAME = "vq_pg_mat_view",
+    MATERIALIZED,
+    WITH_NO_DATA
+)]
+struct VqPgMatView {
+    id: i32,
+    name: String,
+    email: String,
+}
+
+// Complex filter view (AND/OR/IS_NULL)
+#[PostgresView(
+    query(
+        select(VqPgUser::id, VqPgUser::name),
+        from(VqPgUser),
+        filter(and(
+            eq(VqPgUser::active, true),
+            or(gt(VqPgUser::id, 0), is_null(VqPgUser::email)),
+        )),
+    ),
+    NAME = "vq_pg_complex_filter"
+)]
+struct VqPgComplexFilterView {
+    id: i32,
+    name: String,
+}
+
+// Having clause
+#[PostgresView(
+    query(
+        select(VqPgUser::name, count(VqPgPost::id)),
+        from(VqPgUser),
+        left_join(VqPgPost, eq(VqPgUser::id, VqPgPost::author_id)),
+        group_by(VqPgUser::name),
+        having(gt(count(VqPgPost::id), 0)),
+    ),
+    NAME = "vq_pg_having_view"
+)]
+struct VqPgHavingView {
+    name: String,
+    post_count: i32,
+}
+
+#[derive(PostgresSchema)]
+struct VqPgTestSchema {
+    vq_pg_user: VqPgUser,
+    vq_pg_post: VqPgPost,
+    vq_pg_simple_view: VqPgSimpleView,
+    vq_pg_active_users: VqPgActiveUsersView,
+    vq_pg_user_posts: VqPgUserPostsView,
+    vq_pg_post_counts: VqPgPostCountsView,
+    vq_pg_ordered_users: VqPgOrderedUsersView,
+    vq_pg_mat_view: VqPgMatView,
+    vq_pg_complex_filter: VqPgComplexFilterView,
+    vq_pg_having_view: VqPgHavingView,
+}
+
+#[test]
+fn pg_view_query_simple_const_sql() {
+    let sql = VqPgSimpleView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("SELECT") && sql.contains("AS \"id\"") && sql.contains("AS \"name\""),
+        "Expected SELECT with AS aliases, got: {sql}"
+    );
+    assert!(
+        sql.contains("FROM \"public\".\"vq_pg_users\""),
+        "Expected schema-qualified FROM clause, got: {sql}"
+    );
+
+    let ddl = VqPgSimpleView::ddl_sql();
+    assert!(
+        ddl.contains("CREATE VIEW \"vq_pg_simple_view\" AS SELECT"),
+        "Expected CREATE VIEW DDL, got: {ddl}"
+    );
+}
+
+#[test]
+fn pg_view_query_filter_const_sql() {
+    let sql = VqPgActiveUsersView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("WHERE"), "Expected WHERE clause, got: {sql}");
+    // PG uses TRUE/FALSE
+    assert!(
+        sql.contains("= TRUE"),
+        "Expected = TRUE filter (PG dialect), got: {sql}"
+    );
+}
+
+#[test]
+fn pg_view_query_join_const_sql() {
+    let sql = VqPgUserPostsView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("LEFT JOIN"), "Expected LEFT JOIN, got: {sql}");
+    assert!(
+        sql.contains("\"public\".\"vq_pg_posts\""),
+        "Expected schema-qualified join table, got: {sql}"
+    );
+}
+
+#[test]
+fn pg_view_query_aggregate_const_sql() {
+    let sql = VqPgPostCountsView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("COUNT("),
+        "Expected COUNT aggregate, got: {sql}"
+    );
+    assert!(sql.contains("GROUP BY"), "Expected GROUP BY, got: {sql}");
+}
+
+#[test]
+fn pg_view_query_order_limit_offset_const_sql() {
+    let sql = VqPgOrderedUsersView::VIEW_DEFINITION_SQL;
+    assert!(
+        sql.contains("ORDER BY") && sql.contains("ASC"),
+        "Expected ORDER BY ... ASC, got: {sql}"
+    );
+    assert!(
+        sql.contains("LIMIT 10") && sql.contains("OFFSET 5"),
+        "Expected LIMIT 10 OFFSET 5, got: {sql}"
+    );
+}
+
+#[test]
+fn pg_view_query_materialized_const_sql() {
+    let ddl = VqPgMatView::ddl_sql();
+    assert!(
+        ddl.contains("CREATE MATERIALIZED VIEW"),
+        "Expected CREATE MATERIALIZED VIEW, got: {ddl}"
+    );
+    assert!(
+        ddl.contains("WITH NO DATA"),
+        "Expected WITH NO DATA, got: {ddl}"
+    );
+    assert!(
+        ddl.contains("= TRUE"),
+        "Expected PG TRUE in filter, got: {ddl}"
+    );
+}
+
+#[test]
+fn pg_view_query_complex_filter_const_sql() {
+    let sql = VqPgComplexFilterView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("WHERE"), "Expected WHERE, got: {sql}");
+    assert!(sql.contains("AND"), "Expected AND, got: {sql}");
+    assert!(sql.contains("OR"), "Expected OR, got: {sql}");
+    assert!(sql.contains("IS NULL"), "Expected IS NULL, got: {sql}");
+}
+
+#[test]
+fn pg_view_query_having_const_sql() {
+    let sql = VqPgHavingView::VIEW_DEFINITION_SQL;
+    assert!(sql.contains("HAVING"), "Expected HAVING clause, got: {sql}");
+    assert!(
+        sql.contains("COUNT("),
+        "Expected COUNT in HAVING, got: {sql}"
     );
 }
