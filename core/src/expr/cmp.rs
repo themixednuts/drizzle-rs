@@ -426,6 +426,114 @@ where
 }
 
 // =============================================================================
+// IS DISTINCT FROM
+// =============================================================================
+
+/// IS DISTINCT FROM - NULL-safe inequality comparison.
+///
+/// Unlike `<>`, this treats NULL as a comparable value:
+/// - `NULL IS DISTINCT FROM NULL` → false
+/// - `NULL IS DISTINCT FROM 5` → true
+/// - `5 IS DISTINCT FROM NULL` → true
+///
+/// Supported by both SQLite (3.39+) and PostgreSQL.
+#[allow(clippy::type_complexity)]
+pub fn is_distinct_from<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    L: Expr<'a, V>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
+{
+    SQLExpr::new(
+        operand_sql(left)
+            .push(Token::IS)
+            .push(Token::DISTINCT)
+            .push(Token::FROM)
+            .append(operand_sql(right)),
+    )
+}
+
+/// IS NOT DISTINCT FROM - NULL-safe equality comparison.
+///
+/// Unlike `=`, this treats NULL as a comparable value:
+/// - `NULL IS NOT DISTINCT FROM NULL` → true
+/// - `NULL IS NOT DISTINCT FROM 5` → false
+///
+/// Supported by both SQLite (3.39+) and PostgreSQL.
+#[allow(clippy::type_complexity)]
+pub fn is_not_distinct_from<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    L: Expr<'a, V>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L::SQLType>>::Aggregate>,
+{
+    SQLExpr::new(
+        operand_sql(left)
+            .push(Token::IS)
+            .push(Token::NOT)
+            .push(Token::DISTINCT)
+            .push(Token::FROM)
+            .append(operand_sql(right)),
+    )
+}
+
+// =============================================================================
+// Boolean Testing
+// =============================================================================
+
+/// IS TRUE - tests if a boolean expression is true.
+///
+/// Unlike `= TRUE`, this handles NULL correctly:
+/// - `TRUE IS TRUE` → true
+/// - `FALSE IS TRUE` → false
+/// - `NULL IS TRUE` → false (not NULL!)
+pub fn is_true<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+{
+    SQLExpr::new(operand_sql(expr).push(Token::IS).append(SQL::raw("TRUE")))
+}
+
+/// IS FALSE - tests if a boolean expression is false.
+///
+/// Unlike `= FALSE`, this handles NULL correctly:
+/// - `FALSE IS FALSE` → true
+/// - `TRUE IS FALSE` → false
+/// - `NULL IS FALSE` → false (not NULL!)
+pub fn is_false<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+{
+    SQLExpr::new(operand_sql(expr).push(Token::IS).append(SQL::raw("FALSE")))
+}
+
+// =============================================================================
 // Method-based Comparison API (Extension Trait)
 // =============================================================================
 
@@ -813,6 +921,86 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         Self::SQLType: Compatible<S::SQLType>,
     {
         crate::expr::not_in_subquery(self, subquery)
+    }
+
+    /// IS DISTINCT FROM - NULL-safe inequality comparison.
+    ///
+    /// ```ignore
+    /// users.status.is_distinct_from("active")
+    /// // "users"."status" IS DISTINCT FROM 'active'
+    /// ```
+    #[allow(clippy::type_complexity, clippy::wrong_self_convention)]
+    fn is_distinct_from<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
+    where
+        R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
+    {
+        is_distinct_from(self, other)
+    }
+
+    /// IS NOT DISTINCT FROM - NULL-safe equality comparison.
+    ///
+    /// ```ignore
+    /// users.status.is_not_distinct_from("active")
+    /// // "users"."status" IS NOT DISTINCT FROM 'active'
+    /// ```
+    #[allow(clippy::type_complexity, clippy::wrong_self_convention)]
+    fn is_not_distinct_from<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        <Self::Aggregate as AggOr<
+            <R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate,
+        >>::Output,
+    >
+    where
+        R: ComparisonOperand<'a, V, Self::SQLType>,
+        Self::Aggregate:
+            AggOr<<R as ComparisonOperand<'a, V, Self::SQLType>>::Aggregate>,
+    {
+        is_not_distinct_from(self, other)
+    }
+
+    /// IS TRUE - boolean test that handles NULL.
+    ///
+    /// ```ignore
+    /// users.is_active.is_true()
+    /// // "users"."is_active" IS TRUE
+    /// ```
+    #[allow(clippy::wrong_self_convention)]
+    fn is_true(
+        self,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
+        is_true(self)
+    }
+
+    /// IS FALSE - boolean test that handles NULL.
+    ///
+    /// ```ignore
+    /// users.is_active.is_false()
+    /// // "users"."is_active" IS FALSE
+    /// ```
+    #[allow(clippy::wrong_self_convention)]
+    fn is_false(
+        self,
+    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
+        is_false(self)
     }
 }
 

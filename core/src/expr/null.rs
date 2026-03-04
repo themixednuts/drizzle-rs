@@ -11,6 +11,7 @@
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::Compatible;
+use crate::{PostgresDialect, SQLiteDialect};
 
 use super::{AggOr, AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr};
 
@@ -222,5 +223,113 @@ where
         expr.into_sql()
             .push(Token::COMMA)
             .append(default.into_sql()),
+    ))
+}
+
+// =============================================================================
+// GREATEST / LEAST
+// =============================================================================
+
+/// Dialect-aware function names for GREATEST/LEAST.
+///
+/// PostgreSQL uses `GREATEST`/`LEAST`; SQLite uses multi-argument `MAX`/`MIN`.
+pub trait GreatestLeastPolicy {
+    const GREATEST_FN: &'static str;
+    const LEAST_FN: &'static str;
+}
+
+impl GreatestLeastPolicy for SQLiteDialect {
+    const GREATEST_FN: &'static str = "MAX";
+    const LEAST_FN: &'static str = "MIN";
+}
+
+impl GreatestLeastPolicy for PostgresDialect {
+    const GREATEST_FN: &'static str = "GREATEST";
+    const LEAST_FN: &'static str = "LEAST";
+}
+
+/// GREATEST - returns the largest of the given values.
+///
+/// Both arguments must have compatible types. Nullability propagates:
+/// if either input is nullable, the result is nullable.
+///
+/// Emits `GREATEST(a, b)` on PostgreSQL, `MAX(a, b)` on SQLite.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::greatest;
+///
+/// // Clamp to minimum of 0
+/// let score = greatest(users.score, 0);
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn greatest<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<
+    'a,
+    V,
+    L::SQLType,
+    <L::Nullable as NullOr<R::Nullable>>::Output,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: GreatestLeastPolicy,
+    L: Expr<'a, V>,
+    R: Expr<'a, V>,
+    L::SQLType: Compatible<R::SQLType>,
+    L::Nullable: NullOr<R::Nullable>,
+    R::Nullable: Nullability,
+    L::Aggregate: AggOr<R::Aggregate>,
+    R::Aggregate: AggregateKind,
+{
+    SQLExpr::new(SQL::func(
+        <V::DialectMarker as GreatestLeastPolicy>::GREATEST_FN,
+        left.into_sql().push(Token::COMMA).append(right.into_sql()),
+    ))
+}
+
+/// LEAST - returns the smallest of the given values.
+///
+/// Both arguments must have compatible types. Nullability propagates:
+/// if either input is nullable, the result is nullable.
+///
+/// Emits `LEAST(a, b)` on PostgreSQL, `MIN(a, b)` on SQLite.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::least;
+///
+/// // Cap at maximum of 100
+/// let score = least(users.score, 100);
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn least<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<
+    'a,
+    V,
+    L::SQLType,
+    <L::Nullable as NullOr<R::Nullable>>::Output,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: GreatestLeastPolicy,
+    L: Expr<'a, V>,
+    R: Expr<'a, V>,
+    L::SQLType: Compatible<R::SQLType>,
+    L::Nullable: NullOr<R::Nullable>,
+    R::Nullable: Nullability,
+    L::Aggregate: AggOr<R::Aggregate>,
+    R::Aggregate: AggregateKind,
+{
+    SQLExpr::new(SQL::func(
+        <V::DialectMarker as GreatestLeastPolicy>::LEAST_FN,
+        left.into_sql().push(Token::COMMA).append(right.into_sql()),
     ))
 }
