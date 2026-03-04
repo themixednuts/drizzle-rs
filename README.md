@@ -283,6 +283,22 @@ let rows: Vec<(String,)> = db
 
 > Available: `count`, `sum`, `avg`, `min`, `max`, `coalesce`, `abs`, `upper`, `lower`, `length`, and more in `drizzle::core::expr`.
 
+### Type casting
+
+Each dialect provides cast target markers for use with `cast()`:
+
+```rust
+use drizzle::core::expr::cast;
+
+// SQLite
+let age = cast(json_age, drizzle::sqlite::types::Integer);
+
+// PostgreSQL
+let age = cast(user.age, drizzle::postgres::types::Int4);
+```
+
+> You can also pass a string to `cast()` when you need a custom SQL type name.
+
 ## Group By
 
 ```rust
@@ -292,26 +308,6 @@ db.select((users.name, alias(count(users.id), "total")))
     .having(gt(count(users.id), 1))
     .all()?;
 ```
-
-## Set Operations
-
-Combine queries with `union`, `union_all`, `intersect`, and `except`:
-
-```rust
-let results: Vec<(String,)> = db
-    .select((users.name,))
-    .from(users)
-    .r#where(lte(users.age, 25))
-    .union(
-        db.select((users.name,))
-          .from(users)
-          .r#where(gte(users.age, 30))
-    )
-    .order_by(asc(users.name))
-    .all()?;
-```
-
-> `union` removes duplicates. Use `union_all` to keep them.
 
 ## Joins
 
@@ -348,6 +344,43 @@ let rows: Vec<UserWithPost> = db
     .left_join(posts)
     .all()?;
 ```
+
+## Aliases
+
+Use a `Tag` to create compile-time-safe aliases for self-joins and CTEs.
+The `tag!` macro defines one in a single line:
+
+```rust
+use drizzle::sqlite::prelude::*;
+
+tag!(U, "u");
+
+let u = Users::alias::<U>();
+let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
+```
+
+Every alias or CTE is created through a `Tag` type (`alias::<Tag>()` / `into_cte::<Tag>()`),
+which embeds its SQL name at compile time.
+
+## Set Operations
+
+Combine queries with `union`, `union_all`, `intersect`, and `except`:
+
+```rust
+let results: Vec<(String,)> = db
+    .select((users.name,))
+    .from(users)
+    .r#where(lte(users.age, 25))
+    .union(
+        db.select((users.name,))
+          .from(users)
+          .r#where(gte(users.age, 30))
+    )
+    .order_by(asc(users.name))
+    .all()?;
+```
+
+> `union` removes duplicates. Use `union_all` to keep them.
 
 ## Relational Queries
 
@@ -407,9 +440,9 @@ let users = db.query(users)
     .find_many()?;
 ```
 
-> **Note:** Relation accessor methods (e.g., `users.posts()`, `posts.author()`) are defined via
-> generated extension traits. When table definitions live in a separate module, you must import
-> these traits (e.g., `use schema::__User_Posts_RelAccessor;`) for the methods to be available.
+> **Note:** Relation accessor methods (e.g., `users.posts()`) are generated as extension traits.
+> When your schema lives in a separate module, bring these traits into scope with a glob import
+> (`use schema::*;`).
 
 ## Transactions
 
@@ -496,39 +529,6 @@ stmt.execute(db.conn(), [new_name.bind("New Name"), target.bind(1)])?;
 ```
 
 > Use `.prepare().into_owned()` to convert a prepared statement into a self-contained value that can be stored or moved freely.
-
-## Aliases
-
-Use a `Tag` to create compile-time-safe aliases for self-joins and CTEs.
-The `tag!` macro defines one in a single line:
-
-```rust
-use drizzle::sqlite::prelude::*;
-
-tag!(U, "u");
-
-let u = Users::alias::<U>();
-let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
-```
-
-Every alias or CTE is created through a `Tag` type (`alias::<Tag>()` / `into_cte::<Tag>()`),
-which embeds its SQL name at compile time.
-
-## Cast Targets
-
-Each dialect provides cast target markers for use with `cast()`:
-
-```rust
-use drizzle::core::expr::cast;
-
-// SQLite
-let age = cast(json_age, drizzle::sqlite::types::Integer);
-
-// PostgreSQL
-let age = cast(user.age, drizzle::postgres::types::Int4);
-```
-
-Use a string cast target only when you need a custom SQL type name.
 
 ## PostgreSQL
 
