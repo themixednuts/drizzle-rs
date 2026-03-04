@@ -19,7 +19,42 @@ use drizzle_types::sqlite::types::{
     Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
 };
 
-use super::{AggOr, Expr, NullOr, Nullability, SQLExpr};
+use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
+
+#[diagnostic::on_unimplemented(
+    message = "this math function is not available for this dialect",
+    label = "use a dialect-specific alternative"
+)]
+pub trait SQLiteMathSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "this math function is not available for this dialect",
+    label = "use a dialect-specific alternative"
+)]
+pub trait PostgresMathSupport {}
+
+impl SQLiteMathSupport for SQLiteDialect {}
+impl PostgresMathSupport for PostgresDialect {}
+
+/// Dialect-specific return type for RANDOM().
+///
+/// SQLite RANDOM() returns an integer in [-2^63, 2^63).
+/// PostgreSQL RANDOM() returns a float in [0, 1).
+#[diagnostic::on_unimplemented(
+    message = "no RANDOM return type defined for this dialect",
+    label = "RANDOM result type is not configured for this dialect marker"
+)]
+pub trait RandomPolicy {
+    type Random: DataType;
+}
+
+impl RandomPolicy for SQLiteDialect {
+    type Random = SqliteInteger;
+}
+
+impl RandomPolicy for PostgresDialect {
+    type Random = drizzle_types::postgres::types::Float8;
+}
 
 #[diagnostic::on_unimplemented(
     message = "no rounding policy for `{Self}` on this dialect",
@@ -498,4 +533,79 @@ where
             .push(Token::REM)
             .append(divisor.into_sql()),
     )
+}
+
+// =============================================================================
+// CONSTANTS AND RANDOM
+// =============================================================================
+
+/// PI - returns the mathematical constant pi (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::pi;
+///
+/// // SELECT PI()
+/// let pi_val = pi::<PostgresValue>();
+/// ```
+pub fn pi<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresMathSupport,
+{
+    SQLExpr::new(SQL::raw("PI()"))
+}
+
+/// RANDOM - returns a random value.
+///
+/// Return type is dialect-aware:
+/// - SQLite: integer in [-2^63, 2^63)
+/// - PostgreSQL: float in [0, 1)
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::random;
+///
+/// // SELECT RANDOM()
+/// let rnd = random::<SQLiteValue>();
+/// ```
+pub fn random<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as RandomPolicy>::Random, super::NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: RandomPolicy,
+{
+    SQLExpr::new(SQL::raw("RANDOM()"))
+}
+
+// =============================================================================
+// SQLite-only Math Functions
+// =============================================================================
+
+/// LOG2 - returns the base-2 logarithm of a number.
+///
+/// Available in SQLite when compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`.
+/// Returns a dialect-aware double type, preserves nullability.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::log2;
+///
+/// // SELECT LOG2(users.value)
+/// let log_base_2 = log2(users.value);
+/// ```
+pub fn log2<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: SQLiteMathSupport,
+    E: Expr<'a, V>,
+    E::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func("LOG2", expr.into_sql()))
 }

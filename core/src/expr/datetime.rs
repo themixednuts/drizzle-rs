@@ -509,3 +509,345 @@ where
 {
     SQLExpr::new(SQL::func("TO_TIMESTAMP", expr.into_sql()))
 }
+
+// =============================================================================
+// Additional PostgreSQL Formatting Functions
+// =============================================================================
+
+/// TO_DATE - parses a date from text using a format pattern (PostgreSQL).
+///
+/// Returns Date type, preserves nullability of the input expression.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::to_date;
+///
+/// // SELECT TO_DATE('2024-01-15', 'YYYY-MM-DD')
+/// let d = to_date("2024-01-15", "YYYY-MM-DD");
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn to_date<'a, V, E, F>(
+    expr: E,
+    format: F,
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Date,
+    E::Nullable,
+    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+    E: Expr<'a, V>,
+    E::SQLType: Textual,
+    F: Expr<'a, V>,
+    F::SQLType: Textual,
+    E::Aggregate: AggOr<F::Aggregate>,
+{
+    SQLExpr::new(SQL::func(
+        "TO_DATE",
+        expr.into_sql().push(Token::COMMA).append(format.into_sql()),
+    ))
+}
+
+/// TO_NUMBER - parses a number from text using a format pattern (PostgreSQL).
+///
+/// Returns Numeric type, preserves nullability of the input expression.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::to_number;
+///
+/// // SELECT TO_NUMBER('1,234.56', '9G999D99')
+/// let n = to_number("1,234.56", "9G999D99");
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn to_number<'a, V, E, F>(
+    expr: E,
+    format: F,
+) -> SQLExpr<
+    'a,
+    V,
+    drizzle_types::postgres::types::Numeric,
+    E::Nullable,
+    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+    E: Expr<'a, V>,
+    E::SQLType: Textual,
+    F: Expr<'a, V>,
+    F::SQLType: Textual,
+    E::Aggregate: AggOr<F::Aggregate>,
+{
+    SQLExpr::new(SQL::func(
+        "TO_NUMBER",
+        expr.into_sql().push(Token::COMMA).append(format.into_sql()),
+    ))
+}
+
+// =============================================================================
+// DATE_BIN (PostgreSQL 14+)
+// =============================================================================
+
+/// DATE_BIN - bins timestamps into intervals (PostgreSQL 14+).
+///
+/// Rounds a timestamp down to the nearest multiple of `stride` from `origin`.
+/// Useful for time-series bucketing.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::date_bin;
+///
+/// // SELECT DATE_BIN('15 minutes', events.created_at, TIMESTAMP '2001-01-01')
+/// let bucketed = date_bin("15 minutes", events.created_at, "2001-01-01");
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn date_bin<'a, V, S, E, O>(
+    stride: S,
+    source: E,
+    origin: O,
+) -> SQLExpr<
+    'a,
+    V,
+    E::SQLType,
+    <E::Nullable as NullOr<O::Nullable>>::Output,
+    <<S::Aggregate as AggOr<E::Aggregate>>::Output as AggOr<O::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+    S: Expr<'a, V>,
+    E: Expr<'a, V>,
+    E::SQLType: Temporal,
+    O: Expr<'a, V>,
+    O::SQLType: Temporal,
+    E::Nullable: NullOr<O::Nullable>,
+    O::Nullable: Nullability,
+    S::Aggregate: AggOr<E::Aggregate>,
+    <S::Aggregate as AggOr<E::Aggregate>>::Output: AggOr<O::Aggregate>,
+    O::Aggregate: super::AggregateKind,
+{
+    SQLExpr::new(SQL::func(
+        "DATE_BIN",
+        stride
+            .into_sql()
+            .push(Token::COMMA)
+            .append(source.into_sql())
+            .push(Token::COMMA)
+            .append(origin.into_sql()),
+    ))
+}
+
+// =============================================================================
+// MAKE_DATE / MAKE_TIMESTAMP (PostgreSQL)
+// =============================================================================
+
+/// MAKE_DATE - constructs a date from year, month, day (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::make_date;
+///
+/// // SELECT MAKE_DATE(2024, 1, 15)
+/// let d = make_date(2024, 1, 15);
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn make_date<'a, V, Y, M, D>(
+    year: Y,
+    month: M,
+    day: D,
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Date,
+    <<Y::Nullable as NullOr<M::Nullable>>::Output as NullOr<D::Nullable>>::Output,
+    <<Y::Aggregate as AggOr<M::Aggregate>>::Output as AggOr<D::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+    Y: Expr<'a, V>,
+    Y::SQLType: Numeric,
+    M: Expr<'a, V>,
+    M::SQLType: Numeric,
+    D: Expr<'a, V>,
+    D::SQLType: Numeric,
+    Y::Nullable: NullOr<M::Nullable>,
+    M::Nullable: Nullability,
+    <Y::Nullable as NullOr<M::Nullable>>::Output: NullOr<D::Nullable>,
+    D::Nullable: Nullability,
+    Y::Aggregate: AggOr<M::Aggregate>,
+    <Y::Aggregate as AggOr<M::Aggregate>>::Output: AggOr<D::Aggregate>,
+    D::Aggregate: super::AggregateKind,
+{
+    SQLExpr::new(SQL::func(
+        "MAKE_DATE",
+        year.into_sql()
+            .push(Token::COMMA)
+            .append(month.into_sql())
+            .push(Token::COMMA)
+            .append(day.into_sql()),
+    ))
+}
+
+/// MAKE_TIMESTAMP - constructs a timestamp from components (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::make_timestamp;
+///
+/// // SELECT MAKE_TIMESTAMP(2024, 1, 15, 10, 30, 0.0)
+/// let ts = make_timestamp(2024, 1, 15, 10, 30, 0.0);
+/// ```
+pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
+    year: Y,
+    month: Mo,
+    day: D,
+    hour: H,
+    minute: Mi,
+    second: S,
+) -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+    Y: Expr<'a, V>,
+    Y::SQLType: Numeric,
+    Mo: Expr<'a, V>,
+    Mo::SQLType: Numeric,
+    D: Expr<'a, V>,
+    D::SQLType: Numeric,
+    H: Expr<'a, V>,
+    H::SQLType: Numeric,
+    Mi: Expr<'a, V>,
+    Mi::SQLType: Numeric,
+    S: Expr<'a, V>,
+    S::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func(
+        "MAKE_TIMESTAMP",
+        year.into_sql()
+            .push(Token::COMMA)
+            .append(month.into_sql())
+            .push(Token::COMMA)
+            .append(day.into_sql())
+            .push(Token::COMMA)
+            .append(hour.into_sql())
+            .push(Token::COMMA)
+            .append(minute.into_sql())
+            .push(Token::COMMA)
+            .append(second.into_sql()),
+    ))
+}
+
+// =============================================================================
+// Current Time (PostgreSQL-specific)
+// =============================================================================
+
+/// LOCALTIME - returns the current time without time zone (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::localtime;
+///
+/// // SELECT LOCALTIME
+/// let now_time = localtime::<PostgresValue>();
+/// ```
+pub fn localtime<'a, V>()
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+{
+    SQLExpr::new(SQL::raw("LOCALTIME"))
+}
+
+/// LOCALTIMESTAMP - returns the current timestamp without time zone (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::localtimestamp;
+///
+/// // SELECT LOCALTIMESTAMP
+/// let now_ts = localtimestamp::<PostgresValue>();
+/// ```
+pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+{
+    SQLExpr::new(SQL::raw("LOCALTIMESTAMP"))
+}
+
+/// CLOCK_TIMESTAMP - returns the actual wall-clock time (PostgreSQL).
+///
+/// Unlike `NOW()` or `CURRENT_TIMESTAMP`, this changes during a transaction.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::clock_timestamp;
+///
+/// // SELECT CLOCK_TIMESTAMP()
+/// let wall_clock = clock_timestamp::<PostgresValue>();
+/// ```
+pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresDateTimeSupport,
+{
+    SQLExpr::new(SQL::raw("CLOCK_TIMESTAMP()"))
+}
+
+// =============================================================================
+// TIMEDIFF (SQLite 3.43+)
+// =============================================================================
+
+/// TIMEDIFF - computes the difference between two temporal values (SQLite 3.43+).
+///
+/// Returns a text representation of the time difference.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::timediff;
+///
+/// // SELECT TIMEDIFF(events.end_time, events.start_time)
+/// let duration = timediff(events.end_time, events.start_time);
+/// ```
+#[allow(clippy::type_complexity)]
+pub fn timediff<'a, V, E1, E2>(
+    time1: E1,
+    time2: E2,
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: SQLiteDateTimeSupport,
+    E1: Expr<'a, V>,
+    E1::SQLType: Temporal,
+    E2: Expr<'a, V>,
+    E2::SQLType: Temporal,
+    E1::Nullable: NullOr<E2::Nullable>,
+    E2::Nullable: Nullability,
+    E1::Aggregate: AggOr<E2::Aggregate>,
+{
+    SQLExpr::new(SQL::func(
+        "TIMEDIFF",
+        time1.into_sql().push(Token::COMMA).append(time2.into_sql()),
+    ))
+}
