@@ -597,6 +597,35 @@ where
 }
 
 // =============================================================================
+// TOTAL (SQLite)
+// =============================================================================
+
+/// TOTAL - sums numeric values, returning 0.0 for empty sets (SQLite).
+///
+/// Unlike `SUM`, which returns NULL for an empty result set,
+/// `TOTAL` always returns a floating-point value (0.0 for empty sets).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::total;
+///
+/// // SELECT TOTAL(orders.amount)
+/// let total_amount = total(orders.amount);
+/// ```
+pub fn total<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull, Agg>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: SQLiteAggregateSupport,
+    E: Expr<'a, V>,
+    E::SQLType: Numeric,
+{
+    SQLExpr::new(SQL::func("TOTAL", expr.into_sql()))
+}
+
+// =============================================================================
 // GROUP_CONCAT / STRING_AGG
 // =============================================================================
 
@@ -633,6 +662,90 @@ where
         expr.into_sql()
             .push(crate::Token::COMMA)
             .append(delimiter.into_sql()),
+    ))
+}
+
+// =============================================================================
+// Distinct Wrapper
+// =============================================================================
+
+/// EVERY - true if all non-null inputs are true (PostgreSQL).
+///
+/// SQL standard alias for BOOL_AND.
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::every;
+///
+/// // SELECT EVERY(orders.is_paid)
+/// let all_paid = every(orders.is_paid);
+/// ```
+pub fn every<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresAggregateSupport,
+    E: Expr<'a, V>,
+    E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
+{
+    SQLExpr::new(SQL::func("EVERY", expr.into_sql()))
+}
+
+/// JSON_OBJECT_AGG - aggregates key/value pairs into a JSON object (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::json_object_agg;
+///
+/// // SELECT JSON_OBJECT_AGG(settings.key, settings.value)
+/// let obj = json_object_agg(settings.key, settings.value);
+/// ```
+pub fn json_object_agg<'a, V, K, Val>(
+    key: K,
+    value: Val,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresAggregateSupport,
+    K: Expr<'a, V>,
+    Val: Expr<'a, V>,
+{
+    SQLExpr::new(SQL::func(
+        "JSON_OBJECT_AGG",
+        key.into_sql()
+            .push(crate::Token::COMMA)
+            .append(value.into_sql()),
+    ))
+}
+
+/// JSONB_OBJECT_AGG - aggregates key/value pairs into a JSONB object (PostgreSQL).
+///
+/// # Example
+///
+/// ```ignore
+/// use drizzle_core::expr::jsonb_object_agg;
+///
+/// // SELECT JSONB_OBJECT_AGG(settings.key, settings.value)
+/// let obj = jsonb_object_agg(settings.key, settings.value);
+/// ```
+pub fn jsonb_object_agg<'a, V, K, Val>(
+    key: K,
+    value: Val,
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg>
+where
+    V: SQLParam + 'a,
+    V::DialectMarker: PostgresAggregateSupport,
+    K: Expr<'a, V>,
+    Val: Expr<'a, V>,
+{
+    SQLExpr::new(SQL::func(
+        "JSONB_OBJECT_AGG",
+        key.into_sql()
+            .push(crate::Token::COMMA)
+            .append(value.into_sql()),
     ))
 }
 
