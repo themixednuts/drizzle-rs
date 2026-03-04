@@ -440,9 +440,15 @@ let users = db.query(users)
     .find_many()?;
 ```
 
-> **Note:** Relation accessor methods (e.g., `users.posts()`) are generated as extension traits.
-> When your schema lives in a separate module, bring these traits into scope with a glob import
-> (`use schema::*;`).
+Each table generates convenient type aliases for use in function signatures:
+
+```rust
+use schema::{UsersQueryRow, UsersWithPosts, QueryUsersPosts};
+
+fn print_user_posts(user: &UsersQueryRow<UsersWithPosts>) {
+    println!("{} has {} posts", user.name, user.posts().len());
+}
+```
 
 ## Transactions
 
