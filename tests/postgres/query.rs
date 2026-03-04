@@ -15,18 +15,15 @@ use drizzle::postgres::prelude::*;
 use drizzle_macros::postgres_test;
 use uuid::Uuid;
 
-// Import generated relation accessor traits from the common schema.
-// These are needed because the table definitions live in a different module.
+// Import generated query result accessor traits from the common schema.
+// Relation accessors (e.g., users.posts()) and column selectors are now
+// inherent methods — no import needed. Only QueryAccess traits for result
+// field access still require imports.
 #[allow(unused_imports)]
 use crate::common::schema::postgres::{
-    __Category_ViaPostCategory_Posts_RelAccessor, __ColumnsAccessor_Complex,
-    __ColumnsAccessor_Post, __Comment_Replies_RelAccessor, __Complex_InvitedBy_RelAccessor,
-    __Complex_Posts_RelAccessor, __Post_Author_RelAccessor, __Post_Comments_RelAccessor,
-    __Post_ViaPostCategory_Categories_RelAccessor, __QueryAccess_Category_ViaPostCategory_Posts,
-    __QueryAccess_Comment_Replies, __QueryAccess_Complex_InvitedBy, __QueryAccess_Complex_Posts,
-    __QueryAccess_Post_Author, __QueryAccess_Post_Comments,
-    __QueryAccess_Post_ViaPostCategory_Categories, ComplexId, ComplexWithInvitedBy,
-    ComplexWithPosts,
+    ComplexId, ComplexWithInvitedBy, ComplexWithPosts, QueryCategoryViaPostCategoryPosts,
+    QueryCommentReplies, QueryComplexInvitedBy, QueryComplexPosts, QueryPostAuthor,
+    QueryPostComments, QueryPostViaPostCategoryCategories,
 };
 
 // =============================================================================
@@ -460,13 +457,11 @@ postgres_test!(query_relation_where_typed, ComplexPostQuerySchema, {
             => execute
     );
 
-    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
-    let threshold_id = all_posts.iter().find(|p| p.title == "Post A").unwrap().id;
-
-    // Only include posts with id > threshold (should exclude "Post A")
+    // Only include posts with title > "Post A" (should exclude "Post A")
+    // Note: using title (deterministic String) instead of id (random UUID).
     let users = drizzle_exec!(
         db.query(complex)
-            .with(complex.posts().r#where(gt(post.id, threshold_id)))
+            .with(complex.posts().r#where(gt(post.title, "Post A")))
             .find_many()
     );
 

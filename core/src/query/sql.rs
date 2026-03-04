@@ -401,6 +401,11 @@ fn write_relation_subquery<'p, V: SQLParam>(
             }
         }
 
+        // PostgreSQL requires LATERAL for derived tables that reference
+        // columns from the outer query (the parent alias).
+        if dialect == Dialect::PostgreSQL {
+            sql.push_str("LATERAL ");
+        }
         sql.push_str("(SELECT ");
         for (i, c) in target_columns.iter().enumerate() {
             if i > 0 {
