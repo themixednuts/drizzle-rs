@@ -666,7 +666,7 @@ where
 }
 
 // =============================================================================
-// Distinct Wrapper
+// PostgreSQL Aggregate Functions
 // =============================================================================
 
 /// EVERY - true if all non-null inputs are true (PostgreSQL).
