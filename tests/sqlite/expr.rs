@@ -1652,3 +1652,313 @@ sqlite_test!(test_window_cume_dist, SimpleSchema, {
     assert!((results[1].cd - 2.0 / 3.0).abs() < f64::EPSILON); // 2/3
     assert!((results[2].cd - 1.0).abs() < f64::EPSILON); // 3/3
 });
+
+// =============================================================================
+// GREATEST / LEAST Tests
+// =============================================================================
+
+sqlite_test!(test_greatest_least, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alpha").with_id(10),
+        InsertSimple::new("beta").with_id(30),
+    ];
+
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // Test GREATEST(id, 20) — should return max of id and 20
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(greatest(simple.id, 20), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 10))
+            => all
+    );
+    assert_eq!(result[0].result, 20);
+
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(greatest(simple.id, 20), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 30))
+            => all
+    );
+    assert_eq!(result[0].result, 30);
+
+    // Test LEAST(id, 20) — should return min of id and 20
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(least(simple.id, 20), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 10))
+            => all
+    );
+    assert_eq!(result[0].result, 10);
+
+    let result: Vec<MathIntResult> = drizzle_exec!(
+        db.select(alias(least(simple.id, 20), "result"))
+            .from(simple)
+            .r#where(eq(simple.id, 30))
+            => all
+    );
+    assert_eq!(result[0].result, 20);
+});
+
+// =============================================================================
+// CONCAT_WS Test
+// =============================================================================
+
+sqlite_test!(test_concat_ws, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("World").with_id(1)];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // Test CONCAT_WS with literal separator and mixed values
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(concat_ws(", ", ["Hello", "Beautiful"]), "result"))
+            .from(simple)
+            => all
+    );
+    assert_eq!(result[0].result, "Hello, Beautiful");
+});
+
+// =============================================================================
+// IS DISTINCT FROM / IS NOT DISTINCT FROM Tests
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct BoolIntResult {
+    result: i64,
+}
+
+sqlite_test!(test_is_distinct_from, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(10),
+        InsertSimple::new("bob").with_id(20),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // 10 IS DISTINCT FROM 10 → false (0)
+    let result: Vec<BoolIntResult> = drizzle_exec!(
+        db.select(alias(
+            cast(is_distinct_from(simple.id, 10), drizzle::sqlite::types::Integer),
+            "result",
+        ))
+        .from(simple)
+        .r#where(eq(simple.id, 10))
+        => all
+    );
+    assert_eq!(result[0].result, 0);
+
+    // 10 IS DISTINCT FROM 20 → true (1)
+    let result: Vec<BoolIntResult> = drizzle_exec!(
+        db.select(alias(
+            cast(is_distinct_from(simple.id, 20), drizzle::sqlite::types::Integer),
+            "result",
+        ))
+        .from(simple)
+        .r#where(eq(simple.id, 10))
+        => all
+    );
+    assert_eq!(result[0].result, 1);
+
+    // 10 IS NOT DISTINCT FROM 10 → true (1)
+    let result: Vec<BoolIntResult> = drizzle_exec!(
+        db.select(alias(
+            cast(is_not_distinct_from(simple.id, 10), drizzle::sqlite::types::Integer),
+            "result",
+        ))
+        .from(simple)
+        .r#where(eq(simple.id, 10))
+        => all
+    );
+    assert_eq!(result[0].result, 1);
+});
+
+// =============================================================================
+// IS TRUE / IS FALSE Tests
+// =============================================================================
+
+sqlite_test!(test_is_true_is_false, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("truthy").with_id(1),
+        InsertSimple::new("falsy").with_id(0),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // (1 > 0) IS TRUE → true (1)
+    let result: Vec<BoolIntResult> = drizzle_exec!(
+        db.select(alias(
+            cast(is_true(gt(simple.id, 0)), drizzle::sqlite::types::Integer),
+            "result",
+        ))
+        .from(simple)
+        .r#where(eq(simple.name, "truthy"))
+        => all
+    );
+    assert_eq!(result[0].result, 1);
+
+    // (0 > 0) IS TRUE → false (0)
+    let result: Vec<BoolIntResult> = drizzle_exec!(
+        db.select(alias(
+            cast(is_true(gt(simple.id, 0)), drizzle::sqlite::types::Integer),
+            "result",
+        ))
+        .from(simple)
+        .r#where(eq(simple.name, "falsy"))
+        => all
+    );
+    assert_eq!(result[0].result, 0);
+
+    // (0 > 0) IS FALSE → true (1)
+    let result: Vec<BoolIntResult> = drizzle_exec!(
+        db.select(alias(
+            cast(is_false(gt(simple.id, 0)), drizzle::sqlite::types::Integer),
+            "result",
+        ))
+        .from(simple)
+        .r#where(eq(simple.name, "falsy"))
+        => all
+    );
+    assert_eq!(result[0].result, 1);
+});
+
+// =============================================================================
+// TOTAL (SQLite-specific) Test
+// =============================================================================
+
+#[derive(Debug, SQLiteFromRow)]
+struct TotalResult {
+    total: f64,
+}
+
+sqlite_test!(test_total_aggregate, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("a").with_id(10),
+        InsertSimple::new("b").with_id(20),
+        InsertSimple::new("c").with_id(30),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // TOTAL returns 0.0 for empty sets (unlike SUM which returns NULL)
+    let result: Vec<TotalResult> = drizzle_exec!(
+        db.select(alias(total(simple.id), "total"))
+            .from(simple)
+            .r#where(eq(simple.id, 999))
+            => all
+    );
+    assert_eq!(result[0].total, 0.0);
+
+    // TOTAL with actual data
+    let result: Vec<TotalResult> = drizzle_exec!(
+        db.select(alias(total(simple.id), "total"))
+            .from(simple)
+            => all
+    );
+    assert_eq!(result[0].total, 60.0);
+});
+
+// =============================================================================
+// CHAR_LENGTH / OCTET_LENGTH Tests
+// =============================================================================
+
+sqlite_test!(test_char_length, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("hello").with_id(1),
+        InsertSimple::new("").with_id(2),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let result: Vec<LengthResult> = drizzle_exec!(
+        db.select(alias(char_length(simple.name), "length"))
+            .from(simple)
+            .r#where(eq(simple.id, 1))
+            => all
+    );
+    assert_eq!(result[0].length, 5);
+
+    let result: Vec<LengthResult> = drizzle_exec!(
+        db.select(alias(char_length(simple.name), "length"))
+            .from(simple)
+            .r#where(eq(simple.id, 2))
+            => all
+    );
+    assert_eq!(result[0].length, 0);
+});
+
+sqlite_test!(test_octet_length, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("hello").with_id(1)];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    let result: Vec<LengthResult> = drizzle_exec!(
+        db.select(alias(octet_length(simple.name), "length"))
+            .from(simple)
+            => all
+    );
+    // ASCII "hello" = 5 bytes
+    assert_eq!(result[0].length, 5);
+});
+
+// =============================================================================
+// PI / RANDOM / LOG2 Tests
+// =============================================================================
+
+// pi() is PostgreSQL-only — tested in PG tests
+
+#[derive(Debug, SQLiteFromRow)]
+struct RandomIntResult {
+    result: i64,
+}
+
+sqlite_test!(test_random, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("seed").with_id(1)];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // SQLite RANDOM() returns an integer — just verify it doesn't error
+    let result: Vec<RandomIntResult> = drizzle_exec!(
+        db.select(alias(random(), "result"))
+            .from(simple)
+            => all
+    );
+    assert_eq!(result.len(), 1);
+    // We can't assert a specific value, but we can verify it's a number
+    let _ = result[0].result;
+});
+
+// log2() requires SQLITE_ENABLE_MATH_FUNCTIONS — tested in PG tests
+
+// =============================================================================
+// TIMEDIFF Test (SQLite 3.43+)
+// =============================================================================
+
+sqlite_test!(test_timediff, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![InsertSimple::new("seed").with_id(1)];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+
+    // TIMEDIFF('2024-01-02', '2024-01-01') = '+1 00:00:00.000'
+    let result: Vec<StringResult> = drizzle_exec!(
+        db.select(alias(
+            timediff(
+                cast("2024-01-02", drizzle::sqlite::types::Text),
+                cast("2024-01-01", drizzle::sqlite::types::Text),
+            ),
+            "result",
+        ))
+        .from(simple)
+        => all
+    );
+    assert!(result[0].result.contains("1"));
+});
