@@ -616,7 +616,7 @@ pub fn date_bin<'a, V, S, E, O>(
     'a,
     V,
     E::SQLType,
-    <E::Nullable as NullOr<O::Nullable>>::Output,
+    <<S::Nullable as NullOr<E::Nullable>>::Output as NullOr<O::Nullable>>::Output,
     <<S::Aggregate as AggOr<E::Aggregate>>::Output as AggOr<O::Aggregate>>::Output,
 >
 where
@@ -627,7 +627,9 @@ where
     E::SQLType: Temporal,
     O: Expr<'a, V>,
     O::SQLType: Temporal,
-    E::Nullable: NullOr<O::Nullable>,
+    S::Nullable: NullOr<E::Nullable>,
+    E::Nullable: Nullability,
+    <S::Nullable as NullOr<E::Nullable>>::Output: NullOr<O::Nullable>,
     O::Nullable: Nullability,
     S::Aggregate: AggOr<E::Aggregate>,
     <S::Aggregate as AggOr<E::Aggregate>>::Output: AggOr<O::Aggregate>,
@@ -707,6 +709,7 @@ where
 /// // SELECT MAKE_TIMESTAMP(2024, 1, 15, 10, 30, 0.0)
 /// let ts = make_timestamp(2024, 1, 15, 10, 30, 0.0);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
     year: Y,
     month: Mo,
@@ -714,7 +717,17 @@ pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
     hour: H,
     minute: Mi,
     second: S,
-) -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Timestamp,
+    <<<<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output as NullOr<
+        H::Nullable,
+    >>::Output as NullOr<<Mi::Nullable as NullOr<S::Nullable>>::Output>>::Output,
+    <<<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
+        H::Aggregate,
+    >>::Output as AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>>::Output,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
@@ -730,6 +743,30 @@ where
     Mi::SQLType: Numeric,
     S: Expr<'a, V>,
     S::SQLType: Numeric,
+    Y::Nullable: NullOr<Mo::Nullable>,
+    <Y::Nullable as NullOr<Mo::Nullable>>::Output: NullOr<D::Nullable>,
+    <<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output:
+        NullOr<H::Nullable>,
+    Mo::Nullable: NullOr<S::Nullable>,
+    Mi::Nullable: NullOr<S::Nullable>,
+    <<<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output as NullOr<
+        H::Nullable,
+    >>::Output: NullOr<<Mi::Nullable as NullOr<S::Nullable>>::Output>,
+    H::Nullable: Nullability,
+    D::Nullable: Nullability,
+    Mo::Nullable: Nullability,
+    S::Nullable: Nullability,
+    Y::Aggregate: AggOr<Mo::Aggregate>,
+    <Y::Aggregate as AggOr<Mo::Aggregate>>::Output: AggOr<D::Aggregate>,
+    <<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output:
+        AggOr<H::Aggregate>,
+    Mi::Aggregate: AggOr<S::Aggregate>,
+    <<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
+        H::Aggregate,
+    >>::Output: AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>,
+    H::Aggregate: super::AggregateKind,
+    D::Aggregate: super::AggregateKind,
+    S::Aggregate: super::AggregateKind,
 {
     SQLExpr::new(SQL::func(
         "MAKE_TIMESTAMP",
