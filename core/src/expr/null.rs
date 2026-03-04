@@ -8,10 +8,10 @@
 //! - `coalesce`, `ifnull`: Require compatible types between expression and default
 //! - `nullif`: Requires compatible types between the two arguments
 
+use crate::PostgresDialect;
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::Compatible;
-use crate::{PostgresDialect, SQLiteDialect};
 
 use super::{AggOr, AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr};
 
@@ -230,30 +230,20 @@ where
 // GREATEST / LEAST
 // =============================================================================
 
-/// Dialect-aware function names for GREATEST/LEAST.
+/// Marker trait for dialects that support GREATEST/LEAST (PostgreSQL).
 ///
-/// PostgreSQL uses `GREATEST`/`LEAST`; SQLite uses multi-argument `MAX`/`MIN`.
-pub trait GreatestLeastPolicy {
-    const GREATEST_FN: &'static str;
-    const LEAST_FN: &'static str;
-}
+/// SQLite does not have `GREATEST`/`LEAST`. While its multi-argument
+/// `MAX`/`MIN` are superficially similar, they have different NULL semantics:
+/// PostgreSQL ignores NULLs (`GREATEST(1, NULL)` = `1`) while SQLite
+/// propagates them (`MAX(1, NULL)` = `NULL`).
+pub trait PostgresNullSupport {}
+impl PostgresNullSupport for PostgresDialect {}
 
-impl GreatestLeastPolicy for SQLiteDialect {
-    const GREATEST_FN: &'static str = "MAX";
-    const LEAST_FN: &'static str = "MIN";
-}
-
-impl GreatestLeastPolicy for PostgresDialect {
-    const GREATEST_FN: &'static str = "GREATEST";
-    const LEAST_FN: &'static str = "LEAST";
-}
-
-/// GREATEST - returns the largest of the given values.
+/// GREATEST - returns the largest of the given values (PostgreSQL).
 ///
-/// Both arguments must have compatible types. Nullability propagates:
-/// if either input is nullable, the result is nullable.
-///
-/// Emits `GREATEST(a, b)` on PostgreSQL, `MAX(a, b)` on SQLite.
+/// Both arguments must have compatible types. PostgreSQL ignores NULL inputs,
+/// so `GREATEST(1, NULL)` returns `1`. The result is only NULL when all
+/// inputs are NULL.
 ///
 /// # Example
 ///
@@ -276,7 +266,7 @@ pub fn greatest<'a, V, L, R>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: GreatestLeastPolicy,
+    V::DialectMarker: PostgresNullSupport,
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
@@ -286,17 +276,16 @@ where
     R::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
-        <V::DialectMarker as GreatestLeastPolicy>::GREATEST_FN,
+        "GREATEST",
         left.into_sql().push(Token::COMMA).append(right.into_sql()),
     ))
 }
 
-/// LEAST - returns the smallest of the given values.
+/// LEAST - returns the smallest of the given values (PostgreSQL).
 ///
-/// Both arguments must have compatible types. Nullability propagates:
-/// if either input is nullable, the result is nullable.
-///
-/// Emits `LEAST(a, b)` on PostgreSQL, `MIN(a, b)` on SQLite.
+/// Both arguments must have compatible types. PostgreSQL ignores NULL inputs,
+/// so `LEAST(1, NULL)` returns `1`. The result is only NULL when all
+/// inputs are NULL.
 ///
 /// # Example
 ///
@@ -319,7 +308,7 @@ pub fn least<'a, V, L, R>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: GreatestLeastPolicy,
+    V::DialectMarker: PostgresNullSupport,
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
@@ -329,7 +318,7 @@ where
     R::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
-        <V::DialectMarker as GreatestLeastPolicy>::LEAST_FN,
+        "LEAST",
         left.into_sql().push(Token::COMMA).append(right.into_sql()),
     ))
 }

@@ -1654,55 +1654,6 @@ sqlite_test!(test_window_cume_dist, SimpleSchema, {
 });
 
 // =============================================================================
-// GREATEST / LEAST Tests
-// =============================================================================
-
-sqlite_test!(test_greatest_least, SimpleSchema, {
-    let SimpleSchema { simple } = schema;
-
-    let test_data = vec![
-        InsertSimple::new("alpha").with_id(10),
-        InsertSimple::new("beta").with_id(30),
-    ];
-
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
-
-    // Test GREATEST(id, 20) — should return max of id and 20
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(greatest(simple.id, 20), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 10))
-            => all
-    );
-    assert_eq!(result[0].result, 20);
-
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(greatest(simple.id, 20), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 30))
-            => all
-    );
-    assert_eq!(result[0].result, 30);
-
-    // Test LEAST(id, 20) — should return min of id and 20
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(least(simple.id, 20), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 10))
-            => all
-    );
-    assert_eq!(result[0].result, 10);
-
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(least(simple.id, 20), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 30))
-            => all
-    );
-    assert_eq!(result[0].result, 20);
-});
-
-// =============================================================================
 // CONCAT_WS Test
 // =============================================================================
 
