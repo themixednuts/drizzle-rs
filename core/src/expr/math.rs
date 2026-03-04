@@ -470,7 +470,7 @@ where
 
 /// SIGN - returns the sign of a number (-1, 0, or 1).
 ///
-/// Returns the same numeric type, preserves nullability.
+/// Returns a Double, preserves nullability.
 ///
 /// # Example
 ///
