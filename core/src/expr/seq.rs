@@ -7,7 +7,7 @@ use crate::sql::SQL;
 use crate::traits::SQLParam;
 use crate::types::Textual;
 
-use super::{Expr, NonNull, SQLExpr, Scalar};
+use super::{AggOr, AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 
 use crate::PostgresDialect;
 
@@ -77,10 +77,17 @@ where
 /// // SELECT SETVAL('users_id_seq', 100)
 /// let set_id = setval("users_id_seq", 100);
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn setval<'a, V, E, N>(
     sequence: E,
     value: N,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::BigInt,
+    <E::Nullable as super::NullOr<N::Nullable>>::Output,
+    <E::Aggregate as AggOr<N::Aggregate>>::Output,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SequenceSupport,
@@ -88,6 +95,10 @@ where
     E::SQLType: Textual,
     N: Expr<'a, V>,
     N::SQLType: crate::types::Integral,
+    E::Nullable: super::NullOr<N::Nullable>,
+    N::Nullable: Nullability,
+    E::Aggregate: AggOr<N::Aggregate>,
+    N::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
         "SETVAL",

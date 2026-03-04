@@ -261,7 +261,7 @@ pub fn greatest<'a, V, L, R>(
     'a,
     V,
     L::SQLType,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
+    <L::Nullable as NullAnd<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
@@ -270,7 +270,7 @@ where
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
-    L::Nullable: NullOr<R::Nullable>,
+    L::Nullable: NullAnd<R::Nullable>,
     R::Nullable: Nullability,
     L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
@@ -303,7 +303,7 @@ pub fn least<'a, V, L, R>(
     'a,
     V,
     L::SQLType,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
+    <L::Nullable as NullAnd<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
@@ -312,7 +312,7 @@ where
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
-    L::Nullable: NullOr<R::Nullable>,
+    L::Nullable: NullAnd<R::Nullable>,
     R::Nullable: Nullability,
     L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
