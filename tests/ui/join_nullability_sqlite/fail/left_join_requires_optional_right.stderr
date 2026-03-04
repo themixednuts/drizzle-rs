@@ -6,8 +6,8 @@ error[E0308]: mismatched types
    |     |
    |     arguments to this function are incorrect
    |
-   = note: expected struct `QueryBuilder<'_, Schema, _, _, _, (SelectUsers, SelectPosts)>`
-              found struct `QueryBuilder<'_, Schema, SelectJoinSet, Posts, Scoped<SelectStar, Cons<Posts, Cons<Users, Nil>>>, (SelectUsers, Option<SelectPosts>)>`
+   = note: expected struct `drizzle::sqlite::builder::QueryBuilder<'_, Schema, _, _, _, (SelectUsers, SelectPosts)>`
+              found struct `drizzle::sqlite::builder::QueryBuilder<'_, Schema, SelectJoinSet, Posts, Scoped<SelectStar, Cons<Posts, Cons<Users, Nil>>>, (SelectUsers, Option<SelectPosts>)>`
 note: function defined here
   --> tests/ui/join_nullability_sqlite/fail/left_join_requires_optional_right.rs:31:4
    |

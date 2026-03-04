@@ -1,7 +1,8 @@
 //! Shared query API code generation for both SQLite and PostgreSQL.
 //!
-//! Generates relation ZSTs, `RelationDef` impls, accessor traits/impls,
-//! type aliases, `FromJsonValue` impls, and column selectors from FK declarations.
+//! Generates relation ZSTs, `RelationDef` impls, inherent accessor methods,
+//! result accessor traits, type aliases, `FromJsonValue` impls, and column
+//! selectors from FK declarations.
 
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, TokenStream};
@@ -89,6 +90,18 @@ pub(crate) fn generate_query_api(
         column_names,
         &blob_column_names,
     ));
+
+    // 1b. Generate QueryRow type alias for cleaner function signatures
+    let query_row_alias = format_ident!("{}QueryRow", struct_ident);
+    tokens.extend(quote! {
+        /// Type alias for a query result row from this table.
+        ///
+        /// Use `S` to specify loaded relations:
+        /// ```ignore
+        /// fn process(rows: &[UsersQueryRow<UsersWithPosts>]) { ... }
+        /// ```
+        #struct_vis type #query_row_alias<S = ()> = drizzle::core::query::QueryRow<#select_model_ident, S>;
+    });
 
     // 2. Generate forward relations (from this table to target)
     tokens.extend(generate_forward_relations(
@@ -192,6 +205,12 @@ fn pluralize(s: &str) -> String {
 }
 
 /// Generates forward relations (One/OptionalOne from this table to target).
+///
+/// Forward relation accessor methods live on a hidden `__{Table}ForwardRels`
+/// struct, reached via `Deref` on the table ZST. This avoids name collisions
+/// with the per-column associated constants that the table macro generates
+/// (e.g., `const invited_by: InvitedByColumn`), while still allowing
+/// `table.relation()` calls without any trait import.
 fn generate_forward_relations(
     struct_ident: &Ident,
     vis: &Visibility,
@@ -199,18 +218,31 @@ fn generate_forward_relations(
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
 
+    if fk_infos.is_empty() {
+        return tokens;
+    }
+
+    // Hidden struct that holds all forward relation accessor methods.
+    // The table ZST derefs to this, so `table.relation()` resolves here.
+    let rels_struct = format_ident!("__{struct_ident}ForwardRels");
+
+    tokens.extend(quote! {
+        #[doc(hidden)]
+        #vis struct #rels_struct;
+
+        impl ::std::ops::Deref for #struct_ident {
+            type Target = #rels_struct;
+            fn deref(&self) -> &#rels_struct {
+                &#rels_struct
+            }
+        }
+    });
+
     for fk in fk_infos {
         let method_name_str = forward_method_name(&fk.source_column);
         let method_name = format_ident!("{}", method_name_str);
         let rel_zst = format_ident!("__Rel_{struct_ident}_{}", to_pascal(&method_name_str));
-        let accessor_trait = format_ident!(
-            "__QueryAccess_{struct_ident}_{}",
-            to_pascal(&method_name_str)
-        );
-        let rel_accessor_trait = format_ident!(
-            "__{struct_ident}_{}_RelAccessor",
-            to_pascal(&method_name_str)
-        );
+        let accessor_trait = format_ident!("Query{}{}", struct_ident, to_pascal(&method_name_str));
 
         let target_table = &fk.target_table_ident;
         let target_select = format_ident!("Select{}", target_table);
@@ -224,7 +256,7 @@ fn generate_forward_relations(
             quote!(drizzle::core::relation::One)
         };
 
-        // Type alias: e.g., `QPostWithAuthor<Rest = ()>`
+        // Type alias: e.g., `PostWithAuthor<Rest = ()>`
         let type_alias_ident = format_ident!("{}With{}", struct_ident, to_pascal(&method_name_str));
         let data_type = if fk.is_nullable {
             quote!(Option<drizzle::core::query::QueryRow<#target_select, ()>>)
@@ -257,22 +289,14 @@ fn generate_forward_relations(
             #vis type #type_alias_ident<Rest = ()> =
                 drizzle::core::query::RelEntry<#rel_zst, #data_type, Rest>;
 
-            // Accessor via extension trait
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
-            #vis trait #rel_accessor_trait {
-                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
-            }
-
-            impl #rel_accessor_trait for #struct_ident {
-                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
+            // Relation accessor — inherent method on the deref target
+            impl #rels_struct {
+                #vis fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
                     drizzle::core::query::RelationHandle::new()
                 }
             }
 
             // Result accessor trait
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
             #vis trait #accessor_trait<W> {
                 type Data;
                 fn #method_name(&self) -> &Self::Data;
@@ -334,14 +358,7 @@ fn generate_reverse_relations(
         let method_name_str = reverse_method_name(struct_ident);
         let method_name = format_ident!("{}", method_name_str);
         let rel_zst = format_ident!("__Rel_{target_table}_{}", to_pascal(&method_name_str));
-        let accessor_trait = format_ident!(
-            "__QueryAccess_{target_table}_{}",
-            to_pascal(&method_name_str)
-        );
-        let rel_accessor_trait = format_ident!(
-            "__{target_table}_{}_RelAccessor",
-            to_pascal(&method_name_str)
-        );
+        let accessor_trait = format_ident!("Query{}{}", target_table, to_pascal(&method_name_str));
 
         let source_col = &fk.source_column;
         let target_col = fk.target_column_ident.to_string();
@@ -377,20 +394,13 @@ fn generate_reverse_relations(
                     Rest,
                 >;
 
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
-            #vis trait #rel_accessor_trait {
-                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
-            }
-
-            impl #rel_accessor_trait for #target_table {
-                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
+            // Relation accessor — inherent method on the target table ZST
+            impl #target_table {
+                #vis fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
                     drizzle::core::query::RelationHandle::new()
                 }
             }
 
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
             #vis trait #accessor_trait<W> {
                 type Data;
                 fn #method_name(&self) -> &Self::Data;
@@ -456,11 +466,9 @@ fn generate_many_to_many_relations(
             to_pascal(&method_name_str)
         );
         let accessor_trait = format_ident!(
-            "__QueryAccess_{source_table}_Via{junction_pascal}_{}",
-            to_pascal(&method_name_str)
-        );
-        let rel_accessor_trait = format_ident!(
-            "__{source_table}_Via{junction_pascal}_{}_RelAccessor",
+            "Query{}Via{}{}",
+            source_table,
+            junction_pascal,
             to_pascal(&method_name_str)
         );
 
@@ -509,20 +517,13 @@ fn generate_many_to_many_relations(
                     Rest,
                 >;
 
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
-            #vis trait #rel_accessor_trait {
-                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst>;
-            }
-
-            impl #rel_accessor_trait for #source_table {
-                fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
+            // Relation accessor — inherent method on the source table ZST
+            impl #source_table {
+                #vis fn #method_name<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
                     drizzle::core::query::RelationHandle::new()
                 }
             }
 
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
             #vis trait #accessor_trait<W> {
                 type Data;
                 fn #method_name(&self) -> &Self::Data;
@@ -615,7 +616,6 @@ fn generate_column_selector(
     fields: &[FieldJsonInfo],
 ) -> TokenStream {
     let selector_ident = format_ident!("{}ColumnSelector", struct_ident);
-    let accessor_trait_ident = format_ident!("__ColumnsAccessor_{}", struct_ident);
 
     let builder_methods: Vec<TokenStream> = fields
         .iter()
@@ -647,14 +647,9 @@ fn generate_column_selector(
             }
         }
 
-        #[doc(hidden)]
-        #[allow(non_camel_case_types)]
-        #vis trait #accessor_trait_ident {
-            fn columns(&self) -> #selector_ident;
-        }
-
-        impl #accessor_trait_ident for #struct_ident {
-            fn columns(&self) -> #selector_ident {
+        // Column selector — inherent method on the table ZST
+        impl #struct_ident {
+            #vis fn columns(&self) -> #selector_ident {
                 #selector_ident { selected: ::std::vec::Vec::new() }
             }
         }

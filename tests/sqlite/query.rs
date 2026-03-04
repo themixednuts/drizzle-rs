@@ -16,18 +16,15 @@ use crate::common::schema::sqlite::{
     SelectComment, SelectComplex, SelectPost,
 };
 
-// Import generated relation accessor traits from the common schema.
-// These are needed because the table definitions live in a different module.
+// Import generated query result accessor traits from the common schema.
+// Relation accessors (e.g., users.posts()) and column selectors are now
+// inherent methods — no import needed. Only QueryAccess traits for result
+// field access still require imports.
 #[allow(unused_imports)]
 use crate::common::schema::sqlite::{
-    __Category_ViaPostCategory_Posts_RelAccessor, __ColumnsAccessor_Complex,
-    __ColumnsAccessor_Post, __Comment_Replies_RelAccessor, __Complex_InvitedBy_RelAccessor,
-    __Complex_Posts_RelAccessor, __Post_Author_RelAccessor, __Post_Comments_RelAccessor,
-    __Post_ViaPostCategory_Categories_RelAccessor, __QueryAccess_Category_ViaPostCategory_Posts,
-    __QueryAccess_Comment_Replies, __QueryAccess_Complex_InvitedBy, __QueryAccess_Complex_Posts,
-    __QueryAccess_Post_Author, __QueryAccess_Post_Comments,
-    __QueryAccess_Post_ViaPostCategory_Categories, ComplexId, ComplexWithInvitedBy,
-    ComplexWithPosts,
+    ComplexId, ComplexWithInvitedBy, ComplexWithPosts, QueryCategoryViaPostCategoryPosts,
+    QueryCommentReplies, QueryComplexInvitedBy, QueryComplexPosts, QueryPostAuthor,
+    QueryPostComments, QueryPostViaPostCategoryCategories,
 };
 
 // =============================================================================
