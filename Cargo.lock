@@ -1680,7 +1680,11 @@ dependencies = [
 name = "drizzle-macros"
 version = "0.1.5"
 dependencies = [
+ "const_format",
+ "drizzle-core",
  "drizzle-migrations",
+ "drizzle-postgres",
+ "drizzle-sqlite",
  "drizzle-types",
  "heck",
  "paste",
@@ -1694,6 +1698,7 @@ dependencies = [
  "syn 2.0.114",
  "tokio",
  "toml",
+ "uuid",
 ]
 
 [[package]]
@@ -1791,6 +1796,7 @@ dependencies = [
 name = "drizzle-types"
 version = "0.1.5"
 dependencies = [
+ "schemars",
  "serde",
  "serde_json",
 ]
