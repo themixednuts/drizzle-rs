@@ -85,7 +85,6 @@ struct ViewTestSchema {
     existing_simple_view: ExistingSimpleView,
 }
 
-#[allow(dead_code)]
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow)]
 struct PgComplexResult {
@@ -127,7 +126,9 @@ postgres_test!(schema_with_view, ViewTestSchema, {
     let results: Vec<PgSimpleViewResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
+    assert_eq!(results[0].id, 1);
     assert_eq!(results[0].name, "alpha");
+    assert_eq!(results[1].id, 2);
 
     assert_eq!(DefaultNameView::VIEW_NAME, "default_name_view");
     assert_eq!(default_name_view.name(), "default_name_view");
@@ -199,6 +200,7 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
 
     let results: Vec<PgSimpleAliasResult> = drizzle_exec!(typed_stmt => all);
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, 1);
     assert_eq!(results[0].name, "alpha");
 
     // Keep schema value used in this test scope.
@@ -212,7 +214,7 @@ impl drizzle::core::Tag for SimpleAliasTag {
 
 postgres_test!(tagged_alias_forwards_alias_metadata, SimpleSchema, {
     let tagged = Simple::alias::<SimpleAliasTag>();
-    let base = Simple::new();
+    let _base = Simple::new();
 
     assert_eq!(tagged.name(), "s_alias");
 });
@@ -242,6 +244,7 @@ postgres_test!(schema_complex_works, ComplexSchema, {
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
+    assert_ne!(results[0].id, uuid::Uuid::nil());
     assert_eq!(results[0].name, "test");
 });
 

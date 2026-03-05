@@ -571,8 +571,11 @@ postgres_test!(test_window_sum_over, SimpleSchema, {
     );
 
     assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alice");
     assert_eq!(results[0].running_total, Some(1)); // 1
+    assert_eq!(results[1].name, "bob");
     assert_eq!(results[1].running_total, Some(3)); // 1+2
+    assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].running_total, Some(6)); // 1+2+3
 });
 

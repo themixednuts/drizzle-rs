@@ -16,12 +16,6 @@ use drizzle_macros::postgres_test;
 // =============================================================================
 
 #[derive(Debug, PostgresFromRow)]
-struct GroupCountResult {
-    name: String,
-    count: i64,
-}
-
-#[derive(Debug, PostgresFromRow)]
 struct GroupSumResult {
     active: bool,
     total_age: Option<i64>,
@@ -37,12 +31,6 @@ struct GroupCountActiveResult {
 struct GroupAvgResult {
     active: bool,
     avg_score: Option<f64>,
-}
-
-#[derive(Debug, PostgresFromRow)]
-struct RoleCountResult {
-    role: String,
-    count: i64,
 }
 
 // =============================================================================
@@ -167,16 +155,10 @@ postgres_test!(test_having_filters_groups, ComplexSchema, {
     // GROUP BY active HAVING COUNT(*) > 2
     // active=true has 3 rows, active=false has 1 row
     // Only active=true should appear
-    #[derive(Debug, PostgresFromRow)]
-    struct HavingResult {
-        active: bool,
-        cnt: i64,
-    }
-
-    let results: Vec<HavingResult> = drizzle_exec!(
+    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
         db.select((
             complex.active,
-            alias(count(complex.id), "cnt"),
+            alias(count(complex.id), "total_age"),
         ))
         .from(complex)
         .group_by([complex.active])
@@ -186,7 +168,7 @@ postgres_test!(test_having_filters_groups, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert!(results[0].active);
-    assert_eq!(results[0].cnt, 3);
+    assert_eq!(results[0].total_age, 3);
 });
 
 #[cfg(feature = "uuid")]
@@ -231,16 +213,10 @@ postgres_test!(test_having_no_matching_groups, ComplexSchema, {
     drizzle_exec!(db.insert(complex).values(test_data) => execute);
 
     // GROUP BY active HAVING COUNT(*) > 10 — no group qualifies
-    #[derive(Debug, PostgresFromRow)]
-    struct HavingResult {
-        active: bool,
-        cnt: i64,
-    }
-
-    let results: Vec<HavingResult> = drizzle_exec!(
+    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
         db.select((
             complex.active,
-            alias(count(complex.id), "cnt"),
+            alias(count(complex.id), "total_age"),
         ))
         .from(complex)
         .group_by([complex.active])
@@ -342,16 +318,10 @@ postgres_test!(test_group_by_limit_without_order, ComplexSchema, {
     drizzle_exec!(db.insert(complex).values(test_data) => execute);
 
     // GROUP BY active LIMIT 1 — direct LIMIT on GROUP BY
-    #[derive(Debug, PostgresFromRow)]
-    struct LimitGroupResult {
-        active: bool,
-        cnt: i64,
-    }
-
-    let results: Vec<LimitGroupResult> = drizzle_exec!(
+    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
         db.select((
             complex.active,
-            alias(count(complex.id), "cnt"),
+            alias(count(complex.id), "total_age"),
         ))
         .from(complex)
         .group_by([complex.active])
@@ -360,6 +330,7 @@ postgres_test!(test_group_by_limit_without_order, ComplexSchema, {
     );
 
     assert_eq!(results.len(), 1);
+    assert!(results[0].total_age >= 2);
 });
 
 // =============================================================================
@@ -371,16 +342,10 @@ postgres_test!(test_group_by_empty_table, ComplexSchema, {
     let ComplexSchema { role: _, complex } = schema;
 
     // No data inserted
-    #[derive(Debug, PostgresFromRow)]
-    struct EmptyGroupResult {
-        active: bool,
-        cnt: i64,
-    }
-
-    let results: Vec<EmptyGroupResult> = drizzle_exec!(
+    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
         db.select((
             complex.active,
-            alias(count(complex.id), "cnt"),
+            alias(count(complex.id), "total_age"),
         ))
         .from(complex)
         .group_by([complex.active])

@@ -183,7 +183,7 @@ mod tests {
 
         assert_eq!(VIEW.name, "active_users");
         assert!(VIEW.definition.is_some());
-        assert!(!VIEW.is_existing);
+        const { assert!(!VIEW.is_existing); }
     }
 
     #[test]

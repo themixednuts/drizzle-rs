@@ -419,13 +419,13 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
     // Validate enum references in columns
     for table in &def.tables {
         for col in &table.columns {
-            if let Some(ref en) = col.enum_name {
-                if !enum_names.contains(en) {
-                    return Err(err(format!(
-                        "Column '{}.{}' references unknown enum '{}'",
-                        table.name, col.name, en
-                    )));
-                }
+            if let Some(ref en) = col.enum_name
+                && !enum_names.contains(en)
+            {
+                return Err(err(format!(
+                    "Column '{}.{}' references unknown enum '{}'",
+                    table.name, col.name, en
+                )));
             }
         }
     }

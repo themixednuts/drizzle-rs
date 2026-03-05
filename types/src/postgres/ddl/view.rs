@@ -718,7 +718,7 @@ mod tests {
             .materialized()
             .with_no_data();
 
-        assert!(MAT_VIEW.materialized);
+        const { assert!(MAT_VIEW.materialized); }
     }
 
     #[test]
@@ -803,8 +803,8 @@ mod tests {
             .with_options(ViewWithOptionDef::new().fillfactor(90).parallel_workers(2))
             .definition("SELECT * FROM sales WHERE date > now() - interval '30 days'");
 
-        assert!(MAT_VIEW.materialized);
-        assert!(MAT_VIEW.with_no_data);
+        const { assert!(MAT_VIEW.materialized); }
+        const { assert!(MAT_VIEW.with_no_data); }
         assert_eq!(MAT_VIEW.using, Some("btree"));
         assert_eq!(MAT_VIEW.tablespace, Some("fast_ssd"));
         assert!(MAT_VIEW.with.is_some());

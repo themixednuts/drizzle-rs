@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(UNIQ.name, "uq_email_tenant");
         assert_eq!(UNIQ.table, "users");
         assert_eq!(UNIQ.columns.len(), 2);
-        assert!(UNIQ.nulls_not_distinct);
+        const { assert!(UNIQ.nulls_not_distinct); }
     }
 
     #[test]

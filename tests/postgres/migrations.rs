@@ -77,13 +77,13 @@ fn connect(schema_name: &str) -> Client {
         let status = Command::new("docker")
             .args(["compose", "up", "-d", "postgres"])
             .status();
-        if let Ok(s) = status {
-            if s.success() {
-                for _ in 0..30 {
-                    thread::sleep(Duration::from_secs(1));
-                    if Client::connect(&url, NoTls).is_ok() {
-                        return;
-                    }
+        if let Ok(s) = status
+            && s.success()
+        {
+            for _ in 0..30 {
+                thread::sleep(Duration::from_secs(1));
+                if Client::connect(&url, NoTls).is_ok() {
+                    return;
                 }
             }
         }

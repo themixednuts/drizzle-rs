@@ -981,7 +981,7 @@ fn query_applied_records_postgres_sync(
 // PostgreSQL (tokio-postgres - async)
 // ============================================================================
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
 fn execute_postgres_async_statements(
     creds: &PostgresCreds,
     statements: &[String],
@@ -994,7 +994,7 @@ fn execute_postgres_async_statements(
     rt.block_on(execute_postgres_async_inner(creds, statements))
 }
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
 async fn execute_postgres_async_inner(
     creds: &PostgresCreds,
     statements: &[String],
@@ -2115,7 +2115,7 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Res
     Ok(())
 }
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
 fn init_postgres_async_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Result<(), CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -2125,7 +2125,7 @@ fn init_postgres_async_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Re
     rt.block_on(init_postgres_async_inner(creds, set))
 }
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
 async fn init_postgres_async_inner(
     creds: &PostgresCreds,
     set: &MigrationSet,

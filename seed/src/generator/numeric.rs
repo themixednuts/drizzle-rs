@@ -112,7 +112,7 @@ mod tests {
         for _ in 0..100 {
             match g.generate(&mut rng, 0, "REAL") {
                 SeedValue::Float(v) => {
-                    assert!(v >= 1.0 && v < 100.0, "float out of range: {}", v);
+                    assert!((1.0..100.0).contains(&v), "float out of range: {}", v);
                     // Should be rounded to 2 decimal places
                     let s = format!("{}", v);
                     if let Some(dot_pos) = s.find('.') {

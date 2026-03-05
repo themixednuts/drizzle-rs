@@ -543,22 +543,13 @@ mod postgres_sync {
         mod join {
             use super::*;
 
-            #[derive(Debug, PostgresFromRow)]
+            #[derive(Debug, Default, PostgresFromRow)]
             #[allow(dead_code)]
             struct JoinResult {
                 #[column(User::name)]
                 user_name: String,
                 #[column(Post::title)]
                 post_title: String,
-            }
-
-            impl Default for JoinResult {
-                fn default() -> Self {
-                    Self {
-                        user_name: String::new(),
-                        post_title: String::new(),
-                    }
-                }
             }
 
             #[divan::bench]
@@ -1368,22 +1359,13 @@ mod tokio_postgres {
         mod join {
             use super::*;
 
-            #[derive(Debug, PostgresFromRow)]
+            #[derive(Debug, Default, PostgresFromRow)]
             #[allow(dead_code)]
             struct JoinResult {
                 #[column(User::name)]
                 user_name: String,
                 #[column(Post::title)]
                 post_title: String,
-            }
-
-            impl Default for JoinResult {
-                fn default() -> Self {
-                    Self {
-                        user_name: String::new(),
-                        post_title: String::new(),
-                    }
-                }
             }
 
             #[divan::bench]
@@ -1725,7 +1707,7 @@ fn main() {
             })
             .collect();
 
-        totals.sort_by(|a, b| b.1.cmp(&a.1));
+        totals.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
         println!("\n=== Puffin Scope Totals (postgres bench) ===");
         for (idx, (name, total_ns)) in totals.iter().take(20).enumerate() {

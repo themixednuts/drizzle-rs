@@ -570,7 +570,9 @@ sqlite_test!(test_cte_integration_simple, SimpleSchema, {
     );
 
     assert_eq!(result.len(), 2);
+    assert_eq!(result[0].id, 2);
     assert_eq!(result[0].name, "Bob");
+    assert_eq!(result[1].id, 3);
     assert_eq!(result[1].name, "Charlie");
 });
 
@@ -1536,8 +1538,11 @@ sqlite_test!(test_window_sum_over, SimpleSchema, {
     );
 
     assert_eq!(results.len(), 3);
+    assert_eq!(results[0].name, "alice");
     assert_eq!(results[0].running_total, Some(10)); // 10
+    assert_eq!(results[1].name, "bob");
     assert_eq!(results[1].running_total, Some(30)); // 10+20
+    assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].running_total, Some(60)); // 10+20+30
 });
 

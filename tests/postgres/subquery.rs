@@ -38,6 +38,7 @@ postgres_test!(test_typed_scalar_subquery, SimpleSchema, {
     );
 
     assert_eq!(2, results.len());
+    assert!(results.iter().all(|r| r.id > 1));
     assert!(results.iter().any(|r| r.name == "bob"));
     assert!(results.iter().any(|r| r.name == "charlie"));
 });
@@ -69,6 +70,7 @@ postgres_test!(test_typed_in_subquery_single_column, SimpleSchema, {
     );
 
     assert_eq!(1, results.len());
+    assert_eq!(2, results[0].id);
     assert_eq!("bob", results[0].name);
 });
 
@@ -102,6 +104,7 @@ postgres_test!(
         );
 
         assert_eq!(1, results.len());
+        assert_eq!(2, results[0].id);
         assert_eq!("bob", results[0].name);
     }
 );

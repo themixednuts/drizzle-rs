@@ -652,15 +652,15 @@ mod tests {
         assert_eq!(COLDEF.name, "id");
         assert_eq!(COLDEF.table, "users");
         assert_eq!(COLDEF.sql_type, "INTEGER");
-        assert!(COLDEF.not_null);
+        const { assert!(COLDEF.not_null); }
 
-        const COL: Column = COLDEF.into_column();
+        let col: Column = COLDEF.into_column();
 
-        assert_eq!(COL.schema, Cow::Borrowed("public"));
-        assert_eq!(COL.name, Cow::Borrowed("id"));
-        assert_eq!(COL.table, Cow::Borrowed("users"));
-        assert_eq!(COL.sql_type, Cow::Borrowed("INTEGER"));
-        assert!(COL.not_null);
+        assert_eq!(col.schema, Cow::Borrowed("public"));
+        assert_eq!(col.name, Cow::Borrowed("id"));
+        assert_eq!(col.table, Cow::Borrowed("users"));
+        assert_eq!(col.sql_type, Cow::Borrowed("INTEGER"));
+        assert!(col.not_null);
     }
 
     #[test]

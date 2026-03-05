@@ -76,7 +76,7 @@ mod tests {
         );
         assert_eq!(SQLiteValue::from(42i64), SQLiteValue::Integer(42));
         assert_eq!(SQLiteValue::from(123i32), SQLiteValue::Integer(123));
-        assert_eq!(SQLiteValue::from(3.14f64), SQLiteValue::Real(3.14));
+        assert_eq!(SQLiteValue::from(2.5f64), SQLiteValue::Real(2.5));
         assert_eq!(SQLiteValue::from(true), SQLiteValue::Integer(1));
         assert_eq!(SQLiteValue::from(false), SQLiteValue::Integer(0));
         let blob_vec: Vec<u8> = vec![1, 2, 3];
@@ -99,10 +99,10 @@ mod tests {
     #[test]
     fn test_number_enum() {
         let int_num = Number::Integer(42);
-        let real_num = Number::Real(3.14);
+        let real_num = Number::Real(2.5);
 
         assert_eq!(int_num, Number::from(42i64));
-        assert_eq!(real_num, Number::from(3.14f64));
+        assert_eq!(real_num, Number::from(2.5f64));
         assert_eq!(Number::default(), Number::Integer(0));
     }
 
@@ -110,12 +110,12 @@ mod tests {
     fn test_join_type_and_join() {
         let join = Join::new().inner().natural();
         assert_eq!(join.join_type, JoinType::Inner);
-        assert_eq!(join.natural, true);
-        assert_eq!(join.outer, false);
+        assert!(join.natural);
+        assert!(!join.outer);
 
         let outer_join = Join::new().left().outer();
         assert_eq!(outer_join.join_type, JoinType::Left);
-        assert_eq!(outer_join.outer, true);
+        assert!(outer_join.outer);
 
         let cross_join = Join::new().cross();
         assert_eq!(cross_join.join_type, JoinType::Cross);
