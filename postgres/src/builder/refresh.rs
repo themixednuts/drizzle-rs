@@ -170,14 +170,6 @@ mod tests {
         fn schema(&self) -> Option<&'static str> {
             Some("public")
         }
-
-        fn columns(&self) -> &'static [&'static dyn drizzle_core::traits::SQLColumnInfo] {
-            &[]
-        }
-
-        fn dependencies(&self) -> &'static [&'static dyn drizzle_core::traits::SQLTableInfo] {
-            &[]
-        }
     }
 
     impl SQLViewInfo for TestView {

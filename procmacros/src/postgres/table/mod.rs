@@ -206,6 +206,7 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
                 is_nullable: f.is_nullable,
                 is_uuid: type_is_uuid(&f.base_type),
                 is_blob: false, // PostgreSQL handles all types natively in json_build_object
+                is_json: f.is_json,
                 is_bool: false, // PostgreSQL correctly produces JSON true/false for booleans
                 enum_storage,
                 base_type: f.base_type.clone(),

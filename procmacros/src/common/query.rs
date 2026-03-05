@@ -42,6 +42,8 @@ pub(crate) struct FieldJsonInfo {
     pub is_uuid: bool,
     /// Whether the field is a raw blob type (Vec<u8>).
     pub is_blob: bool,
+    /// Whether the field is a JSON/JSONB field.
+    pub is_json: bool,
     /// Whether the field is a boolean type.
     /// SQLite stores booleans as integers (0/1) which appear as JSON numbers
     /// inside `json_object()`. Requires special handling in `FromJsonValue`.
@@ -580,7 +582,7 @@ fn generate_from_json_value_impl(
             }
 
             if f.is_blob {
-                return generate_blob_read(ident, col_name, is_nullable);
+                return generate_blob_read(ident, col_name, &f.base_type, is_nullable, f.is_json);
             }
 
             generate_serde_read(ident, col_name, is_nullable)
@@ -745,11 +747,36 @@ fn generate_bool_read(ident: &Ident, col_name: &str, is_nullable: bool) -> Token
 /// SQLite's `hex()` wrapping converts BLOBs to uppercase hex strings for
 /// `json_object()` compatibility. This handler decodes the hex string back
 /// to `Vec<u8>`.
-fn generate_blob_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
+fn generate_blob_read(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+    is_json: bool,
+) -> TokenStream {
+    let convert = if is_json {
+        quote! {
+            ::serde_json::from_slice::<#base_type>(&bytes).map_err(|e| {
+                drizzle::error::DrizzleError::Other(
+                    ::std::format!("field '{}': invalid JSON blob: {e}", #col_name).into()
+                )
+            })?
+        }
+    } else {
+        quote! {
+            <#base_type as drizzle::sqlite::traits::FromSQLiteValue>::from_sqlite_blob(&bytes)
+                .map_err(|e| {
+                    drizzle::error::DrizzleError::Other(
+                        ::std::format!("field '{}': {e}", #col_name).into()
+                    )
+                })?
+        }
+    };
+
     if is_nullable {
         quote! {
             #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::String(s)) if !s.is_empty() => {
+                Some(drizzle::core::serde_json::Value::String(s)) => {
                     if s.len() % 2 != 0 {
                         return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
                             ::std::format!("field '{}': odd-length hex string", #col_name).into()
@@ -762,10 +789,9 @@ fn generate_blob_read(ident: &Ident, col_name: &str, is_nullable: bool) -> Token
                         .map_err(|e| drizzle::error::DrizzleError::Other(
                             ::std::format!("field '{}': invalid hex: {e}", #col_name).into()
                         ))?;
-                    Some(bytes)
+                    Some(#convert)
                 },
                 Some(drizzle::core::serde_json::Value::Null) | None => None,
-                Some(drizzle::core::serde_json::Value::String(_)) => Some(::std::vec::Vec::new()),
                 _ => None,
             }
         }
@@ -782,13 +808,14 @@ fn generate_blob_read(ident: &Ident, col_name: &str, is_nullable: bool) -> Token
                         ::std::format!("field '{}': odd-length hex string", #col_name).into()
                     ));
                 }
-                (0..s.len())
+                let bytes = (0..s.len())
                     .step_by(2)
                     .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
                     .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
                     .map_err(|e| drizzle::error::DrizzleError::Other(
                         ::std::format!("field '{}': invalid hex: {e}", #col_name).into()
-                    ))?
+                    ))?;
+                #convert
             }
         }
     }

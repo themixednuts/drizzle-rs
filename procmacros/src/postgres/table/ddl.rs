@@ -637,6 +637,7 @@ mod tests {
             is_json: false,
             is_jsonb: false,
             is_serial: false,
+            is_custom_type: false,
             is_generated_identity: false,
             identity_mode: None,
             generated_column: None,

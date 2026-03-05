@@ -615,6 +615,7 @@ mod tests {
             is_json: false,
             is_enum: false,
             is_uuid: false,
+            is_custom_type: false,
             column_type: SQLiteType::Text,
             foreign_key: None,
             default_value: Some(default_expr),

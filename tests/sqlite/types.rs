@@ -15,9 +15,10 @@ fn sqlite_dialect_types_are_distinct_markers_with_cast_mappings() {
     assert_target::<sqlite_types::Real, _>(sqlite_types::Real);
     assert_target::<sqlite_types::Blob, _>(sqlite_types::Blob);
 
-    fn assert_compatible<S: core_types::DataType, T: core_types::DataType>()
+    fn assert_compatible<S, T>()
     where
-        S: core_types::Compatible<T>,
+        S: core_types::DataType + core_types::Compatible<T>,
+        T: core_types::DataType,
     {
     }
 

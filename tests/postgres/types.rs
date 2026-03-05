@@ -27,9 +27,10 @@ fn postgres_dialect_types_are_distinct_markers_with_cast_mappings() {
     assert_target::<postgres_types::Boolean, _>(postgres_types::Boolean);
     assert_target::<postgres_types::Timestamptz, _>(postgres_types::Timestamptz);
 
-    fn assert_compatible<S: core_types::DataType, T: core_types::DataType>()
+    fn assert_compatible<S, T>()
     where
-        S: core_types::Compatible<T>,
+        S: core_types::DataType + core_types::Compatible<T>,
+        T: core_types::DataType,
     {
     }
 

@@ -201,7 +201,7 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
 
     // Header
     let header = "TEST FAILURE REPORT";
-    let header_width = display_width(&header);
+    let header_width = display_width(header);
     let header_padding = (BOX_WIDTH - 2 - header_width) / 2;
     let header_padding_right = BOX_WIDTH - 2 - header_width - header_padding;
 
@@ -562,7 +562,10 @@ pub mod libsql_setup {
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
     -> (TestDb<Drizzle<S>>, S) {
         let db_path = temp_db_path();
-        let db = Builder::new_local(&db_path)
+        let db_path_str = db_path
+            .to_str()
+            .expect("temporary sqlite path must be valid UTF-8");
+        let db = Builder::new_local(db_path_str)
             .build()
             .await
             .expect("build db");
@@ -609,7 +612,10 @@ pub mod turso_setup {
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
     -> (TestDb<Drizzle<S>>, S) {
         let db_path = temp_db_path();
-        let db = Builder::new_local(&db_path)
+        let db_path_str = db_path
+            .to_str()
+            .expect("temporary sqlite path must be valid UTF-8");
+        let db = Builder::new_local(db_path_str)
             .build()
             .await
             .expect("build db");
