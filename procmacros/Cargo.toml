@@ -35,6 +35,9 @@ toml = { workspace = true }
 rusqlite = { workspace = true, optional = true, features = ["uuid"] }
 libsql = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
+postgres = { workspace = true, optional = true }
+tokio-postgres = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
 
 [dev-dependencies]
 drizzle-core = { workspace = true, default-features = true }
@@ -46,27 +49,44 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
 default = []
-serde = []
+serde = ["drizzle-core/serde", "drizzle-sqlite/serde", "drizzle-postgres/serde"]
 sqlite = ["dep:drizzle-core", "dep:drizzle-sqlite"]
 postgres = ["dep:drizzle-core", "dep:drizzle-postgres"]
 mysql = []
 uuid = ["drizzle-core/uuid", "drizzle-sqlite/uuid", "drizzle-postgres/uuid"]
-arrayvec = []
+arrayvec = ["drizzle-core/arrayvec"]
 # PostgreSQL optional type features
-chrono = []
-time = []
-cidr = []
-geo-types = []
-bit-vec = []
-compact-str = []
-bytes = []
-smallvec = []
+chrono = ["drizzle-core/chrono", "drizzle-sqlite/chrono", "drizzle-postgres/chrono"]
+time = ["drizzle-core/time", "drizzle-sqlite/time", "drizzle-postgres/time"]
+cidr = ["drizzle-core/cidr", "drizzle-postgres/cidr"]
+geo-types = ["drizzle-core/geo-types", "drizzle-postgres/geo-types"]
+bit-vec = ["drizzle-core/bit-vec", "drizzle-postgres/bit-vec"]
+compact-str = ["drizzle-core/compact-str", "drizzle-postgres/compact-str"]
+bytes = [
+    "dep:bytes",
+    "drizzle-core/bytes",
+    "drizzle-sqlite/bytes",
+    "drizzle-postgres/bytes",
+]
+smallvec = ["drizzle-core/smallvec-types", "drizzle-sqlite/smallvec", "drizzle-postgres/smallvec"]
 rusqlite = ["sqlite", "dep:rusqlite", "drizzle-core/rusqlite", "drizzle-sqlite/rusqlite"]
 libsql = ["sqlite", "dep:libsql", "drizzle-core/libsql", "drizzle-sqlite/libsql"]
 turso = ["sqlite", "dep:turso", "drizzle-core/turso", "drizzle-sqlite/turso"]
 # PostgreSQL driver-specific features
-postgres-sync = ["postgres", "drizzle-core/postgres-sync", "drizzle-postgres/postgres-sync"]
-tokio-postgres = ["postgres", "drizzle-core/tokio-postgres", "drizzle-postgres/tokio-postgres"]
+postgres-sync = [
+    "postgres",
+    "dep:postgres",
+    "dep:bytes",
+    "drizzle-core/postgres-sync",
+    "drizzle-postgres/postgres-sync",
+]
+tokio-postgres = [
+    "postgres",
+    "dep:tokio-postgres",
+    "dep:bytes",
+    "drizzle-core/tokio-postgres",
+    "drizzle-postgres/tokio-postgres",
+]
 # Relational query API code generation
 query = []
 

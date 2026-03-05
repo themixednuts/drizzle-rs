@@ -461,7 +461,7 @@ impl<'a> From<time::Date> for SQLiteValue<'a> {
     fn from(value: time::Date) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .format(&time::format_description::well_known::Iso8601::DATE)
                 .unwrap_or_default(),
         ))
     }
@@ -472,7 +472,7 @@ impl<'a> From<&time::Date> for SQLiteValue<'a> {
     fn from(value: &time::Date) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .format(&time::format_description::well_known::Iso8601::DATE)
                 .unwrap_or_default(),
         ))
     }
@@ -483,7 +483,7 @@ impl<'a> From<time::Time> for SQLiteValue<'a> {
     fn from(value: time::Time) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .format(&time::format_description::well_known::Iso8601::TIME)
                 .unwrap_or_default(),
         ))
     }
@@ -494,7 +494,7 @@ impl<'a> From<&time::Time> for SQLiteValue<'a> {
     fn from(value: &time::Time) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .format(&time::format_description::well_known::Iso8601::TIME)
                 .unwrap_or_default(),
         ))
     }
@@ -505,7 +505,7 @@ impl<'a> From<time::PrimitiveDateTime> for SQLiteValue<'a> {
     fn from(value: time::PrimitiveDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .format(&time::format_description::well_known::Iso8601::DATE_TIME)
                 .unwrap_or_default(),
         ))
     }
@@ -516,7 +516,7 @@ impl<'a> From<&time::PrimitiveDateTime> for SQLiteValue<'a> {
     fn from(value: &time::PrimitiveDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .format(&time::format_description::well_known::Iso8601::DATE_TIME)
                 .unwrap_or_default(),
         ))
     }

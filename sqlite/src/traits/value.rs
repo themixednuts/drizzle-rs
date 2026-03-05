@@ -829,15 +829,13 @@ impl FromSQLiteValue for time::Date {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        time::Date::parse(
-            value,
-            &time::format_description::well_known::Iso8601::DEFAULT,
+        time::Date::parse(value, &time::format_description::well_known::Iso8601::DATE).map_err(
+            |e| {
+                DrizzleError::ConversionError(
+                    format!("cannot parse '{}' as time::Date: {}", value, e).into(),
+                )
+            },
         )
-        .map_err(|e| {
-            DrizzleError::ConversionError(
-                format!("cannot parse '{}' as time::Date: {}", value, e).into(),
-            )
-        })
     }
 
     fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
@@ -862,15 +860,13 @@ impl FromSQLiteValue for time::Time {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        time::Time::parse(
-            value,
-            &time::format_description::well_known::Iso8601::DEFAULT,
+        time::Time::parse(value, &time::format_description::well_known::Iso8601::TIME).map_err(
+            |e| {
+                DrizzleError::ConversionError(
+                    format!("cannot parse '{}' as time::Time: {}", value, e).into(),
+                )
+            },
         )
-        .map_err(|e| {
-            DrizzleError::ConversionError(
-                format!("cannot parse '{}' as time::Time: {}", value, e).into(),
-            )
-        })
     }
 
     fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
@@ -897,7 +893,7 @@ impl FromSQLiteValue for time::PrimitiveDateTime {
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
         time::PrimitiveDateTime::parse(
             value,
-            &time::format_description::well_known::Iso8601::DEFAULT,
+            &time::format_description::well_known::Iso8601::DATE_TIME,
         )
         .map_err(|e| {
             DrizzleError::ConversionError(

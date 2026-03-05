@@ -51,7 +51,13 @@
 //! #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 //! #      pub mod expr { pub use drizzle_postgres::expr::*; }
 //! #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+//! #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+//! #      pub use ::postgres::Row;
+//! #      #[cfg(feature = "tokio-postgres")]
+//! #      pub use ::tokio_postgres::Row;
+//! #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 //! #      pub struct Row;
+//! #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 //! #      impl Row {
 //! #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 //! #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -150,7 +156,13 @@ use syn::parse_macro_input;
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -218,7 +230,13 @@ use syn::parse_macro_input;
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -365,7 +383,13 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -431,7 +455,13 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -492,7 +522,13 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -567,7 +603,13 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -641,7 +683,13 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -747,7 +795,13 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -814,7 +868,13 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -874,7 +934,13 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -989,7 +1055,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1049,7 +1121,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1129,7 +1207,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1186,7 +1270,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1245,7 +1335,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1311,7 +1407,13 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1386,7 +1488,13 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1465,7 +1573,13 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1528,7 +1642,13 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1596,7 +1716,13 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1694,7 +1820,13 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1759,7 +1891,13 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1823,7 +1961,13 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1882,7 +2026,13 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -1950,7 +2100,13 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2022,7 +2178,13 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2084,7 +2246,13 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2157,7 +2325,13 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2244,7 +2418,13 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2315,7 +2495,13 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2415,7 +2601,13 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2480,7 +2672,13 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2628,7 +2826,13 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2692,7 +2896,13 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2769,7 +2979,13 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2901,7 +3117,13 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
@@ -2966,7 +3188,13 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      impl Row {
 /// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
