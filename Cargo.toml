@@ -234,10 +234,6 @@ tracing = [
   "drizzle-core/tracing",
 ]
 
-# Enables unsafe-fast decode paths that may panic instead of returning errors.
-# Disabled by default to preserve fallible behavior on unexpected/corrupt data.
-unchecked = []
-
 # Relational Query API (db.query(table).with(...).find_many())
 query = [
   "drizzle-core/query",

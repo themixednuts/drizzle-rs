@@ -234,16 +234,7 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
                     }
                 } else if is_bool {
                     Ok(quote! {
-                        #name: {
-                            #[cfg(feature = "unchecked")]
-                            {
-                                row.get_unwrap::<_, i64>(#idx) != 0
-                            }
-                            #[cfg(not(feature = "unchecked"))]
-                            {
-                                row.get::<_, i64>(#idx)? != 0
-                            }
-                        },
+                        #name: row.get::<_, i64>(#idx)? != 0,
                     })
                 } else if !is_i64 {
                     Ok(quote! {
@@ -251,16 +242,7 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
                     })
                 } else {
                     Ok(quote! {
-                        #name: {
-                            #[cfg(feature = "unchecked")]
-                            {
-                                row.get_unwrap(#idx)
-                            }
-                            #[cfg(not(feature = "unchecked"))]
-                            {
-                                row.get(#idx)?
-                            }
-                        },
+                        #name: row.get(#idx)?,
                     })
                 }
             }
@@ -271,16 +253,7 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
                     })
                 } else {
                     Ok(quote! {
-                        #name: {
-                            #[cfg(feature = "unchecked")]
-                            {
-                                row.get_unwrap::<_, String>(#idx)
-                            }
-                            #[cfg(not(feature = "unchecked"))]
-                            {
-                                row.get::<_, String>(#idx)?
-                            }
-                        },
+                        #name: row.get::<_, String>(#idx)?,
                     })
                 }
             }
@@ -298,29 +271,11 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
                     }
                 } else if is_f32 {
                     Ok(quote! {
-                        #name: {
-                            #[cfg(feature = "unchecked")]
-                            {
-                                row.get_unwrap::<_, f64>(#idx) as f32
-                            }
-                            #[cfg(not(feature = "unchecked"))]
-                            {
-                                row.get::<_, f64>(#idx)? as f32
-                            }
-                        },
+                        #name: row.get::<_, f64>(#idx)? as f32,
                     })
                 } else {
                     Ok(quote! {
-                        #name: {
-                            #[cfg(feature = "unchecked")]
-                            {
-                                row.get_unwrap(#idx)
-                            }
-                            #[cfg(not(feature = "unchecked"))]
-                            {
-                                row.get(#idx)?
-                            }
-                        },
+                        #name: row.get(#idx)?,
                     })
                 }
             }
@@ -331,16 +286,7 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
                     })
                 } else {
                     Ok(quote! {
-                        #name: {
-                            #[cfg(feature = "unchecked")]
-                            {
-                                row.get_unwrap::<_, Vec<u8>>(#idx)
-                            }
-                            #[cfg(not(feature = "unchecked"))]
-                            {
-                                row.get::<_, Vec<u8>>(#idx)?
-                            }
-                        },
+                        #name: row.get::<_, Vec<u8>>(#idx)?,
                     })
                 }
             }
