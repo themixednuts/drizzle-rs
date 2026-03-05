@@ -26,7 +26,7 @@ use crate::values::{OwnedSQLiteValue, SQLiteValue};
 ///
 /// ## Basic Usage
 ///
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -95,7 +95,7 @@ impl<'a> PreparedStatement<'a> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
+    /// ```rust
     /// # mod drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -153,7 +153,7 @@ impl<'a> PreparedStatement<'a> {
 ///
 /// ## Examples
 ///
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }

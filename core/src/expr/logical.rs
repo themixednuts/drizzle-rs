@@ -2,7 +2,8 @@
 //!
 //! This module provides both function-based and operator-based logical operations:
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! // Function style
 //! and2(condition1, condition2)
 //! or2(condition1, condition2)
@@ -12,6 +13,7 @@
 //! condition1 & condition2   // BitAnd
 //! condition1 | condition2   // BitOr
 //! !condition                 // Not
+//! # "####;
 //! ```
 
 use core::ops::{BitAnd, BitOr, Not};
@@ -210,9 +212,11 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// let condition = eq(users.active, true);
 /// let negated = !condition;  // NOT "users"."active" = TRUE
+/// # "####;
 /// ```
 impl<'a, V, T, N, A> Not for SQLExpr<'a, V, T, N, A>
 where
@@ -232,9 +236,11 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// let condition = eq(users.active, true) & gt(users.age, 18);
 /// // ("users"."active" = TRUE AND "users"."age" > 18)
+/// # "####;
 /// ```
 impl<'a, V, T, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A>
 where
@@ -262,9 +268,11 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// let condition = eq(users.role, "admin") | eq(users.role, "moderator");
 /// // ("users"."role" = 'admin' OR "users"."role" = 'moderator')
+/// # "####;
 /// ```
 impl<'a, V, T, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A>
 where

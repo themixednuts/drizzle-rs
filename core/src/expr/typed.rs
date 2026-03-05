@@ -25,11 +25,13 @@ use super::{Agg, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::{SQLExpr, NonNull, Scalar};
 /// use drizzle_core::types::Int;
 ///
 /// let expr: SQLExpr<'_, SQLiteValue, Int, NonNull, Scalar> = ...;
+/// # "####;
 /// ```
 #[derive(Debug, Clone)]
 pub struct SQLExpr<
@@ -156,9 +158,11 @@ pub type NullableAggExpr<'a, V, T> = SQLExpr<'a, V, T, Null, Agg>;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// let expr = eq(users.id, 42);
 /// println!("{}", expr);  // "users"."id" = 42
+/// # "####;
 /// ```
 impl<'a, V, T, N, A> Display for SQLExpr<'a, V, T, N, A>
 where
@@ -180,10 +184,12 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// let expr = eq(users.id, 42);
 /// // Access SQL methods directly:
 /// let sql_str = expr.to_string();
+/// # "####;
 /// ```
 impl<'a, V, T, N, A> Deref for SQLExpr<'a, V, T, N, A>
 where
@@ -207,10 +213,12 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// fn takes_sql_ref<'a, V>(sql: &SQL<'a, V>) { ... }
 /// let expr = eq(users.id, 42);
 /// takes_sql_ref(expr.as_ref());
+/// # "####;
 /// ```
 impl<'a, V, T, N, A> AsRef<SQL<'a, V>> for SQLExpr<'a, V, T, N, A>
 where

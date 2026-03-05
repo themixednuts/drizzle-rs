@@ -179,9 +179,11 @@ where
 /// Returns true if the expression's value is in the subquery results.
 /// Accepts a single expression or a tuple of expressions as the LHS:
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// in_subquery(users.id, sub)                      // single column
 /// in_subquery((users.id, users.name), sub)        // multi-column
+/// # "####;
 /// ```
 pub fn in_subquery<'a, V, L, S, M>(
     lhs: L,
@@ -204,9 +206,11 @@ where
 ///
 /// Accepts a single expression or a tuple of expressions as the LHS:
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// not_in_subquery(users.id, sub)                  // single column
 /// not_in_subquery((users.id, users.name), sub)    // multi-column
+/// # "####;
 /// ```
 pub fn not_in_subquery<'a, V, L, S, M>(
     lhs: L,

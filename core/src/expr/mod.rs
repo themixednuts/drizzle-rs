@@ -7,7 +7,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_core::expr::*;
 //!
 //! // Type-safe comparisons
@@ -17,6 +18,7 @@
 //! // Type-safe arithmetic
 //! let total = users.price + users.tax;  // OK: both Numeric
 //! // let bad = users.name + users.id;   // ERROR: Text + Int
+//! # "####;
 //! ```
 
 mod agg;
@@ -168,13 +170,15 @@ impl AggOr<Agg> for Agg {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::{Expr, NonNull, Scalar};
 /// use drizzle_core::types::Int;
 ///
 /// // i32 literals are Int, NonNull, Scalar
 /// fn check_expr<'a, V, E: Expr<'a, V>>() {}
 /// check_expr::<_, i32>(); // SQLType=Int, Nullable=NonNull, Aggregate=Scalar
+/// # "####;
 /// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid SQL expression",

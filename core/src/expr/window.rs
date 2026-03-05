@@ -9,7 +9,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_core::expr::*;
 //!
 //! // Aggregate as window function
@@ -19,6 +20,7 @@
 //! // Pure window function
 //! row_number().over(window().order_by([asc(users.id)]))
 //! // → SQLExpr<CountType, NonNull, Scalar>
+//! # "####;
 //! ```
 
 use core::marker::PhantomData;
@@ -70,11 +72,13 @@ impl FrameBound {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// window()
 ///     .partition_by([users.dept])
 ///     .order_by([asc(users.salary)])
 ///     .rows_between(FrameBound::UnboundedPreceding, FrameBound::CurrentRow)
+/// # "####;
 /// ```
 #[derive(Debug, Clone)]
 pub struct WindowSpec<'a, V: SQLParam> {
@@ -174,12 +178,14 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// sum(orders.amount).over(
     ///     window()
     ///         .partition_by([orders.customer_id])
     ///         .order_by([asc(orders.date)])
     /// )
+    /// # "####;
     /// ```
     pub fn over(self, spec: WindowSpec<'a, V>) -> SQLExpr<'a, V, T, N, Scalar> {
         let sql = self

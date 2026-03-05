@@ -129,7 +129,8 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 /// macro with their specific table trait and SQL type.
 ///
 /// # Usage
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// impl_join_helpers!(
 ///     /// Trait bound for table types
 ///     table_trait: SQLiteTable<'a>,
@@ -138,6 +139,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 ///     /// Return type for SQL
 ///     sql_type: SQL<'a, SQLiteValue<'a>>,
 /// );
+/// # "####;
 /// ```
 #[macro_export]
 macro_rules! impl_join_helpers {

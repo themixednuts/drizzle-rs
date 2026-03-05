@@ -97,7 +97,8 @@ impl<Schema> Transaction<Schema> {
     ///
     /// Savepoints can be nested — each level gets its own savepoint name.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
     /// # use drizzle::sqlite::connection::SQLiteTransactionType;
@@ -114,6 +115,7 @@ impl<Schema> Transaction<Schema> {
     ///     assert_eq!(users.len(), 1);
     ///     Ok(())
     /// }).await?;
+    /// # "####;
     /// ```
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where

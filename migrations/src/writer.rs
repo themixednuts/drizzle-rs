@@ -25,7 +25,8 @@ use std::path::{Path, PathBuf};
 /// Migration writer for creating migration files in V3 folder structure
 ///
 /// V3 format creates a folder per migration:
-/// ```text
+/// ```rust
+/// # let _ = r####"
 /// out/
 ///   20231220143052_initial_schema/
 ///     migration.sql
@@ -33,6 +34,7 @@ use std::path::{Path, PathBuf};
 ///   20231221093015_add_users/
 ///     migration.sql
 ///     snapshot.json
+/// # "####;
 /// ```
 pub struct MigrationWriter {
     /// Output directory for migrations

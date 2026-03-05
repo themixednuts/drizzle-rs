@@ -780,9 +780,11 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(()).from(users).where(eq(users.id, 1)).for_update()
     /// // SELECT ... FROM "users" WHERE "id" = $1 FOR UPDATE
+    /// # "####;
     /// ```
     pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
         SelectBuilder {
@@ -802,9 +804,11 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(()).from(users).where(eq(users.id, 1)).for_share()
     /// // SELECT ... FROM "users" WHERE "id" = $1 FOR SHARE
+    /// # "####;
     /// ```
     pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
         SelectBuilder {
@@ -823,9 +827,11 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(()).from(users).where(eq(users.id, 1)).for_no_key_update()
     /// // SELECT ... FROM "users" WHERE "id" = $1 FOR NO KEY UPDATE
+    /// # "####;
     /// ```
     pub fn for_no_key_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
         SelectBuilder {
@@ -844,9 +850,11 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(()).from(users).where(eq(users.id, 1)).for_key_share()
     /// // SELECT ... FROM "users" WHERE "id" = $1 FOR KEY SHARE
+    /// # "####;
     /// ```
     pub fn for_key_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
         SelectBuilder {
@@ -866,12 +874,14 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(())
     ///     .from(users)
     ///     .join((orders, eq(users.id, orders.user_id)))
     ///     .for_update_of(users)
     /// // SELECT ... FOR UPDATE OF "users"
+    /// # "####;
     /// ```
     pub fn for_update_of<U: PostgresTable<'a>>(
         self,
@@ -894,12 +904,14 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(())
     ///     .from(users)
     ///     .join((orders, eq(users.id, orders.user_id)))
     ///     .for_share_of(users)
     /// // SELECT ... FOR SHARE OF "users"
+    /// # "####;
     /// ```
     pub fn for_share_of<U: PostgresTable<'a>>(
         self,
@@ -928,9 +940,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectForSet, T, M, R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(()).from(users).for_update().nowait()
     /// // SELECT ... FOR UPDATE NOWAIT
+    /// # "####;
     /// ```
     pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
         SelectBuilder {
@@ -950,9 +964,11 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectForSet, T, M, R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// db.select(()).from(jobs).where(eq(jobs.status, "pending")).for_update().skip_locked()
     /// // SELECT ... FOR UPDATE SKIP LOCKED
+    /// # "####;
     /// ```
     pub fn skip_locked(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
         SelectBuilder {

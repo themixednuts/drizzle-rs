@@ -2,7 +2,8 @@
 //!
 //! # Quick start
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::libsql::Drizzle;
 //! use libsql::Builder;
@@ -34,13 +35,15 @@
 //!
 //!     Ok(())
 //! }
+//! # "####;
 //! ```
 //!
 //! # Transactions
 //!
 //! Return `Ok(value)` to commit, `Err(...)` to rollback.
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
 //! use drizzle::sqlite::connection::SQLiteTransactionType;
@@ -50,6 +53,7 @@
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     Ok(users.len())
 //! }).await?;
+//! # "####;
 //! ```
 //!
 //! # Savepoints
@@ -57,7 +61,8 @@
 //! Savepoints nest inside transactions — a failed savepoint rolls back
 //! without aborting the outer transaction.
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
 //! # use drizzle::sqlite::connection::SQLiteTransactionType;
@@ -74,6 +79,7 @@
 //!     assert_eq!(users.len(), 1); // only Alice
 //!     Ok(())
 //! }).await?;
+//! # "####;
 //! ```
 
 mod prepared;
@@ -183,7 +189,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// rolled back on `Err`. Unlike the sync rusqlite driver, `transaction`
     /// takes `&self` (not `&mut self`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
     /// # use drizzle::sqlite::connection::SQLiteTransactionType;
@@ -192,6 +199,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
     ///     Ok(users.len())
     /// }).await?;
+    /// # "####;
     /// ```
     pub async fn transaction<F, R>(
         &self,

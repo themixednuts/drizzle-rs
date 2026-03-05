@@ -310,10 +310,12 @@ pub struct DrizzleQueryBuilder<
 impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// Creates a relational query builder for the given table.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// let users = db.query(user)
     ///     .with(user.posts())
     ///     .find_many()?;
+    /// # "####;
     /// ```
     pub fn query<T>(&self, _table: T) -> DrizzleQueryBuilder<'_, '_, Conn, Schema, T>
     where

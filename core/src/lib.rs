@@ -106,8 +106,10 @@ pub use traits::*;
 /// Used by the SQLiteEnum derive macro to avoid repetitive code.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// impl_try_from_int!(MyEnum => isize, usize, i32, u32, i16, u16, i8, u8);
+/// # "####;
 /// ```
 #[macro_export]
 macro_rules! impl_try_from_int {

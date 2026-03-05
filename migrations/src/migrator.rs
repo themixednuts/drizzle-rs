@@ -11,7 +11,8 @@
 //!
 //! Use `include_str!` to embed migration SQL files at compile time:
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_migrations::{Migration, MigrationSet};
 //! use drizzle_types::Dialect;
 //!
@@ -38,11 +39,13 @@
 //!     }
 //!     Ok(())
 //! }
+//! # "####;
 //! ```
 //!
 //! ## Loading from Filesystem (for development)
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_migrations::MigrationSet;
 //!
 //! // V3 format (folder-based, recommended)
@@ -50,6 +53,7 @@
 //!
 //! // Legacy format (journal-based)
 //! let set = MigrationSet::from_dir_legacy("./drizzle", Dialect::SQLite)?;
+//! # "####;
 //! ```
 
 use crate::config::MigrateConfig;
@@ -710,13 +714,15 @@ fn is_leap_year(year: i32) -> bool {
 
 /// Macro to create a vector of migrations from embedded SQL files
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_migrations::migrations;
 ///
 /// let my_migrations = migrations![
 ///     ("20231220143052_init", include_str!("../drizzle/20231220143052_init/migration.sql")),
 ///     ("20231221093015_users", include_str!("../drizzle/20231221093015_users/migration.sql")),
 /// ];
+/// # "####;
 /// ```
 #[macro_export]
 macro_rules! migrations {

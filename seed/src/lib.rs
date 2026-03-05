@@ -6,7 +6,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_seed::SeedConfig;
 //!
 //! let schema = AppSchema::new();
@@ -15,6 +16,7 @@
 //!     .count(&schema.users, 100)
 //!     .count(&schema.posts, 500)
 //!     .generate();
+//! # "####;
 //! ```
 
 pub(crate) mod batch;

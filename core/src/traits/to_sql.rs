@@ -41,11 +41,13 @@ pub trait ToSQL<'a, V: SQLParam> {
 /// Wrapper for byte slices to avoid list semantics (`Vec<u8>` normally becomes a list).
 ///
 /// Use this when you want a single BLOB/bytea parameter:
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::{SQLBytes, SQL};
 ///
 /// let data = vec![1u8, 2, 3];
 /// let sql = SQL::bytes(&data); // or SQL::param(SQLBytes::new(&data))
+/// # "####;
 /// ```
 #[derive(Debug, Clone)]
 pub struct SQLBytes<'a>(pub Cow<'a, [u8]>);

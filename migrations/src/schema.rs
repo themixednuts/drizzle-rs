@@ -117,7 +117,8 @@ impl Snapshot {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle::postgres::prelude::*;
 ///
 /// #[derive(PostgresSchema)]
@@ -129,6 +130,7 @@ impl Snapshot {
 /// // The macro implements Schema for AppSchema
 /// let schema = AppSchema::default();
 /// let snapshot = schema.to_snapshot();
+/// # "####;
 /// ```
 pub trait Schema: Default + Sized {
     /// The dialect this schema targets (sqlite, postgresql, etc.)

@@ -198,7 +198,7 @@ impl AsCteState for SelectOffsetSet {}
 ///
 /// ## Advanced Queries
 ///
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -229,7 +229,7 @@ impl AsCteState for SelectOffsetSet {}
 ///     .join((post, eq(user.id, post.user_id)));
 /// ```
 ///
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }

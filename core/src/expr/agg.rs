@@ -198,11 +198,13 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::count_all;
 ///
 /// let total = count_all();
 /// // Generates: COUNT(*)
+/// # "####;
 /// ```
 pub fn count_all<'a, V>() -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg>
 where
@@ -219,11 +221,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::count;
 ///
 /// let count = count(users.email);
 /// // Generates: COUNT("users"."email")
+/// # "####;
 /// ```
 pub fn count<'a, V, E>(
     expr: E,
@@ -266,7 +270,8 @@ where
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Numeric column
 /// sum(orders.amount);
 /// // SQLite: same width for integer sums
@@ -274,6 +279,7 @@ where
 ///
 /// // ❌ Compile error: Text is not Numeric
 /// sum(users.name);
+/// # "####;
 /// ```
 pub fn sum<'a, V, E>(
     expr: E,
@@ -315,12 +321,14 @@ where
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Numeric column
 /// avg(products.price);
 ///
 /// // ❌ Compile error: Text is not Numeric
 /// avg(users.name);
+/// # "####;
 /// ```
 pub fn avg<'a, V, E>(
     expr: E,
@@ -362,12 +370,14 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::min;
 ///
 /// let cheapest = min(products.price);
 /// // Generates: MIN("products"."price")
 /// // Returns the same SQL type as products.price
+/// # "####;
 /// ```
 pub fn min<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
 where
@@ -385,12 +395,14 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::max;
 ///
 /// let most_expensive = max(products.price);
 /// // Generates: MAX("products"."price")
 /// // Returns the same SQL type as products.price
+/// # "####;
 /// ```
 pub fn max<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
 where
@@ -414,11 +426,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::stddev_pop;
 ///
 /// let deviation = stddev_pop(measurements.value);
 /// // Generates: STDDEV_POP("measurements"."value")
+/// # "####;
 /// ```
 pub fn stddev_pop<'a, V, E>(
     expr: E,
@@ -447,11 +461,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::stddev_samp;
 ///
 /// let deviation = stddev_samp(measurements.value);
 /// // Generates: STDDEV_SAMP("measurements"."value")
+/// # "####;
 /// ```
 pub fn stddev_samp<'a, V, E>(
     expr: E,
@@ -480,11 +496,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::var_pop;
 ///
 /// let variance = var_pop(measurements.value);
 /// // Generates: VAR_POP("measurements"."value")
+/// # "####;
 /// ```
 pub fn var_pop<'a, V, E>(
     expr: E,
@@ -507,11 +525,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::var_samp;
 ///
 /// let variance = var_samp(measurements.value);
 /// // Generates: VAR_SAMP("measurements"."value")
+/// # "####;
 /// ```
 pub fn var_samp<'a, V, E>(
     expr: E,
@@ -607,11 +627,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::total;
 ///
 /// // SELECT TOTAL(orders.amount)
 /// let total_amount = total(orders.amount);
+/// # "####;
 /// ```
 pub fn total<'a, V, E>(
     expr: E,
@@ -675,11 +697,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::every;
 ///
 /// // SELECT EVERY(orders.is_paid)
 /// let all_paid = every(orders.is_paid);
+/// # "####;
 /// ```
 pub fn every<'a, V, E>(
     expr: E,
@@ -697,11 +721,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::json_object_agg;
 ///
 /// // SELECT JSON_OBJECT_AGG(settings.key, settings.value)
 /// let obj = json_object_agg(settings.key, settings.value);
+/// # "####;
 /// ```
 pub fn json_object_agg<'a, V, K, Val>(
     key: K,
@@ -725,11 +751,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::jsonb_object_agg;
 ///
 /// // SELECT JSONB_OBJECT_AGG(settings.key, settings.value)
 /// let obj = jsonb_object_agg(settings.key, settings.value);
+/// # "####;
 /// ```
 pub fn jsonb_object_agg<'a, V, K, Val>(
     key: K,

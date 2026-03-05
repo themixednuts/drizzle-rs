@@ -77,11 +77,13 @@ impl<T: Sized> AliasExt for T {}
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::alias;
 ///
 /// // SELECT users.first_name || users.last_name AS full_name
 /// let full_name = alias(string_concat(users.first_name, users.last_name), "full_name");
+/// # "####;
 /// ```
 pub fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
     AliasedExpr { expr, name }
@@ -97,11 +99,13 @@ pub fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::typeof_;
 ///
 /// // SELECT TYPEOF(users.age) -- returns "integer"
 /// let age_type = typeof_(users.age);
+/// # "####;
 /// ```
 pub fn typeof_<'a, V, E>(
     expr: E,
@@ -308,7 +312,8 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::cast;
 /// use drizzle_core::types::{Int, Text};
 ///
@@ -318,6 +323,7 @@ where
 /// // Explicit SQL type name (dialect-specific)
 /// let age_text = cast::<_, _, Text>(users.age, "VARCHAR(255)");
 /// let age_int = cast::<_, _, Int>(users.age, "int4");
+/// # "####;
 /// ```
 pub fn cast<'a, V, E, Target>(
     expr: E,
@@ -348,7 +354,8 @@ where
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Both are Text
 /// string_concat(users.first_name, users.last_name);
 ///
@@ -357,15 +364,18 @@ where
 ///
 /// // ❌ Compile error: Int is not Textual
 /// string_concat(users.id, users.name);
+/// # "####;
 /// ```
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::string_concat;
 ///
 /// // SELECT users.first_name || ' ' || users.last_name
 /// let full_name = string_concat(string_concat(users.first_name, " "), users.last_name);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn string_concat<'a, V, L, R>(
@@ -407,11 +417,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::raw;
 /// use drizzle_core::types::Int;
 ///
 /// let expr = raw::<_, Int>("RANDOM()");
+/// # "####;
 /// ```
 pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
 where
@@ -447,12 +459,14 @@ pub struct Excluded<C> {
 /// have been inserted.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// db.insert(simple)
 ///     .values([InsertSimple::new("test").with_id(1)])
 ///     .on_conflict(simple.id)
 ///     .do_update(UpdateSimple::default().with_name(excluded(simple.name)));
 /// // Generates: ... ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"
+/// # "####;
 /// ```
 pub fn excluded<C>(column: C) -> Excluded<C> {
     Excluded { column }

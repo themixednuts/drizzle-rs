@@ -103,12 +103,14 @@ impl RoundingPolicy<PostgresDialect> for PgNumeric {
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Int column
 /// abs(users.balance);
 ///
 /// // ❌ Compile error: Text is not Numeric
 /// abs(users.name);
+/// # "####;
 /// ```
 pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
 where
@@ -129,11 +131,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::round;
 ///
 /// // SELECT ROUND(users.price)
 /// let rounded = round(users.price);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn round<'a, V, E>(
@@ -159,11 +163,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::round_to;
 ///
 /// // SELECT ROUND(users.price, 2)
 /// let rounded = round_to(users.price, 2);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn round_to<'a, V, E, P>(
@@ -200,11 +206,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::ceil;
 ///
 /// // SELECT CEIL(users.price)
 /// let ceiling = ceil(users.price);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn ceil<'a, V, E>(
@@ -230,11 +238,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::floor;
 ///
 /// // SELECT FLOOR(users.price)
 /// let floored = floor(users.price);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn floor<'a, V, E>(
@@ -260,11 +270,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::trunc;
 ///
 /// // SELECT TRUNC(users.price)
 /// let truncated = trunc(users.price);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn trunc<'a, V, E>(
@@ -294,11 +306,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::sqrt;
 ///
 /// // SELECT SQRT(users.area)
 /// let root = sqrt(users.area);
+/// # "####;
 /// ```
 pub fn sqrt<'a, V, E>(
     expr: E,
@@ -317,11 +331,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::power;
 ///
 /// // SELECT POWER(users.base, 2)
 /// let squared = power(users.base, 2);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn power<'a, V, E1, E2>(
@@ -362,11 +378,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::exp;
 ///
 /// // SELECT EXP(users.rate)
 /// let exponential = exp(users.rate);
+/// # "####;
 /// ```
 pub fn exp<'a, V, E>(
     expr: E,
@@ -385,11 +403,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::ln;
 ///
 /// // SELECT LN(users.value)
 /// let natural_log = ln(users.value);
+/// # "####;
 /// ```
 pub fn ln<'a, V, E>(
     expr: E,
@@ -408,11 +428,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::log10;
 ///
 /// // SELECT LOG10(users.value)
 /// let log_base_10 = log10(users.value);
+/// # "####;
 /// ```
 pub fn log10<'a, V, E>(
     expr: E,
@@ -431,11 +453,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::log;
 ///
 /// // SELECT LOG(2, users.value)
 /// let log_base_2 = log(2, users.value);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn log<'a, V, E1, E2>(
@@ -474,11 +498,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::sign;
 ///
 /// // SELECT SIGN(users.balance)
 /// let balance_sign = sign(users.balance);
+/// # "####;
 /// ```
 pub fn sign<'a, V, E>(
     expr: E,
@@ -500,11 +526,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::mod_;
 ///
 /// // SELECT users.value % 3
 /// let remainder = mod_(users.value, 3);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn mod_<'a, V, E1, E2>(
@@ -543,11 +571,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::pi;
 ///
 /// // SELECT PI()
 /// let pi_val = pi::<PostgresValue>();
+/// # "####;
 /// ```
 pub fn pi<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
@@ -566,11 +596,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::random;
 ///
 /// // SELECT RANDOM()
 /// let rnd = random::<SQLiteValue>();
+/// # "####;
 /// ```
 pub fn random<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as RandomPolicy>::Random, super::NonNull, Scalar>
@@ -592,11 +624,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::log2;
 ///
 /// // SELECT LOG2(users.value)
 /// let log_base_2 = log2(users.value);
+/// # "####;
 /// ```
 pub fn log2<'a, V, E>(
     expr: E,

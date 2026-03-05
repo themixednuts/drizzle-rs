@@ -117,7 +117,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// ## Advanced Updates
 ///
 /// ### Multiple Column Updates
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -150,7 +150,7 @@ impl ExecutableState for UpdateReturningSet {}
 /// ```
 ///
 /// ### UPDATE with RETURNING
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }

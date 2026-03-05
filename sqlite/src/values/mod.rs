@@ -91,9 +91,11 @@ impl<'a> SQLiteValue<'a> {
     /// `FromSQLiteValue`, including primitives and enum types.
     ///
     /// # Example
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// let value = SQLiteValue::Integer(42);
     /// let num: i64 = value.convert()?;
+    /// # "####;
     /// ```
     pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
         match self {

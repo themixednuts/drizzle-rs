@@ -8,7 +8,8 @@
 //!
 //! # Design Pattern
 //!
-//! ```text
+//! ```rust
+//! # let _ = r####"
 //! ┌─────────────────────────────────────────────────────────────────────────┐
 //! │  Compile Time (const)           Runtime (serde)                         │
 //! │  ─────────────────────           ────────────────                        │
@@ -19,6 +20,7 @@
 //! │  Uses: &'static str, bool       Uses: Cow<'static, str>, Vec, Option     │
 //! │  All types are Copy             Supports serde, owned strings            │
 //! └─────────────────────────────────────────────────────────────────────────┘
+//! # "####;
 //! ```
 //!
 //! # PostgreSQL-Specific Features

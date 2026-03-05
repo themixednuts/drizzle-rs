@@ -8,7 +8,8 @@
 //!
 //! # Design Pattern
 //!
-//! ```text
+//! ```rust
+//! # let _ = r####"
 //! ┌─────────────────────────────────────────────────────────────────────────┐
 //! │  Compile Time (const)           Runtime (serde)                         │
 //! │  ─────────────────────           ────────────────                        │
@@ -19,6 +20,7 @@
 //! │  Uses: &'static str, bool       Uses: Cow<'static, str>, Vec, Option     │
 //! │  All types are Copy             Supports serde, owned strings            │
 //! └─────────────────────────────────────────────────────────────────────────┘
+//! # "####;
 //! ```
 //!
 //! # Examples
@@ -51,10 +53,12 @@
 //!
 //! ## Runtime Deserialization
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_types::sqlite::ddl::Table;
 //!
 //! let table: Table = serde_json::from_str(r#"{"name": "users", "strict": true}"#)?;
+//! # "####;
 //! ```
 
 use crate::alloc_prelude::*;

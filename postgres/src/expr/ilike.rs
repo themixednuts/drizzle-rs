@@ -7,11 +7,13 @@ use drizzle_core::{SQL, ToSQL};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_postgres::expr::ilike;
 ///
 /// let query = ilike(user.name, "%john%");
 /// // Generates: "name" ILIKE '%john%'
+/// # "####;
 /// ```
 pub fn ilike<'a, L, R>(left: L, pattern: R) -> SQL<'a, PostgresValue<'a>>
 where
@@ -28,11 +30,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_postgres::expr::not_ilike;
 ///
 /// let query = not_ilike(user.name, "%admin%");
 /// // Generates: "name" NOT ILIKE '%admin%'
+/// # "####;
 /// ```
 pub fn not_ilike<'a, L, R>(left: L, pattern: R) -> SQL<'a, PostgresValue<'a>>
 where

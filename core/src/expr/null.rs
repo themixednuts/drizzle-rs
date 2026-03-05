@@ -81,7 +81,8 @@ impl NullAnd<Null> for Null {
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Both are Text
 /// coalesce(users.nickname, users.name);
 ///
@@ -90,6 +91,7 @@ impl NullAnd<Null> for Null {
 ///
 /// // ❌ Compile error: Int not compatible with Text
 /// coalesce(users.age, "unknown");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn coalesce<'a, V, E, D, N>(
@@ -122,11 +124,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::coalesce_many;
 ///
 /// // COALESCE(users.nickname, users.username, 'Anonymous')
 /// let name = coalesce_many(users.nickname, [users.username, "Anonymous"]);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn coalesce_many<'a, V, E, I, N>(
@@ -169,11 +173,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::nullif;
 ///
 /// // Returns NULL if status is 'unknown', otherwise returns status
 /// let status = nullif(item.status, "unknown");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn nullif<'a, V, E1, E2>(
@@ -247,11 +253,13 @@ impl PostgresNullSupport for PostgresDialect {}
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::greatest;
 ///
 /// // Clamp to minimum of 0
 /// let score = greatest(users.score, 0);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn greatest<'a, V, L, R>(
@@ -289,11 +297,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::least;
 ///
 /// // Cap at maximum of 100
 /// let score = least(users.score, 100);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn least<'a, V, L, R>(

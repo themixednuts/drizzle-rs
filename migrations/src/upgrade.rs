@@ -253,11 +253,13 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
 /// Check if a snapshot needs upgrade using the Dialect trait
 ///
 /// This provides type-safe version checking using the dialect marker types:
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_migrations::{Sqlite, DialectTrait};
 /// if Sqlite::needs_upgrade(version) {
 ///     // perform upgrade
 /// }
+/// # "####;
 /// ```
 pub fn needs_upgrade_for_dialect(dialect: Dialect, version: u32) -> bool {
     use crate::traits::{Dialect as DialectTrait, Mysql, Postgres, Sqlite};

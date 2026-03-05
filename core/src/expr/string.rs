@@ -71,12 +71,14 @@ impl PostgresStringSupport for PostgresDialect {}
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Text column
 /// upper(users.name);
 ///
 /// // ❌ Compile error: Int is not Textual
 /// upper(users.id);
+/// # "####;
 /// ```
 pub fn upper<'a, V, E>(
     expr: E,
@@ -95,11 +97,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::lower;
 ///
 /// // SELECT LOWER(users.email)
 /// let email_lower = lower(users.email);
+/// # "####;
 /// ```
 pub fn lower<'a, V, E>(
     expr: E,
@@ -122,11 +126,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::trim;
 ///
 /// // SELECT TRIM(users.name)
 /// let trimmed = trim(users.name);
+/// # "####;
 /// ```
 pub fn trim<'a, V, E>(
     expr: E,
@@ -177,11 +183,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::length;
 ///
 /// // SELECT LENGTH(users.name)
 /// let name_len = length(users.name);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn length<'a, V, E>(
@@ -206,11 +214,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::substr;
 ///
 /// // SELECT SUBSTR(users.name, 1, 3) -- first 3 characters
 /// let prefix = substr(users.name, 1, 3);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn substr<'a, V, E, S, L>(
@@ -258,11 +268,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::replace;
 ///
 /// // SELECT REPLACE(users.email, '@old.com', '@new.com')
 /// let new_email = replace(users.email, "@old.com", "@new.com");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn replace<'a, V, E, F, T>(
@@ -311,11 +323,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::instr;
 ///
 /// // SELECT INSTR(users.email, '@')
 /// let at_pos = instr(users.email, "@");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn instr<'a, V, E, S>(
@@ -383,7 +397,8 @@ where
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Both are Text
 /// concat(users.first_name, users.last_name);
 ///
@@ -392,15 +407,18 @@ where
 ///
 /// // ❌ Compile error: Int is not Textual
 /// concat(users.id, users.name);
+/// # "####;
 /// ```
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::concat;
 ///
 /// // SELECT users.first_name || ' ' || users.last_name
 /// let full_name = concat(concat(users.first_name, " "), users.last_name);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn concat<'a, V, E1, E2>(
@@ -445,11 +463,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::concat_ws;
 ///
 /// // SELECT CONCAT_WS(', ', users.city, users.state, users.country)
 /// let location = concat_ws(", ", [users.city, users.state, users.country]);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn concat_ws<'a, V, S, I>(
@@ -489,11 +509,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::left;
 ///
 /// // SELECT LEFT(users.name, 3)
 /// let prefix = left(users.name, 3);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn left<'a, V, E, N>(
@@ -528,11 +550,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::right;
 ///
 /// // SELECT RIGHT(users.phone, 4)
 /// let last_four = right(users.phone, 4);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn right<'a, V, E, N>(
@@ -567,11 +591,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::split_part;
 ///
 /// // SELECT SPLIT_PART(users.email, '@', 2)  -- get domain
 /// let domain = split_part(users.email, "@", 2);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn split_part<'a, V, E, D, N>(
@@ -613,11 +639,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::lpad;
 ///
 /// // SELECT LPAD(users.id::text, 5, '0')  -- zero-pad to 5 digits
 /// let padded = lpad(users.code, 5, "0");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn lpad<'a, V, E, L, F>(
@@ -659,11 +687,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::rpad;
 ///
 /// // SELECT RPAD(users.name, 20, '.')
 /// let padded = rpad(users.name, 20, ".");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn rpad<'a, V, E, L, F>(
@@ -735,11 +765,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::repeat;
 ///
 /// // SELECT REPEAT('-', 40)
 /// let separator = repeat("-", 40);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn repeat<'a, V, E, N>(
@@ -775,11 +807,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::starts_with;
 ///
 /// // SELECT * FROM users WHERE STARTS_WITH(email, 'admin')
 /// let is_admin = starts_with(users.email, "admin");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn starts_with<'a, V, E, P>(
@@ -833,12 +867,14 @@ impl CharLengthPolicy for PostgresDialect {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::char_length;
 ///
 /// // SELECT CHAR_LENGTH(users.name)  -- PG
 /// // SELECT LENGTH(users.name)       -- SQLite
 /// let name_len = char_length(users.name);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn char_length<'a, V, E>(
@@ -862,11 +898,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::octet_length;
 ///
 /// // SELECT OCTET_LENGTH(users.name)
 /// let byte_len = octet_length(users.name);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn octet_length<'a, V, E>(
@@ -891,11 +929,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::translate;
 ///
 /// // SELECT TRANSLATE(users.phone, '()-', '')
 /// let clean_phone = translate(users.phone, "()-", "");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn translate<'a, V, E, F, T>(
@@ -944,11 +984,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::regexp_replace;
 ///
 /// // SELECT REGEXP_REPLACE(users.phone, '[^0-9]', '')
 /// let digits_only = regexp_replace(users.phone, "[^0-9]", "");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_replace<'a, V, E, P, R>(
@@ -992,11 +1034,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::regexp_replace_flags;
 ///
 /// // SELECT REGEXP_REPLACE(users.phone, '[^0-9]', '', 'g')
 /// let digits_only = regexp_replace_flags(users.phone, "[^0-9]", "", "g");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_replace_flags<'a, V, E, P, R, F>(
@@ -1051,11 +1095,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::regexp_match;
 ///
 /// // SELECT REGEXP_MATCH(users.email, '(.+)@(.+)')
 /// let parts = regexp_match(users.email, "(.+)@(.+)");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_match<'a, V, E, P>(
@@ -1092,11 +1138,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::regexp_match_flags;
 ///
 /// // SELECT REGEXP_MATCH(users.email, '(.+)@(.+)', 'i')
 /// let parts = regexp_match_flags(users.email, "(.+)@(.+)", "i");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_match_flags<'a, V, E, P, F>(

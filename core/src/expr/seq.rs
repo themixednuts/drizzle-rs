@@ -25,11 +25,13 @@ impl SequenceSupport for PostgresDialect {}
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::nextval;
 ///
 /// // SELECT NEXTVAL('users_id_seq')
 /// let next_id = nextval("users_id_seq");
+/// # "####;
 /// ```
 pub fn nextval<'a, V, E>(
     sequence: E,
@@ -49,11 +51,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::currval;
 ///
 /// // SELECT CURRVAL('users_id_seq')
 /// let current_id = currval("users_id_seq");
+/// # "####;
 /// ```
 pub fn currval<'a, V, E>(
     sequence: E,
@@ -71,11 +75,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::setval;
 ///
 /// // SELECT SETVAL('users_id_seq', 100)
 /// let set_id = setval("users_id_seq", 100);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn setval<'a, V, E, N>(

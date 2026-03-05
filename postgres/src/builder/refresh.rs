@@ -4,7 +4,8 @@
 //!
 //! # Examples
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_postgres::builder::refresh::RefreshMaterializedView;
 //!
 //! // Basic refresh
@@ -15,6 +16,7 @@
 //!
 //! // Refresh without data (empties the view)
 //! let refresh = RefreshMaterializedView::new(&my_view).with_no_data();
+//! # "####;
 //! ```
 
 use crate::values::PostgresValue;

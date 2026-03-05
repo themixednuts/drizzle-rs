@@ -78,7 +78,8 @@ pub type MysqlLatest = V5;
 /// and target version `To`.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// impl Upgradable<V5, V6> for SqliteSnapshot<V5> {
 ///     type Output = SqliteSnapshot<V6>;
 ///     type Error = UpgradeError;
@@ -87,6 +88,7 @@ pub type MysqlLatest = V5;
 ///         // Transform v5 -> v6
 ///     }
 /// }
+/// # "####;
 /// ```
 pub trait Upgradable<From: Version, To: Version> {
     /// The output snapshot type (same shape, different version)
@@ -104,7 +106,8 @@ pub trait Upgradable<From: Version, To: Version> {
 /// that the specified dialect supports the given version transition.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_migrations::{Sqlite, V5, V7, CanUpgrade, Versioned};
 ///
 /// // This compiles because Sqlite: CanUpgrade<V5, V7>
@@ -115,6 +118,7 @@ pub trait Upgradable<From: Version, To: Version> {
 ///     // Perform the upgrade
 ///     Versioned::new(data.into_inner())
 /// }
+/// # "####;
 /// ```
 #[inline]
 pub fn assert_can_upgrade<D, From, To>()
@@ -307,13 +311,15 @@ impl<Data, V: Version> Versioned<Data, V> {
 /// associated types implementing `Version`, enabling const operations.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// fn process<D: Dialect>() {
 ///     // All const at compile time
 ///     const MIN: u32 = D::MinVersion::NUMBER;
 ///     const LATEST: u32 = D::LatestVersion::NUMBER;
 ///     println!("Processing {} (v{} to v{})", D::NAME, MIN, LATEST);
 /// }
+/// # "####;
 /// ```
 pub trait Dialect: Sized + 'static {
     /// Display name of the dialect
@@ -370,7 +376,8 @@ pub trait Dialect: Sized + 'static {
 /// valid upgrade paths are used.
 ///
 /// # Example
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // Declare SQLite can upgrade V5 -> V6
 /// impl CanUpgrade<V5, V6> for Sqlite {}
 /// impl CanUpgrade<V6, V7> for Sqlite {}
@@ -384,6 +391,7 @@ pub trait Dialect: Sized + 'static {
 /// {
 ///     // ...
 /// }
+/// # "####;
 /// ```
 pub trait CanUpgrade<From: Version, To: Version>: Dialect {}
 

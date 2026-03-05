@@ -60,11 +60,13 @@ impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::current_date;
 ///
 /// // SELECT CURRENT_DATE
 /// let today = current_date::<SQLiteValue>();
+/// # "####;
 /// ```
 pub fn current_date<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, super::NonNull, Scalar>
@@ -80,11 +82,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::current_time;
 ///
 /// // SELECT CURRENT_TIME
 /// let now_time = current_time::<SQLiteValue>();
+/// # "####;
 /// ```
 pub fn current_time<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
@@ -103,11 +107,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::current_timestamp;
 ///
 /// // SELECT CURRENT_TIMESTAMP
 /// let now = current_timestamp::<SQLiteValue>();
+/// # "####;
 /// ```
 pub fn current_timestamp<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
@@ -127,11 +133,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::date;
 ///
 /// // SELECT DATE(users.created_at)
 /// let created_date = date(users.created_at);
+/// # "####;
 /// ```
 pub fn date<'a, V, E>(
     expr: E,
@@ -151,11 +159,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::time;
 ///
 /// // SELECT TIME(users.created_at)
 /// let created_time = time(users.created_at);
+/// # "####;
 /// ```
 pub fn time<'a, V, E>(
     expr: E,
@@ -175,11 +185,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::datetime;
 ///
 /// // SELECT DATETIME(users.created_at)
 /// let dt = datetime(users.created_at);
+/// # "####;
 /// ```
 pub fn datetime<'a, V, E>(
     expr: E,
@@ -211,11 +223,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::strftime;
 ///
 /// // SELECT STRFTIME('%Y-%m-%d', users.created_at)
 /// let formatted = strftime("%Y-%m-%d", users.created_at);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn strftime<'a, V, F, E>(
@@ -249,11 +263,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::julianday;
 ///
 /// // SELECT JULIANDAY(users.created_at)
 /// let julian = julianday(users.created_at);
+/// # "####;
 /// ```
 pub fn julianday<'a, V, E>(
     expr: E,
@@ -273,11 +289,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::unixepoch;
 ///
 /// // SELECT UNIXEPOCH(users.created_at)
 /// let unix_ts = unixepoch(users.created_at);
+/// # "####;
 /// ```
 pub fn unixepoch<'a, V, E>(
     expr: E,
@@ -299,11 +317,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::now;
 ///
 /// // SELECT NOW()
 /// let current = now::<PostgresValue>();
+/// # "####;
 /// ```
 pub fn now<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
@@ -324,11 +344,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::date_trunc;
 ///
 /// // SELECT DATE_TRUNC('month', users.created_at)
 /// let month_start = date_trunc("month", users.created_at);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn date_trunc<'a, V, P, E>(
@@ -369,11 +391,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::extract;
 ///
 /// // SELECT EXTRACT(YEAR FROM users.created_at)
 /// let year = extract("YEAR", users.created_at);
+/// # "####;
 /// ```
 pub fn extract<'a, 'f, V, E>(
     field: &'f str,
@@ -402,11 +426,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::age;
 ///
 /// // SELECT AGE(NOW(), users.created_at)
 /// let user_age = age(now(), users.created_at);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn age<'a, V, E1, E2>(
@@ -456,11 +482,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::to_char;
 ///
 /// // SELECT TO_CHAR(users.created_at, 'YYYY-MM-DD')
 /// let formatted = to_char(users.created_at, "YYYY-MM-DD");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn to_char<'a, V, E, F>(
@@ -494,11 +522,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::to_timestamp;
 ///
 /// // SELECT TO_TIMESTAMP(users.created_unix)
 /// let ts = to_timestamp(users.created_unix);
+/// # "####;
 /// ```
 pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate>
 where
@@ -520,11 +550,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::to_date;
 ///
 /// // SELECT TO_DATE('2024-01-15', 'YYYY-MM-DD')
 /// let d = to_date("2024-01-15", "YYYY-MM-DD");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn to_date<'a, V, E, F>(
@@ -558,11 +590,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::to_number;
 ///
 /// // SELECT TO_NUMBER('1,234.56', '9G999D99')
 /// let n = to_number("1,234.56", "9G999D99");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn to_number<'a, V, E, F>(
@@ -601,11 +635,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::date_bin;
 ///
 /// // SELECT DATE_BIN('15 minutes', events.created_at, TIMESTAMP '2001-01-01')
 /// let bucketed = date_bin("15 minutes", events.created_at, "2001-01-01");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn date_bin<'a, V, S, E, O>(
@@ -654,11 +690,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::make_date;
 ///
 /// // SELECT MAKE_DATE(2024, 1, 15)
 /// let d = make_date(2024, 1, 15);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn make_date<'a, V, Y, M, D>(
@@ -703,11 +741,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::make_timestamp;
 ///
 /// // SELECT MAKE_TIMESTAMP(2024, 1, 15, 10, 30, 0.0)
 /// let ts = make_timestamp(2024, 1, 15, 10, 30, 0.0);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
@@ -791,11 +831,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::localtime;
 ///
 /// // SELECT LOCALTIME
 /// let now_time = localtime::<PostgresValue>();
+/// # "####;
 /// ```
 pub fn localtime<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
@@ -810,11 +852,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::localtimestamp;
 ///
 /// // SELECT LOCALTIMESTAMP
 /// let now_ts = localtimestamp::<PostgresValue>();
+/// # "####;
 /// ```
 pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar>
 where
@@ -830,11 +874,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::clock_timestamp;
 ///
 /// // SELECT CLOCK_TIMESTAMP()
 /// let wall_clock = clock_timestamp::<PostgresValue>();
+/// # "####;
 /// ```
 pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar>
 where
@@ -854,11 +900,13 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// use drizzle_core::expr::timediff;
 ///
 /// // SELECT TIMEDIFF(events.end_time, events.start_time)
 /// let duration = timediff(events.end_time, events.start_time);
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn timediff<'a, V, E1, E2>(

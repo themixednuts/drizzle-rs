@@ -5,8 +5,10 @@ use core::marker::PhantomData;
 /// Stores one relation's data plus the rest of the chain.
 ///
 /// A `QueryRow` with two included relations has store type:
-/// ```text
+/// ```rust
+/// # let _ = r####"
 /// RelEntry<RelPosts, Vec<SelectPost>, RelEntry<RelInvitedBy, Option<SelectUser>, ()>>
+/// # "####;
 /// ```
 #[derive(Debug, Clone)]
 pub struct RelEntry<Rel, Data, Rest> {

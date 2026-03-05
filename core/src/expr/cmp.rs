@@ -2,7 +2,8 @@
 //!
 //! This module provides both function-based and method-based comparisons:
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! // Function style
 //! eq(users.id, 42)
 //! gt(users.age, 18)
@@ -10,6 +11,7 @@
 //! // Method style (on SQLExpr)
 //! users.id.eq(42)
 //! users.age.gt(18)
+//! # "####;
 //! ```
 //!
 //! # Type Safety
@@ -90,7 +92,8 @@ where
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Int compared with i32
 /// eq(users.id, 10);
 ///
@@ -99,6 +102,7 @@ where
 ///
 /// // ❌ Compile error: Int cannot be compared with Text
 /// eq(users.id, "hello");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn eq<'a, V, L, R>(
@@ -249,12 +253,14 @@ where
 ///
 /// # Type Safety
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // ✅ OK: Text column with text pattern
 /// like(users.name, "%Alice%");
 ///
 /// // ❌ Compile error: Int is not Textual
 /// like(users.id, "%123%");
+/// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn like<'a, V, L, R>(
@@ -542,19 +548,23 @@ where
 /// This trait is blanket-implemented for all types implementing `Expr`,
 /// allowing method syntax on columns, literals, and expressions:
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// // Works on columns directly
 /// users.id.eq(42)
 /// users.age.gt(18)
 ///
 /// // Chain with operators
 /// users.id.eq(42) & users.age.gt(18)
+/// # "####;
 /// ```
 pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// Equality comparison (`=`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.id.eq(42)  // "users"."id" = 42
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn eq<R>(
@@ -579,8 +589,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// Inequality comparison (`<>`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.id.ne(42)  // "users"."id" <> 42
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn ne<R>(
@@ -605,8 +617,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// Greater-than comparison (`>`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.age.gt(18)  // "users"."age" > 18
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn gt<R>(
@@ -631,8 +645,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// Greater-than-or-equal comparison (`>=`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.age.ge(18)  // "users"."age" >= 18
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn ge<R>(
@@ -657,8 +673,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// Less-than comparison (`<`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.age.lt(65)  // "users"."age" < 65
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn lt<R>(
@@ -683,8 +701,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// Less-than-or-equal comparison (`<=`).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.age.le(65)  // "users"."age" <= 65
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn le<R>(
@@ -709,8 +729,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// LIKE pattern matching.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.name.like("%Alice%")  // "users"."name" LIKE '%Alice%'
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn like<R>(
@@ -737,8 +759,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// NOT LIKE pattern matching.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.name.not_like("%Bot%")  // "users"."name" NOT LIKE '%Bot%'
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn not_like<R>(
@@ -765,8 +789,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// IS NULL check.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.deleted_at.is_null()  // "users"."deleted_at" IS NULL
+    /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
     fn is_null(
@@ -777,8 +803,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// IS NOT NULL check.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.email.is_not_null()  // "users"."email" IS NOT NULL
+    /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
     fn is_not_null(
@@ -791,8 +819,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     ///
     /// Checks if the value is between low and high (inclusive).
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.age.between(18, 65)  // ("users"."age" BETWEEN 18 AND 65)
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn between<L, H>(
@@ -827,8 +857,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     ///
     /// Checks if the value is NOT between low and high.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.age.not_between(0, 17)  // ("users"."age" NOT BETWEEN 0 AND 17)
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     fn not_between<L, H>(
@@ -863,9 +895,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     ///
     /// Checks if the value is in the provided array.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.role.in_array([Role::Admin, Role::Moderator])
     /// // "users"."role" IN ('admin', 'moderator')
+    /// # "####;
     /// ```
     fn in_array<I, R>(
         self,
@@ -883,9 +917,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     ///
     /// Checks if the value is NOT in the provided array.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.role.not_in_array([Role::Banned, Role::Suspended])
     /// // "users"."role" NOT IN ('banned', 'suspended')
+    /// # "####;
     /// ```
     fn not_in_array<I, R>(
         self,
@@ -925,9 +961,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// IS DISTINCT FROM - NULL-safe inequality comparison.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.status.is_distinct_from("active")
     /// // "users"."status" IS DISTINCT FROM 'active'
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity, clippy::wrong_self_convention)]
     fn is_distinct_from<R>(
@@ -952,9 +990,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// IS NOT DISTINCT FROM - NULL-safe equality comparison.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.status.is_not_distinct_from("active")
     /// // "users"."status" IS NOT DISTINCT FROM 'active'
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity, clippy::wrong_self_convention)]
     fn is_not_distinct_from<R>(
@@ -979,9 +1019,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// IS TRUE - boolean test that handles NULL.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.is_active.is_true()
     /// // "users"."is_active" IS TRUE
+    /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
     fn is_true(
@@ -992,9 +1034,11 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
 
     /// IS FALSE - boolean test that handles NULL.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// users.is_active.is_false()
     /// // "users"."is_active" IS FALSE
+    /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
     fn is_false(

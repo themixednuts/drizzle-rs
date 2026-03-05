@@ -6,7 +6,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use drizzle_migrations::parser::SchemaParser;
 //! use drizzle_types::Dialect;
 //!

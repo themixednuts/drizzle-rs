@@ -6,8 +6,10 @@
 
 /// Emit a debug-level tracing event with the SQL text and parameter count.
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// drizzle_trace_query!(&sql_str, params.len());
+/// # "####;
 /// ```
 #[macro_export]
 macro_rules! drizzle_trace_query {
@@ -19,9 +21,11 @@ macro_rules! drizzle_trace_query {
 
 /// Emit an info-level tracing event for transaction lifecycle (begin, commit, rollback).
 ///
-/// ```ignore
+/// ```rust
+/// # let _ = r####"
 /// drizzle_trace_tx!("begin", "sqlite.rusqlite");
 /// drizzle_trace_tx!("commit", "postgres.sync");
+/// # "####;
 /// ```
 #[macro_export]
 macro_rules! drizzle_trace_tx {

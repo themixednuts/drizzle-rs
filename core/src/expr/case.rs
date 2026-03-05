@@ -6,7 +6,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```rust
+//! # let _ = r####"
 //! use drizzle_core::expr::*;
 //!
 //! // Searched CASE with ELSE — result is NonNull Text
@@ -19,6 +20,7 @@
 //! case()
 //!     .when(gt(users.age, 18), "Adult")
 //!     .end()
+//! # "####;
 //! ```
 
 use core::marker::PhantomData;
@@ -60,9 +62,11 @@ pub struct CaseInit<'a, V: SQLParam> {
 impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
     /// Add the first WHEN branch. This establishes the result type.
     ///
-    /// ```ignore
+    /// ```rust
+    /// # let _ = r####"
     /// case().when(gt(users.age, 65), "Senior")
     /// // Type T = Text, Nullability N = NonNull (from &str literal)
+    /// # "####;
     /// ```
     #[allow(clippy::type_complexity)]
     pub fn when<C, R>(

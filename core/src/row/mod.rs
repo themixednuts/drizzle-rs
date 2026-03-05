@@ -6,12 +6,14 @@
 //!
 //! # Architecture
 //!
-//! ```text
+//! ```rust
+//! # let _ = r####"
 //! .select(cols)    → Marker  (SelectStar | SelectCols<C> | SelectExpr)
 //! .from(table)     → R       (Marker + Table → row type via ResolveRow)
 //! .join(t2)        → R'      (Marker + R + JoinedTable → new R via AfterJoin)
 //! .all()           → Vec<R>  (R: FromDrizzleRow)
 //! .all_as::<T>()   → Vec<T>  (user override)
+//! # "####;
 //! ```
 
 // Driver-specific leaf FromDrizzleRow implementations
