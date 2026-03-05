@@ -298,6 +298,13 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             #struct_vis struct #zst_ident;
 
+            impl<'a> ::core::default::Default for &'a #zst_ident {
+                fn default() -> Self {
+                    static COLUMN: #zst_ident = #zst_ident;
+                    &COLUMN
+                }
+            }
+
             impl #zst_ident {
                 pub const fn new() -> #zst_ident {
                     #zst_ident

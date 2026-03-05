@@ -31,6 +31,24 @@ postgres_test!(insert_single_row, SimpleSchema, {
     assert!(results[0].id > 0, "ID should be auto-generated");
 });
 
+postgres_test!(insert_with_table_and_column_refs, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+    let simple_ref = &simple;
+    let name_ref = &simple.name;
+
+    let stmt = db.insert(simple_ref).values([InsertSimple::new("RefAlice")]);
+    drizzle_exec!(stmt => execute);
+
+    let stmt = db
+        .select((simple_ref.id, simple_ref.name))
+        .from(simple_ref)
+        .r#where(eq(name_ref, "RefAlice"));
+    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "RefAlice");
+});
+
 postgres_test!(insert_multiple_rows, SimpleSchema, {
     let SimpleSchema { simple } = schema;
 

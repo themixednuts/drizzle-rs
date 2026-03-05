@@ -9,3 +9,14 @@ pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {
     /// Only meaningful when `GENERATED_IDENTITY` is `true`.
     const IDENTITY_ALWAYS: bool = true;
 }
+
+impl<'a, 'r, T> PostgresColumn<'a> for &'r T
+where
+    T: PostgresColumn<'a>,
+    &'r T: SQLColumn<'a, PostgresValue<'a>>,
+{
+    const SERIAL: bool = T::SERIAL;
+    const BIGSERIAL: bool = T::BIGSERIAL;
+    const GENERATED_IDENTITY: bool = T::GENERATED_IDENTITY;
+    const IDENTITY_ALWAYS: bool = T::IDENTITY_ALWAYS;
+}

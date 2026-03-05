@@ -43,6 +43,16 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     const SQL: &'static str;
 }
 
+impl<'a, 'r, S, T, V> SQLSchema<'a, T, V> for &'r S
+where
+    S: SQLSchema<'a, T, V>,
+    V: SQLParam + 'a,
+{
+    const NAME: &'static str = <S as SQLSchema<'a, T, V>>::NAME;
+    const TYPE: T = <S as SQLSchema<'a, T, V>>::TYPE;
+    const SQL: &'static str = <S as SQLSchema<'a, T, V>>::SQL;
+}
+
 /// Maps a schema item type to its table contribution.
 ///
 /// - Table items map to `Cons<Table, Nil>`

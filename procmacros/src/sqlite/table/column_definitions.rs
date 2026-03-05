@@ -259,6 +259,12 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let column_code = quote! {
             #struct_def
+            impl<'a> ::core::default::Default for &'a #zst_ident {
+                fn default() -> Self {
+                    static COLUMN: #zst_ident = #zst_ident;
+                    &COLUMN
+                }
+            }
             #impl_new
 
             impl #zst_ident {

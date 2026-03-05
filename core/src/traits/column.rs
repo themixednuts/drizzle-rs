@@ -1,9 +1,7 @@
-use core::any::Any;
-
 use crate::expr::Expr;
 use crate::{SQLParam, SQLSchema, SQLSchemaType, SQLTable, SQLTableInfo};
 
-pub trait SQLColumnInfo: Any + Send + Sync {
+pub trait SQLColumnInfo: Send + Sync {
     fn is_not_null(&self) -> bool;
     fn is_primary_key(&self) -> bool;
     fn is_unique(&self) -> bool;
@@ -51,8 +49,8 @@ pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     }
 }
 
-// Blanket implementation for static references
-impl<T: SQLColumnInfo> SQLColumnInfo for &'static T {
+// Blanket implementation for references.
+impl<T: SQLColumnInfo> SQLColumnInfo for &T {
     fn is_not_null(&self) -> bool {
         (*self).is_not_null()
     }
@@ -79,6 +77,27 @@ impl<T: SQLColumnInfo> SQLColumnInfo for &'static T {
 
     fn table(&self) -> &'static dyn SQLTableInfo {
         (*self).table()
+    }
+}
+
+impl<'a, 'r, Value, T> SQLColumn<'a, Value> for &'r T
+where
+    Value: SQLParam + 'a,
+    T: SQLColumn<'a, Value>,
+    &'r T: SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value> + Expr<'a, Value>,
+{
+    type Table = T::Table;
+    type TableType = T::TableType;
+    type ForeignKeys = T::ForeignKeys;
+    type Type = T::Type;
+
+    const PRIMARY_KEY: bool = T::PRIMARY_KEY;
+    const NOT_NULL: bool = T::NOT_NULL;
+    const UNIQUE: bool = T::UNIQUE;
+    const DEFAULT: Option<Self::Type> = T::DEFAULT;
+
+    fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
+        <T as SQLColumn<'a, Value>>::default_fn(*self)
     }
 }
 

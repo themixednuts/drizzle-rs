@@ -153,6 +153,13 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
          #column_fields
         }
 
+        impl<'a> ::core::default::Default for &'a #struct_ident {
+            fn default() -> Self {
+                static TABLE: #struct_ident = #struct_ident::new();
+                &TABLE
+            }
+        }
+
         impl #struct_ident {
             /// The table name as used in SQL statements.
             /// This respects the `name = "..."` attribute if specified,

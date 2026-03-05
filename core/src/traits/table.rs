@@ -1,6 +1,5 @@
 use crate::prelude::*;
 use crate::{ColumnRef, SQL, SQLParam, SQLSchema, SQLSchemaType, TableRef, ToSQL};
-use core::any::Any;
 use core::marker::PhantomData;
 use core::ops::Deref;
 
@@ -166,11 +165,31 @@ impl<T: DrizzleTable> SQLTableInfo for T {
     }
 }
 
+impl<'a, 'r, Type, Value, T> SQLTable<'a, Type, Value> for &'r T
+where
+    Type: SQLSchemaType,
+    Value: SQLParam + 'a,
+    T: SQLTable<'a, Type, Value>,
+    &'r T: SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone,
+{
+    type Select = T::Select;
+    type ForeignKeys = T::ForeignKeys;
+    type PrimaryKey = T::PrimaryKey;
+    type Constraints = T::Constraints;
+    type Insert<I> = T::Insert<I>;
+    type Update = T::Update;
+    type Aliased<Name: Tag + 'static> = T::Aliased<Name>;
+
+    fn alias<Name: Tag + 'static>() -> Self::Aliased<Name> {
+        T::alias::<Name>()
+    }
+}
+
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not implement SQLTableInfo",
     label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
 )]
-pub trait SQLTableInfo: Any + Send + Sync {
+pub trait SQLTableInfo: Send + Sync {
     /// Unqualified table name.
     fn name(&self) -> &'static str;
 

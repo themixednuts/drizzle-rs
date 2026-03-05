@@ -284,6 +284,19 @@ pub(super) fn generate_table_impls(
         #sql_schema_impl
         #sql_table_impl
         #drizzle_table_impl
+        impl<'a> #sql_table_info for &'a #struct_ident {
+            fn name(&self) -> &'static str {
+                <#struct_ident as #sql_table_info>::name(*self)
+            }
+
+            fn schema(&self) -> ::core::option::Option<&'static str> {
+                <#struct_ident as #sql_table_info>::schema(*self)
+            }
+
+            fn qualified_name(&self) -> ::std::borrow::Cow<'static, str> {
+                <#struct_ident as #sql_table_info>::qualified_name(*self)
+            }
+        }
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_cons<#struct_ident, #type_set_nil>;
             const TABLE_REF_CONST: ::core::option::Option<&'static #table_ref> = {

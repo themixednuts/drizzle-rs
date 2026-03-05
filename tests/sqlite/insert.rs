@@ -48,6 +48,26 @@ sqlite_test!(simple_insert, SimpleSchema, {
     assert_eq!(results[0].name, "test");
 });
 
+sqlite_test!(insert_with_table_and_column_refs, SimpleSchema, {
+    let SimpleSchema { simple } = schema;
+    let simple_ref = &simple;
+    let name_ref = &simple.name;
+
+    let data = InsertSimple::new("ref_test");
+    let result = drizzle_exec!(db.insert(simple_ref).values([data]) => execute);
+    assert_eq!(result, 1);
+
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple_ref.id, simple_ref.name))
+            .from(simple_ref)
+            .r#where(eq(name_ref, "ref_test"))
+            => all
+    );
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "ref_test");
+});
+
 #[cfg(feature = "uuid")]
 sqlite_test!(complex_insert, ComplexSchema, {
     let ComplexSchema { complex } = schema;
