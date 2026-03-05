@@ -1,5 +1,0 @@
-error: duplicate `from` clause
-  --> tests/ui/view_query_sqlite/fail/duplicate_from.rs:14:9
-   |
-14 |         from(User),
-   |         ^^^^

@@ -112,6 +112,7 @@ eframe = { version = "0.33" }
 bytes = { workspace = true }
 compact_str = { workspace = true }
 trybuild = { version = "1.0" }
+glob = { workspace = true }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }

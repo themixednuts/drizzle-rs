@@ -1597,6 +1597,7 @@ dependencies = [
  "eframe",
  "futures-util",
  "geo-types",
+ "glob",
  "libsql",
  "paste",
  "postgres",

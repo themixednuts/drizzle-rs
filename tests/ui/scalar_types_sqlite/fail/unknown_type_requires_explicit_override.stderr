@@ -1,5 +1,0 @@
-error: column `payload` uses `ANY`, which is only allowed on STRICT tables; add `#[SQLiteTable(strict)]`
- --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:5
-  |
-8 |     payload: Opaque,
-  |     ^^^^^^^
