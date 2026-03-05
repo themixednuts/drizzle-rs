@@ -22,15 +22,7 @@ drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rus
 cargo install drizzle-cli --git https://github.com/themixednuts/drizzle-rs --locked --all-features
 ```
 
-If you want to generate migrations from `build.rs` instead of the CLI, also add:
-
-```toml
-[build-dependencies]
-drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
-drizzle-types = { git = "https://github.com/themixednuts/drizzle-rs" }
-```
-
-### 2. Initialize & configure
+### 2. Initialize
 
 ```bash
 drizzle init --dialect sqlite
@@ -49,7 +41,7 @@ url = "./dev.db"
 
 ### 3. Define your schema
 
-Write your schema in `src/schema.rs`. Each `#[SQLiteTable]` generates companion types for selecting, inserting, updating, and partial queries (see [Generated Models](#generated-models)).
+Write your schema in `src/schema.rs`. Each `#[SQLiteTable]` also generates typed helpers for selecting, inserting, updating, and partial queries (see [Generated Models](#generated-models)).
 
 ```rust
 use drizzle::sqlite::prelude::*;
@@ -123,7 +115,7 @@ let (db, Schema { users, posts }) = Drizzle::new(conn, Schema::new());
 
 ## Generated Models
 
-Each `#[SQLiteTable]` (or `#[PostgresTable]`) generates four companion types from your struct. Given:
+Each `#[SQLiteTable]` (or `#[PostgresTable]`) generates four helper types from your struct. Given:
 
 ```rust
 #[SQLiteTable]
@@ -355,8 +347,7 @@ let rows: Vec<UserWithPost> = db
 
 ## Aliases
 
-Use a `Tag` to create compile-time-safe aliases for self-joins and CTEs.
-The `tag!` macro defines one in a single line:
+Use a `Tag` to alias a table for self-joins and CTEs:
 
 ```rust
 use drizzle::sqlite::prelude::*;
@@ -366,9 +357,6 @@ tag!(U, "u");
 let u = Users::alias::<U>();
 let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 ```
-
-Every alias or CTE is created through a `Tag` type (`alias::<Tag>()` / `into_cte::<Tag>()`),
-which embeds its SQL name at compile time.
 
 ## Set Operations
 
@@ -403,7 +391,6 @@ let users = db.query(users)
     .find_many()?;
 
 for user in &users {
-    // Base fields accessed directly (QueryRow derefs to SelectUsers)
     println!("{}: {} posts", user.name, user.posts().len());
 }
 ```
@@ -603,7 +590,7 @@ let migrations = drizzle::include_migrations!("./drizzle");
 db.migrate(&migrations, Tracking::SQLITE)?;
 ```
 
-Use `Tracking::POSTGRES` for PostgreSQL, and override the bookkeeping location when needed:
+Use `Tracking::POSTGRES` for PostgreSQL, and override the tracking table or schema when needed:
 
 ```rust
 db.migrate(
@@ -614,11 +601,19 @@ db.migrate(
 )?;
 ```
 
-`migrate` creates the bookkeeping schema/table if needed and skips migrations that have already been applied.
+`migrate` creates the tracking schema/table if needed and skips migrations that have already been applied.
 
 ## Build.rs Migrations
 
-If you do not want to run `drizzle generate`, you can keep `./drizzle` in sync from `build.rs`.
+If you want migration files generated during `cargo build`, you can keep `./drizzle` in sync from `build.rs` instead of running `drizzle generate` manually.
+
+Add the build-time crates:
+
+```toml
+[build-dependencies]
+drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
+drizzle-types = { git = "https://github.com/themixednuts/drizzle-rs" }
+```
 
 Create `build.rs`:
 
@@ -644,7 +639,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-If your schema is split across files, list each schema source file explicitly with additional `.file(...)` calls, for example `.file("src/schema/users.rs").file("src/schema/posts.rs")`. The build helper concatenates the files you pass to it; it does not walk Rust `mod` declarations automatically. At runtime, embed the generated `./drizzle` directory with `drizzle::include_migrations!("./drizzle")` and pass it to `db.migrate(...)`.
+If your schema is split across files, add each source file with another `.file(...)` call, for example `.file("src/schema/users.rs").file("src/schema/posts.rs")`. The build helper only uses the files you list; it does not follow Rust `mod` declarations automatically.
 
 ### Push
 
