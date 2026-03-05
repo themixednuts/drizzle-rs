@@ -1,8 +1,9 @@
 /target
 .claude/settings.local.json
-/tmp/
+/tmp
 /.idea/
 /queries/
+.codemogger/
 
 # act (local GitHub Actions runner)
 .env
