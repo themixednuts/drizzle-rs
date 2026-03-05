@@ -36,7 +36,9 @@ postgres_test!(insert_with_table_and_column_refs, SimpleSchema, {
     let simple_ref = &simple;
     let name_ref = &simple.name;
 
-    let stmt = db.insert(simple_ref).values([InsertSimple::new("RefAlice")]);
+    let stmt = db
+        .insert(simple_ref)
+        .values([InsertSimple::new("RefAlice")]);
     drizzle_exec!(stmt => execute);
 
     let stmt = db

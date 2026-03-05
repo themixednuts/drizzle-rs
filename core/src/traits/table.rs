@@ -165,12 +165,12 @@ impl<T: DrizzleTable> SQLTableInfo for T {
     }
 }
 
-impl<'a, 'r, Type, Value, T> SQLTable<'a, Type, Value> for &'r T
+impl<'a, Type, Value, T> SQLTable<'a, Type, Value> for &T
 where
     Type: SQLSchemaType,
     Value: SQLParam + 'a,
     T: SQLTable<'a, Type, Value>,
-    &'r T: SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone,
+    for<'r> &'r T: SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone,
 {
     type Select = T::Select;
     type ForeignKeys = T::ForeignKeys;

@@ -80,11 +80,11 @@ impl<T: SQLColumnInfo> SQLColumnInfo for &T {
     }
 }
 
-impl<'a, 'r, Value, T> SQLColumn<'a, Value> for &'r T
+impl<'a, Value, T> SQLColumn<'a, Value> for &T
 where
     Value: SQLParam + 'a,
     T: SQLColumn<'a, Value>,
-    &'r T: SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value> + Expr<'a, Value>,
+    for<'r> &'r T: SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value> + Expr<'a, Value>,
 {
     type Table = T::Table;
     type TableType = T::TableType;

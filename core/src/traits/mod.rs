@@ -43,7 +43,7 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     const SQL: &'static str;
 }
 
-impl<'a, 'r, S, T, V> SQLSchema<'a, T, V> for &'r S
+impl<'a, S, T, V> SQLSchema<'a, T, V> for &S
 where
     S: SQLSchema<'a, T, V>,
     V: SQLParam + 'a,

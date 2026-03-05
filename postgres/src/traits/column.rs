@@ -10,10 +10,10 @@ pub trait PostgresColumn<'a>: SQLColumn<'a, PostgresValue<'a>> {
     const IDENTITY_ALWAYS: bool = true;
 }
 
-impl<'a, 'r, T> PostgresColumn<'a> for &'r T
+impl<'a, T> PostgresColumn<'a> for &T
 where
     T: PostgresColumn<'a>,
-    &'r T: SQLColumn<'a, PostgresValue<'a>>,
+    for<'r> &'r T: SQLColumn<'a, PostgresValue<'a>>,
 {
     const SERIAL: bool = T::SERIAL;
     const BIGSERIAL: bool = T::BIGSERIAL;

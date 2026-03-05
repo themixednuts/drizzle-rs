@@ -5,9 +5,9 @@ use crate::values::PostgresValue;
 
 pub trait PostgresTable<'a>: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>> {}
 
-impl<'a, 'r, T> PostgresTable<'a> for &'r T
+impl<'a, T> PostgresTable<'a> for &T
 where
     T: PostgresTable<'a>,
-    &'r T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+    for<'r> &'r T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
 {
 }
