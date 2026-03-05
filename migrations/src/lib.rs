@@ -2,9 +2,9 @@
 //!
 //! This crate provides:
 //! - migration discovery (`MigrationDir`)
-//! - runtime migrate config (`MigrateConfig`)
-//! - pure diff APIs (`generate`, `generate_schemas_with`)
-//! - build-time migration generation (`build::generate_to_dir`)
+//! - runtime tracking config (`Tracking`)
+//! - pure diff APIs (`diff`, `diff_schemas_with`)
+//! - build-time migration generation (`build::run`)
 //!
 //! # Recommended No-CLI Flow
 //!
@@ -12,19 +12,19 @@
 //!
 //! ```rust,no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use drizzle_migrations::build::{GenerateConfig, GenerateOutcome, generate_to_dir};
+//! use drizzle_migrations::build::{Config, Output, run};
 //! use drizzle_types::Dialect;
 //!
-//! let cfg = GenerateConfig::new(Dialect::SQLite)
-//!     .schema("./src/schema.rs")
+//! let cfg = Config::new(Dialect::SQLite)
+//!     .file("./src/schema.rs")
 //!     .out("./drizzle");
 //!
 //! // Registers schema files as build.rs inputs.
-//! cfg.emit_rerun_if_changed();
+//! cfg.watch();
 //!
-//! match generate_to_dir(&cfg)? {
-//!     GenerateOutcome::NoChanges => {}
-//!     GenerateOutcome::Generated { tag, .. } => {
+//! match run(&cfg)? {
+//!     Output::NoChanges => {}
+//!     Output::Generated { tag, .. } => {
 //!         println!("cargo:warning=generated migration {tag}");
 //!     }
 //! }
@@ -35,18 +35,18 @@
 //! 2. In app code, embed and run migrations:
 //!
 //! ```rust,no_run
-//! # use drizzle_migrations::{MigrateConfig, Migration};
+//! # use drizzle_migrations::{Migration, Tracking};
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # struct Db;
 //! # impl Db {
-//! #     fn migrate(&self, _migrations: &[Migration], _config: MigrateConfig<'_>) -> Result<(), Box<dyn std::error::Error>> {
+//! #     fn migrate(&self, _migrations: &[Migration], _config: Tracking) -> Result<(), Box<dyn std::error::Error>> {
 //! #         Ok(())
 //! #     }
 //! # }
 //! # let db = Db;
 //! // Usually produced by: `drizzle::include_migrations!("./drizzle")`
 //! let migrations: Vec<Migration> = Vec::new();
-//! db.migrate(&migrations, MigrateConfig::SQLITE)?;
+//! db.migrate(&migrations, Tracking::SQLITE)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -58,18 +58,18 @@
 //! ## Snapshot-to-snapshot
 //!
 //! ```rust
-//! use drizzle_migrations::{Snapshot, generate};
+//! use drizzle_migrations::{Snapshot, diff};
 //!
 //! let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let current = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let migration = generate(&prev, &current).unwrap();
+//! let migration = diff(&prev, &current).unwrap();
 //! assert!(migration.statements.is_empty());
 //! ```
 //!
 //! ## Schema-to-schema with rename hints
 //!
 //! ```rust,no_run
-//! use drizzle_migrations::{GenerateOptions, Schema, Snapshot, generate_schemas_with};
+//! use drizzle_migrations::{Options, Schema, Snapshot, diff_schemas_with};
 //! use drizzle_types::Dialect;
 //!
 //! # #[derive(Default)]
@@ -84,10 +84,10 @@
 //! #     fn to_snapshot(&self) -> Snapshot { Snapshot::empty(Dialect::SQLite) }
 //! #     fn dialect(&self) -> Dialect { Dialect::SQLite }
 //! # }
-//! let migration = generate_schemas_with(
+//! let migration = diff_schemas_with(
 //!     &AppSchemaV1,
 //!     &AppSchemaV2,
-//!     GenerateOptions::new()
+//!     Options::new()
 //!         .rename_table("users_old", "users")
 //!         .rename_column("users", "full_name", "name")
 //!         .strict_renames(true),
@@ -134,12 +134,12 @@ pub mod words;
 pub mod writer;
 
 // Core migration types
-pub use config::MigrateConfig;
+pub use config::Tracking;
 pub use dir::MigrationDir;
 pub use journal::{Journal, JournalEntry};
-pub use migrator::{Migration, MigrationSet, MigratorError};
+pub use migrator::{Migration, Migrations, MigratorError};
 pub use words::{PrefixMode, generate_migration_tag};
-pub use writer::{MigrationError, MigrationWriter};
+pub use writer::{MigrationError, Writer};
 
 // Version constants
 pub use version::{
@@ -168,10 +168,10 @@ pub use schema::{Schema, Snapshot};
 
 // Programmatic migration generation
 pub use generate::{
-    ColumnRenameHint, GenerateOptions, GeneratedMigration, RenameHints, TableRenameHint, generate,
-    generate_schemas, generate_schemas_with, generate_with,
+    ColumnRenameHint, Options, Plan, RenameHints, TableRenameHint, diff, diff_schemas,
+    diff_schemas_with, diff_with,
 };
 pub use snapshot_builder::parse_result_to_snapshot;
 
 // Build-time generation helpers (no CLI)
-pub use build::{BuildError, Casing, GenerateConfig, GenerateOutcome, generate_to_dir};
+pub use build::{BuildError, Casing, Config, Output, run};

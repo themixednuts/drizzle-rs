@@ -431,17 +431,21 @@ impl<Schema> Drizzle<Schema> {
     pub fn migrate(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
-        config: drizzle_migrations::MigrateConfig<'_>,
+        tracking: drizzle_migrations::Tracking,
     ) -> drizzle_core::error::Result<()> {
-        let set = drizzle_migrations::MigrationSet::from_config(migrations.to_vec(), &config);
+        let set = drizzle_migrations::Migrations::with_tracking(
+            migrations.to_vec(),
+            drizzle_types::Dialect::PostgreSQL,
+            tracking,
+        );
 
         if let Some(schema_sql) = set.create_schema_sql() {
             self.client.execute(&schema_sql, &[])?;
         }
         self.client.execute(&set.create_table_sql(), &[])?;
-        let rows = self.client.query(&set.query_all_created_at_sql(), &[])?;
+        let rows = self.client.query(&set.applied_sql(), &[])?;
         let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
-        let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+        let pending: Vec<_> = set.pending(&applied_created_at).collect();
 
         if pending.is_empty() {
             return Ok(());
@@ -456,7 +460,7 @@ impl<Schema> Drizzle<Schema> {
                 }
             }
             tx.execute(
-                &set.record_migration_sql(migration.hash(), migration.created_at()),
+                &set.record_sql(migration.hash(), migration.created_at()),
                 &[],
             )?;
         }
@@ -798,7 +802,7 @@ impl<Schema> Drizzle<Schema> {
             }
             (other, _) => other,
         };
-        let generated = drizzle_migrations::generate(&live, &desired)
+        let generated = drizzle_migrations::diff(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         for stmt in generated.statements {
             if !stmt.trim().is_empty() {

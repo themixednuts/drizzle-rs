@@ -313,8 +313,8 @@ fn latest_v3_snapshot_path(out_dir: &Path) -> Result<Option<std::path::PathBuf>,
 fn generate_diff(
     prev: &drizzle_migrations::schema::Snapshot,
     current: &drizzle_migrations::schema::Snapshot,
-) -> Result<drizzle_migrations::GeneratedMigration, CliError> {
-    drizzle_migrations::generate(prev, current).map_err(|error| match error {
+) -> Result<drizzle_migrations::Plan, CliError> {
+    drizzle_migrations::diff(prev, current).map_err(|error| match error {
         drizzle_migrations::MigrationError::DialectMismatch => CliError::DialectMismatch,
         drizzle_migrations::MigrationError::NoChanges => {
             CliError::Other("No schema changes detected".to_string())

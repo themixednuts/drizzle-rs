@@ -1196,7 +1196,7 @@ impl PostgresGenerator {
                     sql.push_str(&format!(" FOR {}", for_clause));
                 }
                 if let Some(to) = &policy.to {
-                    let to_list: Vec<&str> = to.iter().copied().collect();
+                    let to_list: Vec<&str> = to.iter().map(|role| role.as_ref()).collect();
                     sql.push_str(&format!(" TO {}", to_list.join(", ")));
                 }
                 if let Some(using) = &policy.using {

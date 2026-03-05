@@ -18,7 +18,7 @@ use crate::output;
     feature = "postgres-sync",
     feature = "tokio-postgres",
 ))]
-use drizzle_migrations::MigrationSet;
+use drizzle_migrations::Migrations;
 use drizzle_migrations::schema::Snapshot;
 
 /// Result of a migration run
@@ -307,16 +307,18 @@ fn load_migration_set(
     migrations_dir: &Path,
     migrations_table: &str,
     migrations_schema: &str,
-) -> Result<MigrationSet, CliError> {
+) -> Result<Migrations, CliError> {
     let tracking = migration_tracking(dialect, migrations_table, migrations_schema);
 
     // Load migrations from filesystem
     let migrations = drizzle_migrations::MigrationDir::new(migrations_dir)
         .discover()
         .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
-    let config = drizzle_migrations::MigrateConfig::from_tracking(dialect.to_base(), tracking);
-
-    Ok(MigrationSet::from_config(migrations, &config))
+    Ok(Migrations::with_tracking(
+        migrations,
+        dialect.to_base(),
+        tracking,
+    ))
 }
 
 #[cfg(any(
@@ -326,22 +328,22 @@ fn load_migration_set(
     feature = "postgres-sync",
     feature = "tokio-postgres",
 ))]
-fn migration_tracking<'a>(
+fn migration_tracking(
     dialect: Dialect,
-    migrations_table: &'a str,
-    migrations_schema: &'a str,
-) -> drizzle_types::MigrationTracking<'a> {
+    migrations_table: &str,
+    migrations_schema: &str,
+) -> drizzle_types::MigrationTracking {
     let mut tracking = match dialect {
         Dialect::Postgresql => drizzle_types::MigrationTracking::POSTGRES,
         _ => drizzle_types::MigrationTracking::SQLITE,
     };
 
     if !migrations_table.trim().is_empty() {
-        tracking = tracking.table(migrations_table);
+        tracking = tracking.table(migrations_table.to_owned());
     }
 
     if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
-        tracking = tracking.schema(migrations_schema);
+        tracking = tracking.schema(migrations_schema.to_owned());
     }
 
     tracking
@@ -356,15 +358,13 @@ fn migration_tracking<'a>(
     feature = "tokio-postgres",
 ))]
 fn build_migration_plan(
-    set: &MigrationSet,
+    set: &Migrations,
     applied: Vec<AppliedMigrationRecord>,
 ) -> Result<MigrationPlan, CliError> {
     verify_applied_migrations_consistency(set, &applied)?;
 
     let applied_created_at = applied.iter().map(|m| m.created_at).collect::<Vec<_>>();
-    let pending = set
-        .pending_by_created_at(&applied_created_at)
-        .collect::<Vec<_>>();
+    let pending = set.pending(&applied_created_at).collect::<Vec<_>>();
 
     let pending_statements = pending
         .iter()
@@ -393,7 +393,7 @@ fn build_migration_plan(
     feature = "tokio-postgres",
 ))]
 fn verify_applied_migrations_consistency(
-    set: &MigrationSet,
+    set: &Migrations,
     applied: &[AppliedMigrationRecord],
 ) -> Result<(), CliError> {
     use std::collections::{HashMap, HashSet};
@@ -672,7 +672,7 @@ fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), Cl
 }
 
 #[cfg(feature = "rusqlite")]
-fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResult, CliError> {
+fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
         CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
     })?;
@@ -686,7 +686,7 @@ fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResu
     let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -713,7 +713,7 @@ fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResu
             }
         }
         if let Err(e) = conn.execute(
-            &set.record_migration_sql(migration.hash(), migration.created_at()),
+            &set.record_sql(migration.hash(), migration.created_at()),
             [],
         ) {
             let _ = conn.execute("ROLLBACK", []);
@@ -732,7 +732,7 @@ fn run_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationResu
 }
 
 #[cfg(feature = "rusqlite")]
-fn inspect_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<MigrationPlan, CliError> {
+fn inspect_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationPlan, CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
         CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
     })?;
@@ -744,7 +744,7 @@ fn inspect_sqlite_migrations(set: &MigrationSet, path: &str) -> Result<Migration
 #[cfg(feature = "rusqlite")]
 fn query_applied_records_sqlite(
     conn: &rusqlite::Connection,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
     let mut stmt = match conn.prepare(&set.query_all_applied_sql()) {
         Ok(s) => s,
@@ -774,9 +774,9 @@ fn query_applied_records_sqlite(
 #[cfg(feature = "rusqlite")]
 fn query_applied_created_at_sqlite(
     conn: &rusqlite::Connection,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<Vec<i64>, CliError> {
-    let mut stmt = match conn.prepare(&set.query_all_created_at_sql()) {
+    let mut stmt = match conn.prepare(&set.applied_sql()) {
         Ok(s) => s,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
@@ -838,7 +838,7 @@ fn execute_postgres_sync_statements(
 
 #[cfg(feature = "postgres-sync")]
 fn run_postgres_sync_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
     let url = creds.connection_url();
@@ -859,13 +859,11 @@ fn run_postgres_sync_migrations(
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     // Query applied migrations by created_at
-    let rows = client
-        .query(&set.query_all_created_at_sql(), &[])
-        .unwrap_or_default();
+    let rows = client.query(&set.applied_sql(), &[]).unwrap_or_default();
     let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -894,7 +892,7 @@ fn run_postgres_sync_migrations(
             }
             client
                 .execute(
-                    &set.record_migration_sql(migration.hash(), migration.created_at()),
+                    &set.record_sql(migration.hash(), migration.created_at()),
                     &[],
                 )
                 .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -926,7 +924,7 @@ fn run_postgres_sync_migrations(
             }
         }
         tx.execute(
-            &set.record_migration_sql(migration.hash(), migration.created_at()),
+            &set.record_sql(migration.hash(), migration.created_at()),
             &[],
         )
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -944,7 +942,7 @@ fn run_postgres_sync_migrations(
 
 #[cfg(feature = "postgres-sync")]
 fn inspect_postgres_sync_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationPlan, CliError> {
     let url = creds.connection_url();
@@ -959,7 +957,7 @@ fn inspect_postgres_sync_migrations(
 #[cfg(feature = "postgres-sync")]
 fn query_applied_records_postgres_sync(
     client: &mut postgres::Client,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Vec<AppliedMigrationRecord> {
     let rows = client
         .query(&set.query_all_applied_sql(), &[])
@@ -1054,7 +1052,7 @@ async fn execute_postgres_async_inner(
 #[cfg(feature = "tokio-postgres")]
 #[allow(dead_code)] // Used when postgres-sync is not enabled
 fn run_postgres_async_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1068,7 +1066,7 @@ fn run_postgres_async_migrations(
 #[cfg(feature = "tokio-postgres")]
 #[allow(dead_code)] // Used when postgres-sync is not enabled
 fn inspect_postgres_async_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationPlan, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1082,7 +1080,7 @@ fn inspect_postgres_async_migrations(
 #[cfg(feature = "tokio-postgres")]
 #[allow(dead_code)]
 async fn inspect_postgres_async_inner(
-    set: &MigrationSet,
+    set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationPlan, CliError> {
     let url = creds.connection_url();
@@ -1108,7 +1106,7 @@ async fn inspect_postgres_async_inner(
 #[cfg(feature = "tokio-postgres")]
 async fn query_applied_records_postgres_async(
     client: &tokio_postgres::Client,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Vec<AppliedMigrationRecord> {
     let rows = client
         .query(&set.query_all_applied_sql(), &[])
@@ -1130,7 +1128,7 @@ async fn query_applied_records_postgres_async(
 #[cfg(feature = "tokio-postgres")]
 #[allow(dead_code)]
 async fn run_postgres_async_inner(
-    set: &MigrationSet,
+    set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
     let url = creds.connection_url();
@@ -1166,13 +1164,13 @@ async fn run_postgres_async_inner(
 
     // Query applied migrations by created_at
     let rows = client
-        .query(&set.query_all_created_at_sql(), &[])
+        .query(&set.applied_sql(), &[])
         .await
         .unwrap_or_default();
     let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1201,7 +1199,7 @@ async fn run_postgres_async_inner(
             }
             client
                 .execute(
-                    &set.record_migration_sql(migration.hash(), migration.created_at()),
+                    &set.record_sql(migration.hash(), migration.created_at()),
                     &[],
                 )
                 .await
@@ -1235,7 +1233,7 @@ async fn run_postgres_async_inner(
             }
         }
         tx.execute(
-            &set.record_migration_sql(migration.hash(), migration.created_at()),
+            &set.record_sql(migration.hash(), migration.created_at()),
             &[],
         )
         .await
@@ -1307,10 +1305,7 @@ async fn execute_libsql_local_inner(path: &str, statements: &[String]) -> Result
 }
 
 #[cfg(feature = "libsql")]
-fn run_libsql_local_migrations(
-    set: &MigrationSet,
-    path: &str,
-) -> Result<MigrationResult, CliError> {
+fn run_libsql_local_migrations(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1321,7 +1316,7 @@ fn run_libsql_local_migrations(
 
 #[cfg(feature = "libsql")]
 fn inspect_libsql_local_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     path: &str,
 ) -> Result<MigrationPlan, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1334,7 +1329,7 @@ fn inspect_libsql_local_migrations(
 
 #[cfg(feature = "libsql")]
 async fn inspect_libsql_local_inner(
-    set: &MigrationSet,
+    set: &Migrations,
     path: &str,
 ) -> Result<MigrationPlan, CliError> {
     let db = libsql::Builder::new_local(path)
@@ -1353,10 +1348,7 @@ async fn inspect_libsql_local_inner(
 }
 
 #[cfg(feature = "libsql")]
-async fn run_libsql_local_inner(
-    set: &MigrationSet,
-    path: &str,
-) -> Result<MigrationResult, CliError> {
+async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
     let db = libsql::Builder::new_local(path)
         .build()
         .await
@@ -1379,7 +1371,7 @@ async fn run_libsql_local_inner(
     let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1409,7 +1401,7 @@ async fn run_libsql_local_inner(
         }
         if let Err(e) = tx
             .execute(
-                &set.record_migration_sql(migration.hash(), migration.created_at()),
+                &set.record_sql(migration.hash(), migration.created_at()),
                 (),
             )
             .await
@@ -1433,9 +1425,9 @@ async fn run_libsql_local_inner(
 #[cfg(feature = "libsql")]
 async fn query_applied_created_at_libsql(
     conn: &libsql::Connection,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<Vec<i64>, CliError> {
-    let mut rows = match conn.query(&set.query_all_created_at_sql(), ()).await {
+    let mut rows = match conn.query(&set.applied_sql(), ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
@@ -1453,7 +1445,7 @@ async fn query_applied_created_at_libsql(
 #[cfg(feature = "libsql")]
 async fn query_applied_records_libsql(
     conn: &libsql::Connection,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
     let mut rows = match conn.query(&set.query_all_applied_sql(), ()).await {
         Ok(r) => r,
@@ -1533,7 +1525,7 @@ async fn execute_turso_inner(
 
 #[cfg(feature = "turso")]
 fn run_turso_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     url: &str,
     auth_token: Option<&str>,
 ) -> Result<MigrationResult, CliError> {
@@ -1547,7 +1539,7 @@ fn run_turso_migrations(
 
 #[cfg(feature = "turso")]
 fn inspect_turso_migrations(
-    set: &MigrationSet,
+    set: &Migrations,
     url: &str,
     auth_token: Option<&str>,
 ) -> Result<MigrationPlan, CliError> {
@@ -1561,7 +1553,7 @@ fn inspect_turso_migrations(
 
 #[cfg(feature = "turso")]
 async fn inspect_turso_inner(
-    set: &MigrationSet,
+    set: &Migrations,
     url: &str,
     auth_token: Option<&str>,
 ) -> Result<MigrationPlan, CliError> {
@@ -1582,7 +1574,7 @@ async fn inspect_turso_inner(
 
 #[cfg(feature = "turso")]
 async fn run_turso_inner(
-    set: &MigrationSet,
+    set: &Migrations,
     url: &str,
     auth_token: Option<&str>,
 ) -> Result<MigrationResult, CliError> {
@@ -1608,7 +1600,7 @@ async fn run_turso_inner(
     let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_created_at).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1638,7 +1630,7 @@ async fn run_turso_inner(
         }
         if let Err(e) = tx
             .execute(
-                &set.record_migration_sql(migration.hash(), migration.created_at()),
+                &set.record_sql(migration.hash(), migration.created_at()),
                 (),
             )
             .await
@@ -1662,9 +1654,9 @@ async fn run_turso_inner(
 #[cfg(feature = "turso")]
 async fn query_applied_created_at_turso(
     conn: &libsql::Connection,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<Vec<i64>, CliError> {
-    let mut rows = match conn.query(&set.query_all_created_at_sql(), ()).await {
+    let mut rows = match conn.query(&set.applied_sql(), ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
@@ -1682,7 +1674,7 @@ async fn query_applied_created_at_turso(
 #[cfg(feature = "turso")]
 async fn query_applied_records_turso(
     conn: &libsql::Connection,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
     let mut rows = match conn.query(&set.query_all_applied_sql(), ()).await {
         Ok(r) => r,
@@ -1931,7 +1923,7 @@ fn apply_init_metadata(
     feature = "postgres-sync",
     feature = "tokio-postgres"
 ))]
-fn validate_init_metadata(applied_created_at: &[i64], set: &MigrationSet) -> Result<(), CliError> {
+fn validate_init_metadata(applied_created_at: &[i64], set: &Migrations) -> Result<(), CliError> {
     if !applied_created_at.is_empty() {
         return Err(CliError::Other(
             "--init can't be used when database already has migrations set".into(),
@@ -1952,7 +1944,7 @@ fn validate_init_metadata(applied_created_at: &[i64], set: &MigrationSet) -> Res
 // =============================================================================
 
 #[cfg(feature = "rusqlite")]
-fn init_sqlite_metadata(path: &str, set: &MigrationSet) -> Result<(), CliError> {
+fn init_sqlite_metadata(path: &str, set: &Migrations) -> Result<(), CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
         CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
     })?;
@@ -1968,17 +1960,14 @@ fn init_sqlite_metadata(path: &str, set: &MigrationSet) -> Result<(), CliError> 
         return Ok(());
     };
 
-    conn.execute(
-        &set.record_migration_sql(first.hash(), first.created_at()),
-        [],
-    )
-    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    conn.execute(&set.record_sql(first.hash(), first.created_at()), [])
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(())
 }
 
 #[cfg(feature = "libsql")]
-fn init_libsql_local_metadata(path: &str, set: &MigrationSet) -> Result<(), CliError> {
+fn init_libsql_local_metadata(path: &str, set: &Migrations) -> Result<(), CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1988,7 +1977,7 @@ fn init_libsql_local_metadata(path: &str, set: &MigrationSet) -> Result<(), CliE
 }
 
 #[cfg(feature = "libsql")]
-async fn init_libsql_local_metadata_inner(path: &str, set: &MigrationSet) -> Result<(), CliError> {
+async fn init_libsql_local_metadata_inner(path: &str, set: &Migrations) -> Result<(), CliError> {
     let db = libsql::Builder::new_local(path)
         .build()
         .await
@@ -2013,12 +2002,9 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &MigrationSet) -> Res
         return Ok(());
     };
 
-    conn.execute(
-        &set.record_migration_sql(first.hash(), first.created_at()),
-        (),
-    )
-    .await
-    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    conn.execute(&set.record_sql(first.hash(), first.created_at()), ())
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(())
 }
@@ -2027,7 +2013,7 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &MigrationSet) -> Res
 fn init_turso_metadata(
     url: &str,
     auth_token: Option<&str>,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<(), CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -2041,7 +2027,7 @@ fn init_turso_metadata(
 async fn init_turso_metadata_inner(
     url: &str,
     auth_token: Option<&str>,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<(), CliError> {
     let builder =
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
@@ -2067,18 +2053,15 @@ async fn init_turso_metadata_inner(
         return Ok(());
     };
 
-    conn.execute(
-        &set.record_migration_sql(first.hash(), first.created_at()),
-        (),
-    )
-    .await
-    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    conn.execute(&set.record_sql(first.hash(), first.created_at()), ())
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(())
 }
 
 #[cfg(feature = "postgres-sync")]
-fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Result<(), CliError> {
+fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Result<(), CliError> {
     let url = creds.connection_url();
     let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
         CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
@@ -2094,9 +2077,7 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Res
         .execute(&set.create_table_sql(), &[])
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
-    let rows = client
-        .query(&set.query_all_created_at_sql(), &[])
-        .unwrap_or_default();
+    let rows = client.query(&set.applied_sql(), &[]).unwrap_or_default();
     let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     validate_init_metadata(&applied_created_at, set)?;
@@ -2106,17 +2087,14 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Res
     };
 
     client
-        .execute(
-            &set.record_migration_sql(first.hash(), first.created_at()),
-            &[],
-        )
+        .execute(&set.record_sql(first.hash(), first.created_at()), &[])
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(())
 }
 
 #[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
-fn init_postgres_async_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Result<(), CliError> {
+fn init_postgres_async_metadata(creds: &PostgresCreds, set: &Migrations) -> Result<(), CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -2128,7 +2106,7 @@ fn init_postgres_async_metadata(creds: &PostgresCreds, set: &MigrationSet) -> Re
 #[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
 async fn init_postgres_async_inner(
     creds: &PostgresCreds,
-    set: &MigrationSet,
+    set: &Migrations,
 ) -> Result<(), CliError> {
     let url = creds.connection_url();
     let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
@@ -2159,7 +2137,7 @@ async fn init_postgres_async_inner(
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     let rows = client
-        .query(&set.query_all_created_at_sql(), &[])
+        .query(&set.applied_sql(), &[])
         .await
         .unwrap_or_default();
     let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
@@ -2171,10 +2149,7 @@ async fn init_postgres_async_inner(
     };
 
     client
-        .execute(
-            &set.record_migration_sql(first.hash(), first.created_at()),
-            &[],
-        )
+        .execute(&set.record_sql(first.hash(), first.created_at()), &[])
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
@@ -4009,13 +3984,13 @@ mod tests {
     #[cfg(feature = "rusqlite")]
     #[test]
     fn sqlite_migrations_deduplicate_using_created_at() {
-        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_migrations::{Migration, Migrations};
 
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("migrate.sqlite");
         let db_path_str = db_path.to_string_lossy().to_string();
 
-        let first_set = MigrationSet::new(
+        let first_set = Migrations::new(
             vec![Migration::with_hash(
                 "20230331141203_first",
                 "hash_one",
@@ -4029,7 +4004,7 @@ mod tests {
             run_sqlite_migrations(&first_set, &db_path_str).expect("first migrate succeeds");
         assert_eq!(first.applied_count, 1);
 
-        let second_set = MigrationSet::new(
+        let second_set = Migrations::new(
             vec![Migration::with_hash(
                 "20230331141203_second",
                 "hash_two",
@@ -4109,12 +4084,12 @@ mod tests {
     ))]
     #[test]
     fn validate_init_metadata_matches_drizzle_orm_semantics() {
-        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_migrations::{Migration, Migrations};
 
-        let empty_set = MigrationSet::empty(drizzle_types::Dialect::SQLite);
+        let empty_set = Migrations::empty(drizzle_types::Dialect::SQLite);
         validate_init_metadata(&[], &empty_set).expect("empty local migrations should be allowed");
 
-        let single = MigrationSet::new(
+        let single = Migrations::new(
             vec![Migration::with_hash(
                 "20230331141203_init",
                 "hash_single",
@@ -4125,7 +4100,7 @@ mod tests {
         );
         validate_init_metadata(&[], &single).expect("single local migration should be allowed");
 
-        let multiple = MigrationSet::new(
+        let multiple = Migrations::new(
             vec![
                 Migration::with_hash(
                     "20230331141203_first",
@@ -4160,9 +4135,9 @@ mod tests {
 
     #[test]
     fn verify_applied_migrations_detects_hash_mismatch() {
-        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_migrations::{Migration, Migrations};
 
-        let set = MigrationSet::new(
+        let set = Migrations::new(
             vec![Migration::with_hash(
                 "20230331141203_verify",
                 "local_hash",
@@ -4187,9 +4162,9 @@ mod tests {
 
     #[test]
     fn build_migration_plan_counts_pending_statements() {
-        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_migrations::{Migration, Migrations};
 
-        let set = MigrationSet::new(
+        let set = Migrations::new(
             vec![
                 Migration::with_hash(
                     "20230331141203_first",
@@ -4693,7 +4668,7 @@ pub struct Schema {
     #[cfg(feature = "postgres-sync")]
     #[test]
     fn postgres_sync_migrate_applies_concurrent_index_without_transaction() {
-        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_migrations::{Migration, Migrations};
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
@@ -4726,11 +4701,11 @@ pub struct Schema {
         let migration_tag = format!("20260212000000_{table}");
         let migration_sql =
             format!("CREATE INDEX CONCURRENTLY \"{index}\" ON \"{table}\" (\"email\");");
-        let set = MigrationSet::new(
+        let set = Migrations::with_tracking(
             vec![Migration::new(&migration_tag, &migration_sql)],
             Dialect::PostgreSQL,
-        )
-        .with_schema(migration_schema.clone());
+            drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+        );
 
         let result = run_postgres_sync_migrations(&set, &creds)
             .expect("sync migration with concurrent index should succeed");
@@ -4757,7 +4732,7 @@ pub struct Schema {
     #[cfg(feature = "tokio-postgres")]
     #[test]
     fn tokio_postgres_migrate_applies_concurrent_index_without_transaction() {
-        use drizzle_migrations::{Migration, MigrationSet};
+        use drizzle_migrations::{Migration, Migrations};
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
@@ -4801,11 +4776,11 @@ pub struct Schema {
             let migration_sql = format!(
                 "CREATE INDEX CONCURRENTLY \"{index}\" ON \"{table}\" (\"email\");"
             );
-            let set = MigrationSet::new(
+            let set = Migrations::with_tracking(
                 vec![Migration::new(&migration_tag, &migration_sql)],
                 Dialect::PostgreSQL,
-            )
-            .with_schema(migration_schema.clone());
+                drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+            );
 
             let result = run_postgres_async_inner(&set, &creds)
                 .await

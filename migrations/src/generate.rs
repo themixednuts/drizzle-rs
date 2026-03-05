@@ -5,18 +5,18 @@
 //! # Snapshot-to-snapshot example
 //!
 //! ```rust
-//! use drizzle_migrations::{Snapshot, generate};
+//! use drizzle_migrations::{Snapshot, diff};
 //!
 //! let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let current = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let migration = generate(&prev, &current).unwrap();
+//! let migration = diff(&prev, &current).unwrap();
 //! assert!(migration.is_empty());
 //! ```
 //!
 //! # Schema-to-schema example (recommended for runtime generation)
 //!
 //! ```rust,no_run
-//! use drizzle_migrations::{GenerateOptions, generate_schemas_with};
+//! use drizzle_migrations::{Options, diff_schemas_with};
 //! use drizzle_migrations::{Schema, Snapshot};
 //! use drizzle_types::Dialect;
 //!
@@ -33,10 +33,10 @@
 //! #     fn dialect(&self) -> Dialect { Dialect::SQLite }
 //! # }
 //!
-//! let generated = generate_schemas_with(
+//! let generated = diff_schemas_with(
 //!     &V1,
 //!     &V2,
-//!     GenerateOptions::new()
+//!     Options::new()
 //!         .rename_table("users_old", "users")
 //!         .rename_column("users", "full_name", "name")
 //!         .strict_renames(true),
@@ -56,14 +56,14 @@ use std::io::{self, Write};
 
 /// Generated migration payload.
 #[derive(Clone, Debug)]
-pub struct GeneratedMigration {
+pub struct Plan {
     /// SQL statements for the migration.
     pub statements: Vec<String>,
     /// Schema snapshot after this migration is applied.
     pub snapshot: Snapshot,
 }
 
-impl GeneratedMigration {
+impl Plan {
     /// Returns true when there are no executable SQL statements.
     pub fn is_empty(&self) -> bool {
         self.statements.is_empty()
@@ -183,16 +183,16 @@ pub struct ColumnRenameHint {
     pub to: String,
 }
 
-/// Generation options for [`generate_with`] and [`generate_schemas_with`].
+/// Generation options for [`diff_with`] and [`diff_schemas_with`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct GenerateOptions {
+pub struct Options {
     /// Explicit rename hints applied before heuristic diffing.
     pub renames: RenameHints,
     /// If true, every hint must apply; otherwise generation fails.
     pub strict_renames: bool,
 }
 
-impl GenerateOptions {
+impl Options {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -259,20 +259,20 @@ impl GenerateOptions {
 /// This is a pure function — no file I/O, no side effects.
 ///
 /// For writing tagged migration directories (`./drizzle/<tag>/...`), prefer
-/// [`crate::generate_to_dir`] from the build API.
-pub fn generate(prev: &Snapshot, current: &Snapshot) -> Result<GeneratedMigration, MigrationError> {
-    generate_with(prev, current, GenerateOptions::default())
+/// [`crate::build::run`].
+pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError> {
+    diff_with(prev, current, Options::default())
 }
 
 /// Diff two snapshots with explicit generation options.
 ///
 /// Use this when you need rename hints (table/column renames) to avoid
 /// drop-and-recreate diffs.
-pub fn generate_with(
+pub fn diff_with(
     prev: &Snapshot,
     current: &Snapshot,
-    options: GenerateOptions,
-) -> Result<GeneratedMigration, MigrationError> {
+    options: Options,
+) -> Result<Plan, MigrationError> {
     let statements = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
@@ -293,7 +293,7 @@ pub fn generate_with(
         _ => return Err(MigrationError::DialectMismatch),
     };
 
-    Ok(GeneratedMigration {
+    Ok(Plan {
         statements,
         snapshot: current.clone(),
     })
@@ -302,13 +302,13 @@ pub fn generate_with(
 /// Generate migration SQL from two schema values implementing [`Schema`].
 ///
 /// This is usually the best runtime API when you already have two schema types.
-pub fn generate_schemas<From: Schema, To: Schema>(
+pub fn diff_schemas<From: Schema, To: Schema>(
     prev: &From,
     current: &To,
-) -> Result<GeneratedMigration, MigrationError> {
+) -> Result<Plan, MigrationError> {
     let prev = prev.to_snapshot();
     let current = current.to_snapshot();
-    generate(&prev, &current)
+    diff(&prev, &current)
 }
 
 /// Generate migration SQL from two schemas with generation options.
@@ -316,7 +316,7 @@ pub fn generate_schemas<From: Schema, To: Schema>(
 /// # Example
 ///
 /// ```rust,no_run
-/// use drizzle_migrations::{GenerateOptions, Schema, Snapshot, generate_schemas_with};
+/// use drizzle_migrations::{Options, Schema, Snapshot, diff_schemas_with};
 /// use drizzle_types::Dialect;
 ///
 /// # #[derive(Default)]
@@ -331,28 +331,28 @@ pub fn generate_schemas<From: Schema, To: Schema>(
 /// #     fn to_snapshot(&self) -> Snapshot { Snapshot::empty(Dialect::SQLite) }
 /// #     fn dialect(&self) -> Dialect { Dialect::SQLite }
 /// # }
-/// let migration = generate_schemas_with(
+/// let migration = diff_schemas_with(
 ///     &FromSchema,
 ///     &ToSchema,
-///     GenerateOptions::new().rename_column("users", "displayName", "display_name"),
+///     Options::new().rename_column("users", "displayName", "display_name"),
 /// )?;
 /// # let _ = migration;
 /// # Ok::<(), drizzle_migrations::MigrationError>(())
 /// ```
-pub fn generate_schemas_with<From: Schema, To: Schema>(
+pub fn diff_schemas_with<From: Schema, To: Schema>(
     prev: &From,
     current: &To,
-    options: GenerateOptions,
-) -> Result<GeneratedMigration, MigrationError> {
+    options: Options,
+) -> Result<Plan, MigrationError> {
     let prev = prev.to_snapshot();
     let current = current.to_snapshot();
-    generate_with(&prev, &current, options)
+    diff_with(&prev, &current, options)
 }
 
 fn apply_sqlite_rename_hints(
     prev: &mut SQLiteDDL,
     cur: &SQLiteDDL,
-    options: &GenerateOptions,
+    options: &Options,
 ) -> Result<Vec<String>, MigrationError> {
     let mut statements = Vec::new();
 
@@ -448,7 +448,7 @@ fn apply_sqlite_rename_hints(
 fn apply_postgres_rename_hints(
     prev: &mut PostgresDDL,
     cur: &PostgresDDL,
-    options: &GenerateOptions,
+    options: &Options,
 ) -> Result<Vec<String>, MigrationError> {
     let mut statements = Vec::new();
 
@@ -842,7 +842,7 @@ mod tests {
     fn test_generate_empty_to_empty() {
         let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
         let cur = Snapshot::empty(drizzle_types::Dialect::SQLite);
-        let migration = generate(&prev, &cur).unwrap();
+        let migration = diff(&prev, &cur).unwrap();
         assert!(migration.statements.is_empty());
     }
 
@@ -860,7 +860,7 @@ mod tests {
         ));
         let cur = Snapshot::Sqlite(cur_snap);
 
-        let migration = generate(&prev, &cur).unwrap();
+        let migration = diff(&prev, &cur).unwrap();
         assert!(!migration.statements.is_empty());
         assert!(migration.statements[0].contains("CREATE TABLE"));
         assert!(migration.statements[0].contains("users"));
@@ -870,7 +870,7 @@ mod tests {
     fn test_generate_dialect_mismatch() {
         let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
         let cur = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
-        let result = generate(&prev, &cur);
+        let result = diff(&prev, &cur);
         assert!(matches!(result, Err(MigrationError::DialectMismatch)));
     }
 
@@ -878,20 +878,20 @@ mod tests {
     fn test_generate_postgres_empty() {
         let prev = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
         let cur = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
-        let migration = generate(&prev, &cur).unwrap();
+        let migration = diff(&prev, &cur).unwrap();
         assert!(migration.statements.is_empty());
     }
 
     #[test]
-    fn test_generate_schemas_empty() {
+    fn test_diff_schemas_empty() {
         let prev = EmptySqliteSchema;
         let cur = EmptySqliteSchema;
-        let migration = generate_schemas(&prev, &cur).unwrap();
+        let migration = diff_schemas(&prev, &cur).unwrap();
         assert!(migration.statements.is_empty());
     }
 
     #[test]
-    fn test_generate_with_sqlite_rename_hints() {
+    fn test_diff_with_sqlite_rename_hints() {
         let mut prev_snap = SQLiteSnapshot::new();
         prev_snap.add_entity(SqliteEntity::Table(Table::new("users")));
         prev_snap.add_entity(SqliteEntity::Column(
@@ -907,11 +907,11 @@ mod tests {
         let prev = Snapshot::Sqlite(prev_snap);
         let cur = Snapshot::Sqlite(cur_snap);
 
-        let options = GenerateOptions::new()
+        let options = Options::new()
             .rename_table("users", "accounts")
             .rename_column("accounts", "full_name", "display_name");
 
-        let migration = generate_with(&prev, &cur, options).unwrap();
+        let migration = diff_with(&prev, &cur, options).unwrap();
         assert_eq!(
             migration.statements,
             vec![
@@ -922,14 +922,14 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_with_strict_rename_hints_errors() {
+    fn test_diff_with_strict_rename_hints_errors() {
         let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
         let cur = Snapshot::empty(drizzle_types::Dialect::SQLite);
-        let options = GenerateOptions::new()
+        let options = Options::new()
             .strict_renames(true)
             .rename_table("missing_table", "users");
 
-        let result = generate_with(&prev, &cur, options);
+        let result = diff_with(&prev, &cur, options);
         assert!(matches!(result, Err(MigrationError::ConfigError(_))));
     }
 }

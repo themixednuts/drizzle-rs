@@ -1,4 +1,7 @@
-//! Migration file writer - V3 folder structure
+//! Low-level migration file writer for V3 folder layouts.
+//!
+//! Prefer [`crate::build::run`] for normal `build.rs` workflows. This module is the
+//! lower-level writer used for custom generation flows.
 //!
 //! V3 format (matches drizzle-kit):
 //! - Each migration is in its own folder: `out/{tag}/`
@@ -22,7 +25,7 @@ use std::path::{Path, PathBuf};
 // Migration Writer V3 (folder-based, matches drizzle-kit)
 // =============================================================================
 
-/// Migration writer for creating migration files in V3 folder structure
+/// Low-level writer for creating migration files in V3 folder structure.
 ///
 /// V3 format creates a folder per migration:
 /// ```rust
@@ -36,7 +39,7 @@ use std::path::{Path, PathBuf};
 ///     snapshot.json
 /// # "####;
 /// ```
-pub struct MigrationWriter {
+pub struct Writer {
     /// Output directory for migrations
     out: PathBuf,
     /// Database dialect
@@ -49,7 +52,7 @@ pub struct MigrationWriter {
     custom_name: Option<String>,
 }
 
-impl MigrationWriter {
+impl Writer {
     /// Create a new migration writer with the given settings
     pub fn new(out: impl Into<PathBuf>, dialect: Dialect) -> Self {
         Self {

@@ -101,7 +101,7 @@ impl PolicyDef {
 
     /// Convert to runtime [`Policy`] type
     #[must_use]
-    pub const fn into_policy(self) -> Policy {
+    pub fn into_policy(self) -> Policy {
         Policy {
             schema: Cow::Borrowed(self.schema),
             table: Cow::Borrowed(self.table),
@@ -114,10 +114,9 @@ impl PolicyDef {
                 Some(s) => Some(Cow::Borrowed(s)),
                 None => None,
             },
-            to: match self.to {
-                Some(roles) => Some(Cow::Borrowed(roles)),
-                None => None,
-            },
+            to: self
+                .to
+                .map(|roles| roles.iter().copied().map(Cow::Borrowed).collect()),
             using: match self.using {
                 Some(s) => Some(Cow::Borrowed(s)),
                 None => None,
@@ -177,11 +176,12 @@ pub struct Policy {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_vec_from_strings"
         )
     )]
-    pub to: Option<Cow<'static, [&'static str]>>,
+    pub to: Option<Vec<Cow<'static, str>>>,
 
     /// USING expression
     #[cfg_attr(

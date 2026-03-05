@@ -515,7 +515,7 @@ pub mod rusqlite_setup {
     use super::temp_db_path;
     use super::test_db::TestDb;
     use drizzle::sqlite::rusqlite::Drizzle;
-    use drizzle_migrations::{MigrateConfig, Migration};
+    use drizzle_migrations::{Migration, Tracking};
     use rusqlite::Connection;
 
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<Drizzle<S>>, S) {
@@ -536,7 +536,7 @@ pub mod rusqlite_setup {
             schema_ddl.clone(),
         )];
 
-        if let Err(e) = db.migrate(&migrations, MigrateConfig::SQLITE) {
+        if let Err(e) = db.migrate(&migrations, Tracking::SQLITE) {
             let test_db = TestDb::new(db, "rusqlite", schema_ddl).with_db_path(db_path);
             test_db.fail(
                 "schema_creation",
@@ -556,7 +556,7 @@ pub mod libsql_setup {
     use super::temp_db_path;
     use super::test_db::TestDb;
     use drizzle::sqlite::libsql::Drizzle;
-    use drizzle_migrations::{MigrateConfig, Migration};
+    use drizzle_migrations::{Migration, Tracking};
     use libsql::Builder;
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
@@ -586,7 +586,7 @@ pub mod libsql_setup {
             schema_ddl.clone(),
         )];
 
-        if let Err(e) = db.migrate(&migrations, MigrateConfig::SQLITE).await {
+        if let Err(e) = db.migrate(&migrations, Tracking::SQLITE).await {
             let test_db = TestDb::new(db, "libsql", schema_ddl).with_db_path(db_path);
             test_db.fail(
                 "schema_creation",
@@ -606,7 +606,7 @@ pub mod turso_setup {
     use super::temp_db_path;
     use super::test_db::TestDb;
     use drizzle::sqlite::turso::Drizzle;
-    use drizzle_migrations::{MigrateConfig, Migration};
+    use drizzle_migrations::{Migration, Tracking};
     use turso::Builder;
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
@@ -636,7 +636,7 @@ pub mod turso_setup {
             schema_ddl.clone(),
         )];
 
-        if let Err(e) = db.migrate(&migrations, MigrateConfig::SQLITE).await {
+        if let Err(e) = db.migrate(&migrations, Tracking::SQLITE).await {
             let test_db = TestDb::new(db, "turso", schema_ddl).with_db_path(db_path);
             test_db.fail(
                 "schema_creation",
@@ -655,7 +655,7 @@ pub mod turso_setup {
 pub mod postgres_sync_setup {
     use super::{CapturedStatement, FailureContext, failure_report};
     use drizzle::postgres::sync::Drizzle;
-    use drizzle_migrations::{MigrateConfig, Migration};
+    use drizzle_migrations::{Migration, Tracking};
     use postgres::{Client, NoTls};
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
@@ -852,7 +852,7 @@ pub mod postgres_sync_setup {
             0,
             schema_ddl.clone(),
         )];
-        let config = MigrateConfig::POSTGRES.schema(&schema_name);
+        let config = Tracking::POSTGRES.schema(schema_name.clone());
 
         if let Err(e) = db.migrate(&migrations, config) {
             let test_db = TestDb {
@@ -883,7 +883,7 @@ pub mod postgres_sync_setup {
 pub mod tokio_postgres_setup {
     use super::{CapturedStatement, FailureContext, failure_report};
     use drizzle::postgres::tokio::Drizzle;
-    use drizzle_migrations::{MigrateConfig, Migration};
+    use drizzle_migrations::{Migration, Tracking};
     use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
@@ -1115,7 +1115,7 @@ pub mod tokio_postgres_setup {
             0,
             schema_ddl.clone(),
         )];
-        let config = MigrateConfig::POSTGRES.schema(&schema_name);
+        let config = Tracking::POSTGRES.schema(schema_name.clone());
 
         if let Err(e) = db.migrate(&migrations, config).await {
             let test_db = TestDb {

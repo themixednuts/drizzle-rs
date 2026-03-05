@@ -1,19 +1,19 @@
 //! Runtime migration runner for programmatic migrations
 //!
-//! Provides utilities to:
-//! - Load migrations from various sources (embedded, filesystem, remote)
-//! - Track applied migrations in the database
-//! - Apply pending migrations in order
+//! Provides the low-level pieces behind runtime migration execution:
+//! - [`Migration`] values holding SQL and metadata
+//! - [`Migrations`] for tracking-table SQL and pending migration checks
+//! - [`MigrationDir`] for filesystem discovery when embedding or testing
 //!
 //! # Usage
 //!
 //! ## Embedded Migrations (recommended for production/serverless)
 //!
-//! Use `include_str!` to embed migration SQL files at compile time:
+//! Use `drizzle::include_migrations!` or `include_str!` to embed migration SQL at compile time:
 //!
 //! ```rust
 //! # let _ = r####"
-//! use drizzle_migrations::{Migration, MigrationSet};
+//! use drizzle_migrations::{Migration, Migrations};
 //! use drizzle_types::Dialect;
 //!
 //! const MIGRATIONS: &[Migration] = &[
@@ -22,20 +22,20 @@
 //! ];
 //!
 //! async fn run_migrations(db: &Database) -> Result<(), MigratorError> {
-//!     let set = MigrationSet::new(MIGRATIONS.to_vec(), Dialect::SQLite);
+//!     let set = Migrations::new(MIGRATIONS.to_vec(), Dialect::SQLite);
 //!
 //!     // Ensure migrations table exists
 //!     db.execute(&set.create_table_sql()).await?;
 //!
-//!     // Get applied migrations
-//!     let applied = db.query_column::<String>(&set.query_applied_sql()).await?;
+//!     // Get applied migration timestamps
+//!     let applied = db.query_column::<i64>(&set.applied_sql()).await?;
 //!
 //!     // Apply pending migrations
 //!     for migration in set.pending(&applied) {
 //!         for statement in migration.statements() {
 //!             db.execute(statement).await?;
 //!         }
-//!         db.execute(&set.record_migration_sql(migration.hash())).await?;
+//!         db.execute(&set.record_sql(migration.hash(), migration.created_at())).await?;
 //!     }
 //!     Ok(())
 //! }
@@ -46,17 +46,15 @@
 //!
 //! ```rust
 //! # let _ = r####"
-//! use drizzle_migrations::MigrationSet;
+//! use drizzle_migrations::{MigrationDir, Migrations};
+//! use drizzle_types::Dialect;
 //!
-//! // V3 format (folder-based, recommended)
-//! let set = MigrationSet::from_dir("./drizzle", Dialect::SQLite)?;
-//!
-//! // Legacy format (journal-based)
-//! let set = MigrationSet::from_dir_legacy("./drizzle", Dialect::SQLite)?;
+//! let migrations = MigrationDir::new("./drizzle").discover()?;
+//! let set = Migrations::new(migrations, Dialect::SQLite);
 //! # "####;
 //! ```
 
-use crate::config::MigrateConfig;
+use crate::config::Tracking;
 use drizzle_types::Dialect;
 use sha2::{Digest, Sha256};
 
@@ -142,7 +140,7 @@ impl Migration {
 
 /// A collection of migrations ready to be applied
 #[derive(Debug, Clone)]
-pub struct MigrationSet {
+pub struct Migrations {
     /// Ordered list of migrations
     migrations: Vec<Migration>,
     /// Database dialect
@@ -153,7 +151,7 @@ pub struct MigrationSet {
     schema: Option<String>,
 }
 
-impl MigrationSet {
+impl Migrations {
     /// Create a new migration set from migrations
     pub fn new(migrations: Vec<Migration>, dialect: Dialect) -> Self {
         Self {
@@ -167,12 +165,12 @@ impl MigrationSet {
         }
     }
 
-    pub fn from_config(migrations: Vec<Migration>, config: &MigrateConfig<'_>) -> Self {
+    pub fn with_tracking(migrations: Vec<Migration>, dialect: Dialect, tracking: Tracking) -> Self {
         Self {
             migrations,
-            dialect: config.dialect(),
-            table: config.tracking.table.to_string(),
-            schema: config.tracking.schema.map(str::to_string),
+            dialect,
+            table: tracking.table.into_owned(),
+            schema: tracking.schema.map(std::borrow::Cow::into_owned),
         }
     }
 
@@ -181,38 +179,17 @@ impl MigrationSet {
         Self::new(Vec::new(), dialect)
     }
 
-    /// Set a custom migrations table name
-    pub fn with_table(mut self, table: impl Into<String>) -> Self {
-        self.table = table.into();
-        self
-    }
-
-    /// Set a custom migrations schema (PostgreSQL only)
-    pub fn with_schema(mut self, schema: impl Into<String>) -> Self {
-        self.schema = Some(schema.into());
-        self
-    }
-
     /// Get all migrations
     #[inline]
     pub fn all(&self) -> &[Migration] {
         &self.migrations
     }
 
-    /// Get migrations that haven't been applied yet
-    ///
-    /// `applied_hashes` should contain the hashes of migrations in the database.
-    pub fn pending<'a>(&'a self, applied_hashes: &[String]) -> impl Iterator<Item = &'a Migration> {
-        self.migrations
-            .iter()
-            .filter(move |m| !applied_hashes.contains(&m.hash))
-    }
-
     /// Get migrations that haven't been applied yet, based on `created_at`.
     ///
-    /// This matches drizzle-orm behavior, where migration execution is tracked
-    /// by `created_at` (folder millis), not by hash.
-    pub fn pending_by_created_at<'a>(
+    /// This matches drizzle-orm behavior, where execution is tracked by migration
+    /// timestamp rather than migration hash.
+    pub fn pending<'a>(
         &'a self,
         applied_created_at: &[i64],
     ) -> impl Iterator<Item = &'a Migration> {
@@ -221,18 +198,28 @@ impl MigrationSet {
             .filter(move |m| !applied_created_at.contains(&m.created_at))
     }
 
-    /// Check if there are any pending migrations
-    pub fn has_pending(&self, applied_hashes: &[String]) -> bool {
+    /// Get migrations that haven't been applied yet, based on hash.
+    pub fn pending_by_hash<'a>(
+        &'a self,
+        applied_hashes: &[String],
+    ) -> impl Iterator<Item = &'a Migration> {
         self.migrations
             .iter()
-            .any(|m| !applied_hashes.contains(&m.hash))
+            .filter(move |m| !applied_hashes.contains(&m.hash))
     }
 
-    /// Check if there are pending migrations based on `created_at`.
-    pub fn has_pending_by_created_at(&self, applied_created_at: &[i64]) -> bool {
+    /// Check if there are any pending migrations, based on `created_at`.
+    pub fn has_pending(&self, applied_created_at: &[i64]) -> bool {
         self.migrations
             .iter()
             .any(|m| !applied_created_at.contains(&m.created_at))
+    }
+
+    /// Check if there are pending migrations based on hash.
+    pub fn has_pending_by_hash(&self, applied_hashes: &[String]) -> bool {
+        self.migrations
+            .iter()
+            .any(|m| !applied_hashes.contains(&m.hash))
     }
 
     /// Get the dialect
@@ -294,8 +281,8 @@ impl MigrationSet {
         }
     }
 
-    /// Get the SQL to record a migration as applied
-    pub fn record_migration_sql(&self, hash: &str, created_at: i64) -> String {
+    /// Get the SQL to record a migration as applied.
+    pub fn record_sql(&self, hash: &str, created_at: i64) -> String {
         let table = self.table_ident();
 
         match self.dialect {
@@ -348,8 +335,8 @@ impl MigrationSet {
         format!(r#"SELECT hash, created_at FROM {} ORDER BY id;"#, table)
     }
 
-    /// Get the SQL to query all applied migration timestamps (`created_at`)
-    pub fn query_all_created_at_sql(&self) -> String {
+    /// Get the SQL to query applied migration timestamps (`created_at`).
+    pub fn applied_sql(&self) -> String {
         let table = self.table_ident();
         format!(r#"SELECT created_at FROM {} ORDER BY id;"#, table)
     }
@@ -737,7 +724,7 @@ macro_rules! migrations {
 
 #[cfg(test)]
 mod tests {
-    use super::{MigrationSet, compute_hash, parse_timestamp_from_tag, split_on_semicolons};
+    use super::{Migrations, compute_hash, parse_timestamp_from_tag, split_on_semicolons};
     use crate::dir::MigrationDir;
     use drizzle_types::Dialect;
 
@@ -831,8 +818,8 @@ mod tests {
     }
 
     #[test]
-    fn pending_by_created_at_ignores_hash_mismatches() {
-        let set = MigrationSet::new(
+    fn pending_ignores_hash_mismatches() {
+        let set = Migrations::new(
             vec![super::Migration::with_hash(
                 "20230331141203_test",
                 "different_hash_than_db",
@@ -843,9 +830,9 @@ mod tests {
         );
 
         let applied_created_at = vec![1_680_271_923_000];
-        assert!(!set.has_pending_by_created_at(&applied_created_at));
+        assert!(!set.has_pending(&applied_created_at));
         assert_eq!(
-            set.pending_by_created_at(&applied_created_at).count(),
+            set.pending(&applied_created_at).count(),
             0,
             "migration should be considered applied by created_at"
         );

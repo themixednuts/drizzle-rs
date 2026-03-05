@@ -3,7 +3,7 @@ use drizzle::sqlite::prelude::*;
 #[cfg(feature = "rusqlite")]
 use drizzle::sqlite::rusqlite::Drizzle;
 #[cfg(feature = "rusqlite")]
-use drizzle_migrations::{MigrateConfig, Migration};
+use drizzle_migrations::{Migration, Tracking};
 
 #[cfg(feature = "rusqlite")]
 #[test]
@@ -17,7 +17,7 @@ fn rusqlite_runtime_migrate_deduplicates_by_created_at() {
         1_680_271_923_000,
         vec!["CREATE TABLE runtime_created_at_a (id INTEGER PRIMARY KEY)".to_string()],
     )];
-    db.migrate(&first, MigrateConfig::SQLITE)
+    db.migrate(&first, Tracking::SQLITE)
         .expect("first runtime migration");
 
     let second = vec![Migration::with_hash(
@@ -26,7 +26,7 @@ fn rusqlite_runtime_migrate_deduplicates_by_created_at() {
         1_680_271_923_000,
         vec!["CREATE TABLE runtime_created_at_b (id INTEGER PRIMARY KEY)".to_string()],
     )];
-    db.migrate(&second, MigrateConfig::SQLITE)
+    db.migrate(&second, Tracking::SQLITE)
         .expect("second runtime migration should no-op");
 
     let applied_rows: i64 = db

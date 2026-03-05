@@ -1,3 +1,5 @@
+use crate::alloc_prelude::Cow;
+
 /// Identifier casing strategy for inferred names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -46,53 +48,58 @@ impl core::str::FromStr for Casing {
 ///
 /// This contains only tracking metadata and can be reused by higher-level crates
 /// (CLI, runtime migrator, etc.) without pulling in migration runtime logic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MigrationTracking<'a> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MigrationTracking {
     /// Migrations tracking table name.
-    pub table: &'a str,
+    pub table: Cow<'static, str>,
     /// Optional schema name for the tracking table (PostgreSQL).
-    pub schema: Option<&'a str>,
+    pub schema: Option<Cow<'static, str>>,
 }
 
-impl MigrationTracking<'static> {
+impl MigrationTracking {
     /// Default SQLite migration tracking metadata.
     pub const SQLITE: Self = Self {
-        table: "__drizzle_migrations",
+        table: Cow::Borrowed("__drizzle_migrations"),
         schema: None,
     };
 
     /// Default PostgreSQL migration tracking metadata.
     pub const POSTGRES: Self = Self {
-        table: "__drizzle_migrations",
-        schema: Some("drizzle"),
+        table: Cow::Borrowed("__drizzle_migrations"),
+        schema: Some(Cow::Borrowed("drizzle")),
     };
-}
 
-impl<'a> MigrationTracking<'a> {
     /// Create tracking metadata from table/schema values.
-    pub const fn new(table: &'a str, schema: Option<&'a str>) -> Self {
-        Self { table, schema }
+    pub fn new(
+        table: impl Into<Cow<'static, str>>,
+        schema: Option<impl Into<Cow<'static, str>>>,
+    ) -> Self {
+        Self {
+            table: table.into(),
+            schema: schema.map(Into::into),
+        }
     }
 
     /// Override table name while preserving schema.
-    pub const fn table<'b>(self, table: &'b str) -> MigrationTracking<'b>
-    where
-        'a: 'b,
-    {
-        MigrationTracking {
-            table,
-            schema: self.schema,
-        }
+    pub fn table(mut self, table: impl Into<Cow<'static, str>>) -> Self {
+        self.table = table.into();
+        self
     }
 
     /// Override schema while preserving table name.
-    pub const fn schema<'b>(self, schema: &'b str) -> MigrationTracking<'b>
-    where
-        'a: 'b,
-    {
-        MigrationTracking {
-            table: self.table,
-            schema: Some(schema),
-        }
+    pub fn schema(mut self, schema: impl Into<Cow<'static, str>>) -> Self {
+        self.schema = Some(schema.into());
+        self
+    }
+
+    /// Clear the schema while preserving table name.
+    pub fn without_schema(mut self) -> Self {
+        self.schema = None;
+        self
+    }
+}
+impl Default for MigrationTracking {
+    fn default() -> Self {
+        Self::SQLITE
     }
 }

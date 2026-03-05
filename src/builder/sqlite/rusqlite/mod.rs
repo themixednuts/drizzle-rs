@@ -313,16 +313,20 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     pub fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
-        config: drizzle_migrations::MigrateConfig<'_>,
+        tracking: drizzle_migrations::Tracking,
     ) -> drizzle_core::error::Result<()> {
-        let set = drizzle_migrations::MigrationSet::from_config(migrations.to_vec(), &config);
+        let set = drizzle_migrations::Migrations::with_tracking(
+            migrations.to_vec(),
+            drizzle_types::Dialect::SQLite,
+            tracking,
+        );
 
         self.conn.execute(&set.create_table_sql(), [])?;
-        let mut stmt = self.conn.prepare(&set.query_all_created_at_sql())?;
+        let mut stmt = self.conn.prepare(&set.applied_sql())?;
         let rows = stmt.query_map([], |row| row.get::<_, Option<i64>>(0))?;
         let applied_created_at = rows.filter_map(Result::ok).flatten().collect::<Vec<_>>();
 
-        let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
+        let pending: Vec<_> = set.pending(&applied_created_at).collect();
 
         if pending.is_empty() {
             return Ok(());
@@ -338,7 +342,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                     }
                 }
                 self.conn.execute(
-                    &set.record_migration_sql(migration.hash(), migration.created_at()),
+                    &set.record_sql(migration.hash(), migration.created_at()),
                     [],
                 )?;
             }
@@ -553,7 +557,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ) -> drizzle_core::error::Result<()> {
         let live = self.introspect()?;
         let desired = schema.to_snapshot();
-        let generated = drizzle_migrations::generate(&live, &desired)
+        let generated = drizzle_migrations::diff(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         for stmt in generated.statements {
             if !stmt.trim().is_empty() {

@@ -572,12 +572,7 @@ pub fn process_policies(raw_policies: &[RawPolicyInfo]) -> Vec<Policy> {
         .iter()
         .filter(|p| !is_system_namespace(&p.schema))
         .map(|p| {
-            // Convert Vec<String> to Vec<&'static str> by leaking the strings
-            // This is acceptable for migration tooling which runs once
-            let roles: Vec<&'static str> =
-                p.to.iter()
-                    .map(|s| Box::leak(s.clone().into_boxed_str()) as &'static str)
-                    .collect();
+            let roles = p.to.iter().cloned().map(Cow::Owned).collect();
 
             Policy {
                 schema: p.schema.clone().into(),
@@ -585,7 +580,7 @@ pub fn process_policies(raw_policies: &[RawPolicyInfo]) -> Vec<Policy> {
                 name: p.name.clone().into(),
                 as_clause: Some(p.as_clause.clone().into()),
                 for_clause: Some(p.for_clause.clone().into()),
-                to: Some(Cow::Owned(roles)),
+                to: Some(roles),
                 using: p.using.clone().map(|s| s.into()),
                 with_check: p.with_check.clone().map(|s| s.into()),
             }

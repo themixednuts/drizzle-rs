@@ -7,20 +7,20 @@
 //! # Recommended flow
 //!
 //! ```rust,no_run
-//! use drizzle_migrations::build::{GenerateConfig, GenerateOutcome, generate_to_dir};
+//! use drizzle_migrations::build::{Config, Output, run};
 //! use drizzle_types::Dialect;
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let cfg = GenerateConfig::new(Dialect::SQLite)
-//!         .schema("src/schema.rs")
+//!     let cfg = Config::new(Dialect::SQLite)
+//!         .file("src/schema.rs")
 //!         .out("./drizzle");
 //!
 //!     // Tell Cargo to rerun build.rs when schema files change.
-//!     cfg.emit_rerun_if_changed();
+//!     cfg.watch();
 //!
-//!     match generate_to_dir(&cfg)? {
-//!         GenerateOutcome::NoChanges => {}
-//!         GenerateOutcome::Generated { tag, path, .. } => {
+//!     match run(&cfg)? {
+//!         Output::NoChanges => {}
+//!         Output::Generated { tag, path, .. } => {
 //!             println!("cargo:warning=generated migration {tag} at {}", path.display());
 //!         }
 //!     }
@@ -29,7 +29,7 @@
 //! }
 //! ```
 
-use crate::generate::generate;
+use crate::generate::diff;
 use crate::journal::Journal;
 use crate::parser::SchemaParser;
 use crate::schema::Snapshot;
@@ -41,8 +41,8 @@ use std::path::{Path, PathBuf};
 
 /// Build-time migration generation configuration.
 #[derive(Debug, Clone)]
-pub struct GenerateConfig {
-    schema_files: Vec<PathBuf>,
+pub struct Config {
+    files: Vec<PathBuf>,
     out_dir: PathBuf,
     dialect: Dialect,
     casing: Option<Casing>,
@@ -51,7 +51,7 @@ pub struct GenerateConfig {
     custom_name: Option<String>,
 }
 
-impl GenerateConfig {
+impl Config {
     /// Create a new configuration.
     ///
     /// `out_dir` defaults to `./drizzle`, breakpoints are enabled by default,
@@ -59,7 +59,7 @@ impl GenerateConfig {
     #[must_use]
     pub fn new(dialect: Dialect) -> Self {
         Self {
-            schema_files: Vec::new(),
+            files: Vec::new(),
             out_dir: PathBuf::from("./drizzle"),
             dialect,
             casing: None,
@@ -69,13 +69,12 @@ impl GenerateConfig {
         }
     }
 
-    /// Add a schema file to parse.
-    ///
-    /// Call this more than once if your schema is split across modules/files.
+    /// Add one Rust source file to the build input set.
     #[must_use]
-    pub fn schema(mut self, path: impl Into<PathBuf>) -> Self {
-        self.schema_files.push(path.into());
-        self
+    pub fn file(self, path: impl Into<PathBuf>) -> Self {
+        let mut this = self;
+        this.files.push(path.into());
+        this
     }
 
     /// Set the output migrations directory.
@@ -113,12 +112,9 @@ impl GenerateConfig {
         self
     }
 
-    /// Emit Cargo file-watch directives for configured schema files.
-    ///
-    /// This prints `cargo:rerun-if-changed=...` lines used by Cargo.
-    /// It does not execute generation by itself.
-    pub fn emit_rerun_if_changed(&self) {
-        for path in &self.schema_files {
+    /// Emit `cargo:rerun-if-changed=...` directives for each configured file.
+    pub fn watch(&self) {
+        for path in &self.files {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
@@ -126,7 +122,7 @@ impl GenerateConfig {
 
 /// Result of a build-time migration generation run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GenerateOutcome {
+pub enum Output {
     /// No schema changes were detected.
     NoChanges,
     /// A new migration folder was written.
@@ -140,7 +136,7 @@ pub enum GenerateOutcome {
     },
 }
 
-impl GenerateOutcome {
+impl Output {
     #[must_use]
     pub fn is_generated(&self) -> bool {
         matches!(self, Self::Generated { .. })
@@ -180,21 +176,21 @@ pub enum BuildError {
 /// # Example
 ///
 /// ```rust,no_run
-/// use drizzle_migrations::build::{GenerateConfig, GenerateOutcome, generate_to_dir};
+/// use drizzle_migrations::build::{Config, Output, run};
 /// use drizzle_types::Dialect;
 ///
-/// let cfg = GenerateConfig::new(Dialect::SQLite)
-///     .schema("src/schema.rs")
+/// let cfg = Config::new(Dialect::SQLite)
+///     .file("src/schema.rs")
 ///     .out("./drizzle");
 ///
-/// let outcome = generate_to_dir(&cfg)?;
-/// if let GenerateOutcome::Generated { tag, .. } = outcome {
+/// let outcome = run(&cfg)?;
+/// if let Output::Generated { tag, .. } = outcome {
 ///     println!("generated {tag}");
 /// }
 /// # Ok::<(), drizzle_migrations::BuildError>(())
 /// ```
-pub fn generate_to_dir(config: &GenerateConfig) -> Result<GenerateOutcome, BuildError> {
-    if config.schema_files.is_empty() {
+pub fn run(config: &Config) -> Result<Output, BuildError> {
+    if config.files.is_empty() {
         return Err(BuildError::MissingSchemaFiles);
     }
 
@@ -202,18 +198,18 @@ pub fn generate_to_dir(config: &GenerateConfig) -> Result<GenerateOutcome, Build
         return Err(BuildError::UnsupportedDialect(config.dialect));
     }
 
-    let parse_result = parse_schema_files(&config.schema_files)?;
+    let parse_result = parse_files(&config.files)?;
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        return Ok(GenerateOutcome::NoChanges);
+        return Ok(Output::NoChanges);
     }
 
     let current_snapshot = parse_result_to_snapshot(&parse_result, config.dialect, config.casing);
     let journal_path = config.out_dir.join("meta").join("_journal.json");
     let previous_snapshot = load_previous_snapshot(&config.out_dir, &journal_path, config.dialect)?;
-    let generated = generate(&previous_snapshot, &current_snapshot)?;
+    let generated = diff(&previous_snapshot, &current_snapshot)?;
 
     if generated.is_empty() {
-        return Ok(GenerateOutcome::NoChanges);
+        return Ok(Output::NoChanges);
     }
 
     std::fs::create_dir_all(&config.out_dir)?;
@@ -238,16 +234,16 @@ pub fn generate_to_dir(config: &GenerateConfig) -> Result<GenerateOutcome, Build
         .snapshot
         .save(&migration_dir.join("snapshot.json"))?;
 
-    Ok(GenerateOutcome::Generated {
+    Ok(Output::Generated {
         tag,
         path: migration_dir,
         statement_count: generated.statements.len(),
     })
 }
 
-fn parse_schema_files(schema_files: &[PathBuf]) -> Result<crate::parser::ParseResult, BuildError> {
+fn parse_files(files: &[PathBuf]) -> Result<crate::parser::ParseResult, BuildError> {
     let mut combined = String::new();
-    for path in schema_files {
+    for path in files {
         let code = std::fs::read_to_string(path).map_err(|source| BuildError::ReadSchema {
             path: path.clone(),
             source,
@@ -340,7 +336,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generate_to_dir_creates_then_stabilizes() {
+    fn run_creates_then_stabilizes() {
         let dir = tempfile::tempdir().expect("tempdir");
         let schema_path = dir.path().join("schema.rs");
         let out_dir = dir.path().join("drizzle");
@@ -357,18 +353,100 @@ pub struct Users {
         )
         .expect("write schema");
 
-        let cfg = GenerateConfig::new(Dialect::SQLite)
-            .schema(&schema_path)
+        let cfg = Config::new(Dialect::SQLite)
+            .file(&schema_path)
             .out(&out_dir);
 
-        let first = generate_to_dir(&cfg).expect("first generation should succeed");
-        assert!(matches!(first, GenerateOutcome::Generated { .. }));
+        let first = run(&cfg).expect("first generation should succeed");
+        assert!(matches!(first, Output::Generated { .. }));
         assert!(
             !out_dir.join("meta").join("_journal.json").exists(),
             "v3 generation should not create legacy journal metadata"
         );
 
-        let second = generate_to_dir(&cfg).expect("second generation should succeed");
-        assert_eq!(second, GenerateOutcome::NoChanges);
+        let second = run(&cfg).expect("second generation should succeed");
+        assert_eq!(second, Output::NoChanges);
+    }
+
+    #[test]
+    fn run_accepts_multiple_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let users_path = dir.path().join("users.rs");
+        let posts_path = dir.path().join("posts.rs");
+        let schema_path = dir.path().join("schema.rs");
+        let out_dir = dir.path().join("drizzle");
+
+        std::fs::write(
+            &users_path,
+            r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+    pub name: String,
+}
+"#,
+        )
+        .expect("write users schema");
+
+        std::fs::write(
+            &posts_path,
+            r#"
+#[SQLiteTable]
+pub struct Posts {
+    #[column(primary)]
+    pub id: i64,
+    #[column(references = Users::id)]
+    pub author_id: i64,
+}
+"#,
+        )
+        .expect("write posts schema");
+
+        std::fs::write(
+            &schema_path,
+            r#"
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub users: Users,
+    pub posts: Posts,
+}
+"#,
+        )
+        .expect("write root schema");
+
+        let cfg = Config::new(Dialect::SQLite)
+            .file(&users_path)
+            .file(&posts_path)
+            .file(&schema_path)
+            .out(&out_dir);
+
+        let outcome = run(&cfg).expect("generation should succeed");
+        let Output::Generated { path, .. } = outcome else {
+            panic!("expected a migration to be generated");
+        };
+
+        let migration_sql_path = path.join("migration.sql");
+        assert!(migration_sql_path.exists(), "migration.sql should exist");
+        assert!(
+            path.join("snapshot.json").exists(),
+            "snapshot.json should exist"
+        );
+
+        let migration_sql =
+            std::fs::read_to_string(&migration_sql_path).expect("read generated migration.sql");
+        let mut statements: Vec<_> = migration_sql
+            .split("\n--> statement-breakpoint\n")
+            .map(str::to_string)
+            .collect();
+        statements.sort();
+
+        let mut expected = vec![
+            "CREATE TABLE `posts` (\n\t`id` INTEGER PRIMARY KEY,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `posts_author_id_users_id_fk` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`)\n);\n".to_string(),
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL\n);\n".to_string(),
+        ];
+        expected.sort();
+
+        assert_eq!(statements, expected, "unexpected generated migration SQL");
     }
 }

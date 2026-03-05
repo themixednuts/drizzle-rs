@@ -22,6 +22,14 @@ drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rus
 cargo install drizzle-cli --git https://github.com/themixednuts/drizzle-rs --locked --all-features
 ```
 
+If you want to generate migrations from `build.rs` instead of the CLI, also add:
+
+```toml
+[build-dependencies]
+drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
+drizzle-types = { git = "https://github.com/themixednuts/drizzle-rs" }
+```
+
 ### 2. Initialize & configure
 
 ```bash
@@ -586,17 +594,57 @@ fn main() -> drizzle::Result<()> {
 
 ## Runtime Migrations
 
-Apply migrations at startup without the CLI. Load your migration folder into a `MigrationSet` and call `db.migrate()`.
+For app startup, embed your generated `./drizzle` folder at compile time and pass the resulting migrations into `db.migrate(...)`.
 
 ```rust
-use drizzle::migrations::MigrationSet;
-use drizzle::Dialect;
+use drizzle::migrations::Tracking;
 
-let migrations = MigrationSet::from_dir("./drizzle", Dialect::Sqlite)?;
-db.migrate(&migrations)?;
+let migrations = drizzle::include_migrations!("./drizzle");
+db.migrate(&migrations, Tracking::SQLITE)?;
 ```
 
-`migrate` creates the internal bookkeeping table on first run and skips migrations that have already been applied.
+Use `Tracking::POSTGRES` for PostgreSQL, and override the bookkeeping location when needed:
+
+```rust
+db.migrate(
+    &migrations,
+    Tracking::POSTGRES
+        .schema("drizzle")
+        .table("__drizzle_migrations"),
+)?;
+```
+
+`migrate` creates the bookkeeping schema/table if needed and skips migrations that have already been applied.
+
+## Build.rs Migrations
+
+If you do not want to run `drizzle generate`, you can keep `./drizzle` in sync from `build.rs`.
+
+Create `build.rs`:
+
+```rust
+use drizzle_migrations::build::{Config, Output, run};
+use drizzle_types::Dialect;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::new(Dialect::SQLite)
+        .file("src/schema.rs")
+        .out("./drizzle");
+
+    cfg.watch();
+
+    match run(&cfg)? {
+        Output::NoChanges => {}
+        Output::Generated { tag, path, .. } => {
+            println!("cargo:warning=generated migration {tag} at {}", path.display());
+        }
+    }
+
+    Ok(())
+}
+```
+
+If your schema is split across files, list each schema source file explicitly with additional `.file(...)` calls, for example `.file("src/schema/users.rs").file("src/schema/posts.rs")`. The build helper concatenates the files you pass to it; it does not walk Rust `mod` declarations automatically. At runtime, embed the generated `./drizzle` directory with `drizzle::include_migrations!("./drizzle")` and pass it to `db.migrate(...)`.
 
 ### Push
 
