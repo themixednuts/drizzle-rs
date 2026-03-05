@@ -1,79 +1,99 @@
 //! Drizzle Migrations - DDL and migration infrastructure for drizzle-rs
 //!
-//! This crate provides types and utilities for:
-//! - Schema snapshots compatible with drizzle-kit format
-//! - Migration diffing and SQL generation
-//! - Runtime migration execution with embedded or filesystem migrations
+//! This crate provides:
+//! - migration discovery (`MigrationDir`)
+//! - runtime migrate config (`MigrateConfig`)
+//! - pure diff APIs (`generate`, `generate_schemas_with`)
+//! - build-time migration generation (`build::generate_to_dir`)
 //!
-//! # Runtime Migrations
+//! # Recommended No-CLI Flow
 //!
-//! ## Using db.migrate() (recommended)
-//!
-//! The simplest way to run migrations is using the `migrate()` method on your Drizzle instance:
-//!
-//! ```rust
-//! use drizzle_migrations::{Migration, MigrationSet};
-//! use drizzle_types::Dialect;
-//!
-//! // Embed migrations at compile time
-//! let migrations = drizzle_migrations::migrations![
-//!     ("0000_init", "CREATE TABLE users (id INTEGER PRIMARY KEY);"),
-//!     ("0001_posts", "CREATE TABLE posts (id INTEGER PRIMARY KEY);"),
-//! ];
-//!
-//! let set = MigrationSet::new(migrations, Dialect::SQLite);
-//! // Then: db.migrate(&set)?;
-//! ```
-//!
-//! ## Loading from Filesystem
-//!
-//! During development, load migrations from the migrations directory:
+//! 1. In `build.rs`, keep `./drizzle` up to date:
 //!
 //! ```rust,no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use drizzle_migrations::MigrationSet;
+//! use drizzle_migrations::build::{GenerateConfig, GenerateOutcome, generate_to_dir};
 //! use drizzle_types::Dialect;
 //!
-//! let set = MigrationSet::from_dir("./drizzle", Dialect::SQLite)?;
-//! # let _ = set;
-//! // db.migrate(&set)?;
+//! let cfg = GenerateConfig::new(Dialect::SQLite)
+//!     .schema("./src/schema.rs")
+//!     .out("./drizzle");
+//!
+//! // Registers schema files as build.rs inputs.
+//! cfg.emit_rerun_if_changed();
+//!
+//! match generate_to_dir(&cfg)? {
+//!     GenerateOutcome::NoChanges => {}
+//!     GenerateOutcome::Generated { tag, .. } => {
+//!         println!("cargo:warning=generated migration {tag}");
+//!     }
+//! }
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! # Programmatic Migration Generation (No CLI)
+//! 2. In app code, embed and run migrations:
 //!
-//! Diff two schema snapshots and get SQL statements directly — no files, no CLI:
+//! ```rust,no_run
+//! # use drizzle_migrations::{MigrateConfig, Migration};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # struct Db;
+//! # impl Db {
+//! #     fn migrate(&self, _migrations: &[Migration], _config: MigrateConfig<'_>) -> Result<(), Box<dyn std::error::Error>> {
+//! #         Ok(())
+//! #     }
+//! # }
+//! # let db = Db;
+//! // Usually produced by: `drizzle::include_migrations!("./drizzle")`
+//! let migrations: Vec<Migration> = Vec::new();
+//! db.migrate(&migrations, MigrateConfig::SQLITE)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Runtime Generation APIs (No CLI)
+//!
+//! Use these when you need runtime diffing between two inputs.
+//!
+//! ## Snapshot-to-snapshot
 //!
 //! ```rust
 //! use drizzle_migrations::{Snapshot, generate};
 //!
 //! let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let current = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let statements = generate(&prev, &current).unwrap();
-//! assert!(statements.is_empty());
+//! let migration = generate(&prev, &current).unwrap();
+//! assert!(migration.statements.is_empty());
 //! ```
 //!
-//! ## Introspect & Push (per-driver)
-//!
-//! Each driver on the `drizzle` crate provides `introspect()` to capture a live
-//! database as a [`Snapshot`], and `push()` to diff and apply changes in one call:
+//! ## Schema-to-schema with rename hints
 //!
 //! ```rust,no_run
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use drizzle_migrations::{Snapshot, generate};
+//! use drizzle_migrations::{GenerateOptions, Schema, Snapshot, generate_schemas_with};
+//! use drizzle_types::Dialect;
 //!
-//! // db.introspect() returns a Snapshot from the live database.
-//! // db.push(&schema) introspects, diffs, and executes the resulting SQL.
-//! // Both are available on all 5 drivers (rusqlite, libsql, turso, postgres, tokio-postgres).
-//!
-//! // push() is equivalent to introspect + generate + execute:
-//! let live = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let desired = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let sql = generate(&live, &desired)?;
-//! // ... then execute each statement against the database
-//! # Ok(())
+//! # #[derive(Default)]
+//! # struct AppSchemaV1;
+//! # #[derive(Default)]
+//! # struct AppSchemaV2;
+//! # impl Schema for AppSchemaV1 {
+//! #     fn to_snapshot(&self) -> Snapshot { Snapshot::empty(Dialect::SQLite) }
+//! #     fn dialect(&self) -> Dialect { Dialect::SQLite }
 //! # }
+//! # impl Schema for AppSchemaV2 {
+//! #     fn to_snapshot(&self) -> Snapshot { Snapshot::empty(Dialect::SQLite) }
+//! #     fn dialect(&self) -> Dialect { Dialect::SQLite }
+//! # }
+//! let migration = generate_schemas_with(
+//!     &AppSchemaV1,
+//!     &AppSchemaV2,
+//!     GenerateOptions::new()
+//!         .rename_table("users_old", "users")
+//!         .rename_column("users", "full_name", "name")
+//!         .strict_renames(true),
+//! )?;
+//! # let _ = migration;
+//! # Ok::<(), drizzle_migrations::MigrationError>(())
 //! ```
 //!
 //! # CLI Usage
@@ -94,13 +114,17 @@
 //! drizzle migrate
 //! ```
 
+pub mod build;
 pub mod collection;
+pub mod config;
+pub mod dir;
 pub mod generate;
 pub mod journal;
 pub mod migrator;
 pub mod parser;
 pub mod postgres;
 pub mod schema;
+mod snapshot_builder;
 pub mod sqlite;
 pub mod traits;
 pub mod upgrade;
@@ -110,9 +134,11 @@ pub mod words;
 pub mod writer;
 
 // Core migration types
+pub use config::MigrateConfig;
+pub use dir::MigrationDir;
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{Migration, MigrationSet, MigratorError};
-pub use words::PrefixMode;
+pub use words::{PrefixMode, generate_migration_tag};
 pub use writer::{MigrationError, MigrationWriter};
 
 // Version constants
@@ -141,4 +167,11 @@ pub use serde_json;
 pub use schema::{Schema, Snapshot};
 
 // Programmatic migration generation
-pub use generate::generate;
+pub use generate::{
+    ColumnRenameHint, GenerateOptions, GeneratedMigration, RenameHints, TableRenameHint, generate,
+    generate_schemas, generate_schemas_with, generate_with,
+};
+pub use snapshot_builder::parse_result_to_snapshot;
+
+// Build-time generation helpers (no CLI)
+pub use build::{BuildError, Casing, GenerateConfig, GenerateOutcome, generate_to_dir};

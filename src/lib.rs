@@ -91,12 +91,18 @@ pub(crate) use drizzle_pg_builder_join_using_impl;
 pub(crate) use transaction_builder_join_impl;
 
 /// Result type for drizzle operations.
+#[doc(inline)]
 pub use drizzle_core::error::Result;
 
+#[cfg(feature = "std")]
+#[doc(inline)]
+pub use drizzle_macros::include_migrations;
 /// SQL template macro.
+#[doc(inline)]
 pub use drizzle_macros::sql;
 
 /// Database dialect enum.
+#[doc(inline)]
 pub use drizzle_types::Dialect;
 
 /// Re-export const_format for proc macro generated compile-time SQL.
@@ -105,24 +111,29 @@ pub use const_format;
 
 /// Error types.
 pub mod error {
+    #[doc(inline)]
     pub use drizzle_core::error::DrizzleError;
 }
 
 /// DDL types and schema definitions.
 pub mod ddl {
+    #[doc(inline)]
     pub use drizzle_types::postgres;
+    #[doc(inline)]
     pub use drizzle_types::sqlite;
 }
 
 /// Migration helpers and schema snapshots.
 #[cfg(feature = "std")]
 pub mod migrations {
+    #[doc(inline)]
     pub use drizzle_migrations::*;
 }
 
 /// Core traits, SQL types, and expressions shared across drivers.
 pub mod core {
     /// SQL building blocks.
+    #[doc(inline)]
     pub use drizzle_core::{
         ColumnDialect, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param, ParamBind,
         ParamSet, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, Token, TypedPlaceholder,
@@ -130,26 +141,33 @@ pub mod core {
     };
 
     /// Conversion trait for SQL generation.
+    #[doc(inline)]
     pub use drizzle_core::ToSQL;
 
     /// Core traits (SQLTable, SQLColumn, SQLSchema, SQLModel, etc.).
+    #[doc(inline)]
     pub use drizzle_core::traits::*;
 
     /// Relation metadata types and traits.
+    #[doc(inline)]
     pub use drizzle_core::relation::{Joinable, Relation, SchemaHasTable};
 
     /// Full relation module exports.
     pub mod relation {
+        #[doc(inline)]
         pub use drizzle_core::relation::*;
     }
 
     /// Prepared statement types.
+    #[doc(inline)]
     pub use drizzle_core::prepared::{OwnedPreparedStatement, PreparedStatement};
 
     /// SQL type markers used by expressions.
+    #[doc(inline)]
     pub use drizzle_core::types;
 
     /// Type-safe expressions and helpers.
+    #[doc(inline)]
     pub use drizzle_core::expr;
 
     #[doc(hidden)]
@@ -159,16 +177,19 @@ pub mod core {
     pub use drizzle_core::schema::SQLEnumInfo;
 
     /// Bind parameter type mapping trait.
+    #[doc(inline)]
     pub use drizzle_core::ValueTypeForDialect;
 
     /// Dialect markers (SQLiteDialect, PostgresDialect, etc.).
     pub mod dialect {
+        #[doc(inline)]
         pub use drizzle_core::dialect::*;
     }
 
     /// Query API types (relational queries with nested loading).
     #[cfg(feature = "query")]
     pub mod query {
+        #[doc(inline)]
         pub use drizzle_core::query::*;
     }
 
@@ -178,6 +199,7 @@ pub mod core {
     pub use drizzle_core::serde_json;
 
     /// Row inference types and traits.
+    #[doc(inline)]
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
         FromDrizzleRow, HasSelectModel, IntoSelectTarget, MarkerColumnCountValid,
@@ -191,9 +213,11 @@ pub mod core {
 #[cfg(feature = "sqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
+    #[doc(inline)]
     pub use drizzle_macros::{
         SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
     };
+    #[doc(inline)]
     pub use drizzle_sqlite::{
         attrs, builder, common, connection, expr, helpers, pragma, traits, types, values,
     };
@@ -201,21 +225,27 @@ pub mod sqlite {
     #[cfg(feature = "rusqlite")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
     pub mod rusqlite {
+        #[doc(inline)]
         pub use crate::builder::sqlite::rusqlite::{Drizzle, DrizzleBuilder};
+        #[doc(inline)]
         pub use crate::transaction::sqlite::rusqlite::Transaction;
     }
 
     #[cfg(feature = "libsql")]
     #[cfg_attr(docsrs, doc(cfg(feature = "libsql")))]
     pub mod libsql {
+        #[doc(inline)]
         pub use crate::builder::sqlite::libsql::{Drizzle, DrizzleBuilder};
+        #[doc(inline)]
         pub use crate::transaction::sqlite::libsql::Transaction;
     }
 
     #[cfg(feature = "turso")]
     #[cfg_attr(docsrs, doc(cfg(feature = "turso")))]
     pub mod turso {
+        #[doc(inline)]
         pub use crate::builder::sqlite::turso::{Drizzle, DrizzleBuilder};
+        #[doc(inline)]
         pub use crate::transaction::sqlite::turso::Transaction;
     }
 
@@ -246,27 +276,35 @@ pub mod sqlite {
 #[cfg(feature = "postgres")]
 #[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
 pub mod postgres {
+    #[doc(inline)]
     pub use drizzle_macros::{
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
+    #[doc(inline)]
     pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
 
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    #[doc(inline)]
     pub use drizzle_postgres::Row;
     #[cfg(feature = "tokio-postgres")]
+    #[doc(inline)]
     pub use drizzle_postgres::Row;
 
     #[cfg(feature = "postgres-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
     pub mod sync {
+        #[doc(inline)]
         pub use crate::builder::postgres::postgres_sync::{Drizzle, DrizzleBuilder};
+        #[doc(inline)]
         pub use crate::transaction::postgres::postgres_sync::Transaction;
     }
 
     #[cfg(feature = "tokio-postgres")]
     #[cfg_attr(docsrs, doc(cfg(feature = "tokio-postgres")))]
     pub mod tokio {
+        #[doc(inline)]
         pub use crate::builder::postgres::tokio_postgres::{Drizzle, DrizzleBuilder};
+        #[doc(inline)]
         pub use crate::transaction::postgres::tokio_postgres::Transaction;
     }
 

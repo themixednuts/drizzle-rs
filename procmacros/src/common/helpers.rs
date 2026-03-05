@@ -13,10 +13,16 @@ use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result}
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust,no_run
+/// # use syn::parse_str;
+/// # let ident: syn::Ident = parse_str("primary").unwrap();
 /// // Original: #[column(primary)]
-/// // Creates ExprPath for "PRIMARY" with the span of "primary"
-/// let path = make_uppercase_path(&ident, "PRIMARY");
+/// let path = syn::ExprPath {
+///     attrs: vec![],
+///     qself: None,
+///     path: syn::Ident::new("PRIMARY", ident.span()).into(),
+/// };
+/// assert_eq!(path.path.segments[0].ident.to_string(), "PRIMARY");
 /// ```
 pub(crate) fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> ExprPath {
     let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
@@ -35,14 +41,16 @@ pub(crate) fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &
 ///
 /// # Example
 ///
-/// ```ignore
-/// #[derive(SQLiteFromRow)]
-/// struct UserPost {
+/// ```rust,no_run
+/// # use syn::parse_quote;
+/// # let field: syn::Field = parse_quote! {
 ///     #[column(Users::id)]
-///     user_id: i32,
-///     #[column(Posts::id)]
-///     post_id: i32,
-/// }
+///     user_id: i32
+/// # };
+/// // Expected payload extracted from #[column(...)]
+/// let expr_path: syn::ExprPath = parse_quote!(Users::id);
+/// assert_eq!(expr_path.path.segments.len(), 2);
+/// # let _ = field;
 /// ```
 pub(crate) fn parse_column_reference(field: &Field) -> Option<ExprPath> {
     for attr in &field.attrs {
@@ -105,14 +113,21 @@ pub(crate) fn extract_struct_fields(
 ///
 /// # Example
 ///
-/// ```ignore
-/// let impl_block = generate_try_from_impl(
-///     &struct_name,
-///     quote!(::rusqlite::Row<'_>),
-///     quote!(::rusqlite::Error),
-///     &field_assignments,
-///     false, // named struct
-/// );
+/// ```rust,no_run
+/// # use quote::quote;
+/// # let struct_name: syn::Ident = syn::parse_str("UserRow").unwrap();
+/// # let field_assignments = vec![quote!(id: row.get(0)?,), quote!(name: row.get(1)?,)];
+///
+/// // Shape of the generated impl for a named struct:
+/// let impl_block = quote! {
+///     impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #struct_name {
+///         type Error = ::rusqlite::Error;
+///         fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+///             ::std::result::Result::Ok(Self { #(#field_assignments)* })
+///         }
+///     }
+/// };
+/// assert!(impl_block.to_string().contains("TryFrom"));
 /// ```
 #[allow(dead_code)]
 pub(crate) fn generate_try_from_impl(
@@ -143,10 +158,14 @@ pub(crate) fn generate_try_from_impl(
 ///
 /// # Example
 ///
-/// ```ignore
-/// if has_attribute(field, "json") {
-///     // Handle JSON field
-/// }
+/// ```rust,no_run
+/// # use syn::parse_quote;
+/// # let field: syn::Field = parse_quote! {
+///     #[json]
+///     profile: String
+/// # };
+/// let has_json = field.attrs.iter().any(|attr| attr.path().is_ident("json"));
+/// assert!(has_json);
 /// ```
 #[allow(dead_code)]
 pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
@@ -164,12 +183,26 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 ///
 /// # Example
 ///
-/// ```ignore
-/// #[derive(SQLiteFromRow)]
-/// struct MyStruct {
-///     #[json]
-///     profile: Profile,
-/// }
+/// ```rust,no_run
+/// # use syn::{Meta, parse_quote};
+/// # struct Profile;
+/// # let field: syn::Field = parse_quote! {
+///     #[column(json)]
+///     profile: Profile
+/// # };
+/// let has_json = field.attrs.iter().any(|attr| {
+///     if attr.path().is_ident("json") {
+///         return true;
+///     }
+///     if !attr.path().is_ident("column") {
+///         return false;
+///     }
+///     match &attr.meta {
+///         Meta::List(list) => list.tokens.to_string().to_ascii_lowercase().contains("json"),
+///         _ => false,
+///     }
+/// });
+/// assert!(has_json);
 /// ```
 #[cfg(feature = "sqlite")]
 pub(crate) fn has_json_attribute(field: &Field) -> bool {

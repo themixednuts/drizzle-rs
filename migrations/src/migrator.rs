@@ -52,9 +52,9 @@
 //! let set = MigrationSet::from_dir_legacy("./drizzle", Dialect::SQLite)?;
 //! ```
 
+use crate::config::MigrateConfig;
 use drizzle_types::Dialect;
 use sha2::{Digest, Sha256};
-use std::path::Path;
 
 /// A migration with its SQL content
 ///
@@ -163,6 +163,15 @@ impl MigrationSet {
         }
     }
 
+    pub fn from_config(migrations: Vec<Migration>, config: &MigrateConfig<'_>) -> Self {
+        Self {
+            migrations,
+            dialect: config.dialect(),
+            table: config.tracking.table.to_string(),
+            schema: config.tracking.schema.map(str::to_string),
+        }
+    }
+
     /// Create an empty migration set
     pub fn empty(dialect: Dialect) -> Self {
         Self::new(Vec::new(), dialect)
@@ -178,82 +187,6 @@ impl MigrationSet {
     pub fn with_schema(mut self, schema: impl Into<String>) -> Self {
         self.schema = Some(schema.into());
         self
-    }
-
-    /// Load migrations from a filesystem directory (V3 folder-based format)
-    ///
-    /// V3 format discovers migrations by scanning for folders containing `migration.sql`.
-    ///
-    /// Folders are sorted alphabetically (timestamp prefix ensures correct order).
-    pub fn from_dir(dir: impl AsRef<Path>, dialect: Dialect) -> Result<Self, MigratorError> {
-        let dir = dir.as_ref();
-
-        if !dir.exists() {
-            return Ok(Self::empty(dialect));
-        }
-
-        // Match drizzle-orm behavior:
-        // if journal exists, treat as legacy format.
-        let journal_path = dir.join("meta").join("_journal.json");
-        if journal_path.exists() {
-            return Self::from_dir_legacy(dir, dialect);
-        }
-
-        // Otherwise use V3 folder-based discovery.
-        Ok(Self::new(discover_v3_migrations(dir)?, dialect))
-    }
-
-    /// Load migrations from a filesystem directory (legacy journal-based format)
-    ///
-    /// Legacy format uses:
-    /// - `meta/_journal.json` - list of migrations
-    /// - `{tag}.sql` or `{tag}/migration.sql` - SQL files
-    pub fn from_dir_legacy(dir: impl AsRef<Path>, dialect: Dialect) -> Result<Self, MigratorError> {
-        use crate::journal::Journal;
-        use std::fs;
-
-        let dir = dir.as_ref();
-        let journal_path = dir.join("meta").join("_journal.json");
-
-        // No journal = no migrations
-        if !journal_path.exists() {
-            return Ok(Self::empty(dialect));
-        }
-
-        let journal =
-            Journal::load(&journal_path).map_err(|e| MigratorError::JournalError(e.to_string()))?;
-
-        let mut migrations = Vec::with_capacity(journal.entries.len());
-
-        for entry in &journal.entries {
-            // Try folder/migration.sql first (hybrid format)
-            let folder_path = dir.join(&entry.tag).join("migration.sql");
-            // Fall back to {tag}.sql (old flat format)
-            let flat_path = dir.join(format!("{}.sql", entry.tag));
-
-            let sql_path = if folder_path.exists() {
-                folder_path
-            } else if flat_path.exists() {
-                flat_path
-            } else {
-                return Err(MigratorError::MissingMigration(entry.tag.clone()));
-            };
-
-            let sql_content =
-                fs::read_to_string(&sql_path).map_err(|e| MigratorError::IoError(e.to_string()))?;
-
-            let hash = compute_hash(&sql_content);
-            let statements = split_statements(&sql_content);
-
-            migrations.push(Migration {
-                tag: entry.tag.clone(),
-                hash,
-                created_at: entry.when as i64,
-                sql: statements,
-            });
-        }
-
-        Ok(Self::new(migrations, dialect))
     }
 
     /// Get all migrations
@@ -445,60 +378,6 @@ impl MigrationSet {
     }
 }
 
-// =============================================================================
-// V3 Migration Discovery
-// =============================================================================
-
-/// Discover migrations in V3 folder-based format
-///
-/// Scans for directories containing `migration.sql`
-fn discover_v3_migrations(dir: &Path) -> Result<Vec<Migration>, MigratorError> {
-    use std::fs;
-
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut entries: Vec<_> = fs::read_dir(dir)
-        .map_err(|e| MigratorError::IoError(e.to_string()))?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .filter_map(|entry| {
-            let folder_name = entry.file_name().to_string_lossy().to_string();
-            let migration_path = entry.path().join("migration.sql");
-
-            if migration_path.exists() {
-                Some((folder_name, migration_path))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Sort by folder name (timestamp prefix ensures correct order)
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut migrations = Vec::with_capacity(entries.len());
-
-    for (tag, sql_path) in entries {
-        let sql_content =
-            fs::read_to_string(&sql_path).map_err(|e| MigratorError::IoError(e.to_string()))?;
-
-        let hash = compute_hash(&sql_content);
-        let created_at = parse_timestamp_from_tag(&tag);
-        let statements = split_statements(&sql_content);
-
-        migrations.push(Migration {
-            tag,
-            hash,
-            created_at,
-            sql: statements,
-        });
-    }
-
-    Ok(migrations)
-}
-
 /// Errors that can occur during migration
 #[derive(Debug, thiserror::Error)]
 pub enum MigratorError {
@@ -520,7 +399,7 @@ pub enum MigratorError {
 // =============================================================================
 
 /// Compute hash of the SQL content
-fn compute_hash(sql: &str) -> String {
+pub(crate) fn compute_hash(sql: &str) -> String {
     let digest = Sha256::digest(sql.as_bytes());
     let mut out = String::with_capacity(digest.len() * 2);
 
@@ -533,7 +412,7 @@ fn compute_hash(sql: &str) -> String {
 }
 
 /// Split SQL content into individual statements
-fn split_statements(sql: &str) -> Vec<String> {
+pub(crate) fn split_statements(sql: &str) -> Vec<String> {
     if sql.contains("--> statement-breakpoint") {
         // Use explicit breakpoint markers
         sql.split("--> statement-breakpoint")
@@ -744,7 +623,7 @@ fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
 /// Parse timestamp from migration tag
 ///
 /// Supports both V3 format (YYYYMMDDHHMMSS_name) and legacy format (0000_name)
-fn parse_timestamp_from_tag(tag: &str) -> i64 {
+pub(crate) fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
     if tag.len() >= 14
         && let Some(ts) = parse_timestamp_prefix_to_millis(&tag[0..14])
@@ -853,6 +732,7 @@ macro_rules! migrations {
 #[cfg(test)]
 mod tests {
     use super::{MigrationSet, compute_hash, parse_timestamp_from_tag, split_on_semicolons};
+    use crate::dir::MigrationDir;
     use drizzle_types::Dialect;
 
     #[test]
@@ -976,13 +856,15 @@ mod tests {
         )
         .expect("write migration.sql");
 
-        let set = MigrationSet::from_dir(dir.path(), Dialect::SQLite).expect("load migrations");
-        assert_eq!(set.all().len(), 1);
-        assert_eq!(set.all()[0].created_at(), 1_680_271_923_000);
+        let migrations = MigrationDir::new(dir.path())
+            .discover()
+            .expect("load migrations");
+        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations[0].created_at(), 1_680_271_923_000);
     }
 
     #[test]
-    fn from_dir_prefers_legacy_journal_when_present() {
+    fn from_dir_prefers_v3_when_both_formats_present() {
         let dir = tempfile::tempdir().expect("tempdir");
 
         let mut journal = crate::journal::Journal::new(Dialect::SQLite);
@@ -997,7 +879,7 @@ mod tests {
         )
         .expect("write legacy migration file");
 
-        // This v3 migration should be ignored because journal format takes precedence.
+        // V3 migration should be preferred over legacy journal metadata when both are present.
         let v3_dir = dir.path().join("20240101010101_v3_extra");
         std::fs::create_dir_all(&v3_dir).expect("create v3 dir");
         std::fs::write(
@@ -1006,8 +888,33 @@ mod tests {
         )
         .expect("write v3 migration.sql");
 
-        let set = MigrationSet::from_dir(dir.path(), Dialect::SQLite).expect("load migrations");
-        assert_eq!(set.all().len(), 1);
-        assert_eq!(set.all()[0].tag(), "0000_journal_first");
+        let migrations = MigrationDir::new(dir.path())
+            .discover()
+            .expect("load migrations");
+        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations[0].tag(), "20240101010101_v3_extra");
+    }
+
+    #[test]
+    fn from_dir_falls_back_to_legacy_journal_when_no_v3_dirs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let mut journal = crate::journal::Journal::new(Dialect::SQLite);
+        journal.add_entry("0000_journal_first".to_string(), true);
+        journal
+            .save(&dir.path().join("meta").join("_journal.json"))
+            .expect("write journal");
+
+        std::fs::write(
+            dir.path().join("0000_journal_first.sql"),
+            "CREATE TABLE from_journal(id INTEGER PRIMARY KEY);",
+        )
+        .expect("write legacy migration file");
+
+        let migrations = MigrationDir::new(dir.path())
+            .discover()
+            .expect("load migrations");
+        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations[0].tag(), "0000_journal_first");
     }
 }

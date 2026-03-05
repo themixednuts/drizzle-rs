@@ -12,7 +12,7 @@ pub(crate) mod json {
          - JSON: Standard JSON storage\n\
          - JSONB: Binary JSON format (more efficient for queries)\n\
          \n\
-         Example: #[json] or #[jsonb]";
+         Example: #[column(json)] or #[column(jsonb)]";
 
     pub const SERDE_REQUIRED: &str = "JSON fields require the 'serde' feature to be enabled.\n\
          \n\
@@ -27,18 +27,17 @@ pub(crate) mod uuid {
          \n\
          PostgreSQL has native UUID support.\n\
          \n\
-         Example: #[uuid] id: Uuid";
+         Example: pub id: Uuid";
 }
 
 /// Error messages for enum field configuration
 pub(crate) mod enums {
-    pub const INVALID_COLUMN_TYPE: &str = "Enum fields are only supported with TEXT, INTEGER, or native ENUM column types.\n\
+    pub const INVALID_COLUMN_TYPE: &str = "Enum fields must use `#[column(enum)]` with a type that derives `PostgresEnum`.\n\
          \n\
-         - TEXT storage: Stores variant names (e.g., 'Active', 'Pending')\n\
-         - INTEGER storage: Stores discriminant values (0, 1, 2, ...)\n\
-         - Native ENUM: PostgreSQL native enum type (most efficient)\n\
+         - Default: native PostgreSQL ENUM type\n\
+         - With integer repr (e.g. `#[repr(i32)]`): INTEGER storage\n\
          \n\
-         Example: #[text(enum)], #[integer(enum)], or #[r#enum(MyEnum)]";
+         Example: #[column(enum)] pub status: Status";
 }
 
 /// Error messages for type conversion

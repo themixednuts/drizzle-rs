@@ -592,6 +592,10 @@ pub mod ddl {
 pub mod migrations {
     use super::*;
 
+    pub fn migration() -> TokenStream {
+        quote!(drizzle::migrations::Migration)
+    }
+
     pub fn schema() -> TokenStream {
         quote!(drizzle::migrations::Schema)
     }

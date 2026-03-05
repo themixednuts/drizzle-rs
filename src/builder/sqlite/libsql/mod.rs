@@ -236,19 +236,20 @@ where
 }
 
 impl<Schema> common::Drizzle<Connection, Schema> {
-    /// Apply pending migrations from a MigrationSet.
+    /// Apply pending migrations from an embedded migration slice.
     ///
     /// Creates the migrations table if needed and runs pending migrations in a transaction.
     pub async fn migrate(
         &self,
-        migrations: &drizzle_migrations::MigrationSet,
+        migrations: &[drizzle_migrations::Migration],
+        config: drizzle_migrations::MigrateConfig<'_>,
     ) -> drizzle_core::error::Result<()> {
-        self.conn
-            .execute(&migrations.create_table_sql(), ())
-            .await?;
+        let set = drizzle_migrations::MigrationSet::from_config(migrations.to_vec(), &config);
+
+        self.conn.execute(&set.create_table_sql(), ()).await?;
         let mut rows = self
             .conn
-            .query(&migrations.query_all_created_at_sql(), ())
+            .query(&set.query_all_created_at_sql(), ())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
@@ -263,9 +264,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
         }
 
-        let pending: Vec<_> = migrations
-            .pending_by_created_at(&applied_created_at)
-            .collect();
+        let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
 
         if pending.is_empty() {
             return Ok(());
@@ -286,7 +285,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 }
             }
             tx.execute(
-                &migrations.record_migration_sql(migration.hash(), migration.created_at()),
+                &set.record_migration_sql(migration.hash(), migration.created_at()),
                 (),
             )
             .await
@@ -505,9 +504,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ) -> drizzle_core::error::Result<()> {
         let live = self.introspect().await?;
         let desired = schema.to_snapshot();
-        let stmts = drizzle_migrations::generate(&live, &desired)
+        let generated = drizzle_migrations::generate(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        for stmt in stmts {
+        for stmt in generated.statements {
             if !stmt.trim().is_empty() {
                 self.conn.execute(&stmt, ()).await?;
             }

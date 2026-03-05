@@ -10,7 +10,7 @@ pub(crate) mod json {
          - TEXT storage: Human-readable JSON string format\n\
          - BLOB storage: Binary JSON format (more efficient)\n\
          \n\
-         Example: #[text(json)] or #[blob(json)]";
+         Example: #[column(json)] or #[column(blob, json)]";
 
     pub const SERDE_REQUIRED: &str = "JSON fields require the 'serde' feature to be enabled.\n\
          \n\
@@ -26,7 +26,7 @@ pub(crate) mod uuid {
          - BLOB storage: Efficient 16-byte binary format (recommended)\n\
          - TEXT storage: Human-readable string format\n\
          \n\
-         Example: #[blob] uuid: Uuid or #[text] uuid: Uuid";
+         Example: #[column(blob)] uuid: Uuid or #[column(text)] uuid: Uuid";
 }
 
 /// Error messages for enum field configuration
@@ -36,7 +36,7 @@ pub(crate) mod enums {
          - TEXT storage: Stores variant names (e.g., 'Active', 'Pending')\n\
          - INTEGER storage: Stores discriminant values (0, 1, 2, ...)\n\
          \n\
-         Example: #[text(enum)] or #[integer(enum)]";
+         Example: #[column(enum)] or #[column(integer, enum)]";
 }
 
 /// Error messages for type conversion

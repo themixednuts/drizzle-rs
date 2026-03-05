@@ -437,7 +437,7 @@ where
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Apply pending migrations from a MigrationSet.
+    /// Apply pending migrations from an embedded migration slice.
     ///
     /// Creates the drizzle schema if needed and runs pending migrations in a transaction.
     ///
@@ -447,22 +447,21 @@ impl<Schema> Drizzle<Schema> {
     /// since exclusive access to the underlying client is required for the migration transaction.
     pub async fn migrate(
         &mut self,
-        migrations: &drizzle_migrations::MigrationSet,
+        migrations: &[drizzle_migrations::Migration],
+        config: drizzle_migrations::MigrateConfig<'_>,
     ) -> drizzle_core::error::Result<()> {
-        if let Some(schema_sql) = migrations.create_schema_sql() {
+        let set = drizzle_migrations::MigrationSet::from_config(migrations.to_vec(), &config);
+
+        if let Some(schema_sql) = set.create_schema_sql() {
             self.client.execute(&schema_sql, &[]).await?;
         }
-        self.client
-            .execute(&migrations.create_table_sql(), &[])
-            .await?;
+        self.client.execute(&set.create_table_sql(), &[]).await?;
         let rows = self
             .client
-            .query(&migrations.query_all_created_at_sql(), &[])
+            .query(&set.query_all_created_at_sql(), &[])
             .await?;
         let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
-        let pending: Vec<_> = migrations
-            .pending_by_created_at(&applied_created_at)
-            .collect();
+        let pending: Vec<_> = set.pending_by_created_at(&applied_created_at).collect();
 
         if pending.is_empty() {
             return Ok(());
@@ -480,7 +479,7 @@ impl<Schema> Drizzle<Schema> {
                 }
             }
             tx.execute(
-                &migrations.record_migration_sql(migration.hash(), migration.created_at()),
+                &set.record_migration_sql(migration.hash(), migration.created_at()),
                 &[],
             )
             .await?;
@@ -837,9 +836,9 @@ impl<Schema> Drizzle<Schema> {
             }
             (other, _) => other,
         };
-        let stmts = drizzle_migrations::generate(&live, &desired)
+        let generated = drizzle_migrations::generate(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        for stmt in stmts {
+        for stmt in generated.statements {
             if !stmt.trim().is_empty() {
                 self.client.execute(&*stmt, &[]).await?;
             }

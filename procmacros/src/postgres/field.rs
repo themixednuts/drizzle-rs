@@ -518,7 +518,7 @@ impl Display for PostgreSQLType {
 
 impl PostgreSQLType {
     /// Create a native PostgreSQL enum type from enum attribute
-    /// Used for #[enum(MyEnum)] syntax
+    /// Used when a field is marked with `#[column(enum)]`
     pub(crate) fn from_enum_attribute(enum_name: &str) -> Self {
         Self::Enum(enum_name.to_string())
     }

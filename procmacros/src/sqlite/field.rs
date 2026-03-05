@@ -135,7 +135,7 @@ impl SQLiteType {
                      works on INTEGER PRIMARY KEY columns in regular (non-WITHOUT ROWID) tables.\n\
                      \n\
                      See: https://sqlite.org/autoinc.html\n\
-                     Use: #[integer(primary, autoincrement)]"
+                     Use: #[column(integer, primary, autoincrement)]"
                 }
                 "json" => {
                     "JSON serialization is only supported for TEXT or BLOB column types.\n\
@@ -144,7 +144,7 @@ impl SQLiteType {
                      The choice affects storage size and query capabilities.\n\
                      \n\
                      See: https://sqlite.org/json1.html\n\
-                     Use: #[text(json)] or #[blob(json)]"
+                     Use: #[column(json)] or #[column(blob, json)]"
                 }
                 "enum" => {
                     "Enum serialization is supported for TEXT (string) or INTEGER (discriminant) columns.\n\
@@ -152,7 +152,7 @@ impl SQLiteType {
                      - TEXT storage: stores variant names like 'Active', 'Inactive'\n\
                      - INTEGER storage: stores discriminant values like 0, 1, 2\n\
                      \n\
-                     Use: #[text(enum)] or #[integer(enum)]"
+                     Use: #[column(enum)] or #[column(integer, enum)]"
                 }
                 "not_null" => {
                     "Use Option<T> in your struct field to represent nullable columns instead of 'not_null' attribute.\n\
@@ -693,19 +693,19 @@ impl<'a> FieldInfo<'a> {
                 props.is_autoincrement && !matches!(column_type, SQLiteType::Integer),
                 "AUTOINCREMENT can only be used with INTEGER PRIMARY KEY.\n\
               See: https://sqlite.org/autoinc.html\n\
-              Hint: Change column type to '#[integer(primary, autoincrement)]'",
+              Hint: Change column type to '#[column(integer, primary, autoincrement)]'",
             ),
             (
                 props.is_autoincrement && !props.is_primary,
                 "AUTOINCREMENT requires PRIMARY KEY constraint.\n\
               See: https://sqlite.org/autoinc.html\n\
-              Hint: Add 'primary' flag: '#[integer(primary, autoincrement)]'",
+              Hint: Add 'primary' flag: '#[column(primary, autoincrement)]'",
             ),
             (
                 default_value.is_some() && default_fn.is_some(),
                 "Cannot specify both 'default' (compile-time literal) and 'default_fn' (runtime function).\n\
               Choose one: either 'default = literal' or 'default_fn = function'\n\
-              Examples:\n  #[text(default = \"hello\")] for compile-time defaults\n  #[text(default_fn = String::new)] for runtime defaults",
+              Examples:\n  #[column(default = \"hello\")] for compile-time defaults\n  #[column(default_fn = String::new)] for runtime defaults",
             ),
             (
                 props.is_uuid && !matches!(column_type, SQLiteType::Blob | SQLiteType::Text),
@@ -713,7 +713,7 @@ impl<'a> FieldInfo<'a> {
               BLOB storage: Efficient 16-byte binary format (recommended)\n\
               TEXT storage: Human-readable string format\n\
               See: https://sqlite.org/datatype3.html#storage_classes_and_datatypes\n\
-              Examples:\n  #[blob(primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid\n  #[text(default_fn = uuid::Uuid::new_v4)] pub uuid_text: uuid::Uuid",
+              Examples:\n  #[column(blob, primary, default_fn = uuid::Uuid::new_v4)] pub id: uuid::Uuid\n  #[column(text, default_fn = uuid::Uuid::new_v4)] pub uuid_text: uuid::Uuid",
             ),
         ];
 

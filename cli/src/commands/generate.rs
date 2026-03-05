@@ -124,9 +124,9 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     let prev_snapshot = load_previous_snapshot(&out_dir, &journal_path, dialect)?;
 
     // Generate diff
-    let sql_statements = generate_diff(&prev_snapshot, &current_snapshot, effective_breakpoints)?;
+    let generated = generate_diff(&prev_snapshot, &current_snapshot)?;
 
-    if sql_statements.is_empty() {
+    if generated.is_empty() {
         println!("{}", output::warning("No schema changes detected 😴"));
         return Ok(());
     }
@@ -134,7 +134,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     println!(
         "  {} {} SQL statement(s)",
         output::label("Generated"),
-        sql_statements.len()
+        generated.statements.len()
     );
 
     // Load or create journal (needed for index-based prefixes)
@@ -158,16 +158,17 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     // Write {tag}/migration.sql
     let migration_sql_path = migration_dir.join("migration.sql");
     let sql_content = if effective_breakpoints {
-        sql_statements.join("\n--> statement-breakpoint\n")
+        generated.statements.join("\n--> statement-breakpoint\n")
     } else {
-        sql_statements.join("\n\n")
+        generated.statements.join("\n\n")
     };
     std::fs::write(&migration_sql_path, &sql_content)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Write {tag}/snapshot.json
     let snapshot_path = migration_dir.join("snapshot.json");
-    current_snapshot
+    generated
+        .snapshot
         .save(&snapshot_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
@@ -255,8 +256,12 @@ fn load_previous_snapshot(
     use drizzle_migrations::journal::Journal;
     use drizzle_migrations::schema::Snapshot;
 
-    // If a journal exists, it must be readable. Silently ignoring parse errors can
-    // lead to generating incorrect diffs and destructive migrations.
+    if let Some(snapshot_path) = latest_v3_snapshot_path(out_dir)? {
+        return Snapshot::load(&snapshot_path, dialect)
+            .map_err(|e| CliError::IoError(e.to_string()));
+    }
+
+    // Legacy fallback for projects that still have meta/_journal.json.
     if journal_path.exists() {
         let journal = Journal::load(journal_path).map_err(|e| CliError::IoError(e.to_string()))?;
         if let Some(latest) = journal.entries.last() {
@@ -273,36 +278,51 @@ fn load_previous_snapshot(
     Ok(Snapshot::empty(dialect))
 }
 
+fn latest_v3_snapshot_path(out_dir: &Path) -> Result<Option<std::path::PathBuf>, CliError> {
+    if !out_dir.exists() {
+        return Ok(None);
+    }
+
+    let mut tags = Vec::new();
+    for entry in std::fs::read_dir(out_dir).map_err(|e| CliError::IoError(e.to_string()))? {
+        let entry = entry.map_err(|e| CliError::IoError(e.to_string()))?;
+        if !entry
+            .file_type()
+            .map_err(|e| CliError::IoError(e.to_string()))?
+            .is_dir()
+        {
+            continue;
+        }
+
+        let tag = entry.file_name().to_string_lossy().to_string();
+        if tag == "meta" {
+            continue;
+        }
+
+        let snapshot_path = entry.path().join("snapshot.json");
+        if snapshot_path.exists() {
+            tags.push((tag, snapshot_path));
+        }
+    }
+
+    tags.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(tags.pop().map(|(_, path)| path))
+}
+
 /// Generate diff between two snapshots
 fn generate_diff(
     prev: &drizzle_migrations::schema::Snapshot,
     current: &drizzle_migrations::schema::Snapshot,
-    _breakpoints: bool,
-) -> Result<Vec<String>, CliError> {
-    use drizzle_migrations::schema::Snapshot;
-
-    match (prev, current) {
-        (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
-            use drizzle_migrations::sqlite::collection::SQLiteDDL;
-            use drizzle_migrations::sqlite::diff::compute_migration;
-
-            // Convert snapshots to DDL collections
-            let prev_ddl = SQLiteDDL::from_entities(prev_snap.ddl.clone());
-            let cur_ddl = SQLiteDDL::from_entities(curr_snap.ddl.clone());
-
-            // Use compute_migration which properly handles column alterations
-            // via table recreation (SQLite doesn't support ALTER COLUMN)
-            let migration = compute_migration(&prev_ddl, &cur_ddl);
-            Ok(migration.sql_statements)
+) -> Result<drizzle_migrations::GeneratedMigration, CliError> {
+    drizzle_migrations::generate(prev, current).map_err(|error| match error {
+        drizzle_migrations::MigrationError::DialectMismatch => CliError::DialectMismatch,
+        drizzle_migrations::MigrationError::NoChanges => {
+            CliError::Other("No schema changes detected".to_string())
         }
-        (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
-            use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::PostgresGenerator;
-
-            let diff = diff_full_snapshots(prev_snap, curr_snap);
-            let generator = PostgresGenerator::new().with_breakpoints(_breakpoints);
-            Ok(generator.generate(&diff.diffs))
+        drizzle_migrations::MigrationError::ConfigError(_)
+        | drizzle_migrations::MigrationError::IoError(_)
+        | drizzle_migrations::MigrationError::SnapshotError(_) => {
+            CliError::MigrationError(error.to_string())
         }
-        _ => Err(CliError::DialectMismatch),
-    }
+    })
 }

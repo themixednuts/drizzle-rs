@@ -182,8 +182,8 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                 _ => {
                     return Err(syn::Error::new_spanned(
                         &field_info.ident,
-                        "PostgreSQL enum fields require a TEXT, INTEGER, or native ENUM column type.\n\
-                         Use #[column(enum)] with a text/integer column, or #[column(enum)] with a PostgresEnum type.",
+                        "PostgreSQL enum fields must use `#[column(enum)]` with a type deriving `PostgresEnum`.\n\
+                         Native enum storage is used by default; add `#[repr(i32)]` on the enum for INTEGER storage.",
                     ));
                 }
             };

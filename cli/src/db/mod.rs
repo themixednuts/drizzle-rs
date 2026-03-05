@@ -308,19 +308,43 @@ fn load_migration_set(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<MigrationSet, CliError> {
+    let tracking = migration_tracking(dialect, migrations_table, migrations_schema);
+
     // Load migrations from filesystem
-    let mut set = MigrationSet::from_dir(migrations_dir, dialect.to_base())
+    let migrations = drizzle_migrations::MigrationDir::new(migrations_dir)
+        .discover()
         .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
+    let config = drizzle_migrations::MigrateConfig::from_tracking(dialect.to_base(), tracking);
 
-    // Apply overrides from config
+    Ok(MigrationSet::from_config(migrations, &config))
+}
+
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
+fn migration_tracking<'a>(
+    dialect: Dialect,
+    migrations_table: &'a str,
+    migrations_schema: &'a str,
+) -> drizzle_types::MigrationTracking<'a> {
+    let mut tracking = match dialect {
+        Dialect::Postgresql => drizzle_types::MigrationTracking::POSTGRES,
+        _ => drizzle_types::MigrationTracking::SQLITE,
+    };
+
     if !migrations_table.trim().is_empty() {
-        set = set.with_table(migrations_table.to_string());
-    }
-    if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
-        set = set.with_schema(migrations_schema.to_string());
+        tracking = tracking.table(migrations_table);
     }
 
-    Ok(set)
+    if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
+        tracking = tracking.schema(migrations_schema);
+    }
+
+    tracking
 }
 
 #[cfg(any(
@@ -1838,20 +1862,7 @@ fn apply_init_metadata(
         feature = "postgres-sync",
         feature = "tokio-postgres",
     ))]
-    let set = {
-        use drizzle_migrations::MigrationSet;
-
-        let mut set = MigrationSet::from_dir(out_dir, dialect.to_base())
-            .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
-
-        if !migrations_table.trim().is_empty() {
-            set = set.with_table(migrations_table.to_string());
-        }
-        if dialect == Dialect::Postgresql && !migrations_schema.trim().is_empty() {
-            set = set.with_schema(migrations_schema.to_string());
-        }
-        set
-    };
+    let set = load_migration_set(dialect, out_dir, migrations_table, migrations_schema)?;
 
     match credentials {
         #[cfg(feature = "rusqlite")]
