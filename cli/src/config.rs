@@ -6,6 +6,7 @@
 //! This configuration format is designed to be compatible with drizzle-kit
 //! so TypeScript users can use the same config expectations.
 
+pub use drizzle_types::Casing;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -13,52 +14,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILE: &str = "drizzle.config.toml";
-
-// ============================================================================
-// Casing Options (matching drizzle-kit)
-// ============================================================================
-
-/// Casing mode for generated code and SQL identifiers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, JsonSchema)]
-pub enum Casing {
-    /// camelCase - e.g., "userId", "createdAt"
-    #[default]
-    #[serde(rename = "camelCase")]
-    CamelCase,
-    /// snake_case - e.g., "user_id", "created_at"
-    #[serde(rename = "snake_case")]
-    SnakeCase,
-}
-
-impl Casing {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CamelCase => "camelCase",
-            Self::SnakeCase => "snake_case",
-        }
-    }
-}
-
-impl std::fmt::Display for Casing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for Casing {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "camelCase" | "camel" => Ok(Self::CamelCase),
-            "snake_case" | "snake" => Ok(Self::SnakeCase),
-            _ => Err(format!(
-                "invalid casing '{}', expected 'camelCase' or 'snake_case'",
-                s
-            )),
-        }
-    }
-}
 
 /// Casing mode for introspection (pull command)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, JsonSchema)]

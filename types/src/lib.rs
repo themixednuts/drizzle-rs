@@ -49,12 +49,14 @@ pub(crate) mod alloc_prelude {
 }
 
 mod dialect;
+mod migration;
 pub mod postgres;
 pub mod serde_helpers;
 pub mod sql;
 pub mod sqlite;
 
 pub use dialect::{Dialect, DialectParseError};
+pub use migration::{Casing, MigrationTracking};
 pub use sql::*;
 
 /// Prelude module for commonly used types

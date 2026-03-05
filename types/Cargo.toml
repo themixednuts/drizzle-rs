@@ -20,6 +20,7 @@ alloc = ["serde?/alloc"]
 # Feature flags for optional type support
 uuid = []
 serde = ["dep:serde"]
+schemars = ["dep:schemars"]
 chrono = []
 time = []
 geo-types = []
@@ -38,6 +39,7 @@ col200 = []
 serde = { workspace = true, optional = true, default-features = false, features = [
     "derive",
 ] }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["std"] }
