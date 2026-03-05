@@ -231,8 +231,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
-    /// # mod drizzle {
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
     /// #     pub mod types { pub use drizzle_types::*; }
@@ -248,6 +249,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #         }
     /// #     }
     /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// fn main() {
     /// use drizzle::sqlite::prelude::*;
     /// use drizzle::sqlite::builder::QueryBuilder;
     ///
@@ -276,6 +280,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// // Target with DO UPDATE
     /// builder.insert(user).values([InsertUser::new("Alice")])
     ///     .on_conflict(user.email).do_update(UpdateUser::default().with_name("updated"));
+    /// }
     /// ```
     pub fn on_conflict<C: ConflictTarget<T>>(self, target: C) -> OnConflictBuilder<'a, S, T> {
         let columns = target.conflict_columns();

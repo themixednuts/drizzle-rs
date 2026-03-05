@@ -231,8 +231,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
-    /// # mod drizzle {
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
     /// #     pub mod types { pub use drizzle_types::*; }
@@ -263,6 +264,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #         }
     /// #     }
     /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// fn main() {
     /// use drizzle::postgres::prelude::*;
     /// use drizzle::postgres::builder::QueryBuilder;
     ///
@@ -299,6 +303,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// // Target a unique index
     /// builder.insert(user).values([InsertUser::new("Alice")])
     ///     .on_conflict(schema.user_email_idx).do_nothing();
+    /// }
     /// ```
     pub fn on_conflict<C: ConflictTarget<T>>(self, target: C) -> OnConflictBuilder<'a, S, T> {
         let columns = target.conflict_columns();
@@ -321,8 +326,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///
     /// # Examples
     ///
-    /// ```rust,no_run
-    /// # mod drizzle {
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
     /// #     pub mod core { pub use drizzle_core::*; }
     /// #     pub mod error { pub use drizzle_core::error::*; }
     /// #     pub mod types { pub use drizzle_types::*; }
@@ -353,6 +359,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #         }
     /// #     }
     /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// fn main() {
     /// use drizzle::postgres::prelude::*;
     /// use drizzle::postgres::builder::QueryBuilder;
     ///
@@ -379,6 +388,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///
     /// builder.insert(schema.user).values([InsertUser::new("Alice")])
     ///     .on_conflict_on_constraint(schema.user_email_idx).do_nothing();
+    /// }
     /// ```
     pub fn on_conflict_on_constraint<C: NamedConstraint<T>>(
         self,

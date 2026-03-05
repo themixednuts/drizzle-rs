@@ -26,9 +26,15 @@ paste = { workspace = true }
 drizzle-migrations = { workspace = true }
 # Shared type definitions
 drizzle-types = { workspace = true, features = ["std"] }
+drizzle-core = { workspace = true, default-features = true, optional = true }
+drizzle-sqlite = { workspace = true, default-features = true, optional = true }
+drizzle-postgres = { workspace = true, default-features = true, optional = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
+rusqlite = { workspace = true, optional = true, features = ["uuid"] }
+libsql = { workspace = true, optional = true }
+turso = { workspace = true, optional = true }
 
 [dev-dependencies]
 drizzle-core = { workspace = true, default-features = true }
@@ -41,10 +47,10 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 [features]
 default = []
 serde = []
-sqlite = []
-postgres = []
+sqlite = ["dep:drizzle-core", "dep:drizzle-sqlite"]
+postgres = ["dep:drizzle-core", "dep:drizzle-postgres"]
 mysql = []
-uuid = []
+uuid = ["drizzle-core/uuid", "drizzle-sqlite/uuid", "drizzle-postgres/uuid"]
 arrayvec = []
 # PostgreSQL optional type features
 chrono = []
@@ -55,12 +61,12 @@ bit-vec = []
 compact-str = []
 bytes = []
 smallvec = []
-rusqlite = ["sqlite"]
-libsql = ["sqlite"]
-turso = ["sqlite"]
+rusqlite = ["sqlite", "dep:rusqlite", "drizzle-core/rusqlite", "drizzle-sqlite/rusqlite"]
+libsql = ["sqlite", "dep:libsql", "drizzle-core/libsql", "drizzle-sqlite/libsql"]
+turso = ["sqlite", "dep:turso", "drizzle-core/turso", "drizzle-sqlite/turso"]
 # PostgreSQL driver-specific features
-postgres-sync = ["postgres"]
-tokio-postgres = ["postgres"]
+postgres-sync = ["postgres", "drizzle-core/postgres-sync", "drizzle-postgres/postgres-sync"]
+tokio-postgres = ["postgres", "drizzle-core/tokio-postgres", "drizzle-postgres/tokio-postgres"]
 # Relational query API code generation
 query = []
 

@@ -36,6 +36,7 @@ puffin = { workspace = true, optional = true }
 drizzle-macros = { workspace = true, features = ["sqlite"] }
 drizzle-types = { workspace = true }
 drizzle-migrations = { workspace = true }
+const_format = { workspace = true }
 
 
 [features]

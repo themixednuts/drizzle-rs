@@ -57,6 +57,7 @@
 //! #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 //! #      }
 //! #      pub mod prelude {
+//! #          #[cfg(feature = "postgres")]
 //! #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 //! #          pub use drizzle_postgres::attrs::*;
 //! #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -155,6 +156,7 @@ use syn::parse_macro_input;
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -222,6 +224,7 @@ use syn::parse_macro_input;
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -368,6 +371,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -433,6 +437,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -493,6 +498,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -567,6 +573,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -640,6 +647,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -745,6 +753,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -811,6 +820,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -870,6 +880,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -984,6 +995,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1043,6 +1055,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1122,6 +1135,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1178,6 +1192,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1188,6 +1203,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  }
 /// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
 /// # fn main() {
+/// # #[cfg(feature = "uuid")]
+/// # {
 /// use drizzle::sqlite::prelude::*;
 /// use uuid::Uuid;
 ///
@@ -1196,6 +1213,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     id: Uuid,        // Stored as BLOB (16 bytes)
 ///     name: String,
 /// }
+/// # }
 /// # }
 /// ```
 ///
@@ -1233,6 +1251,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1298,6 +1317,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1372,6 +1392,7 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1381,6 +1402,7 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      }
 /// #  }
 /// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// # #[cfg(feature = "postgres")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -1449,6 +1471,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1511,6 +1534,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1578,6 +1602,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1675,6 +1700,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1739,6 +1765,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1802,6 +1829,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1860,6 +1888,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1927,6 +1956,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -1998,6 +2028,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2059,6 +2090,7 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2131,6 +2163,7 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2217,6 +2250,7 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2287,6 +2321,7 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2297,6 +2332,8 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 /// #  }
 /// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
 /// # fn main() {
+/// # #[cfg(feature = "postgres")]
+/// # {
 /// use drizzle::postgres::prelude::*;
 ///
 /// #[PostgresTable(name = "users")]
@@ -2327,6 +2364,7 @@ pub fn sqlite_test(input: TokenStream) -> TokenStream {
 ///     assert_eq!(results.len(), 1);
 ///     assert_eq!(results[0].name, "Alice");
 /// });
+/// # }
 /// # }
 /// ```
 #[proc_macro]
@@ -2383,6 +2421,7 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2447,6 +2486,7 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2594,6 +2634,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2657,6 +2698,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2733,6 +2775,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2864,6 +2907,7 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;
@@ -2928,6 +2972,7 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
 /// #      }
 /// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
 /// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
 /// #          pub use drizzle_postgres::attrs::*;
 /// #          pub use drizzle_postgres::common::PostgresSchemaType;

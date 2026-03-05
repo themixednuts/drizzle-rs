@@ -99,7 +99,7 @@ impl ExecutableState for CTEInit {}
 /// The builder supports all major SQL operations:
 ///
 /// ### SELECT Queries
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -128,7 +128,7 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### INSERT Queries
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -157,7 +157,7 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### UPDATE Queries
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -188,7 +188,7 @@ impl ExecutableState for CTEInit {}
 /// ```
 ///
 /// ### DELETE Queries  
-/// ```rust,no_run
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -244,6 +244,10 @@ impl ExecutableState for CTEInit {}
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
+/// # struct ActiveUsersTag;
+/// # impl drizzle::core::Tag for ActiveUsersTag {
+/// #     const NAME: &'static str = "active_users";
+/// # }
 /// // Create a CTE with typed field access using .into_cte::<Tag>()
 /// let active_users = builder
 ///     .select((user.id, user.name))

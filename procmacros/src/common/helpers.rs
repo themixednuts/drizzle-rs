@@ -13,7 +13,7 @@ use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result}
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// # use syn::parse_str;
 /// # let ident: syn::Ident = parse_str("primary").unwrap();
 /// // Original: #[column(primary)]
@@ -41,7 +41,7 @@ pub(crate) fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// # use syn::parse_quote;
 /// # let field: syn::Field = parse_quote! {
 ///     #[column(Users::id)]
@@ -113,7 +113,7 @@ pub(crate) fn extract_struct_fields(
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// # use quote::quote;
 /// # let struct_name: syn::Ident = syn::parse_str("UserRow").unwrap();
 /// # let field_assignments = vec![quote!(id: row.get(0)?,), quote!(name: row.get(1)?,)];
@@ -158,7 +158,7 @@ pub(crate) fn generate_try_from_impl(
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// # use syn::parse_quote;
 /// # let field: syn::Field = parse_quote! {
 ///     #[json]
@@ -183,7 +183,7 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust
 /// # use syn::{Meta, parse_quote};
 /// # struct Profile;
 /// # let field: syn::Field = parse_quote! {

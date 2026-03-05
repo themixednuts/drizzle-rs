@@ -99,7 +99,7 @@ pub(crate) fn generate_query_api(
         /// Type alias for a query result row from this table.
         ///
         /// Use `S` to specify loaded relations:
-        /// ```rust,no_run
+        /// ```rust
         /// # type UsersWithPosts = ();
         /// # type UsersQueryRow<T> = T;
         /// fn process(rows: &[UsersQueryRow<UsersWithPosts>]) {
