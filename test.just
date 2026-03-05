@@ -23,7 +23,7 @@ default: sqlite-matrix pg-matrix
 
 # Run SQLite tests with the given features.
 sqlite features="rusqlite,uuid" *ARGS:
-    cargo test --features "{{features}}" {{ARGS}}
+    cargo test --workspace --features "{{features}}" {{ARGS}}
 
 # Run PostgreSQL tests. Starts the container automatically.
 pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
@@ -33,7 +33,7 @@ pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
     echo "Waiting for PostgreSQL to be ready..."
     docker compose exec -T postgres sh -c 'until pg_isready -U postgres -d drizzle_test; do sleep 1; done'
     echo "PostgreSQL is ready!"
-    cargo test --features "{{features}}" {{ARGS}}
+    cargo test --workspace --features "{{features}}" {{ARGS}}
 
 # ---------------------------------------------------------------------------
 # Full matrixes — bare driver + all additive features per driver
@@ -45,11 +45,11 @@ sqlite-matrix:
     set -euo pipefail
     echo "=== SQLite matrix ==="
     # rusqlite: bare then full
-    cargo test --lib --tests --features rusqlite
-    cargo test --lib --tests --features "rusqlite,{{_sqlite-ext}}"
+    cargo test --workspace --lib --tests --features rusqlite
+    cargo test --workspace --lib --tests --features "rusqlite,{{_sqlite-ext}}"
     # libsql: bare then full
-    cargo test --lib --tests --features libsql
-    cargo test --lib --tests --features "libsql,{{_sqlite-ext}}"
+    cargo test --workspace --lib --tests --features libsql
+    cargo test --workspace --lib --tests --features "libsql,{{_sqlite-ext}}"
 
 # Run full PostgreSQL matrix
 pg-matrix:
@@ -61,11 +61,11 @@ pg-matrix:
     echo "PostgreSQL is ready!"
     echo "=== PostgreSQL matrix ==="
     # postgres-sync: bare then full
-    cargo test --lib --tests --features postgres-sync
-    cargo test --lib --tests --features "postgres-sync,{{_pg-ext}}"
+    cargo test --workspace --lib --tests --features postgres-sync
+    cargo test --workspace --lib --tests --features "postgres-sync,{{_pg-ext}}"
     # tokio-postgres: bare then full
-    cargo test --lib --tests --features tokio-postgres
-    cargo test --lib --tests --features "tokio-postgres,{{_pg-ext}}"
+    cargo test --workspace --lib --tests --features tokio-postgres
+    cargo test --workspace --lib --tests --features "tokio-postgres,{{_pg-ext}}"
 
 # ---------------------------------------------------------------------------
 # CI helpers — output feature matrices as JSON for GitHub Actions

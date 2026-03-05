@@ -54,7 +54,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test-matrix:
     name: Test Matrix
@@ -241,7 +241,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check documentation
-        run: cargo doc --all-features --no-deps
+        run: cargo doc --workspace --all-features --no-deps
 
   build-matrix:
     name: Build (${{ matrix.rust }})
@@ -267,7 +267,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build
-        run: cargo build --all-features
+        run: cargo build --workspace --all-features
 
   msrv:
     name: MSRV Check
@@ -295,4 +295,4 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check MSRV
-        run: cargo check --all-features
+        run: cargo check --workspace --all-targets --all-features

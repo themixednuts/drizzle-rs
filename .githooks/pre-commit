@@ -8,4 +8,4 @@ echo "pre-commit: running rustfmt check"
 cargo +nightly fmt --all -- --check
 
 echo "pre-commit: running clippy"
-cargo +nightly clippy --all-features -- -D warnings
+cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
