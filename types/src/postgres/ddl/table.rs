@@ -150,7 +150,9 @@ mod tests {
 
         assert_eq!(TABLE.schema, "public");
         assert_eq!(TABLE.name, "users");
-        const { assert!(TABLE.is_rls_enabled); }
+        const {
+            assert!(TABLE.is_rls_enabled);
+        }
     }
 
     #[test]

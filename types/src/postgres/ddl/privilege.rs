@@ -256,7 +256,9 @@ mod tests {
         assert_eq!(PRIV.grantee, "app_user");
         assert_eq!(PRIV.grantor, "admin");
         assert_eq!(PRIV.privilege_type, PrivilegeType::Select);
-        const { assert!(PRIV.is_grantable); }
+        const {
+            assert!(PRIV.is_grantable);
+        }
     }
 
     #[test]

@@ -198,8 +198,12 @@ mod tests {
     fn test_const_table_def() {
         const TABLE: TableDef = TableDef::new("users").strict().without_rowid();
         assert_eq!(TABLE.name, "users");
-        const { assert!(TABLE.strict); }
-        const { assert!(TABLE.without_rowid); }
+        const {
+            assert!(TABLE.strict);
+        }
+        const {
+            assert!(TABLE.without_rowid);
+        }
     }
 
     #[test]

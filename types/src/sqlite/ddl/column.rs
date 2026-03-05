@@ -426,9 +426,15 @@ mod tests {
         assert_eq!(COL_DEF.name, "id");
         assert_eq!(COL_DEF.table, "users");
         assert_eq!(COL_DEF.sql_type, "INTEGER");
-        const { assert!(COL_DEF.not_null); }
-        const { assert!(COL_DEF.primary_key); }
-        const { assert!(COL_DEF.autoincrement); }
+        const {
+            assert!(COL_DEF.not_null);
+        }
+        const {
+            assert!(COL_DEF.primary_key);
+        }
+        const {
+            assert!(COL_DEF.autoincrement);
+        }
 
         let col: Column = COL_DEF.into_column();
 

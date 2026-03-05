@@ -652,7 +652,9 @@ mod tests {
         assert_eq!(COLDEF.name, "id");
         assert_eq!(COLDEF.table, "users");
         assert_eq!(COLDEF.sql_type, "INTEGER");
-        const { assert!(COLDEF.not_null); }
+        const {
+            assert!(COLDEF.not_null);
+        }
 
         let col: Column = COLDEF.into_column();
 

@@ -330,7 +330,9 @@ mod tests {
 
         assert_eq!(IDX.name, "idx_users_email");
         assert_eq!(IDX.table, "users");
-        const { assert!(IDX.is_unique); }
+        const {
+            assert!(IDX.is_unique);
+        }
         assert_eq!(IDX.columns.len(), 2);
     }
 
